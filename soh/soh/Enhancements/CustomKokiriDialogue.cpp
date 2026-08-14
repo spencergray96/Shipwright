@@ -19,9 +19,7 @@ extern "C" {
 
 void BuildCustomKokiriMessage(uint16_t* textId, bool* loadFromMessageTable) {
     CustomMessage msg = CustomMessage(
-        "Dazrin Tioseco... Is a buster!",
-        "Hey! Ich bin eine benutzerdefinierte Nachricht!\nSpencer war hier!",
-        "Salut! Je suis un message personnalise!\nSpencer etait ici!"
+        "AHHHH SPENCER"
     );
     msg.AutoFormat();
     msg.LoadIntoFont();
