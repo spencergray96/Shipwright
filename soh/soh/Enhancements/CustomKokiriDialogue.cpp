@@ -9,6 +9,9 @@
  */
 
 #include <soh/OTRGlobals.h>
+#include "soh/Enhancements/custom-message/CustomMessageManager.h"
+#include "soh/Enhancements/game-interactor/GameInteractor.h"
+#include "soh/ShipInit.hpp"
 
 extern "C" {
 #include <variables.h>

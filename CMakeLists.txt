@@ -256,6 +256,12 @@ add_executable(soh-o2r-packer EXCLUDE_FROM_ALL
     ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/tools/soh-o2r-packer/main.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/tools/soh-o2r-packer/PngTexture.cpp
 )
+# torch (linked below) and libultraship are built with the static MSVC runtime in their own
+# subdirectory scope, but that setting doesn't propagate up to this target's scope - set it
+# explicitly here too, or the linker rejects mixing /MT (torch) with /MD (this target's default).
+if(MSVC)
+    set_target_properties(soh-o2r-packer PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 target_link_libraries(soh-o2r-packer PRIVATE torch)
 
 # Target to generate OTRs. SOH_ROM_PATH takes roms and/or directories of roms; torch names each
