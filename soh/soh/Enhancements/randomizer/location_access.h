@@ -192,10 +192,6 @@ class Region {
         return adultDay || adultNight;
     }
 
-    bool BothAgesCheck() const {
-        return Child() && Adult();
-    }
-
     bool HasAccess() const {
         return Child() || Adult();
     }
@@ -247,7 +243,6 @@ class Region {
         return hereVal;
     }
 
-    bool CanPlantBeanCheck(RandomizerGet bean) const;
     bool AllAccountedFor() const;
 
     void ResetVariables();
@@ -265,10 +260,8 @@ bool SpiritShared(
     ConditionFn otherCondition = [] { return false; }, RandomizerRegion thirdRegion = RR_NONE,
     ConditionFn thirdCondition = [] { return false; });
 bool SpiritCertainAccess(RandomizerRegion region);
-bool CanPlantBean(const RandomizerRegion region, RandomizerGet bean);
-bool BothAges(const RandomizerRegion region);
-bool ChildCanAccess(const RandomizerRegion region);
-bool AdultCanAccess(const RandomizerRegion region);
+bool DMCPadToPots();
+bool CanPlantBean(RandomizerGet bean);
 
 namespace Regions {
 extern void AccessReset();
