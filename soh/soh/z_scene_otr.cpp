@@ -30,6 +30,7 @@
 #include "soh/resource/type/scenecommand/SetEchoSettings.h"
 #include "soh/resource/type/scenecommand/SetAlternateHeaders.h"
 #include <spdlog/spdlog.h>
+#include "soh/custom/scenes/test_level/CustomTestLevel.h"
 
 extern Ship::IResource* OTRPlay_LoadFile(PlayState* play, const char* fileName);
 extern "C" s32 Object_Spawn(ObjectContext* objectCtx, s16 objectId);
@@ -471,12 +472,15 @@ extern "C" s32 OTRfunc_800973FC(PlayState* play, RoomContext* roomCtx) {
             roomCtx->curRoom.segment = roomCtx->unk_34;
             gSegments[3] = VIRTUAL_TO_PHYSICAL(roomCtx->unk_34);
 
-            OTRScene_ExecuteCommands(play, (SOH::Scene*)roomCtx->roomToLoad);
-
-            Player_SetBootData(play, GET_PLAYER(play));
-            Actor_SpawnTransitionActors(play, &play->actorCtx);
-
-            GameInteractor_ExecuteAfterSceneCommands(play->sceneNum);
+            if (roomCtx->roomToLoad != nullptr) {
+                OTRScene_ExecuteCommands(play, (SOH::Scene*)roomCtx->roomToLoad);
+                Player_SetBootData(play, GET_PLAYER(play));
+                Actor_SpawnTransitionActors(play, &play->actorCtx);
+                GameInteractor_ExecuteAfterSceneCommands(play->sceneNum);
+            } else {
+                // Compiled-in room: fileName was NULL, custom init handles everything.
+                CustomTestLevel_InitRoom(play, roomCtx);
+            }
 
             return 1;
         }
@@ -508,6 +512,14 @@ extern "C" s32 OTRRoom_RequestNewRoom(PlayState* play, RoomContext* roomCtx, s32
         osCreateMesgQueue(&roomCtx->loadQueue, &roomCtx->loadMsg, 1);
         // DmaMgr_SendRequest2(&roomCtx->dmaRequest, roomCtx->unk_34, play->roomList[roomNum].vromStart, size, 0,
         //&roomCtx->loadQueue, NULL, __FILE__, __LINE__);
+
+        if (play->roomList[roomNum].fileName == nullptr) {
+            // Compiled-in room: vromStart is a direct pointer to the room data.
+            roomCtx->unk_34 = (void*)play->roomList[roomNum].vromStart;
+            roomCtx->roomToLoad = nullptr;
+            roomCtx->activeBufPage ^= 1;
+            return 1;
+        }
 
         auto roomData = std::static_pointer_cast<SOH::Scene>(
             ResourceMgr_GetResourceByNameHandlingMQ(play->roomList[roomNum].fileName));

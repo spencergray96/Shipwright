@@ -1,0 +1,140 @@
+#include "CustomTestLevel.h"
+#include "global.h"
+#include "z64scene.h"
+#include "macros.h"
+#include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
+#include "soh/OTRGlobals.h"
+#include "soh/ActorDB.h"
+#include <spdlog/spdlog.h>
+
+extern "C" ActorDBEntry* ActorDB_Retrieve(const int id);
+
+extern "C" {
+    extern CollisionHeader test_level_scene_collisionHeader;
+    extern PolygonType0    test_level_room_0_shapeHeader;
+    extern s16             test_level_room_0_header00_objectList[];
+    extern ActorEntry      test_level_room_0_header00_actorList[];
+
+    extern s16   gLinkObjectIds[];
+    s32  Object_Spawn(ObjectContext* objectCtx, s16 objectId);
+    void BgCheck_Allocate(CollisionContext* colCtx, PlayState* play, CollisionHeader* colHeader);
+    void Play_InitEnvironment(PlayState* play, s16 skyboxId);
+    u32  func_80096FE8(PlayState* play, RoomContext* roomCtx);
+    void func_80096FD4(PlayState* play, Room* room);
+    void Player_SetBootData(PlayState* play, Player* player);
+    void Actor_SpawnTransitionActors(PlayState* play, ActorContext* actorCtx);
+    void Object_InitBank(PlayState* play, ObjectContext* objectCtx);
+    void LightContext_Init(PlayState* play, LightContext* lightCtx);
+    void TransitionActor_InitContext(GameState* state, TransitionActorContext* transiActorCtx);
+}
+
+static EnvLightSettings sTestLevelLightSettings[4] = {
+    // Dawn
+    {{ 70, 45, 57 }, { 73, -73, 73 }, { 180, 154, 138 }, { -73, 73, -73 }, { 20, 20, 60 },
+     { 140, 120, 100 }, (s16)(993 | (1 << 10)), 12800 },
+    // Day
+    {{ 105, 90, 90 }, { 73, -73, 73 }, { 255, 255, 240 }, { -73, 73, -73 }, { 50, 50, 90 },
+     { 100, 100, 120 }, (s16)(996 | (1 << 10)), 12800 },
+    // Dusk
+    {{ 120, 90, 0 }, { 73, -73, 73 }, { 250, 135, 50 }, { -73, 73, -73 }, { 30, 30, 60 },
+     { 120, 70, 50 }, (s16)(995 | (1 << 10)), 12800 },
+    // Night
+    {{ 40, 70, 100 }, { 73, -73, 73 }, { 20, 20, 35 }, { -73, 73, -73 }, { 50, 50, 100 },
+     { 0, 0, 30 }, (s16)(992 | (1 << 10)), 12800 },
+};
+
+static EntranceEntry sTestLevelEntrances[] = {
+    { 0, 0 },
+};
+
+static ActorEntry sTestLevelPlayerSpawn = {
+    ACTOR_PLAYER, { 0, 0, -500 }, { 0, 0, 0 }, 0x0D00
+};
+
+static RomFile sTestLevelRoomList[] = {
+    { (uintptr_t)&test_level_room_0_shapeHeader,
+      (uintptr_t)&test_level_room_0_shapeHeader + 256,
+      nullptr },
+};
+
+extern "C" int CustomTestLevel_IsCustomScene(s32 sceneId) {
+    return sceneId == SCENE_TEST_LEVEL;
+}
+
+static void InitScene(PlayState* play, s32 spawn) {
+    play->curSpawn          = spawn;
+    play->linkActorEntry    = nullptr;
+    play->unk_11DFC         = nullptr;
+    play->setupEntranceList = nullptr;
+    play->setupExitList     = nullptr;
+    play->cUpElfMsgs        = nullptr;
+    play->setupPathList     = nullptr;
+    play->numSetupActors    = 0;
+
+    Object_InitBank(play, &play->objectCtx);
+    LightContext_Init(play, &play->lightCtx);
+    TransitionActor_InitContext(&play->state, &play->transiActorCtx);
+    func_80096FD4(play, &play->roomCtx.curRoom);
+    YREG(15) = 0;
+    gSaveContext.worldMapArea = 0;
+
+    BgCheck_Allocate(&play->colCtx, play, &test_level_scene_collisionHeader);
+
+    play->numRooms = 1;
+    play->roomList = sTestLevelRoomList;
+
+    play->setupEntranceList = sTestLevelEntrances;
+    play->linkActorEntry    = &sTestLevelPlayerSpawn;
+    play->linkAgeOnLoad     = gSaveContext.linkAge;
+
+    s16 linkObjectId = gLinkObjectIds[gSaveContext.linkAge];
+    ActorDB_Retrieve(play->linkActorEntry->id)->objectId = linkObjectId;
+    Object_Spawn(&play->objectCtx, linkObjectId);
+
+    play->objectCtx.subKeepIndex = Object_Spawn(&play->objectCtx, OBJECT_GAMEPLAY_FIELD_KEEP);
+
+    play->skyboxId = SKYBOX_NORMAL_SKY;
+    play->sequenceCtx.seqId            = NA_BGM_KAKARIKO_KID;
+    play->sequenceCtx.natureAmbienceId = 0xFF;
+
+    play->envCtx.numLightSettings  = 4;
+    play->envCtx.lightSettingsList = sTestLevelLightSettings;
+
+    Play_InitEnvironment(play, play->skyboxId);
+    GameInteractor_ExecuteAfterSceneCommands(play->sceneNum);
+}
+
+extern "C" void CustomTestLevel_InitRoom(PlayState* play, RoomContext* roomCtx) {
+    roomCtx->curRoom.echo       = 0;
+    roomCtx->curRoom.meshHeader = (MeshHeader*)&test_level_room_0_shapeHeader;
+
+    Object_Spawn(&play->objectCtx, OBJECT_KANBAN); // signpost
+    Object_Spawn(&play->objectCtx, OBJECT_WARP1);
+
+    play->numSetupActors = 2;  // Signpost + Door_Warp1; Link spawns via linkActorEntry
+    play->setupActorList = test_level_room_0_header00_actorList;
+
+    Player_SetBootData(play, GET_PLAYER(play));
+    Actor_SpawnTransitionActors(play, &play->actorCtx);
+    GameInteractor_ExecuteAfterSceneCommands(play->sceneNum);
+}
+
+extern "C" int CustomTestLevel_TrySpawn(PlayState* play, s32 sceneId, s32 spawn) {
+    if (sceneId != SCENE_TEST_LEVEL) {
+        return 0;
+    }
+
+    SceneTableEntry* scene = &gSceneTable[sceneId];
+    scene->unk_13      = 0;
+    play->loadedScene  = scene;
+    play->sceneNum     = sceneId;
+    play->sceneConfig  = scene->config;
+    play->sceneSegment = nullptr;
+
+    InitScene(play, spawn);
+    func_80096FE8(play, &play->roomCtx);
+    GameInteractor_ExecuteOnSceneInit(play->sceneNum);
+
+    SPDLOG_INFO("CustomTestLevel: spawned scene {} spawn {}", sceneId, spawn);
+    return 1;
+}

@@ -1,0 +1,18 @@
+#pragma once
+// Unified header for test_level scene C data files.
+#include "global.h"
+
+// Fast64 uses these names; map them to the Shipwright equivalents from z64.h.
+typedef PolygonType0 RoomShapeNormal;
+typedef PolygonDlist RoomShapeDListsEntry;
+#define ROOM_SHAPE_TYPE_NORMAL 0
+
+// Macros used by Fast64 collision output that are not in Shipwright public headers.
+#define COLPOLY_IGNORE_NONE 0
+#define COLPOLY_VTX(vI, flags) ((((flags) & 7) << 13) | ((vI) & 0x1FFF))
+// SurfaceType.data[0]: wallType[3:0], floorType[7:4], sfxEffect[11:8], exitIdx[20:16], camIdx[31:24]
+#define SURFACETYPE0(wallType, floorType, sfxEffect, exitIdx, camIdx, f, g, h) \
+    (((wallType) & 0xF) | (((floorType) & 0xF) << 4) | (((sfxEffect) & 0xF) << 8) | \
+     (((exitIdx) & 0x1F) << 16) | (((camIdx) & 0x1F) << 24))
+// SurfaceType.data[1]: sound index at bits 27-24
+#define SURFACETYPE1(sound, a, b, c, d, e, f, g) (((sound) & 0xF) << 24)
