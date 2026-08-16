@@ -1937,3 +1937,8 @@
 /* 0x615 */ DEFINE_ENTRANCE(ENTR_TEST_LEVEL_0_1, SCENE_TEST_LEVEL, 0, false, false, TRANS_TYPE_FADE_BLACK, TRANS_TYPE_FADE_BLACK)
 /* 0x616 */ DEFINE_ENTRANCE(ENTR_TEST_LEVEL_0_2, SCENE_TEST_LEVEL, 0, false, false, TRANS_TYPE_FADE_BLACK, TRANS_TYPE_FADE_BLACK)
 /* 0x617 */ DEFINE_ENTRANCE(ENTR_TEST_LEVEL_0_3, SCENE_TEST_LEVEL, 0, false, false, TRANS_TYPE_FADE_BLACK, TRANS_TYPE_FADE_BLACK)
+
+// Rows below are appended/updated by tools/grid-scene-tool's exporter. Do not hand-edit
+// within the markers - re-exporting the same project replaces its row in place.
+// BEGIN GRID TOOL EXPORTS
+// END GRID TOOL EXPORTS

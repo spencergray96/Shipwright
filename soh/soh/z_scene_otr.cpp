@@ -31,6 +31,7 @@
 #include "soh/resource/type/scenecommand/SetAlternateHeaders.h"
 #include <spdlog/spdlog.h>
 #include "soh/custom/scenes/test_level/CustomTestLevel.h"
+#include "soh/custom/scenes/grid_tool/GridToolSceneRegistry.h"
 
 extern Ship::IResource* OTRPlay_LoadFile(PlayState* play, const char* fileName);
 extern "C" s32 Object_Spawn(ObjectContext* objectCtx, s16 objectId);
@@ -479,7 +480,9 @@ extern "C" s32 OTRfunc_800973FC(PlayState* play, RoomContext* roomCtx) {
                 GameInteractor_ExecuteAfterSceneCommands(play->sceneNum);
             } else {
                 // Compiled-in room: fileName was NULL, custom init handles everything.
-                CustomTestLevel_InitRoom(play, roomCtx);
+                if (!GridToolSceneRegistry_TryInitRoom(play, roomCtx)) {
+                    CustomTestLevel_InitRoom(play, roomCtx);
+                }
             }
 
             return 1;

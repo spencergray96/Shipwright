@@ -7,6 +7,7 @@
 #include "soh/frame_interpolation.h"
 #include <overlays/actors/ovl_En_Niw/z_en_niw.h>
 #include "soh/custom/scenes/test_level/CustomTestLevel.h"
+#include "soh/custom/scenes/grid_tool/GridToolSceneRegistry.h"
 #include <overlays/misc/ovl_kaleido_scope/z_kaleido_scope.h>
 #include "soh/Enhancements/enhancementTypes.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
@@ -1845,6 +1846,9 @@ void Play_SpawnScene(PlayState* play, s32 sceneId, s32 spawn) {
     }
 
     if (CustomTestLevel_TrySpawn(play, sceneId, spawn)) {
+        return;
+    }
+    if (GridToolSceneRegistry_TrySpawn(play, sceneId, spawn)) {
         return;
     }
     OTRPlay_SpawnScene(play, sceneId, spawn);

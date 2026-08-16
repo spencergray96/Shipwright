@@ -121,3 +121,8 @@
 /* 0x6C */ DEFINE_SCENE(sasatest_scene, none, SCENE_SASATEST, SDC_DEFAULT, 0, 0)
 /* 0x6D */ DEFINE_SCENE(testroom_scene, none, SCENE_TESTROOM, SDC_DEFAULT, 0, 0)
 /* 0x6E */ DEFINE_SCENE(test_level_scene, none, SCENE_TEST_LEVEL, SDC_DEFAULT, 0, 0)
+
+// Rows below are appended/updated by tools/grid-scene-tool's exporter. Do not hand-edit
+// within the markers - re-exporting the same project replaces its row in place.
+// BEGIN GRID TOOL EXPORTS
+// END GRID TOOL EXPORTS
