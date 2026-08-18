@@ -16,5 +16,10 @@ typedef PolygonDlist RoomShapeDListsEntry;
 #define SURFACETYPE0(wallType, floorType, sfxEffect, exitIdx, camIdx, f, g, h) \
     (((wallType) & 0xF) | (((floorType) & 0xF) << 4) | (((sfxEffect) & 0xF) << 8) | \
      (((exitIdx) & 0x1F) << 16) | (((camIdx) & 0x1F) << 24))
-// SurfaceType.data[1]: sound index at bits 27-24
-#define SURFACETYPE1(sound, a, b, c, d, e, f, g) (((sound) & 0xF) << 24)
+// SurfaceType.data[1]: sfx index at bits 3:0 (see D_80119E10 in z_bgcheck.c - e.g. 8 = grass).
+// Was previously shifted to bits 27:24, which SurfaceType_GetSfx/func_80041F10 never reads
+// (they read data[1] & 0xF), so no footstep sound ever played and every floor silently
+// defaulted to index 0 (NA_SE_PL_WALK_GROUND). Bit 27 there is also SurfaceType_IsWallDamage's
+// flag, so the old shift was additionally setting that (harmless here since it's only ever
+// checked against wall-type polys, but still wrong).
+#define SURFACETYPE1(sound, a, b, c, d, e, f, g) ((sound) & 0xF)

@@ -125,4 +125,8 @@
 // Rows below are appended/updated by tools/grid-scene-tool's exporter. Do not hand-edit
 // within the markers - re-exporting the same project replaces its row in place.
 // BEGIN GRID TOOL EXPORTS
+/* 0x6F */ DEFINE_SCENE(grid_test_map_2_scene, none, SCENE_GRID_TEST_MAP_2, SDC_DEFAULT, 0, 0) // project c9921f35-39ee-4f22-9ba1-0d4faf051faa name grid_test_map_2
+/* 0x70 */ DEFINE_SCENE(grid_test_map_3_scene, none, SCENE_GRID_TEST_MAP_3, SDC_DEFAULT, 0, 0) // project be808e85-65ea-41c7-be7f-551957e0706c name grid_test_map_3
+/* 0x71 */ DEFINE_SCENE(grid_test_map_4_scene, none, SCENE_GRID_TEST_MAP_4, SDC_DEFAULT, 0, 0) // project be808e85-65ea-41c7-be7f-551957e0706c name grid_test_map_4
+/* 0x72 */ DEFINE_SCENE(grid_test_map_7_scene, none, SCENE_GRID_TEST_MAP_7, SDC_DEFAULT, 0, 0) // project f33f8e57-d3d9-45bd-b21c-6b1712aeeea9 name grid_test_map_7
 // END GRID TOOL EXPORTS
