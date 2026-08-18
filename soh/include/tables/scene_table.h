@@ -129,4 +129,10 @@
 /* 0x70 */ DEFINE_SCENE(grid_test_map_3_scene, none, SCENE_GRID_TEST_MAP_3, SDC_DEFAULT, 0, 0) // project be808e85-65ea-41c7-be7f-551957e0706c name grid_test_map_3
 /* 0x71 */ DEFINE_SCENE(grid_test_map_4_scene, none, SCENE_GRID_TEST_MAP_4, SDC_DEFAULT, 0, 0) // project be808e85-65ea-41c7-be7f-551957e0706c name grid_test_map_4
 /* 0x72 */ DEFINE_SCENE(grid_test_map_7_scene, none, SCENE_GRID_TEST_MAP_7, SDC_DEFAULT, 0, 0) // project f33f8e57-d3d9-45bd-b21c-6b1712aeeea9 name grid_test_map_7
+/* 0x73 */ DEFINE_SCENE(grid_test_map_8_scene, none, SCENE_GRID_TEST_MAP_8, SDC_DEFAULT, 0, 0) // project 0b8fa268-0943-42f2-87ee-30ad62f38ed2 name grid_test_map_8
+/* 0x74 */ DEFINE_SCENE(grid_test_map_6_scene, none, SCENE_GRID_TEST_MAP_6, SDC_DEFAULT, 0, 0) // project be808e85-65ea-41c7-be7f-551957e0706c name grid_test_map_6
+/* 0x75 */ DEFINE_SCENE(grid_test_map_9_scene, none, SCENE_GRID_TEST_MAP_9, SDC_DEFAULT, 0, 0) // project 1163bba5-6d7e-4b66-9dd5-4a092fe58e65 name grid_test_map_9
+/* 0x76 */ DEFINE_SCENE(grid_test_map_10_scene, none, SCENE_GRID_TEST_MAP_10, SDC_DEFAULT, 0, 0) // project 836d09f3-4907-4615-a846-7d8c80e91e04 name grid_test_map_10
+/* 0x77 */ DEFINE_SCENE(grid_test_map_11_scene, none, SCENE_GRID_TEST_MAP_11, SDC_DEFAULT, 0, 0) // project 5763a232-8e3d-4e88-a2a5-cc36c0facfa2 name grid_test_map_11
+/* 0x78 */ DEFINE_SCENE(grid_test_map_12_scene, none, SCENE_GRID_TEST_MAP_12, SDC_DEFAULT, 0, 0) // project 32fde1b2-a885-4d60-81f6-6e1eb91f0950 name grid_test_map_12
 // END GRID TOOL EXPORTS

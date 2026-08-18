@@ -1,4 +1,4 @@
-#include "CustomGridTestMap7Scene.h"
+#include "CustomGridTestMap6Scene.h"
 #include "global.h"
 #include "z64scene.h"
 #include "macros.h"
@@ -14,8 +14,8 @@
 extern "C" ActorDBEntry* ActorDB_Retrieve(const int id);
 
 extern "C" {
-    extern CollisionHeader grid_test_map_7_scene_collisionHeader;
-    extern RoomShapeNormal grid_test_map_7_room_0_shapeHeader;
+    extern CollisionHeader grid_test_map_6_scene_collisionHeader;
+    extern RoomShapeNormal grid_test_map_6_room_0_shapeHeader;
 
     extern s16   gLinkObjectIds[];
     s32  Object_Spawn(ObjectContext* objectCtx, s16 objectId);
@@ -32,7 +32,7 @@ extern "C" {
 
 // Default 4-entry (dawn/day/dusk/night) lighting - flat/generic for v1, no per-scene lighting
 // authoring in the grid tool yet.
-static EnvLightSettings sGridTestMap7LightSettings[4] = {
+static EnvLightSettings sGridTestMap6LightSettings[4] = {
     {{ 70, 45, 57 }, { 73, -73, 73 }, { 180, 154, 138 }, { -73, 73, -73 }, { 20, 20, 60 },
      { 140, 120, 100 }, (s16)(993 | (1 << 10)), 12800 },
     {{ 105, 90, 90 }, { 73, -73, 73 }, { 255, 255, 240 }, { -73, 73, -73 }, { 50, 50, 90 },
@@ -44,7 +44,7 @@ static EnvLightSettings sGridTestMap7LightSettings[4] = {
 };
 
 // v1 scope has no multi-entrance/exit support - a single spawn index 0.
-static EntranceEntry sGridTestMap7Entrances[] = {
+static EntranceEntry sGridTestMap6Entrances[] = {
     { 0, 0 },
 };
 
@@ -52,18 +52,18 @@ static EntranceEntry sGridTestMap7Entrances[] = {
 // params: bits 8-11 = PLAYER_START_MODE_IDLE (0xD - see PLAYER_GET_START_MODE in z64player.h;
 // mode 0 is PLAYER_START_MODE_NOTHING, which leaves Player's update/draw entirely inert), low
 // byte 0xFF = "no start bg-camera override" (we don't author per-scene camera data).
-static ActorEntry sGridTestMap7PlayerSpawn = {
-    ACTOR_PLAYER, { 175, 0, -245 }, { 0, 0, 0 }, 0xDFF
+static ActorEntry sGridTestMap6PlayerSpawn = {
+    ACTOR_PLAYER, { 200, 0, -280 }, { 0, 0, 0 }, 0xDFF
 };
 
-static RomFile sGridTestMap7RoomList[] = {
-    { (uintptr_t)&grid_test_map_7_room_0_shapeHeader,
-      (uintptr_t)&grid_test_map_7_room_0_shapeHeader + 256,
+static RomFile sGridTestMap6RoomList[] = {
+    { (uintptr_t)&grid_test_map_6_room_0_shapeHeader,
+      (uintptr_t)&grid_test_map_6_room_0_shapeHeader + 256,
       nullptr },
 };
 
-extern "C" int CustomGridTestMap7Scene_IsCustomScene(s32 sceneId) {
-    return sceneId == SCENE_GRID_TEST_MAP_7;
+extern "C" int CustomGridTestMap6Scene_IsCustomScene(s32 sceneId) {
+    return sceneId == SCENE_GRID_TEST_MAP_6;
 }
 
 static void InitScene(PlayState* play, s32 spawn) {
@@ -83,13 +83,13 @@ static void InitScene(PlayState* play, s32 spawn) {
     YREG(15) = 0;
     gSaveContext.worldMapArea = 0;
 
-    BgCheck_Allocate(&play->colCtx, play, &grid_test_map_7_scene_collisionHeader);
+    BgCheck_Allocate(&play->colCtx, play, &grid_test_map_6_scene_collisionHeader);
 
     play->numRooms = 1;
-    play->roomList = sGridTestMap7RoomList;
+    play->roomList = sGridTestMap6RoomList;
 
-    play->setupEntranceList = sGridTestMap7Entrances;
-    play->linkActorEntry    = &sGridTestMap7PlayerSpawn;
+    play->setupEntranceList = sGridTestMap6Entrances;
+    play->linkActorEntry    = &sGridTestMap6PlayerSpawn;
     play->linkAgeOnLoad     = gSaveContext.linkAge;
 
     s16 linkObjectId = gLinkObjectIds[gSaveContext.linkAge];
@@ -109,15 +109,15 @@ static void InitScene(PlayState* play, s32 spawn) {
     Audio_QueueSeqCmd(0xF0000000);
 
     play->envCtx.numLightSettings  = 4;
-    play->envCtx.lightSettingsList = sGridTestMap7LightSettings;
+    play->envCtx.lightSettingsList = sGridTestMap6LightSettings;
 
     Play_InitEnvironment(play, play->skyboxId);
     GameInteractor_ExecuteAfterSceneCommands(play->sceneNum);
 }
 
-extern "C" void CustomGridTestMap7Scene_InitRoom(PlayState* play, RoomContext* roomCtx) {
+extern "C" void CustomGridTestMap6Scene_InitRoom(PlayState* play, RoomContext* roomCtx) {
     roomCtx->curRoom.echo       = 0;
-    roomCtx->curRoom.meshHeader = (MeshHeader*)&grid_test_map_7_room_0_shapeHeader;
+    roomCtx->curRoom.meshHeader = (MeshHeader*)&grid_test_map_6_room_0_shapeHeader;
 
     // v1 scope has no actor/NPC placement - only Link spawns, via linkActorEntry above.
     play->numSetupActors = 0;
@@ -128,8 +128,8 @@ extern "C" void CustomGridTestMap7Scene_InitRoom(PlayState* play, RoomContext* r
     GameInteractor_ExecuteAfterSceneCommands(play->sceneNum);
 }
 
-extern "C" int CustomGridTestMap7Scene_TrySpawn(PlayState* play, s32 sceneId, s32 spawn) {
-    if (sceneId != SCENE_GRID_TEST_MAP_7) {
+extern "C" int CustomGridTestMap6Scene_TrySpawn(PlayState* play, s32 sceneId, s32 spawn) {
+    if (sceneId != SCENE_GRID_TEST_MAP_6) {
         return 0;
     }
 
@@ -144,6 +144,6 @@ extern "C" int CustomGridTestMap7Scene_TrySpawn(PlayState* play, s32 sceneId, s3
     func_80096FE8(play, &play->roomCtx);
     GameInteractor_ExecuteOnSceneInit(play->sceneNum);
 
-    SPDLOG_INFO("CustomGridTestMap7Scene: spawned scene {} spawn {}", sceneId, spawn);
+    SPDLOG_INFO("CustomGridTestMap6Scene: spawned scene {} spawn {}", sceneId, spawn);
     return 1;
 }

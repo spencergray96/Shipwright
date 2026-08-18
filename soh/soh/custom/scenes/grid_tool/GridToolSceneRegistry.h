@@ -5,6 +5,9 @@
 extern "C" {
 #endif
 
+// Returns 1 if sceneId is a registered grid-tool scene, 0 otherwise.
+int GridToolSceneRegistry_IsCustomScene(s32 sceneId);
+
 // Dispatches to a grid-tool-exported scene's spawn intercept, if `sceneId` is registered.
 // Returns 1 (handled) or 0 (not a grid-tool scene, caller should fall through to OTR loading).
 int GridToolSceneRegistry_TrySpawn(PlayState* play, s32 sceneId, s32 spawn);

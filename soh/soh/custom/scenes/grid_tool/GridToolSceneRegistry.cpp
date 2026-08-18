@@ -34,6 +34,10 @@ static const GridToolSceneEntry* GridToolSceneRegistry_Find(s32 sceneId) {
     return NULL;
 }
 
+extern "C" int GridToolSceneRegistry_IsCustomScene(s32 sceneId) {
+    return GridToolSceneRegistry_Find(sceneId) != NULL;
+}
+
 extern "C" int GridToolSceneRegistry_TrySpawn(PlayState* play, s32 sceneId, s32 spawn) {
     const GridToolSceneEntry* entry = GridToolSceneRegistry_Find(sceneId);
     if (entry == NULL || entry->trySpawn == NULL) {

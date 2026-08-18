@@ -4,4 +4,10 @@
 #include "../grid_test_map_3/CustomGridTestMap3Scene.h" // project be808e85-65ea-41c7-be7f-551957e0706c name grid_test_map_3
 #include "../grid_test_map_4/CustomGridTestMap4Scene.h" // project be808e85-65ea-41c7-be7f-551957e0706c name grid_test_map_4
 #include "../grid_test_map_7/CustomGridTestMap7Scene.h" // project f33f8e57-d3d9-45bd-b21c-6b1712aeeea9 name grid_test_map_7
+#include "../grid_test_map_8/CustomGridTestMap8Scene.h" // project 0b8fa268-0943-42f2-87ee-30ad62f38ed2 name grid_test_map_8
+#include "../grid_test_map_6/CustomGridTestMap6Scene.h" // project be808e85-65ea-41c7-be7f-551957e0706c name grid_test_map_6
+#include "../grid_test_map_9/CustomGridTestMap9Scene.h" // project 1163bba5-6d7e-4b66-9dd5-4a092fe58e65 name grid_test_map_9
+#include "../grid_test_map_10/CustomGridTestMap10Scene.h" // project 836d09f3-4907-4615-a846-7d8c80e91e04 name grid_test_map_10
+#include "../grid_test_map_11/CustomGridTestMap11Scene.h" // project 5763a232-8e3d-4e88-a2a5-cc36c0facfa2 name grid_test_map_11
+#include "../grid_test_map_12/CustomGridTestMap12Scene.h" // project 32fde1b2-a885-4d60-81f6-6e1eb91f0950 name grid_test_map_12
 // END GRID TOOL EXPORTS

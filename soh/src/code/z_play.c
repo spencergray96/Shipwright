@@ -462,6 +462,12 @@ void Play_Init(GameState* thisx) {
     // save the base scene layer (before accounting for the special cases below) to use later for the transition type
     baseSceneLayer = gSaveContext.sceneLayer;
 
+    // Grid-tool scenes use a single entrance table entry (not the vanilla 4-per-scene group).
+    // Force sceneLayer to 0 so the +sceneLayer offset below doesn't read adjacent entries.
+    if (!IS_CUTSCENE_LAYER && GridToolSceneRegistry_IsCustomScene(gEntranceTable[((void)0, gSaveContext.entranceIndex)].scene)) {
+        gSaveContext.sceneLayer = SCENE_LAYER_CHILD_DAY;
+    }
+
     if ((gEntranceTable[((void)0, gSaveContext.entranceIndex)].scene == SCENE_HYRULE_FIELD) && !LINK_IS_ADULT &&
         !IS_CUTSCENE_LAYER) {
         if (CHECK_QUEST_ITEM(QUEST_KOKIRI_EMERALD) && CHECK_QUEST_ITEM(QUEST_GORON_RUBY) &&

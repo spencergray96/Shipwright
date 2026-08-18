@@ -5,4 +5,10 @@
     { SCENE_GRID_TEST_MAP_3, CustomGridTestMap3Scene_TrySpawn, CustomGridTestMap3Scene_InitRoom }, // project be808e85-65ea-41c7-be7f-551957e0706c name grid_test_map_3
     { SCENE_GRID_TEST_MAP_4, CustomGridTestMap4Scene_TrySpawn, CustomGridTestMap4Scene_InitRoom }, // project be808e85-65ea-41c7-be7f-551957e0706c name grid_test_map_4
     { SCENE_GRID_TEST_MAP_7, CustomGridTestMap7Scene_TrySpawn, CustomGridTestMap7Scene_InitRoom }, // project f33f8e57-d3d9-45bd-b21c-6b1712aeeea9 name grid_test_map_7
+    { SCENE_GRID_TEST_MAP_8, CustomGridTestMap8Scene_TrySpawn, CustomGridTestMap8Scene_InitRoom }, // project 0b8fa268-0943-42f2-87ee-30ad62f38ed2 name grid_test_map_8
+    { SCENE_GRID_TEST_MAP_6, CustomGridTestMap6Scene_TrySpawn, CustomGridTestMap6Scene_InitRoom }, // project be808e85-65ea-41c7-be7f-551957e0706c name grid_test_map_6
+    { SCENE_GRID_TEST_MAP_9, CustomGridTestMap9Scene_TrySpawn, CustomGridTestMap9Scene_InitRoom }, // project 1163bba5-6d7e-4b66-9dd5-4a092fe58e65 name grid_test_map_9
+    { SCENE_GRID_TEST_MAP_10, CustomGridTestMap10Scene_TrySpawn, CustomGridTestMap10Scene_InitRoom }, // project 836d09f3-4907-4615-a846-7d8c80e91e04 name grid_test_map_10
+    { SCENE_GRID_TEST_MAP_11, CustomGridTestMap11Scene_TrySpawn, CustomGridTestMap11Scene_InitRoom }, // project 5763a232-8e3d-4e88-a2a5-cc36c0facfa2 name grid_test_map_11
+    { SCENE_GRID_TEST_MAP_12, CustomGridTestMap12Scene_TrySpawn, CustomGridTestMap12Scene_InitRoom }, // project 32fde1b2-a885-4d60-81f6-6e1eb91f0950 name grid_test_map_12
 // END GRID TOOL EXPORTS
