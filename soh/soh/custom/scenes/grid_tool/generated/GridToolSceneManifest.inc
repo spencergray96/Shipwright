@@ -11,4 +11,6 @@
     { SCENE_GRID_TEST_MAP_10, CustomGridTestMap10Scene_TrySpawn, CustomGridTestMap10Scene_InitRoom }, // project 836d09f3-4907-4615-a846-7d8c80e91e04 name grid_test_map_10
     { SCENE_GRID_TEST_MAP_11, CustomGridTestMap11Scene_TrySpawn, CustomGridTestMap11Scene_InitRoom }, // project 5763a232-8e3d-4e88-a2a5-cc36c0facfa2 name grid_test_map_11
     { SCENE_GRID_TEST_MAP_12, CustomGridTestMap12Scene_TrySpawn, CustomGridTestMap12Scene_InitRoom }, // project 32fde1b2-a885-4d60-81f6-6e1eb91f0950 name grid_test_map_12
+    { SCENE_GRID_TEST_MAP_13, CustomGridTestMap13Scene_TrySpawn, CustomGridTestMap13Scene_InitRoom }, // project 46b1c95b-691f-4014-b686-9af7e4f3d52c name grid_test_map_13
+    { SCENE_GRID_TEST_MAP_14, CustomGridTestMap14Scene_TrySpawn, CustomGridTestMap14Scene_InitRoom }, // project 63bce697-6a2e-45c3-8c79-94715191122f name grid_test_map_14
 // END GRID TOOL EXPORTS
