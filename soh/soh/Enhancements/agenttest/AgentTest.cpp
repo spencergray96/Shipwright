@@ -26,7 +26,11 @@
  *                                        command does not exist; otherwise it is the handler's return
  *                                        (0 = success). Most SoH handlers print to the ImGui console
  *                                        rather than <text>, so out= is usually empty for them.
- *   perf fps=<f> ms=<f> scene=0x<hex> frame=<n>   every PerfInterval ticks (0 disables)
+ *   perf fps=<f> ms=<f> tick_ms=<f> tick_max_ms=<f> mem_mb=<n> scene=0x<hex> frame=<n>
+ *                                        every PerfInterval ticks (0 disables). fps/ms = ImGui render
+ *                                        framerate (capped by the FPS setting); tick_ms = game-tick CPU
+ *                                        time, avg and max over the interval; mem_mb = working set
+ *   room_changed from=<n> to=<n> frame=<n>   the current room changed within a scene
  *   state scene=0x<hex> room=<n> entrance=0x<hex> pos=<x>,<y>,<z> yaw=<n> age=<adult|child> frame=<n>
  *   mark <text>                          echoed from "agenttest mark <text>"
  *   input_done [reason=scene_change]     a walk/press injection finished (or was cancelled by a scene change)
@@ -87,6 +91,8 @@ void Sram_InitDebugSave(void);
 
 #ifdef _WIN32
 #include <process.h>
+#include <windows.h>
+#include <psapi.h>
 #define AGENTTEST_GETPID _getpid
 #else
 #include <unistd.h>
@@ -120,6 +126,15 @@ int32_t sPerfInterval = DEFAULT_PERF_INTERVAL;
 uint32_t sTickCounter = 0;
 std::streamoff sConsumedBytes = 0;
 GameState* sLogoState = nullptr; // non-null only during the tick the console-logo state ran
+
+// Game-tick CPU time: OnGameStateMainStart -> OnGameFrameUpdate brackets gameState->main(), i.e. the
+// whole update + display-list build for one tick. Independent of the render FPS cap.
+std::chrono::steady_clock::time_point sTickStart;
+bool sTickStarted = false;
+double sTickSumMs = 0.0;
+double sTickMaxMs = 0.0;
+uint32_t sTickSamples = 0;
+int16_t sLastRoom = -1;
 
 std::string CommandPath() {
     return Ship::Context::GetPathRelativeToAppDirectory(COMMAND_FILE);
@@ -279,22 +294,50 @@ void ConsumeCommands() {
     }
 }
 
+// Resident (working set) memory in MB, or -1 where unsupported.
+double ResidentMemoryMb() {
+#ifdef _WIN32
+    PROCESS_MEMORY_COUNTERS pmc{};
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) {
+        return static_cast<double>(pmc.WorkingSetSize) / (1024.0 * 1024.0);
+    }
+#endif
+    return -1.0;
+}
+
+// fps/ms are ImGui's rolling render framerate - capped by the FPS setting, so they only show
+// trouble once it is already bad. tick_ms is the game tick's CPU time over this interval (avg and
+// max): the number that moves with actor count and collision density. Add experiment-specific
+// fields here (e.g. BgCheck timers) rather than inventing a second channel.
 void EmitPerf() {
     if (ImGui::GetCurrentContext() == nullptr) {
         return;
     }
     const float fps = ImGui::GetIO().Framerate;
     const float ms = fps > 0.0f ? 1000.0f / fps : 0.0f;
-    char buf[128];
-    std::snprintf(buf, sizeof(buf), "perf fps=%.1f ms=%.2f scene=%s frame=%u", fps, ms,
-                  Hex(gPlayState->sceneNum).c_str(), gPlayState->state.frames);
+    const double tickAvg = sTickSamples > 0 ? sTickSumMs / sTickSamples : 0.0;
+    char buf[192];
+    std::snprintf(buf, sizeof(buf), "perf fps=%.1f ms=%.2f tick_ms=%.2f tick_max_ms=%.2f mem_mb=%.0f scene=%s frame=%u",
+                  fps, ms, tickAvg, sTickMaxMs, ResidentMemoryMb(), Hex(gPlayState->sceneNum).c_str(),
+                  gPlayState->state.frames);
     WriteMarker(buf);
+    sTickSumMs = 0.0;
+    sTickMaxMs = 0.0;
+    sTickSamples = 0;
 }
 
 void OnGameFrameUpdateAgentTest() {
     GameState* logoState = sLogoState;
     sLogoState = nullptr;
     sTickCounter++;
+    if (sTickStarted) {
+        sTickStarted = false;
+        const double tickMs =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - sTickStart).count();
+        sTickSumMs += tickMs;
+        sTickMaxMs = std::max(sTickMaxMs, tickMs);
+        sTickSamples++;
+    }
 
     // Console logo, first tick only: the one getenv a non-agent session ever pays. It has to be the
     // first tick because a BootSequence of FileSelect or DebugWarpScreen ends the logo state right
@@ -316,6 +359,14 @@ void OnGameFrameUpdateAgentTest() {
     if (!sAgentMode || !InNormalPlay() || !sReady) {
         return;
     }
+    const int16_t room = gPlayState->roomCtx.curRoom.num;
+    if (room != sLastRoom) {
+        if (sLastRoom >= 0) {
+            WriteMarker("room_changed from=" + std::to_string(sLastRoom) + " to=" + std::to_string(room) +
+                        " frame=" + std::to_string(gPlayState->state.frames));
+        }
+        sLastRoom = room;
+    }
     if (sPerfInterval > 0 && sTickCounter % static_cast<uint32_t>(sPerfInterval) == 0) {
         EmitPerf();
     }
@@ -326,7 +377,12 @@ void OnGameFrameUpdateAgentTest() {
 
 // Fires after the pad data for this tick was read and before Player_Update consumes it.
 void OnGameStateMainStartAgentTest() {
-    if (!sAgentMode || sInputFramesLeft <= 0 || !InNormalPlay()) {
+    if (!sAgentMode) {
+        return;
+    }
+    sTickStart = std::chrono::steady_clock::now();
+    sTickStarted = true;
+    if (sInputFramesLeft <= 0 || !InNormalPlay()) {
         return;
     }
     // Only frames Player_Update will actually read count: paused or mid-transition the stick is ignored.
@@ -439,6 +495,7 @@ void OnZTitleUpdateAgentTest(void* gameState) {
 
 void OnSceneInitAgentTest(int16_t sceneNum) {
     sReady = false;
+    sLastRoom = -1;
     CancelInput("scene_change");
     if (sAgentMode) {
         WriteMarker("scene_loaded scene=" + Hex(sceneNum) + " entrance=" + Hex(gSaveContext.entranceIndex));
