@@ -44,6 +44,8 @@
  *                                          full speed away from the camera. Ends with input_done.
  *   agenttest press <BUTTONS> [frames]     hold A,B,Z,R,L,START,DUP..,CUP.. (comma list) for N frames, default 2.
  *                                          "press Z" with nothing targeted re-centres the camera behind Link.
+ *   agenttest rooms                        one "transition idx= id= rooms=A,B pos= rotY=" marker per transition
+ *                                          actor in the scene: where the room boundaries are
  *   agenttest mark <text>                  write a marker, for bracketing checkpoints in the log
  *
  * Command-file consumption pauses while an injection is in progress, so queued lines run in order.
@@ -540,7 +542,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         }
         return 0;
     }
-    if (args.size() >= 2 && (args[1] == "state" || args[1] == "goto" || args[1] == "walk" || args[1] == "press") &&
+    if (args.size() >= 2 &&
+        (args[1] == "state" || args[1] == "goto" || args[1] == "walk" || args[1] == "press" || args[1] == "rooms") &&
         !InNormalPlay()) {
         if (output) {
             *output += "no scene loaded";
@@ -621,6 +624,23 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         }
         return 0;
     }
+    if (args.size() >= 2 && args[1] == "rooms") {
+        // The scene's transition actors: where room boundaries are and which rooms they join.
+        const TransitionActorContext& ctx = gPlayState->transiActorCtx;
+        for (int i = 0; i < ctx.numActors; i++) {
+            const TransitionActorEntry& t = ctx.list[i];
+            char buf[160];
+            std::snprintf(buf, sizeof(buf),
+                          "transition idx=%d id=0x%04X rooms=%d,%d pos=%d,%d,%d rotY=%d params=0x%04X", i,
+                          static_cast<unsigned>(t.id) & 0xFFFF, t.sides[0].room, t.sides[1].room, t.pos.x, t.pos.y,
+                          t.pos.z, t.rotY, static_cast<unsigned>(t.params) & 0xFFFF);
+            WriteMarker(buf);
+        }
+        if (output) {
+            *output += std::to_string(ctx.numActors) + " transition actors in room list; see transition markers";
+        }
+        return 0;
+    }
     if (args.size() >= 2 && args[1] == "mark") {
         std::string text;
         for (size_t i = 2; i < args.size(); i++) {
@@ -632,7 +652,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     if (output) {
         *output +=
             "usage: agenttest perf <ticks> | state | goto <x> <y> <z> [yaw] | walk <frames> [stick_x] [stick_y] | "
-            "press <BUTTONS> [frames] | mark <text>";
+            "press <BUTTONS> [frames] | rooms | mark <text>";
     }
     return 1;
 }
