@@ -17,7 +17,7 @@
  * inherits it; nothing persists on disk or in the config. A stale agent-commands.txt is inert.
  *
  * Markers (all prefixed "[agenttest] "):
- *   session pid=<n>                      first tick the command file was seen
+ *   session pid=<n>                      first console-logo tick, SOH_AGENT_TEST seen
  *   boot_to_play entrance=0x<hex>        console logo skipped, booting a debug save straight into play
  *   scene_loaded scene=0x<hex> entrance=0x<hex>
  *   ready scene=0x<hex> entrance=0x<hex> Link exists and Play_Init has finished; commands are consumed
@@ -29,11 +29,20 @@
  *   perf fps=<f> ms=<f> scene=0x<hex> frame=<n>   every PerfInterval ticks (0 disables)
  *   state scene=0x<hex> room=<n> entrance=0x<hex> pos=<x>,<y>,<z> yaw=<n> age=<adult|child> frame=<n>
  *   mark <text>                          echoed from "agenttest mark <text>"
+ *   input_done                           a walk/press injection finished
  *
  * Console command registered here:
- *   agenttest perf <ticks>   set the perf marker interval (game ticks, 20/s); 0 disables
- *   agenttest state          emit a state marker (scene, room, entrance, Link position and facing)
- *   agenttest mark <text>    write a marker, for bracketing checkpoints in the log
+ *   agenttest perf <ticks>                 set the perf marker interval (game ticks, 20/s); 0 disables
+ *   agenttest state                        emit a state marker (scene, room, entrance, Link position and facing)
+ *   agenttest goto <x> <y> <z> [yaw]       teleport Link, optionally set facing (s16 angle: 0=+Z, 16384=+X,
+ *                                          -32768=-Z, -16384=-X); emits a state marker
+ *   agenttest walk <frames> [sx] [sy]      hold the stick at (sx, sy) for N game frames (20/s); default 0,80 =
+ *                                          full speed away from the camera. Ends with input_done.
+ *   agenttest press <BUTTONS> [frames]     hold A,B,Z,R,L,START,DUP..,CUP.. (comma list) for N frames, default 2.
+ *                                          "press Z" with nothing targeted re-centres the camera behind Link.
+ *   agenttest mark <text>                  write a marker, for bracketing checkpoints in the log
+ *
+ * Command-file consumption pauses while an injection is in progress, so queued lines run in order.
  *
  * See sturdy-bassoon/docs/reference/AGENT_TEST_LOOP.md for the driver-side protocol.
  *
@@ -49,6 +58,9 @@
 #include <ctime>
 #include <cstdio>
 #include <cstdlib>
+#include <cctype>
+#include <algorithm>
+#include <utility>
 
 #include <imgui.h>
 #include <spdlog/spdlog.h>
@@ -90,7 +102,15 @@ constexpr int32_t BOOT_ENTRANCE = ENTR_LINKS_HOUSE_0_1;
 
 // State
 bool sAgentMode = false; // decided once at the console logo from SOH_AGENT_TEST; never re-checked
-bool sReady = false;     // true from the first Player update after the latest OnSceneInit
+
+// Input injection: while sInputFramesLeft > 0, OnGameStateMainStart overwrites controller 1 with
+// these values. Command consumption pauses until it finishes, so queued lines run in order.
+int32_t sInputFramesLeft = 0;
+int8_t sInputStickX = 0;
+int8_t sInputStickY = 0;
+uint16_t sInputButtons = 0;
+bool sInputPressPending = false; // first injected frame also sets press.button (a fresh press)
+bool sReady = false;             // true from the first Player update after the latest OnSceneInit
 int32_t sPerfInterval = DEFAULT_PERF_INTERVAL;
 uint32_t sTickCounter = 0;
 std::streamoff sConsumedBytes = 0;
@@ -248,7 +268,7 @@ void ConsumeCommands() {
         }
         WriteMarker("cmd " + line + " rc=" + std::to_string(rc) + " out=" + SingleLine(output));
 
-        if (!InNormalPlay() || !sReady || gPlayState->transitionTrigger != TRANS_TRIGGER_OFF) {
+        if (!InNormalPlay() || !sReady || gPlayState->transitionTrigger != TRANS_TRIGGER_OFF || sInputFramesLeft > 0) {
             break;
         }
     }
@@ -294,9 +314,81 @@ void OnGameFrameUpdateAgentTest() {
     if (sPerfInterval > 0 && sTickCounter % static_cast<uint32_t>(sPerfInterval) == 0) {
         EmitPerf();
     }
-    if (sTickCounter % POLL_INTERVAL == 0) {
+    if (sTickCounter % POLL_INTERVAL == 0 && sInputFramesLeft == 0) {
         ConsumeCommands();
     }
+}
+
+// Fires after the pad data for this tick was read and before Player_Update consumes it.
+void OnGameStateMainStartAgentTest() {
+    if (!sAgentMode || sInputFramesLeft <= 0 || !InNormalPlay()) {
+        return;
+    }
+    Input* input = &gPlayState->state.input[0];
+    input->cur.stick_x = sInputStickX;
+    input->cur.stick_y = sInputStickY;
+    input->rel.stick_x = sInputStickX;
+    input->rel.stick_y = sInputStickY;
+    input->cur.button |= sInputButtons;
+    if (sInputPressPending) {
+        input->press.button |= sInputButtons;
+        sInputPressPending = false;
+    }
+    sInputFramesLeft--;
+    if (sInputFramesLeft == 0) {
+        WriteMarker("input_done");
+    }
+}
+
+void StartInput(int32_t frames, int8_t stickX, int8_t stickY, uint16_t buttons) {
+    sInputStickX = stickX;
+    sInputStickY = stickY;
+    sInputButtons = buttons;
+    sInputPressPending = buttons != 0;
+    sInputFramesLeft = frames;
+}
+
+// "A,Z,CUP" -> button mask; returns false on an unknown name.
+bool ParseButtons(const std::string& text, uint16_t* mask) {
+    static const std::vector<std::pair<const char*, uint16_t>> names = {
+        { "A", BTN_A },         { "B", BTN_B },           { "Z", BTN_Z },     { "R", BTN_R },
+        { "L", BTN_L },         { "START", BTN_START },   { "DUP", BTN_DUP }, { "DDOWN", BTN_DDOWN },
+        { "DLEFT", BTN_DLEFT }, { "DRIGHT", BTN_DRIGHT }, { "CUP", BTN_CUP }, { "CDOWN", BTN_CDOWN },
+        { "CLEFT", BTN_CLEFT }, { "CRIGHT", BTN_CRIGHT },
+    };
+    *mask = 0;
+    size_t start = 0;
+    while (start <= text.size()) {
+        size_t end = text.find(',', start);
+        if (end == std::string::npos) {
+            end = text.size();
+        }
+        std::string name = text.substr(start, end - start);
+        for (char& c : name) {
+            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        }
+        bool found = false;
+        for (const auto& [candidate, bit] : names) {
+            if (name == candidate) {
+                *mask |= bit;
+                found = true;
+            }
+        }
+        if (!found) {
+            return false;
+        }
+        start = end + 1;
+    }
+    return true;
+}
+
+int32_t ParseIntArg(const std::vector<std::string>& args, size_t index, int32_t fallback) {
+    if (index >= args.size()) {
+        return fallback;
+    }
+    try {
+        return std::stoi(args[index]);
+    } catch (...) { return fallback; }
 }
 
 void OnZTitleUpdateAgentTest(void* gameState) {
@@ -320,6 +412,18 @@ void OnPlayerUpdateAgentTest() {
     }
 }
 
+// Requires InNormalPlay().
+std::string StateLine() {
+    Player* player = GET_PLAYER(gPlayState);
+    char buf[256];
+    std::snprintf(buf, sizeof(buf), "state scene=%s room=%d entrance=%s pos=%.1f,%.1f,%.1f yaw=%d age=%s frame=%u",
+                  Hex(gPlayState->sceneNum).c_str(), gPlayState->roomCtx.curRoom.num,
+                  Hex(gSaveContext.entranceIndex).c_str(), player->actor.world.pos.x, player->actor.world.pos.y,
+                  player->actor.world.pos.z, player->actor.shape.rot.y,
+                  gSaveContext.linkAge == LINK_AGE_CHILD ? "child" : "adult", gPlayState->state.frames);
+    return buf;
+}
+
 int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vector<std::string>& args,
                          std::string* output) {
     if (args.size() >= 3 && args[1] == "perf") {
@@ -336,23 +440,76 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         }
         return 0;
     }
+    if (args.size() >= 2 && (args[1] == "state" || args[1] == "goto" || args[1] == "walk" || args[1] == "press") &&
+        !InNormalPlay()) {
+        if (output) {
+            *output += "no scene loaded";
+        }
+        return 1;
+    }
     if (args.size() >= 2 && args[1] == "state") {
-        if (!InNormalPlay()) {
+        const std::string line = StateLine();
+        WriteMarker(line);
+        if (output) {
+            *output += line;
+        }
+        return 0;
+    }
+    if (args.size() >= 5 && args[1] == "goto") {
+        Player* player = GET_PLAYER(gPlayState);
+        try {
+            player->actor.world.pos.x = std::stof(args[2]);
+            player->actor.world.pos.y = std::stof(args[3]);
+            player->actor.world.pos.z = std::stof(args[4]);
+        } catch (...) {
             if (output) {
-                *output += "no scene loaded";
+                *output += "goto needs numeric x y z";
             }
             return 1;
         }
-        Player* player = GET_PLAYER(gPlayState);
-        char buf[256];
-        std::snprintf(buf, sizeof(buf), "state scene=%s room=%d entrance=%s pos=%.1f,%.1f,%.1f yaw=%d age=%s frame=%u",
-                      Hex(gPlayState->sceneNum).c_str(), gPlayState->roomCtx.curRoom.num,
-                      Hex(gSaveContext.entranceIndex).c_str(), player->actor.world.pos.x, player->actor.world.pos.y,
-                      player->actor.world.pos.z, player->actor.shape.rot.y,
-                      gSaveContext.linkAge == LINK_AGE_CHILD ? "child" : "adult", gPlayState->state.frames);
-        WriteMarker(buf);
+        if (args.size() >= 6) {
+            const int16_t yaw = static_cast<int16_t>(ParseIntArg(args, 5, player->actor.shape.rot.y));
+            player->actor.world.rot.y = yaw;
+            player->actor.shape.rot.y = yaw;
+            player->yaw = yaw;
+        }
+        player->linearVelocity = 0.0f;
+        const std::string line = StateLine();
+        WriteMarker(line);
         if (output) {
-            *output += buf;
+            *output += line;
+        }
+        return 0;
+    }
+    if (args.size() >= 3 && args[1] == "walk") {
+        const int32_t frames = ParseIntArg(args, 2, 0);
+        if (frames <= 0) {
+            if (output) {
+                *output += "walk needs a positive frame count";
+            }
+            return 1;
+        }
+        const int32_t sx = std::clamp(ParseIntArg(args, 3, 0), -85, 85);
+        const int32_t sy = std::clamp(ParseIntArg(args, 4, 80), -85, 85);
+        StartInput(frames, static_cast<int8_t>(sx), static_cast<int8_t>(sy), 0);
+        if (output) {
+            *output += "walking " + std::to_string(frames) + " frames, stick " + std::to_string(sx) + "," +
+                       std::to_string(sy) + "; wait for input_done";
+        }
+        return 0;
+    }
+    if (args.size() >= 3 && args[1] == "press") {
+        uint16_t mask = 0;
+        if (!ParseButtons(args[2], &mask)) {
+            if (output) {
+                *output += "unknown button; use A,B,Z,R,L,START,DUP,DDOWN,DLEFT,DRIGHT,CUP,CDOWN,CLEFT,CRIGHT";
+            }
+            return 1;
+        }
+        const int32_t frames = std::max(1, ParseIntArg(args, 3, 2));
+        StartInput(frames, 0, 0, mask);
+        if (output) {
+            *output += "holding " + args[2] + " for " + std::to_string(frames) + " frames; wait for input_done";
         }
         return 0;
     }
@@ -365,7 +522,9 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         return 0;
     }
     if (output) {
-        *output += "usage: agenttest perf <ticks> | agenttest state | agenttest mark <text>";
+        *output +=
+            "usage: agenttest perf <ticks> | state | goto <x> <y> <z> [yaw] | walk <frames> [stick_x] [stick_y] | "
+            "press <BUTTONS> [frames] | mark <text>";
     }
     return 1;
 }
@@ -377,14 +536,16 @@ void RegisterAgentTest() {
     COND_HOOK(OnZTitleUpdate, true, OnZTitleUpdateAgentTest);
     COND_HOOK(OnSceneInit, true, OnSceneInitAgentTest);
     COND_HOOK(OnPlayerUpdate, true, OnPlayerUpdateAgentTest);
+    COND_HOOK(OnGameStateMainStart, true, OnGameStateMainStartAgentTest);
 
     auto console = Ship::Context::GetRawInstance()->GetConsole();
     if (!console->HasCommand("agenttest")) {
         console->AddCommand(
             "agenttest",
             { AgentTestCommand,
-              "Agent test loop: 'agenttest perf <ticks>' sets the perf marker interval (0 disables); "
-              "'agenttest state' reports scene/room/entrance/position; 'agenttest mark <text>' writes a marker.",
+              "Agent test loop: perf <ticks> | state | goto <x> <y> <z> [yaw] | walk <frames> [stick_x] [stick_y] | "
+              "press <BUTTONS> [frames] | mark <text>. walk/press inject controller 1 for N frames and end with an "
+              "input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });
     }
 }
