@@ -10,8 +10,9 @@
  * <app dir> is where soh.exe lives (x64/Debug for local builds). Every marker also goes through
  * SPDLOG_INFO so it lands in logs/Ship of Harkinian.log alongside the engine's own output.
  *
- * Agent mode is active while agent-commands.txt exists. With no file the only cost is one
- * std::filesystem::exists() every POLL_INTERVAL game ticks. Delete the file and the hook is inert.
+ * Agent mode is decided once, on the first console-logo frame: if agent-commands.txt exists then,
+ * the session is on until the process exits; if not, the hook never touches the filesystem again
+ * (every hook below early-returns on one bool). Create the file before launching soh.exe.
  *
  * Markers (all prefixed "[agenttest] "):
  *   session pid=<n>                      first tick the command file was seen
@@ -84,8 +85,7 @@ constexpr int32_t DEFAULT_PERF_INTERVAL = 60;
 constexpr int32_t BOOT_ENTRANCE = ENTR_LINKS_HOUSE_0_1;
 
 // State
-bool sSessionAnnounced = false;
-bool sAgentMode = false; // command file seen at the last poll
+bool sAgentMode = false; // decided once at the console logo; never re-checked
 bool sReady = false;     // true from the first Player update after the latest OnSceneInit
 int32_t sPerfInterval = DEFAULT_PERF_INTERVAL;
 uint32_t sTickCounter = 0;
@@ -262,35 +262,28 @@ void EmitPerf() {
     WriteMarker(buf);
 }
 
-void AnnounceSession() {
-    if (!sSessionAnnounced) {
-        sSessionAnnounced = true;
-        WriteMarker("session pid=" + std::to_string(AGENTTEST_GETPID()));
-    }
-}
-
 void OnGameFrameUpdateAgentTest() {
     GameState* logoState = sLogoState;
     sLogoState = nullptr;
     sTickCounter++;
 
-    // Console logo: checked every tick, because a BootSequence of FileSelect or DebugWarpScreen ends
-    // the logo state on its first tick. This runs after every OnZTitleUpdate hook of the tick, so
-    // setting the next game state here wins over whichever one they set.
+    // Console logo, first tick only: this is the one filesystem check a non-agent session ever pays.
+    // It has to be the first tick because a BootSequence of FileSelect or DebugWarpScreen ends the
+    // logo state right there. This runs after every OnZTitleUpdate hook of the tick, so setting the
+    // next game state here wins over whichever one they set.
     if (logoState != nullptr && gPlayState == nullptr) {
-        if (AgentModeActive()) {
-            AnnounceSession();
-            BootToPlay(logoState);
+        static bool decided = false;
+        if (!decided) {
+            decided = true;
+            sAgentMode = AgentModeActive();
+            if (sAgentMode) {
+                WriteMarker("session pid=" + std::to_string(AGENTTEST_GETPID()));
+                BootToPlay(logoState);
+            }
         }
         return;
     }
 
-    if (sTickCounter % POLL_INTERVAL == 0) {
-        sAgentMode = AgentModeActive();
-        if (sAgentMode) {
-            AnnounceSession();
-        }
-    }
     if (!sAgentMode || !InNormalPlay() || !sReady) {
         return;
     }
@@ -308,7 +301,7 @@ void OnZTitleUpdateAgentTest(void* gameState) {
 
 void OnSceneInitAgentTest(int16_t sceneNum) {
     sReady = false;
-    if (AgentModeActive()) {
+    if (sAgentMode) {
         WriteMarker("scene_loaded scene=" + Hex(sceneNum) + " entrance=" + Hex(gSaveContext.entranceIndex));
     }
 }
@@ -318,7 +311,6 @@ void OnPlayerUpdateAgentTest() {
         return;
     }
     sReady = true;
-    sAgentMode = AgentModeActive();
     if (sAgentMode) {
         WriteMarker("ready scene=" + Hex(gPlayState->sceneNum) + " entrance=" + Hex(gSaveContext.entranceIndex));
     }
