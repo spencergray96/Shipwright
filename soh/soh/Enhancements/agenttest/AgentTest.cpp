@@ -10,9 +10,11 @@
  * <app dir> is where soh.exe lives (x64/Debug for local builds). Every marker also goes through
  * SPDLOG_INFO so it lands in logs/Ship of Harkinian.log alongside the engine's own output.
  *
- * Agent mode is decided once, on the first console-logo frame: if agent-commands.txt exists then,
- * the session is on until the process exits; if not, the hook never touches the filesystem again
- * (every hook below early-returns on one bool). Create the file before launching soh.exe.
+ * Agent mode is decided once, on the first console-logo frame, from the environment variable
+ * SOH_AGENT_TEST: "1" in the process environment -> the session is on until the process exits;
+ * anything else -> every hook below early-returns on one bool and nothing is ever read or
+ * written. The driver sets the variable in its own shell before launching soh.exe, which
+ * inherits it; nothing persists on disk or in the config. A stale agent-commands.txt is inert.
  *
  * Markers (all prefixed "[agenttest] "):
  *   session pid=<n>                      first tick the command file was seen
@@ -46,6 +48,7 @@
 #include <chrono>
 #include <ctime>
 #include <cstdio>
+#include <cstdlib>
 
 #include <imgui.h>
 #include <spdlog/spdlog.h>
@@ -76,6 +79,7 @@ void Sram_InitDebugSave(void);
 
 namespace {
 
+constexpr const char* AGENT_MODE_ENV = "SOH_AGENT_TEST";
 constexpr const char* COMMAND_FILE = "agent-commands.txt";
 constexpr const char* MARKER_FILE = "agent-log.txt";
 constexpr uint32_t POLL_INTERVAL = 10; // game ticks between command-file polls (20 ticks = 1 s)
@@ -85,7 +89,7 @@ constexpr int32_t DEFAULT_PERF_INTERVAL = 60;
 constexpr int32_t BOOT_ENTRANCE = ENTR_LINKS_HOUSE_0_1;
 
 // State
-bool sAgentMode = false; // decided once at the console logo; never re-checked
+bool sAgentMode = false; // decided once at the console logo from SOH_AGENT_TEST; never re-checked
 bool sReady = false;     // true from the first Player update after the latest OnSceneInit
 int32_t sPerfInterval = DEFAULT_PERF_INTERVAL;
 uint32_t sTickCounter = 0;
@@ -100,9 +104,9 @@ std::string MarkerPath() {
     return Ship::Context::GetPathRelativeToAppDirectory(MARKER_FILE);
 }
 
-bool AgentModeActive() {
-    std::error_code ec;
-    return std::filesystem::exists(CommandPath(), ec);
+bool AgentModeRequested() {
+    const char* value = std::getenv(AGENT_MODE_ENV);
+    return value != nullptr && std::string(value) == "1";
 }
 
 std::string Timestamp() {
@@ -267,15 +271,15 @@ void OnGameFrameUpdateAgentTest() {
     sLogoState = nullptr;
     sTickCounter++;
 
-    // Console logo, first tick only: this is the one filesystem check a non-agent session ever pays.
-    // It has to be the first tick because a BootSequence of FileSelect or DebugWarpScreen ends the
-    // logo state right there. This runs after every OnZTitleUpdate hook of the tick, so setting the
+    // Console logo, first tick only: the one getenv a non-agent session ever pays. It has to be the
+    // first tick because a BootSequence of FileSelect or DebugWarpScreen ends the logo state right
+    // there. This runs after every OnZTitleUpdate hook of the tick, so setting the
     // next game state here wins over whichever one they set.
     if (logoState != nullptr && gPlayState == nullptr) {
         static bool decided = false;
         if (!decided) {
             decided = true;
-            sAgentMode = AgentModeActive();
+            sAgentMode = AgentModeRequested();
             if (sAgentMode) {
                 WriteMarker("session pid=" + std::to_string(AGENTTEST_GETPID()));
                 BootToPlay(logoState);
