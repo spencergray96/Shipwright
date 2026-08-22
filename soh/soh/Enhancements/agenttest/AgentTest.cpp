@@ -29,7 +29,7 @@
  *   perf fps=<f> ms=<f> scene=0x<hex> frame=<n>   every PerfInterval ticks (0 disables)
  *   state scene=0x<hex> room=<n> entrance=0x<hex> pos=<x>,<y>,<z> yaw=<n> age=<adult|child> frame=<n>
  *   mark <text>                          echoed from "agenttest mark <text>"
- *   input_done                           a walk/press injection finished
+ *   input_done [reason=scene_change]     a walk/press injection finished (or was cancelled by a scene change)
  *
  * Console command registered here:
  *   agenttest perf <ticks>                 set the perf marker interval (game ticks, 20/s); 0 disables
@@ -43,6 +43,10 @@
  *   agenttest mark <text>                  write a marker, for bracketing checkpoints in the log
  *
  * Command-file consumption pauses while an injection is in progress, so queued lines run in order.
+ * Injection details: the stick replaces the real pad's stick, buttons are OR-ed onto the real pad's
+ * buttons, frames are counted only when Player_Update will read them (not paused, not mid-transition),
+ * a scene change cancels the injection, frames are capped at MAX_INPUT_FRAMES, and none of it shows in
+ * the ImGui Input Viewer (which renders the raw pad).
  *
  * See sturdy-bassoon/docs/reference/AGENT_TEST_LOOP.md for the driver-side protocol.
  *
@@ -96,6 +100,7 @@ constexpr const char* COMMAND_FILE = "agent-commands.txt";
 constexpr const char* MARKER_FILE = "agent-log.txt";
 constexpr uint32_t POLL_INTERVAL = 10; // game ticks between command-file polls (20 ticks = 1 s)
 constexpr int32_t DEFAULT_PERF_INTERVAL = 60;
+constexpr int32_t MAX_INPUT_FRAMES = 20 * 60; // one minute of injected input; command channel is blocked meanwhile
 // Staging scene for the auto-boot: the door spawn of Link's house. Small, loads fast, nothing scripted.
 // The caller's real entrance comes through the command file afterwards.
 constexpr int32_t BOOT_ENTRANCE = ENTR_LINKS_HOUSE_0_1;
@@ -324,11 +329,15 @@ void OnGameStateMainStartAgentTest() {
     if (!sAgentMode || sInputFramesLeft <= 0 || !InNormalPlay()) {
         return;
     }
+    // Only frames Player_Update will actually read count: paused or mid-transition the stick is ignored.
+    if (gPlayState->pauseCtx.state != 0 || gPlayState->pauseCtx.debugState != 0 ||
+        gPlayState->transitionTrigger != TRANS_TRIGGER_OFF) {
+        return;
+    }
     Input* input = &gPlayState->state.input[0];
     input->cur.stick_x = sInputStickX;
     input->cur.stick_y = sInputStickY;
-    input->rel.stick_x = sInputStickX;
-    input->rel.stick_y = sInputStickY;
+    PadUtils_UpdateRelXY(input); // same dead zone and clamp a real pad gets
     input->cur.button |= sInputButtons;
     if (sInputPressPending) {
         input->press.button |= sInputButtons;
@@ -337,6 +346,14 @@ void OnGameStateMainStartAgentTest() {
     sInputFramesLeft--;
     if (sInputFramesLeft == 0) {
         WriteMarker("input_done");
+    }
+}
+
+void CancelInput(const char* reason) {
+    if (sInputFramesLeft > 0) {
+        sInputFramesLeft = 0;
+        sInputPressPending = false;
+        WriteMarker(std::string("input_done reason=") + reason);
     }
 }
 
@@ -382,13 +399,38 @@ bool ParseButtons(const std::string& text, uint16_t* mask) {
     return true;
 }
 
-int32_t ParseIntArg(const std::vector<std::string>& args, size_t index, int32_t fallback) {
-    if (index >= args.size()) {
-        return fallback;
-    }
+// Whole-string decimal integer; "40abc", "0x4000" and "" are rejected.
+bool ParseInt(const std::string& text, int32_t* value) {
     try {
-        return std::stoi(args[index]);
-    } catch (...) { return fallback; }
+        size_t consumed = 0;
+        const int parsed = std::stoi(text, &consumed);
+        if (consumed != text.size()) {
+            return false;
+        }
+        *value = parsed;
+        return true;
+    } catch (...) { return false; }
+}
+
+bool ParseFloat(const std::string& text, float* value) {
+    try {
+        size_t consumed = 0;
+        const float parsed = std::stof(text, &consumed);
+        if (consumed != text.size()) {
+            return false;
+        }
+        *value = parsed;
+        return true;
+    } catch (...) { return false; }
+}
+
+// Optional argument: absent -> fallback, present but malformed -> false.
+bool ParseIntArg(const std::vector<std::string>& args, size_t index, int32_t fallback, int32_t* value) {
+    if (index >= args.size()) {
+        *value = fallback;
+        return true;
+    }
+    return ParseInt(args[index], value);
 }
 
 void OnZTitleUpdateAgentTest(void* gameState) {
@@ -397,6 +439,7 @@ void OnZTitleUpdateAgentTest(void* gameState) {
 
 void OnSceneInitAgentTest(int16_t sceneNum) {
     sReady = false;
+    CancelInput("scene_change");
     if (sAgentMode) {
         WriteMarker("scene_loaded scene=" + Hex(sceneNum) + " entrance=" + Hex(gSaveContext.entranceIndex));
     }
@@ -457,21 +500,20 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     }
     if (args.size() >= 5 && args[1] == "goto") {
         Player* player = GET_PLAYER(gPlayState);
-        try {
-            player->actor.world.pos.x = std::stof(args[2]);
-            player->actor.world.pos.y = std::stof(args[3]);
-            player->actor.world.pos.z = std::stof(args[4]);
-        } catch (...) {
+        Vec3f pos;
+        int32_t yaw = player->actor.shape.rot.y;
+        if (!ParseFloat(args[2], &pos.x) || !ParseFloat(args[3], &pos.y) || !ParseFloat(args[4], &pos.z) ||
+            !ParseIntArg(args, 5, yaw, &yaw) || yaw < -32768 || yaw > 32767) {
             if (output) {
-                *output += "goto needs numeric x y z";
+                *output += "goto needs numeric x y z and an optional yaw in -32768..32767";
             }
             return 1;
         }
+        player->actor.world.pos = pos;
         if (args.size() >= 6) {
-            const int16_t yaw = static_cast<int16_t>(ParseIntArg(args, 5, player->actor.shape.rot.y));
-            player->actor.world.rot.y = yaw;
-            player->actor.shape.rot.y = yaw;
-            player->yaw = yaw;
+            player->actor.world.rot.y = static_cast<int16_t>(yaw);
+            player->actor.shape.rot.y = static_cast<int16_t>(yaw);
+            player->yaw = static_cast<int16_t>(yaw);
         }
         player->linearVelocity = 0.0f;
         const std::string line = StateLine();
@@ -482,15 +524,18 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         return 0;
     }
     if (args.size() >= 3 && args[1] == "walk") {
-        const int32_t frames = ParseIntArg(args, 2, 0);
-        if (frames <= 0) {
+        int32_t frames = 0;
+        int32_t sx = 0;
+        int32_t sy = 0;
+        if (!ParseInt(args[2], &frames) || frames <= 0 || frames > MAX_INPUT_FRAMES || !ParseIntArg(args, 3, 0, &sx) ||
+            !ParseIntArg(args, 4, 80, &sy)) {
             if (output) {
-                *output += "walk needs a positive frame count";
+                *output += "walk needs frames in 1.." + std::to_string(MAX_INPUT_FRAMES) + " and integer stick values";
             }
             return 1;
         }
-        const int32_t sx = std::clamp(ParseIntArg(args, 3, 0), -85, 85);
-        const int32_t sy = std::clamp(ParseIntArg(args, 4, 80), -85, 85);
+        sx = std::clamp(sx, -85, 85);
+        sy = std::clamp(sy, -85, 85);
         StartInput(frames, static_cast<int8_t>(sx), static_cast<int8_t>(sy), 0);
         if (output) {
             *output += "walking " + std::to_string(frames) + " frames, stick " + std::to_string(sx) + "," +
@@ -506,7 +551,13 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             }
             return 1;
         }
-        const int32_t frames = std::max(1, ParseIntArg(args, 3, 2));
+        int32_t frames = 2;
+        if (!ParseIntArg(args, 3, 2, &frames) || frames < 1 || frames > MAX_INPUT_FRAMES) {
+            if (output) {
+                *output += "press frames must be 1.." + std::to_string(MAX_INPUT_FRAMES);
+            }
+            return 1;
+        }
         StartInput(frames, 0, 0, mask);
         if (output) {
             *output += "holding " + args[2] + " for " + std::to_string(frames) + " frames; wait for input_done";
