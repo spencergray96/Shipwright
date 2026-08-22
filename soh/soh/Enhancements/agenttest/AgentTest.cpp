@@ -62,7 +62,6 @@ extern "C" {
 #include "variables.h"
 #include "macros.h"
 extern PlayState* gPlayState;
-extern GameState* gGameState;
 void Sram_InitDebugSave(void);
 }
 
@@ -86,7 +85,8 @@ constexpr int32_t BOOT_ENTRANCE = ENTR_LINKS_HOUSE_0_1;
 
 // State
 bool sSessionAnnounced = false;
-bool sReady = false; // true from the first Player update after the latest OnSceneInit
+bool sAgentMode = false; // command file seen at the last poll
+bool sReady = false;     // true from the first Player update after the latest OnSceneInit
 int32_t sPerfInterval = DEFAULT_PERF_INTERVAL;
 uint32_t sTickCounter = 0;
 std::streamoff sConsumedBytes = 0;
@@ -123,7 +123,7 @@ std::string Timestamp() {
     return out;
 }
 
-void Emit(const std::string& text) {
+void WriteMarker(const std::string& text) {
     SPDLOG_INFO("[agenttest] {}", text);
     std::ofstream out(MarkerPath(), std::ios::app);
     if (out) {
@@ -138,7 +138,7 @@ std::string Hex(int32_t value) {
 }
 
 // Single-line, printable rendering of whatever a command handler wrote to its output string.
-std::string Sanitize(std::string text) {
+std::string SingleLine(std::string text) {
     for (char& c : text) {
         if (c == '\n' || c == '\r' || c == '\t') {
             c = ' ';
@@ -153,7 +153,7 @@ bool InNormalPlay() {
 
 // Mirrors Warping.cpp's boot-to-warp-point path and Select_LoadGame: a fresh debug save, straight into Play_Init.
 void BootToPlay(GameState* logoState) {
-    Emit("boot_to_play entrance=" + Hex(BOOT_ENTRANCE));
+    WriteMarker("boot_to_play entrance=" + Hex(BOOT_ENTRANCE));
 
     gSaveContext.gameMode = GAMEMODE_NORMAL;
     gSaveContext.fileNum = 0xFF; // debug save
@@ -242,7 +242,7 @@ void ConsumeCommands() {
         } else {
             rc = console->Run(line, &output);
         }
-        Emit("cmd " + line + " rc=" + std::to_string(rc) + " out=" + Sanitize(output));
+        WriteMarker("cmd " + line + " rc=" + std::to_string(rc) + " out=" + SingleLine(output));
 
         if (!InNormalPlay() || !sReady || gPlayState->transitionTrigger != TRANS_TRIGGER_OFF) {
             break;
@@ -259,36 +259,45 @@ void EmitPerf() {
     char buf[128];
     std::snprintf(buf, sizeof(buf), "perf fps=%.1f ms=%.2f scene=%s frame=%u", fps, ms,
                   Hex(gPlayState->sceneNum).c_str(), gPlayState->state.frames);
-    Emit(buf);
+    WriteMarker(buf);
+}
+
+void AnnounceSession() {
+    if (!sSessionAnnounced) {
+        sSessionAnnounced = true;
+        WriteMarker("session pid=" + std::to_string(AGENTTEST_GETPID()));
+    }
 }
 
 void OnGameFrameUpdateAgentTest() {
     GameState* logoState = sLogoState;
     sLogoState = nullptr;
-
     sTickCounter++;
-    if (sTickCounter % POLL_INTERVAL != 0) {
-        return;
-    }
-    if (!AgentModeActive()) {
-        return;
-    }
 
-    if (!sSessionAnnounced) {
-        sSessionAnnounced = true;
-        Emit("session pid=" + std::to_string(AGENTTEST_GETPID()));
-    }
-
-    // Runs after every OnZTitleUpdate hook of this tick, so it wins over any BootSequence setting.
+    // Console logo: checked every tick, because a BootSequence of FileSelect or DebugWarpScreen ends
+    // the logo state on its first tick. This runs after every OnZTitleUpdate hook of the tick, so
+    // setting the next game state here wins over whichever one they set.
     if (logoState != nullptr && gPlayState == nullptr) {
-        BootToPlay(logoState);
+        if (AgentModeActive()) {
+            AnnounceSession();
+            BootToPlay(logoState);
+        }
         return;
     }
 
-    if (InNormalPlay() && sReady) {
-        if (sPerfInterval > 0 && sTickCounter % static_cast<uint32_t>(sPerfInterval) == 0) {
-            EmitPerf();
+    if (sTickCounter % POLL_INTERVAL == 0) {
+        sAgentMode = AgentModeActive();
+        if (sAgentMode) {
+            AnnounceSession();
         }
+    }
+    if (!sAgentMode || !InNormalPlay() || !sReady) {
+        return;
+    }
+    if (sPerfInterval > 0 && sTickCounter % static_cast<uint32_t>(sPerfInterval) == 0) {
+        EmitPerf();
+    }
+    if (sTickCounter % POLL_INTERVAL == 0) {
         ConsumeCommands();
     }
 }
@@ -300,7 +309,7 @@ void OnZTitleUpdateAgentTest(void* gameState) {
 void OnSceneInitAgentTest(int16_t sceneNum) {
     sReady = false;
     if (AgentModeActive()) {
-        Emit("scene_loaded scene=" + Hex(sceneNum) + " entrance=" + Hex(gSaveContext.entranceIndex));
+        WriteMarker("scene_loaded scene=" + Hex(sceneNum) + " entrance=" + Hex(gSaveContext.entranceIndex));
     }
 }
 
@@ -309,8 +318,9 @@ void OnPlayerUpdateAgentTest() {
         return;
     }
     sReady = true;
-    if (AgentModeActive()) {
-        Emit("ready scene=" + Hex(gPlayState->sceneNum) + " entrance=" + Hex(gSaveContext.entranceIndex));
+    sAgentMode = AgentModeActive();
+    if (sAgentMode) {
+        WriteMarker("ready scene=" + Hex(gPlayState->sceneNum) + " entrance=" + Hex(gSaveContext.entranceIndex));
     }
 }
 
@@ -339,13 +349,12 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         }
         Player* player = GET_PLAYER(gPlayState);
         char buf[256];
-        std::snprintf(buf, sizeof(buf),
-                      "state scene=%s room=%d entrance=%s pos=%.1f,%.1f,%.1f yaw=%d age=%s frame=%u",
+        std::snprintf(buf, sizeof(buf), "state scene=%s room=%d entrance=%s pos=%.1f,%.1f,%.1f yaw=%d age=%s frame=%u",
                       Hex(gPlayState->sceneNum).c_str(), gPlayState->roomCtx.curRoom.num,
                       Hex(gSaveContext.entranceIndex).c_str(), player->actor.world.pos.x, player->actor.world.pos.y,
                       player->actor.world.pos.z, player->actor.shape.rot.y,
                       gSaveContext.linkAge == LINK_AGE_CHILD ? "child" : "adult", gPlayState->state.frames);
-        Emit(buf);
+        WriteMarker(buf);
         if (output) {
             *output += buf;
         }
@@ -356,7 +365,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         for (size_t i = 2; i < args.size(); i++) {
             text += (i > 2 ? " " : "") + args[i];
         }
-        Emit("mark " + text);
+        WriteMarker("mark " + text);
         return 0;
     }
     if (output) {
