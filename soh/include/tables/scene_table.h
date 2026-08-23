@@ -137,4 +137,5 @@
 /* 0x78 */ DEFINE_SCENE(grid_test_map_12_scene, none, SCENE_GRID_TEST_MAP_12, SDC_DEFAULT, 0, 0) // project 32fde1b2-a885-4d60-81f6-6e1eb91f0950 name grid_test_map_12
 /* 0x79 */ DEFINE_SCENE(grid_test_map_13_scene, none, SCENE_GRID_TEST_MAP_13, SDC_DEFAULT, 0, 0) // project 46b1c95b-691f-4014-b686-9af7e4f3d52c name grid_test_map_13
 /* 0x7A */ DEFINE_SCENE(grid_test_map_14_scene, none, SCENE_GRID_TEST_MAP_14, SDC_DEFAULT, 0, 0) // project 63bce697-6a2e-45c3-8c79-94715191122f name grid_test_map_14
+/* 0x7B */ DEFINE_SCENE(lumbridge_castle_test_1_scene, none, SCENE_LUMBRIDGE_CASTLE_TEST_1, SDC_DEFAULT, 0, 0) // project ea7aefd1-6872-457b-9b59-9a3d279c594c name lumbridge_castle_test_1
 // END GRID TOOL EXPORTS
