@@ -15,4 +15,5 @@
     { SCENE_GRID_TEST_MAP_14, CustomGridTestMap14Scene_TrySpawn, CustomGridTestMap14Scene_InitRoom }, // project 63bce697-6a2e-45c3-8c79-94715191122f name grid_test_map_14
     { SCENE_LUMBRIDGE_CASTLE_TEST_1, CustomLumbridgeCastleTest1Scene_TrySpawn, CustomLumbridgeCastleTest1Scene_InitRoom }, // project ea7aefd1-6872-457b-9b59-9a3d279c594c name lumbridge_castle_test_1
     { SCENE_LUMBRIDGE_CASTLE, CustomLumbridgeCastleScene_TrySpawn, CustomLumbridgeCastleScene_InitRoom }, // project 5a0e0bf1-7f77-4b12-8787-010aadfaf3d9 name lumbridge_castle
+    { SCENE_TERRAIN_F2P_GREYBOX, CustomTerrainF2pGreyboxScene_TrySpawn, CustomTerrainF2pGreyboxScene_InitRoom }, // terrain-bake terrain_f2p_greybox
 // END GRID TOOL EXPORTS

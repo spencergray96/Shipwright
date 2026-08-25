@@ -139,4 +139,5 @@
 /* 0x7A */ DEFINE_SCENE(grid_test_map_14_scene, none, SCENE_GRID_TEST_MAP_14, SDC_DEFAULT, 0, 0) // project 63bce697-6a2e-45c3-8c79-94715191122f name grid_test_map_14
 /* 0x7B */ DEFINE_SCENE(lumbridge_castle_test_1_scene, none, SCENE_LUMBRIDGE_CASTLE_TEST_1, SDC_DEFAULT, 0, 0) // project ea7aefd1-6872-457b-9b59-9a3d279c594c name lumbridge_castle_test_1
 /* 0x7C */ DEFINE_SCENE(lumbridge_castle_scene, none, SCENE_LUMBRIDGE_CASTLE, SDC_DEFAULT, 0, 0) // project 5a0e0bf1-7f77-4b12-8787-010aadfaf3d9 name lumbridge_castle
+/* 0x7D */ DEFINE_SCENE(terrain_f2p_greybox_scene, none, SCENE_TERRAIN_F2P_GREYBOX, SDC_DEFAULT, 0, 0) // terrain-bake terrain_f2p_greybox
 // END GRID TOOL EXPORTS

@@ -14,4 +14,5 @@
 #include "../grid_test_map_14/CustomGridTestMap14Scene.h" // project 63bce697-6a2e-45c3-8c79-94715191122f name grid_test_map_14
 #include "../lumbridge_castle_test_1/CustomLumbridgeCastleTest1Scene.h" // project ea7aefd1-6872-457b-9b59-9a3d279c594c name lumbridge_castle_test_1
 #include "../lumbridge_castle/CustomLumbridgeCastleScene.h" // project 5a0e0bf1-7f77-4b12-8787-010aadfaf3d9 name lumbridge_castle
+#include "../terrain_f2p_greybox/CustomTerrainF2pGreyboxScene.h" // terrain-bake terrain_f2p_greybox
 // END GRID TOOL EXPORTS
