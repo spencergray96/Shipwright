@@ -31,7 +31,14 @@
  *                                        framerate (capped by the FPS setting); tick_ms = game-tick CPU
  *                                        time, avg and max over the interval; mem_mb = working set
  *   room_changed from=<n> to=<n> frame=<n>   the current room changed within a scene
- *   state scene=0x<hex> room=<n> entrance=0x<hex> pos=<x>,<y>,<z> yaw=<n> age=<adult|child> frame=<n>
+ *   state scene=0x<hex> room=<n> entrance=0x<hex> pos=<x>,<y>,<z> yaw=<n> age=<adult|child> time=0x<hex>
+ *         night=<0|1> frame=<n>
+ *   trace <pre|post> frame=<n> pos=... prev=... velY=... lin=... bg=0x<hex> floorH=... sf1..sf3=0x<hex>
+ *         anim=0x<hex> trans=<n> rdown=<x>,<y>,<z> rdent=0x<hex>
+ *                                        per-tick Player diagnostic while "agenttest trace" is active: position,
+ *                                        prevPos, velocity, bgCheckFlags, floor height, state flags, anim movement
+ *                                        flags, transition trigger and the void-out respawn point. "pre" is taken
+ *                                        before the game tick runs, "post" after it (and after command consumption)
  *   mark <text>                          echoed from "agenttest mark <text>"
  *   input_done [reason=scene_change]     a walk/press injection finished (or was cancelled by a scene change)
  *
@@ -46,6 +53,13 @@
  *                                          "press Z" with nothing targeted re-centres the camera behind Link.
  *   agenttest rooms                        one "transition idx= id= rooms=A,B pos= rotY=" marker per transition
  *                                          actor in the scene: where the room boundaries are
+ *   agenttest time <dawn|day|dusk|night|value>  set the time of day: dayTime and skyboxTime together, plus
+ *                                          nightFlag by the engine's own threshold (night when > 0xC000 or
+ *                                          < 0x4555). Presets dawn=0x4000, day=0x8000, dusk=0xC001, night=0;
+ *                                          value is 0..65535, decimal or 0x-hex. Emits a state marker
+ *   agenttest trace <ticks>                emit a "trace" marker pair (pre/post) around each of the next N game
+ *                                          ticks (0 cancels, max MAX_TRACE_TICKS). The tick the command lands in
+ *                                          contributes its post only. Diagnostic for teleport/movement bugs
  *   agenttest mark <text>                  write a marker, for bracketing checkpoints in the log
  *
  * Command-file consumption pauses while an injection is in progress, so queued lines run in order.
@@ -109,6 +123,7 @@ constexpr const char* MARKER_FILE = "agent-log.txt";
 constexpr uint32_t POLL_INTERVAL = 10; // game ticks between command-file polls (20 ticks = 1 s)
 constexpr int32_t DEFAULT_PERF_INTERVAL = 60;
 constexpr int32_t MAX_INPUT_FRAMES = 20 * 60; // one minute of injected input; command channel is blocked meanwhile
+constexpr int32_t MAX_TRACE_TICKS = 400;      // 20 s of trace markers, two lines per tick
 // Staging scene for the auto-boot: the door spawn of Link's house. Small, loads fast, nothing scripted.
 // The caller's real entrance comes through the command file afterwards.
 constexpr int32_t BOOT_ENTRANCE = ENTR_LINKS_HOUSE_0_1;
@@ -124,6 +139,7 @@ int8_t sInputStickY = 0;
 uint16_t sInputButtons = 0;
 bool sInputPressPending = false; // first injected frame also sets press.button (a fresh press)
 bool sReady = false;             // true from the first Player update after the latest OnSceneInit
+int32_t sTraceTicksLeft = 0;     // while > 0, emit a trace marker pair (pre/post) around every game tick
 int32_t sPerfInterval = DEFAULT_PERF_INTERVAL;
 uint32_t sTickCounter = 0;
 std::streamoff sConsumedBytes = 0;
@@ -328,6 +344,33 @@ void EmitPerf() {
     sTickSamples = 0;
 }
 
+// One line of everything relevant to "where is Link and why": position, the engine's previous-position
+// anchor, velocity, background-check state, Player state machines, anim-driven-movement flags, whether a
+// scene transition is pending, and the void-out respawn point. Taken before ("pre") and after ("post")
+// each game tick while a trace is active, so a position change can be pinned to the half-frame it
+// happened in.
+void EmitTrace(const char* phase) {
+    if (!InNormalPlay()) {
+        return;
+    }
+    Player* player = GET_PLAYER(gPlayState);
+    char buf[320];
+    std::snprintf(buf, sizeof(buf),
+                  "trace %s frame=%u pos=%.2f,%.2f,%.2f prev=%.2f,%.2f,%.2f velY=%.2f lin=%.2f bg=0x%X "
+                  "floorH=%.1f sf1=0x%X sf2=0x%X sf3=0x%X anim=0x%X trans=%d rdown=%.1f,%.1f,%.1f rdent=%s",
+                  phase, gPlayState->state.frames, player->actor.world.pos.x, player->actor.world.pos.y,
+                  player->actor.world.pos.z, player->actor.prevPos.x, player->actor.prevPos.y,
+                  player->actor.prevPos.z, player->actor.velocity.y, player->linearVelocity,
+                  static_cast<unsigned>(player->actor.bgCheckFlags), player->actor.floorHeight,
+                  static_cast<unsigned>(player->stateFlags1), static_cast<unsigned>(player->stateFlags2),
+                  static_cast<unsigned>(player->stateFlags3),
+                  static_cast<unsigned>(player->skelAnime.movementFlags), gPlayState->transitionTrigger,
+                  gSaveContext.respawn[RESPAWN_MODE_DOWN].pos.x, gSaveContext.respawn[RESPAWN_MODE_DOWN].pos.y,
+                  gSaveContext.respawn[RESPAWN_MODE_DOWN].pos.z,
+                  Hex(gSaveContext.respawn[RESPAWN_MODE_DOWN].entranceIndex).c_str());
+    WriteMarker(buf);
+}
+
 void OnGameFrameUpdateAgentTest() {
     GameState* logoState = sLogoState;
     sLogoState = nullptr;
@@ -375,6 +418,11 @@ void OnGameFrameUpdateAgentTest() {
     if (sTickCounter % POLL_INTERVAL == 0 && sInputFramesLeft == 0) {
         ConsumeCommands();
     }
+    // After command consumption, so the tick a goto lands in shows the freshly written position.
+    if (sTraceTicksLeft > 0 && InNormalPlay()) {
+        EmitTrace("post");
+        sTraceTicksLeft--;
+    }
 }
 
 // Fires after the pad data for this tick was read and before Player_Update consumes it.
@@ -384,6 +432,9 @@ void OnGameStateMainStartAgentTest() {
     }
     sTickStart = std::chrono::steady_clock::now();
     sTickStarted = true;
+    if (sTraceTicksLeft > 0) {
+        EmitTrace("pre");
+    }
     if (sInputFramesLeft <= 0 || !InNormalPlay()) {
         return;
     }
@@ -470,6 +521,21 @@ bool ParseInt(const std::string& text, int32_t* value) {
     } catch (...) { return false; }
 }
 
+// Whole-string integer in 0..65535, decimal or 0x-prefixed hex - dayTime values are quoted in hex
+// everywhere. The base is picked explicitly: base 0 would silently read a leading zero as octal.
+bool ParseU16(const std::string& text, int32_t* value) {
+    try {
+        const bool hex = text.size() > 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X');
+        size_t consumed = 0;
+        const long parsed = std::stol(hex ? text.substr(2) : text, &consumed, hex ? 16 : 10);
+        if (consumed != (hex ? text.size() - 2 : text.size()) || parsed < 0 || parsed > 0xFFFF) {
+            return false;
+        }
+        *value = static_cast<int32_t>(parsed);
+        return true;
+    } catch (...) { return false; }
+}
+
 bool ParseFloat(const std::string& text, float* value) {
     try {
         size_t consumed = 0;
@@ -518,12 +584,25 @@ void OnPlayerUpdateAgentTest() {
 std::string StateLine() {
     Player* player = GET_PLAYER(gPlayState);
     char buf[256];
-    std::snprintf(buf, sizeof(buf), "state scene=%s room=%d entrance=%s pos=%.1f,%.1f,%.1f yaw=%d age=%s frame=%u",
+    std::snprintf(buf, sizeof(buf),
+                  "state scene=%s room=%d entrance=%s pos=%.1f,%.1f,%.1f yaw=%d age=%s time=%s night=%d frame=%u",
                   Hex(gPlayState->sceneNum).c_str(), gPlayState->roomCtx.curRoom.num,
                   Hex(gSaveContext.entranceIndex).c_str(), player->actor.world.pos.x, player->actor.world.pos.y,
                   player->actor.world.pos.z, player->actor.shape.rot.y,
-                  gSaveContext.linkAge == LINK_AGE_CHILD ? "child" : "adult", gPlayState->state.frames);
+                  gSaveContext.linkAge == LINK_AGE_CHILD ? "child" : "adult", Hex(gSaveContext.dayTime).c_str(),
+                  gSaveContext.nightFlag, gPlayState->state.frames);
     return buf;
+}
+
+// The shared tail of every subcommand that changes or reports where Link is: emit a state marker
+// and mirror it into the command's output.
+int32_t EmitState(std::string* output) {
+    const std::string line = StateLine();
+    WriteMarker(line);
+    if (output) {
+        *output += line;
+    }
+    return 0;
 }
 
 int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vector<std::string>& args,
@@ -543,7 +622,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         return 0;
     }
     if (args.size() >= 2 &&
-        (args[1] == "state" || args[1] == "goto" || args[1] == "walk" || args[1] == "press" || args[1] == "rooms") &&
+        (args[1] == "state" || args[1] == "goto" || args[1] == "walk" || args[1] == "press" || args[1] == "rooms" ||
+         args[1] == "time" || args[1] == "trace") &&
         !InNormalPlay()) {
         if (output) {
             *output += "no scene loaded";
@@ -551,12 +631,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         return 1;
     }
     if (args.size() >= 2 && args[1] == "state") {
-        const std::string line = StateLine();
-        WriteMarker(line);
-        if (output) {
-            *output += line;
-        }
-        return 0;
+        return EmitState(output);
     }
     if (args.size() >= 5 && args[1] == "goto") {
         Player* player = GET_PLAYER(gPlayState);
@@ -570,18 +645,22 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             return 1;
         }
         player->actor.world.pos = pos;
+        // Writing world.pos alone is not a teleport: the engine sweeps the wall check along
+        // prevPos -> world.pos as if Link moved there in one frame (BgCheck_CheckWallImpl), clamping
+        // him to the first poly that line crosses. The hookshot landing syncs prevPos for the same
+        // reason (Player_Action_80850AEC); the player needs home.pos moved too, because
+        // Player_UpdateCommon rewrites prevPos from home.pos at the top of every update, and
+        // fallStartHeight so a large Y jump does not read as an ongoing fall.
+        player->actor.prevPos = pos;
+        player->actor.home.pos = pos;
+        player->fallStartHeight = static_cast<int16_t>(pos.y);
         if (args.size() >= 6) {
             player->actor.world.rot.y = static_cast<int16_t>(yaw);
             player->actor.shape.rot.y = static_cast<int16_t>(yaw);
             player->yaw = static_cast<int16_t>(yaw);
         }
         player->linearVelocity = 0.0f;
-        const std::string line = StateLine();
-        WriteMarker(line);
-        if (output) {
-            *output += line;
-        }
-        return 0;
+        return EmitState(output);
     }
     if (args.size() >= 3 && args[1] == "walk") {
         int32_t frames = 0;
@@ -641,6 +720,42 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         }
         return 0;
     }
+    if (args.size() >= 3 && args[1] == "time") {
+        static const std::vector<std::pair<const char*, int32_t>> presets = {
+            { "dawn", 0x4000 }, { "day", 0x8000 }, { "dusk", 0xC001 }, { "night", 0x0000 }
+        };
+        int32_t value = -1;
+        for (const auto& [name, presetValue] : presets) {
+            if (args[2] == name) {
+                value = presetValue;
+            }
+        }
+        if (value < 0 && !ParseU16(args[2], &value)) {
+            if (output) {
+                *output += "time needs dawn|day|dusk|night or a value in 0..65535 (0x-hex ok)";
+            }
+            return 1;
+        }
+        gSaveContext.skyboxTime = gSaveContext.dayTime = static_cast<u16>(value);
+        // The same threshold Environment_Update re-derives nightFlag from every frame; set it here too so
+        // anything reading IS_NIGHT this frame agrees with the new clock.
+        gSaveContext.nightFlag = (gSaveContext.dayTime > 0xC000 || gSaveContext.dayTime < 0x4555) ? 1 : 0;
+        return EmitState(output);
+    }
+    if (args.size() >= 3 && args[1] == "trace") {
+        int32_t ticks = 0;
+        if (!ParseInt(args[2], &ticks) || ticks < 0 || ticks > MAX_TRACE_TICKS) {
+            if (output) {
+                *output += "trace needs a tick count in 0.." + std::to_string(MAX_TRACE_TICKS) + " (0 cancels)";
+            }
+            return 1;
+        }
+        sTraceTicksLeft = ticks;
+        if (output) {
+            *output += "tracing " + std::to_string(ticks) + " ticks (pre/post markers per tick)";
+        }
+        return 0;
+    }
     if (args.size() >= 2 && args[1] == "mark") {
         std::string text;
         for (size_t i = 2; i < args.size(); i++) {
@@ -652,7 +767,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     if (output) {
         *output +=
             "usage: agenttest perf <ticks> | state | goto <x> <y> <z> [yaw] | walk <frames> [stick_x] [stick_y] | "
-            "press <BUTTONS> [frames] | rooms | mark <text>";
+            "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | mark <text>";
     }
     return 1;
 }
@@ -672,8 +787,8 @@ void RegisterAgentTest() {
             "agenttest",
             { AgentTestCommand,
               "Agent test loop: perf <ticks> | state | goto <x> <y> <z> [yaw] | walk <frames> [stick_x] [stick_y] | "
-              "press <BUTTONS> [frames] | mark <text>. walk/press inject controller 1 for N frames and end with an "
-              "input_done marker.",
+              "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | mark <text>. "
+              "walk/press inject controller 1 for N frames and end with an input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });
     }
 }
