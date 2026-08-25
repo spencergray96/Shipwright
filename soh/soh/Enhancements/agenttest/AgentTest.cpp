@@ -47,8 +47,12 @@
  *   agenttest state                        emit a state marker (scene, room, entrance, Link position and facing)
  *   agenttest goto <x> <y> <z> [yaw]       teleport Link, optionally set facing (s16 angle: 0=+Z, 16384=+X,
  *                                          -32768=-Z, -16384=-X); emits a state marker
- *   agenttest walk <frames> [sx] [sy]      hold the stick at (sx, sy) for N game frames (20/s); default 0,80 =
- *                                          full speed away from the camera. Ends with input_done.
+ *   agenttest walk <frames> [sx] [sy] [buttons] [at_frame]
+ *                                          hold the stick at (sx, sy) for N game frames (20/s); default 0,80 =
+ *                                          full speed away from the camera. Optional buttons (comma list) land
+ *                                          with a fresh press edge on the at_frame-th injected frame (default 1)
+ *                                          and stay held to the end - e.g. "walk 80 0 80 A 40" rolls mid-run.
+ *                                          Ends with input_done.
  *   agenttest press <BUTTONS> [frames]     hold A,B,Z,R,L,START,DUP..,CUP.. (comma list) for N frames, default 2.
  *                                          "press Z" with nothing targeted re-centres the camera behind Link.
  *   agenttest rooms                        one "transition idx= id= rooms=A,B pos= rotY=" marker per transition
@@ -138,6 +142,11 @@ int8_t sInputStickX = 0;
 int8_t sInputStickY = 0;
 uint16_t sInputButtons = 0;
 bool sInputPressPending = false; // first injected frame also sets press.button (a fresh press)
+// Mid-walk button press (walk's optional [buttons] [at_frame] args): once sInputFramesLeft counts
+// down to sDeferredAtFramesLeft, these buttons join sInputButtons with a fresh press edge and stay
+// held for the rest of the injection. This is how a roll is driven - A must land while running.
+uint16_t sDeferredButtons = 0;
+int32_t sDeferredAtFramesLeft = 0;
 bool sReady = false;             // true from the first Player update after the latest OnSceneInit
 int32_t sTraceTicksLeft = 0;     // while > 0, emit a trace marker pair (pre/post) around every game tick
 int32_t sPerfInterval = DEFAULT_PERF_INTERVAL;
@@ -443,6 +452,11 @@ void OnGameStateMainStartAgentTest() {
         gPlayState->transitionTrigger != TRANS_TRIGGER_OFF) {
         return;
     }
+    if (sDeferredButtons != 0 && sInputFramesLeft == sDeferredAtFramesLeft) {
+        sInputButtons |= sDeferredButtons;
+        sInputPressPending = true;
+        sDeferredButtons = 0;
+    }
     Input* input = &gPlayState->state.input[0];
     input->cur.stick_x = sInputStickX;
     input->cur.stick_y = sInputStickY;
@@ -462,15 +476,21 @@ void CancelInput(const char* reason) {
     if (sInputFramesLeft > 0) {
         sInputFramesLeft = 0;
         sInputPressPending = false;
+        sDeferredButtons = 0;
         WriteMarker(std::string("input_done reason=") + reason);
     }
 }
 
-void StartInput(int32_t frames, int8_t stickX, int8_t stickY, uint16_t buttons) {
+void StartInput(int32_t frames, int8_t stickX, int8_t stickY, uint16_t buttons, uint16_t deferredButtons = 0,
+                int32_t deferredAtFrame = 0) {
     sInputStickX = stickX;
     sInputStickY = stickY;
     sInputButtons = buttons;
     sInputPressPending = buttons != 0;
+    // deferredAtFrame is 1-based from the start of the injection; convert to the frames-left
+    // value OnGameStateMainStart counts down through.
+    sDeferredButtons = deferredButtons;
+    sDeferredAtFramesLeft = frames - (deferredAtFrame - 1);
     sInputFramesLeft = frames;
 }
 
@@ -675,10 +695,33 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         }
         sx = std::clamp(sx, -85, 85);
         sy = std::clamp(sy, -85, 85);
-        StartInput(frames, static_cast<int8_t>(sx), static_cast<int8_t>(sy), 0);
+        // Optional mid-walk press: [buttons] [at_frame]. The buttons land with a fresh press edge on
+        // the at_frame-th injected frame (1-based, default 1) and stay held to the end of the walk -
+        // "walk 80 0 80 A 40" is a roll at full run speed, which sequential walk-then-press cannot do.
+        uint16_t deferredMask = 0;
+        int32_t deferredAt = 1;
+        if (args.size() >= 6) {
+            if (!ParseButtons(args[5], &deferredMask)) {
+                if (output) {
+                    *output += "unknown button; use A,B,Z,R,L,START,DUP,DDOWN,DLEFT,DRIGHT,CUP,CDOWN,CLEFT,CRIGHT";
+                }
+                return 1;
+            }
+            if (!ParseIntArg(args, 6, 1, &deferredAt) || deferredAt < 1 || deferredAt > frames) {
+                if (output) {
+                    *output += "walk press frame must be 1..frames";
+                }
+                return 1;
+            }
+        }
+        StartInput(frames, static_cast<int8_t>(sx), static_cast<int8_t>(sy), 0, deferredMask, deferredAt);
         if (output) {
             *output += "walking " + std::to_string(frames) + " frames, stick " + std::to_string(sx) + "," +
-                       std::to_string(sy) + "; wait for input_done";
+                       std::to_string(sy);
+            if (deferredMask != 0) {
+                *output += ", pressing " + args[5] + " at frame " + std::to_string(deferredAt);
+            }
+            *output += "; wait for input_done";
         }
         return 0;
     }
@@ -766,7 +809,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     }
     if (output) {
         *output +=
-            "usage: agenttest perf <ticks> | state | goto <x> <y> <z> [yaw] | walk <frames> [stick_x] [stick_y] | "
+            "usage: agenttest perf <ticks> | state | goto <x> <y> <z> [yaw] | "
+            "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | "
             "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | mark <text>";
     }
     return 1;
@@ -786,7 +830,8 @@ void RegisterAgentTest() {
         console->AddCommand(
             "agenttest",
             { AgentTestCommand,
-              "Agent test loop: perf <ticks> | state | goto <x> <y> <z> [yaw] | walk <frames> [stick_x] [stick_y] | "
+              "Agent test loop: perf <ticks> | state | goto <x> <y> <z> [yaw] | "
+              "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | "
               "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | mark <text>. "
               "walk/press inject controller 1 for N frames and end with an input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });
