@@ -14,20 +14,20 @@ struct DynaPolyActor;
 // vertex ceiling from 8,192 to whatever CollisionHeader.numVertices can count - u16, so 65,535.
 // The OTR/N64 on-disk format still packs at 13 bits and no scene data was migrated:
 // CollisionHeaderFactory converts to this layout at load, which is the only place the two meet.
-#define COLPOLY_VTX_INDEX_SHIFT 29
-#define COLPOLY_VTX_INDEX_MASK ((1U << COLPOLY_VTX_INDEX_SHIFT) - 1U)
-#define COLPOLY_VTX_FLAGS_MASK (7U << COLPOLY_VTX_INDEX_SHIFT)
+#define COLPOLY_VTX_INDEX_BITS 29
+#define COLPOLY_VTX_INDEX_MASK ((1U << COLPOLY_VTX_INDEX_BITS) - 1U)
+#define COLPOLY_VTX_FLAGS_MASK (7U << COLPOLY_VTX_INDEX_BITS)
 
 // The packed on-disk layout, as a property of the file format rather than of the engine.
-#define COLPOLY_VTX_INDEX_SHIFT_PACKED 13
-#define COLPOLY_VTX_INDEX_MASK_PACKED ((1U << COLPOLY_VTX_INDEX_SHIFT_PACKED) - 1U)
+#define COLPOLY_VTX_INDEX_BITS_PACKED 13
+#define COLPOLY_VTX_INDEX_MASK_PACKED ((1U << COLPOLY_VTX_INDEX_BITS_PACKED) - 1U)
 
-#define COLPOLY_VIA_FLAG_TEST(vIA, flags) ((vIA) & (((u32)(flags) & 7) << COLPOLY_VTX_INDEX_SHIFT))
+#define COLPOLY_VIA_FLAG_TEST(vIA, flags) ((vIA) & (((u32)(flags) & 7) << COLPOLY_VTX_INDEX_BITS))
 #define COLPOLY_VTX_INDEX(vI) ((vI)&COLPOLY_VTX_INDEX_MASK)
 // Pack a vertex id with its exclusion flags into one flags_vIA/flags_vIB field. Used by the
 // compiled-in custom scenes' collision C, which the grid tool and terrain emitter write; it used
 // to be duplicated per scene folder, which is how the 13-bit assumption got missed twice.
-#define COLPOLY_VTX(vI, flags) ((((u32)(flags) & 7) << COLPOLY_VTX_INDEX_SHIFT) | ((u32)(vI) & COLPOLY_VTX_INDEX_MASK))
+#define COLPOLY_VTX(vI, flags) ((((u32)(flags) & 7) << COLPOLY_VTX_INDEX_BITS) | ((u32)(vI) & COLPOLY_VTX_INDEX_MASK))
 
 #define DYNAPOLY_INVALIDATE_LOOKUP (1 << 0)
 

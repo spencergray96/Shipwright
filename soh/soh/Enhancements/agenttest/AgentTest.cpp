@@ -345,14 +345,25 @@ void EmitPerf() {
     const double tickAvg = sTickSamples > 0 ? sTickSumMs / sTickSamples : 0.0;
     // Static-collision node table occupancy: how many SSNodes this scene's lookup build consumed
     // out of the budget BgCheck_Allocate derived. The measurement behind the node ceiling work
-    // (sturdy-bassoon#22) - both numbers are fixed for the life of a scene load, so any perf line
-    // carries them.
+    // (sturdy-bassoon#22); fixed for the life of a scene load, so any perf line carries it.
     const SSNodeList& nodes = gPlayState->colCtx.polyNodes;
+
+    // Zelda heap free/total, in KB. This is what BgCheck's tables actually compete with: Play_Init
+    // carves them out of the two-headed arena first and then hands the *entire* remainder to
+    // ZeldaArena_Init (z_play.c), so THA_GetSize is 0 from then on and there is no "arena
+    // headroom" to read. Growing collision does not hit an arena wall - it shrinks the heap that
+    // actors and objects allocate from, which is the number worth watching.
+    u32 heapMaxFree;
+    u32 heapFree;
+    u32 heapAlloc;
+    ZeldaArena_GetSizes(&heapMaxFree, &heapFree, &heapAlloc);
     char buf[224];
     std::snprintf(buf, sizeof(buf),
-                  "perf fps=%.1f ms=%.2f tick_ms=%.2f tick_max_ms=%.2f mem_mb=%.0f nodes=%u/%u scene=%s frame=%u",
+                  "perf fps=%.1f ms=%.2f tick_ms=%.2f tick_max_ms=%.2f mem_mb=%.0f nodes=%u/%u "
+                  "heap_kb=%u/%u scene=%s frame=%u",
                   fps, ms, tickAvg, sTickMaxMs, ResidentMemoryMb(), nodes.count, nodes.max,
-                  Hex(gPlayState->sceneNum).c_str(), gPlayState->state.frames);
+                  heapFree / 1024, (heapFree + heapAlloc) / 1024, Hex(gPlayState->sceneNum).c_str(),
+                  gPlayState->state.frames);
     WriteMarker(buf);
     sTickSumMs = 0.0;
     sTickMaxMs = 0.0;

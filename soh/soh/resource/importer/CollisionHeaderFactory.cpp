@@ -26,7 +26,7 @@ namespace SOH {
 // scene data unmigrated. Only vIA and vIB carry flags; vIC is a plain id in all 16 bits and is
 // widened by the assignment alone.
 static u32 UnpackVtx(uint16_t packed) {
-    return COLPOLY_VTX(packed & COLPOLY_VTX_INDEX_MASK_PACKED, packed >> COLPOLY_VTX_INDEX_SHIFT_PACKED);
+    return COLPOLY_VTX(packed & COLPOLY_VTX_INDEX_MASK_PACKED, packed >> COLPOLY_VTX_INDEX_BITS_PACKED);
 }
 std::shared_ptr<Ship::IResource>
 ResourceFactoryBinaryCollisionHeaderV0::ReadResource(std::shared_ptr<Ship::File> file,

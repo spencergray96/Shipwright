@@ -29,6 +29,10 @@
 #define COLPOLY_IGNORE_ENTITY (1 << 1)
 #define COLPOLY_IGNORE_PROJECTILES (1 << 2)
 
+// flags_vIB carries its own flag field in the same three bits above the vertex id that vIA uses
+// for the exclusion flags above. Only this one bit is defined.
+#define COLPOLY_VIB_CONVEYOR (1 << 0)
+
 // SurfaceType_GetWallFlags, SurfaceType wall types
 s32 D_80119D90[WALL_TYPE_MAX] = {
     0,                                  // WALL_TYPE_0
@@ -1589,7 +1593,7 @@ void BgCheck_Allocate(CollisionContext* colCtx, PlayState* play, CollisionHeader
     }
     colCtx->lookupTbl = THA_AllocEndAlign(
         &play->state.tha,
-        colCtx->subdivAmount.x * sizeof(StaticLookup) * colCtx->subdivAmount.y * colCtx->subdivAmount.z, ~1);
+        colCtx->subdivAmount.x * sizeof(StaticLookup) * colCtx->subdivAmount.y * colCtx->subdivAmount.z, ~3);
     if (colCtx->lookupTbl == NULL) {
         LOG_HUNGUP_THREAD();
     }
@@ -1632,8 +1636,10 @@ void BgCheck_Allocate(CollisionContext* colCtx, PlayState* play, CollisionHeader
               colCtx->dyna.polyListMax * sizeof(CollisionPoly) + colCtx->dyna.vtxListMax * sizeof(Vec3s) +
               sizeof(CollisionContext);
     if (customNodeListMax > 0) {
-        // tblMax is set without checking if customNodeListMax will result in a memory overflow
-        // this is a non-issue as long as sceneSubdivisionList.nodeListMax is -1
+        // tblMax is set without checking if customNodeListMax will result in a memory overflow.
+        // SCENE_TERRAIN_F2P_GREYBOX is the first entry to use this path, so any nodeListMax set in
+        // sceneSubdivisionList is only as safe as the measurement behind it - read the agent-test
+        // perf marker's nodes=count/max after changing one.
         tblMax = customNodeListMax;
     } else {
         if (colCtx->memSize < memSize) {
@@ -2594,7 +2600,7 @@ void DynaPoly_NullPolyList(CollisionPoly** polyList) {
  * Allocate dyna.polyList
  */
 void DynaPoly_AllocPolyList(PlayState* play, CollisionPoly** polyList, s32 numPolys) {
-    *polyList = THA_AllocEndAlign(&play->state.tha, numPolys * sizeof(CollisionPoly), -2);
+    *polyList = THA_AllocEndAlign(&play->state.tha, numPolys * sizeof(CollisionPoly), -4);
     assert(*polyList != NULL);
 }
 
@@ -3049,7 +3055,7 @@ f32 BgCheck_RaycastFloorDynaList(DynaRaycast* dynaRaycast, u32 listType) {
     SSNode* curNode;
     f32 result;
     f32 yIntersect;
-    s16 id;
+    s32 id;
 
     result = dynaRaycast->yIntersect;
     if (dynaRaycast->ssList->head == SS_NULL) {
@@ -4176,9 +4182,8 @@ s32 SurfaceType_IsConveyor(CollisionContext* colCtx, CollisionPoly* poly, s32 bg
     if (BgCheck_GetCollisionHeader(colCtx, bgId) == NULL) {
         return true;
     }
-    // vIB's flag field holds the conveyor bit where vIA's holds the exclusion flags; same three
-    // bits above the vertex id, so the same macro places it.
-    flags = COLPOLY_VIA_FLAG_TEST(poly->flags_vIB, 1);
+    // Same three bits above the vertex id as vIA's exclusion flags, so the same macro places it.
+    flags = COLPOLY_VIA_FLAG_TEST(poly->flags_vIB, COLPOLY_VIB_CONVEYOR);
     return !!flags;
 }
 
