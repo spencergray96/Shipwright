@@ -16,4 +16,5 @@
 #include "../lumbridge_castle/CustomLumbridgeCastleScene.h" // project 5a0e0bf1-7f77-4b12-8787-010aadfaf3d9 name lumbridge_castle
 #include "../terrain_f2p_greybox/CustomTerrainF2pGreyboxScene.h" // terrain-bake terrain_f2p_greybox
 #include "../ledge_hop_retest/CustomLedgeHopRetestScene.h" // project c9b3bb46-990f-4554-ba9f-8d36ed226544 name ledge_hop_retest
+#include "../terrain_f2p_greybox_merged/CustomTerrainF2pGreyboxMergedScene.h" // terrain-bake terrain_f2p_greybox_merged
 // END GRID TOOL EXPORTS
