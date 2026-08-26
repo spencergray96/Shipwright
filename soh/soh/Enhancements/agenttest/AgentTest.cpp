@@ -343,10 +343,16 @@ void EmitPerf() {
     const float fps = ImGui::GetIO().Framerate;
     const float ms = fps > 0.0f ? 1000.0f / fps : 0.0f;
     const double tickAvg = sTickSamples > 0 ? sTickSumMs / sTickSamples : 0.0;
-    char buf[192];
-    std::snprintf(buf, sizeof(buf), "perf fps=%.1f ms=%.2f tick_ms=%.2f tick_max_ms=%.2f mem_mb=%.0f scene=%s frame=%u",
-                  fps, ms, tickAvg, sTickMaxMs, ResidentMemoryMb(), Hex(gPlayState->sceneNum).c_str(),
-                  gPlayState->state.frames);
+    // Static-collision node table occupancy: how many SSNodes this scene's lookup build consumed
+    // out of the budget BgCheck_Allocate derived. The measurement behind the node ceiling work
+    // (sturdy-bassoon#22) - both numbers are fixed for the life of a scene load, so any perf line
+    // carries them.
+    const SSNodeList& nodes = gPlayState->colCtx.polyNodes;
+    char buf[224];
+    std::snprintf(buf, sizeof(buf),
+                  "perf fps=%.1f ms=%.2f tick_ms=%.2f tick_max_ms=%.2f mem_mb=%.0f nodes=%u/%u scene=%s frame=%u",
+                  fps, ms, tickAvg, sTickMaxMs, ResidentMemoryMb(), nodes.count, nodes.max,
+                  Hex(gPlayState->sceneNum).c_str(), gPlayState->state.frames);
     WriteMarker(buf);
     sTickSumMs = 0.0;
     sTickMaxMs = 0.0;
