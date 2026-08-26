@@ -8,22 +8,25 @@
 
 namespace SOH {
 
+// Must stay layout-identical to CollisionPoly in soh/include/z64bgcheck.h: ResourceMgr_LoadColByName
+// casts a CollisionHeaderData* straight to the engine's CollisionHeader*, so the engine reads the
+// polys this factory writes as if they were its own. CollisionHeaderFactory.cpp static_asserts the
+// two against each other; see z64bgcheck.h for what the packed vertex fields mean.
 typedef struct {
-    /* 0x00 */ u16 type;
+    u16 type;
     union {
-        u16 vtxData[3];
+        u32 vtxData[3];
         struct {
-            /* 0x02 */ u16 flags_vIA; // 0xE000 is poly exclusion flags (xpFlags), 0x1FFF is vtxId
-            /* 0x04 */ u16 flags_vIB; // 0xE000 is flags, 0x1FFF is vtxId
-                                      // 0x2000 = poly IsConveyor surface
-            /* 0x06 */ u16 vIC;
+            u32 flags_vIA; // high 3 bits are poly exclusion flags (xpFlags), low 29 are the vtxId
+            u32 flags_vIB; // same layout; the lowest flag bit marks an IsConveyor surface
+            u32 vIC;
         };
     };
-    /* 0x08 */ Vec3s normal; // Unit normal vector
-                             // Value ranges from -0x7FFF to 0x7FFF, representing -1.0 to 1.0; 0x8000 is invalid
+    Vec3s normal; // Unit normal vector
+                  // Value ranges from -0x7FFF to 0x7FFF, representing -1.0 to 1.0; 0x8000 is invalid
 
-    /* 0x0E */ s16 dist; // Plane distance from origin along the normal
-} CollisionPoly;         // size = 0x10
+    s16 dist; // Plane distance from origin along the normal
+} CollisionPoly;
 
 typedef struct {
     /* 0x00 */ s16 xMin;

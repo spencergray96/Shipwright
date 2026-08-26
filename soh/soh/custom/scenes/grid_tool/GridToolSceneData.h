@@ -10,8 +10,9 @@ typedef PolygonDlist RoomShapeDListsEntry;
 #define ROOM_SHAPE_TYPE_NORMAL 0
 
 // Macros used by Fast64-style collision output that are not in Shipwright public headers.
+// COLPOLY_VTX itself lives in z64bgcheck.h (via global.h above): it encodes the engine's vertex-id
+// bit layout, so a copy here would silently disagree with the engine the moment that widens.
 #define COLPOLY_IGNORE_NONE 0
-#define COLPOLY_VTX(vI, flags) ((((flags) & 7) << 13) | ((vI) & 0x1FFF))
 // SurfaceType.data[0]: wallType[3:0], floorType[7:4], sfxEffect[11:8], exitIdx[20:16], camIdx[31:24]
 #define SURFACETYPE0(wallType, floorType, sfxEffect, exitIdx, camIdx, f, g, h) \
     (((wallType) & 0xF) | (((floorType) & 0xF) << 4) | (((sfxEffect) & 0xF) << 8) | \

@@ -8,8 +8,26 @@ struct DynaPolyActor;
 #define COLPOLY_NORMAL_FRAC (1.0f / SHT_MAX)
 #define COLPOLY_SNORMAL(x) ((s16)((x) * SHT_MAX))
 #define COLPOLY_GET_NORMAL(n) ((n)*COLPOLY_NORMAL_FRAC)
-#define COLPOLY_VIA_FLAG_TEST(vIA, flags) ((vIA) & (((flags)&7) << 13))
-#define COLPOLY_VTX_INDEX(vI) ((vI)&0x1FFF)
+// A collision poly stores each of its three vertex ids packed together with the poly's three
+// exclusion flags (xpFlags), flags in the high bits. Widened from the N64's 3 flag bits over a
+// 13-bit id to the same 3 flag bits over a 29-bit id (sturdy-bassoon#22), lifting the per-mesh
+// vertex ceiling from 8,192 to whatever CollisionHeader.numVertices can count - u16, so 65,535.
+// The OTR/N64 on-disk format still packs at 13 bits and no scene data was migrated:
+// CollisionHeaderFactory converts to this layout at load, which is the only place the two meet.
+#define COLPOLY_VTX_INDEX_SHIFT 29
+#define COLPOLY_VTX_INDEX_MASK ((1U << COLPOLY_VTX_INDEX_SHIFT) - 1U)
+#define COLPOLY_VTX_FLAGS_MASK (7U << COLPOLY_VTX_INDEX_SHIFT)
+
+// The packed on-disk layout, as a property of the file format rather than of the engine.
+#define COLPOLY_VTX_INDEX_SHIFT_PACKED 13
+#define COLPOLY_VTX_INDEX_MASK_PACKED ((1U << COLPOLY_VTX_INDEX_SHIFT_PACKED) - 1U)
+
+#define COLPOLY_VIA_FLAG_TEST(vIA, flags) ((vIA) & (((u32)(flags) & 7) << COLPOLY_VTX_INDEX_SHIFT))
+#define COLPOLY_VTX_INDEX(vI) ((vI)&COLPOLY_VTX_INDEX_MASK)
+// Pack a vertex id with its exclusion flags into one flags_vIA/flags_vIB field. Used by the
+// compiled-in custom scenes' collision C, which the grid tool and terrain emitter write; it used
+// to be duplicated per scene folder, which is how the 13-bit assumption got missed twice.
+#define COLPOLY_VTX(vI, flags) ((((u32)(flags) & 7) << COLPOLY_VTX_INDEX_SHIFT) | ((u32)(vI) & COLPOLY_VTX_INDEX_MASK))
 
 #define DYNAPOLY_INVALIDATE_LOOKUP (1 << 0)
 
@@ -34,22 +52,24 @@ typedef struct {
     Vec3f pos;
 } ScaleRotPos;
 
+// Layout duplicated as SOH::CollisionPoly in soh/resource/type/CollisionHeader.h, because
+// ResourceMgr_LoadColByName casts the resource's data straight to a CollisionHeader*. The two are
+// tied together by static_asserts in CollisionHeaderFactory.cpp - change both or neither.
 typedef struct {
-    /* 0x00 */ u16 type;
+    u16 type;
     union {
-        u16 vtxData[3];
+        u32 vtxData[3];
         struct {
-            /* 0x02 */ u16 flags_vIA; // 0xE000 is poly exclusion flags (xpFlags), 0x1FFF is vtxId
-            /* 0x04 */ u16 flags_vIB; // 0xE000 is flags, 0x1FFF is vtxId
-                                      // 0x2000 = poly IsConveyor surface
-            /* 0x06 */ u16 vIC;
+            u32 flags_vIA; // high 3 bits are poly exclusion flags (xpFlags), low 29 are the vtxId
+            u32 flags_vIB; // same layout; the lowest flag bit marks an IsConveyor surface
+            u32 vIC;
         };
     };
-    /* 0x08 */ Vec3s normal; // Unit normal vector
-                             // Value ranges from -0x7FFF to 0x7FFF, representing -1.0 to 1.0; 0x8000 is invalid
+    Vec3s normal; // Unit normal vector
+                  // Value ranges from -0x7FFF to 0x7FFF, representing -1.0 to 1.0; 0x8000 is invalid
 
-    /* 0x0E */ s16 dist; // Plane distance from origin along the normal
-} CollisionPoly; // size = 0x10
+    s16 dist; // Plane distance from origin along the normal
+} CollisionPoly;
 
 typedef struct {
     /* 0x00 */ u16 cameraSType;
@@ -151,21 +171,26 @@ typedef struct {
     size_t cameraDataListLen; // OTRTODO: Added to allow for bounds checking the cameraDataList.
 } CollisionHeader; // original name: BGDataInfo
 
+// The static-collision index types are widened from the N64's u16/s16 (sturdy-bassoon#22): a
+// node index is a u32 and a poly id an s32, so a single scene is no longer capped at 65,535
+// nodes or 32,768 polys. Nothing serializes these - they are rebuilt on every scene load - so
+// there is no data-format consequence, and the byte offsets that documented the N64 layout no
+// longer describe these structs.
 typedef struct {
-    s16 polyId;
-    u16 next; // next SSNode index
+    s32 polyId;
+    u32 next; // next SSNode index
 } SSNode;
 
 typedef struct {
-    u16 head; // first SSNode index
+    u32 head; // first SSNode index
 } SSList;
 
 typedef struct {
-    /* 0x00 */ u16 max;          // original name: short_slist_node_size
-    /* 0x02 */ u16 count;        // original name: short_slist_node_last_index
-    /* 0x04 */ SSNode* tbl;      // original name: short_slist_node_tbl
-    /* 0x08 */ u8* polyCheckTbl; // points to an array of bytes, one per static poly. Zero initialized when starting a
-                                 // bg check, and set to 1 if that poly has already been tested.
+    u32 max;          // original name: short_slist_node_size
+    u32 count;        // original name: short_slist_node_last_index
+    SSNode* tbl;      // original name: short_slist_node_tbl
+    u8* polyCheckTbl; // points to an array of bytes, one per static poly. Zero initialized when starting a
+                      // bg check, and set to 1 if that poly has already been tested.
 } SSNodeList;
 
 typedef struct {

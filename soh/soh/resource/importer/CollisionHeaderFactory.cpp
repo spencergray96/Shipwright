@@ -3,7 +3,31 @@
 #include "spdlog/spdlog.h"
 #include <tinyxml2.h>
 
+extern "C" {
+#include "z64.h"
+}
+
+// SOH::CollisionPoly is a hand-kept copy of the engine's CollisionPoly (z64bgcheck.h) because
+// ResourceMgr_LoadColByName casts between them. Nothing in the type system enforces that, so pin
+// it here, in the one file that knows both: a widening applied to only one of them stops the build
+// instead of producing polys the engine reads at the wrong offsets.
+static_assert(sizeof(SOH::CollisionPoly) == sizeof(::CollisionPoly));
+static_assert(offsetof(SOH::CollisionPoly, flags_vIA) == offsetof(::CollisionPoly, flags_vIA));
+static_assert(offsetof(SOH::CollisionPoly, flags_vIB) == offsetof(::CollisionPoly, flags_vIB));
+static_assert(offsetof(SOH::CollisionPoly, vIC) == offsetof(::CollisionPoly, vIC));
+static_assert(offsetof(SOH::CollisionPoly, normal) == offsetof(::CollisionPoly, normal));
+static_assert(offsetof(SOH::CollisionPoly, dist) == offsetof(::CollisionPoly, dist));
+
 namespace SOH {
+
+// The OTR/N64 collision format packs a poly's exclusion flags over a 13-bit vertex id in a u16.
+// The runtime fields are 32 bit with those flags moved to the top (sturdy-bassoon#22), so both
+// reader paths convert here - the only place the two layouts meet, which is what keeps vanilla
+// scene data unmigrated. Only vIA and vIB carry flags; vIC is a plain id in all 16 bits and is
+// widened by the assignment alone.
+static u32 UnpackVtx(uint16_t packed) {
+    return COLPOLY_VTX(packed & COLPOLY_VTX_INDEX_MASK_PACKED, packed >> COLPOLY_VTX_INDEX_SHIFT_PACKED);
+}
 std::shared_ptr<Ship::IResource>
 ResourceFactoryBinaryCollisionHeaderV0::ReadResource(std::shared_ptr<Ship::File> file,
                                                      std::shared_ptr<Ship::ResourceInitData> initData) {
@@ -40,8 +64,8 @@ ResourceFactoryBinaryCollisionHeaderV0::ReadResource(std::shared_ptr<Ship::File>
 
         polygon.type = reader->ReadUInt16();
 
-        polygon.flags_vIA = reader->ReadUInt16();
-        polygon.flags_vIB = reader->ReadUInt16();
+        polygon.flags_vIA = UnpackVtx(reader->ReadUInt16());
+        polygon.flags_vIB = UnpackVtx(reader->ReadUInt16());
         polygon.vIC = reader->ReadUInt16();
 
         polygon.normal.x = reader->ReadUInt16();
@@ -164,8 +188,8 @@ ResourceFactoryXMLCollisionHeaderV0::ReadResource(std::shared_ptr<Ship::File> fi
 
             polygon.type = child->UnsignedAttribute("Type");
 
-            polygon.flags_vIA = child->UnsignedAttribute("VertexA");
-            polygon.flags_vIB = child->UnsignedAttribute("VertexB");
+            polygon.flags_vIA = UnpackVtx(static_cast<uint16_t>(child->UnsignedAttribute("VertexA")));
+            polygon.flags_vIB = UnpackVtx(static_cast<uint16_t>(child->UnsignedAttribute("VertexB")));
             polygon.vIC = child->UnsignedAttribute("VertexC");
 
             polygon.normal.x = child->IntAttribute("NormalX");
