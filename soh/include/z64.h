@@ -1659,11 +1659,18 @@ typedef struct {
     /* 0x08 */ f32 morphFrames;
 } AnimationMinimalInfo; // size = 0xC
 
+// `scene` is an s16 rather than the N64's s8 (sturdy-bassoon#27). Vanilla has 0x6E scenes, so one
+// byte was ample; with custom scenes appended the table passed 0x7F and the next id, 0x80, read
+// back as -128. Nothing caught it - the entrance simply landed somewhere else, because a negative
+// id fails every `== SCENE_*` test in Play_Init including the custom-scene check, which then lets
+// sceneLayer offset the table lookup past its own end. gEntranceTable is built at compile time
+// from tables/entrance_table.h and nothing serialises this struct (saves store the entrance
+// *index*), so widening it has no format consequence.
 typedef struct {
-    /* 0x00 */ s8  scene;
-    /* 0x01 */ s8  spawn;
-    /* 0x02 */ u16 field;
-} EntranceInfo; // size = 0x4
+    /* 0x00 */ s16 scene;
+    /* 0x02 */ s8  spawn;
+    /* 0x04 */ u16 field;
+} EntranceInfo; // size = 0x6
 
 typedef struct {
     /* 0x00 */ void*     loadedRamAddr;
