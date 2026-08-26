@@ -53,7 +53,7 @@ static EntranceEntry sTerrainF2pGreyboxEntrances[] = {
 // mode 0 is PLAYER_START_MODE_NOTHING, which leaves Player's update/draw entirely inert), low
 // byte 0xFF = "no start bg-camera override" (we don't author per-scene camera data).
 static ActorEntry sTerrainF2pGreyboxPlayerSpawn = {
-    ACTOR_PLAYER, { -5810, 13, -2590 }, { 0, -32768, 0 }, 0xDFF
+    ACTOR_PLAYER, { -6640, 13, -2960 }, { 0, -32768, 0 }, 0xDFF
 };
 
 static RomFile sTerrainF2pGreyboxRoomList[] = {
