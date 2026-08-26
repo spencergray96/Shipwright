@@ -17,4 +17,5 @@
 #include "../terrain_f2p_greybox/CustomTerrainF2pGreyboxScene.h" // terrain-bake terrain_f2p_greybox
 #include "../ledge_hop_retest/CustomLedgeHopRetestScene.h" // project c9b3bb46-990f-4554-ba9f-8d36ed226544 name ledge_hop_retest
 #include "../terrain_f2p_greybox_merged/CustomTerrainF2pGreyboxMergedScene.h" // terrain-bake terrain_f2p_greybox_merged
+#include "../terrain_f2p_step2/CustomTerrainF2pStep2Scene.h" // terrain-bake terrain_f2p_step2
 // END GRID TOOL EXPORTS

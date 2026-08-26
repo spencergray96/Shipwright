@@ -18,4 +18,5 @@
     { SCENE_TERRAIN_F2P_GREYBOX, CustomTerrainF2pGreyboxScene_TrySpawn, CustomTerrainF2pGreyboxScene_InitRoom }, // terrain-bake terrain_f2p_greybox
     { SCENE_LEDGE_HOP_RETEST, CustomLedgeHopRetestScene_TrySpawn, CustomLedgeHopRetestScene_InitRoom }, // project c9b3bb46-990f-4554-ba9f-8d36ed226544 name ledge_hop_retest
     { SCENE_TERRAIN_F2P_GREYBOX_MERGED, CustomTerrainF2pGreyboxMergedScene_TrySpawn, CustomTerrainF2pGreyboxMergedScene_InitRoom }, // terrain-bake terrain_f2p_greybox_merged
+    { SCENE_TERRAIN_F2P_STEP2, CustomTerrainF2pStep2Scene_TrySpawn, CustomTerrainF2pStep2Scene_InitRoom }, // terrain-bake terrain_f2p_step2
 // END GRID TOOL EXPORTS

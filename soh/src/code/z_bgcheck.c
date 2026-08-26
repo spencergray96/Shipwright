@@ -1521,6 +1521,12 @@ void BgCheck_Allocate(CollisionContext* colCtx, PlayState* play, CollisionHeader
         // overflow check, so this number is sized against a measurement, not derived: see the
         // nodes= field on the agent-test perf marker. sturdy-bassoon#22.
         { SCENE_TERRAIN_F2P_GREYBOX, { 16, 1, 16 }, 70000 },
+        // The same 6x6 window sampled at step 2 instead of step 3: 73,816 collision polys, past
+        // what CollisionHeader's u16 counts could describe before sturdy-bassoon#27, and the scene
+        // that proves the widening. Same {16,1,16} shape as the greybox so the two are comparable;
+        // node_model.py puts it at 98,864 nodes, which is also past the 65,535 the *node index*
+        // capped at before #22 - both widenings are load-bearing here. 130,000 nodes is 1.04MB.
+        { SCENE_TERRAIN_F2P_STEP2, { 16, 1, 16 }, 130000 },
     };
     u32 tblMax;
     u32 memSize;
