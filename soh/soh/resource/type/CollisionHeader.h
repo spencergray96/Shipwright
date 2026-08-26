@@ -55,16 +55,20 @@ typedef struct {
     // 0x0800_0000 = wall damage
 } SurfaceType;
 
+// Must stay layout-identical to CollisionHeader in soh/include/z64bgcheck.h, for the same reason
+// CollisionPoly must: ResourceMgr_LoadColByName hands the engine a CollisionHeaderData* cast to a
+// CollisionHeader*, so a field widened on one side and not the other moves every field after it.
+// CollisionHeaderFactory.cpp static_asserts the two against each other.
 typedef struct {
     /* 0x00 */ Vec3s minBounds; // minimum coordinates of poly bounding box
     /* 0x06 */ Vec3s maxBounds; // maximum coordinates of poly bounding box
-    /* 0x0C */ u16 numVertices;
+    /* 0x0C */ u32 numVertices;
     /* 0x10 */ Vec3s* vtxList;
-    /* 0x14 */ u16 numPolygons;
+    /* 0x14 */ u32 numPolygons;
     /* 0x18 */ CollisionPoly* polyList;
     /* 0x1C */ SurfaceType* surfaceTypeList;
     /* 0x20 */ CamData* cameraDataList;
-    /* 0x24 */ u16 numWaterBoxes;
+    /* 0x24 */ u32 numWaterBoxes;
     /* 0x28 */ WaterBox* waterBoxes;
     size_t cameraDataListLen; // OTRTODO: Added to allow for bounds checking the cameraDataList.
 } CollisionHeaderData;        // original name: BGDataInfo

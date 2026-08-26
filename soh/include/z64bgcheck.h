@@ -11,7 +11,8 @@ struct DynaPolyActor;
 // A collision poly stores each of its three vertex ids packed together with the poly's three
 // exclusion flags (xpFlags), flags in the high bits. Widened from the N64's 3 flag bits over a
 // 13-bit id to the same 3 flag bits over a 29-bit id (sturdy-bassoon#22), lifting the per-mesh
-// vertex ceiling from 8,192 to whatever CollisionHeader.numVertices can count - u16, so 65,535.
+// vertex ceiling from 8,192 to whatever CollisionHeader.numVertices can count - a u32 since
+// sturdy-bassoon#27, so ~536 million ids and no count standing in their way.
 // The OTR/N64 on-disk format still packs at 13 bits and no scene data was migrated:
 // CollisionHeaderFactory converts to this layout at load, which is the only place the two meet.
 #define COLPOLY_VTX_INDEX_BITS 29
@@ -157,16 +158,27 @@ typedef struct {
     // 0x0800_0000 = wall damage
 } SurfaceType;
 
+// Layout duplicated as SOH::CollisionHeaderData in soh/resource/type/CollisionHeader.h for the
+// same reason CollisionPoly is - ResourceMgr_LoadColByName casts one to the other - and pinned by
+// the same static_asserts in CollisionHeaderFactory.cpp. Change both or neither.
+//
+// The three counts are u32 since sturdy-bassoon#27; they were the last u16s in static collision,
+// and after #22 widened the index types they were the only thing still capping a scene at 65,535
+// polys / vertices. Widening them costs nothing on either word size: each count sat in front of a
+// pointer it was already padded out to, so every byte offset below is unchanged and the struct is
+// the same size it was. The on-disk format never needed migrating either - the OTR reader has
+// always read all three with ReadInt32/ReadUInt32 and narrowed on assignment, so the bits were
+// already there.
 typedef struct {
     /* 0x00 */ Vec3s minBounds; // minimum coordinates of poly bounding box
     /* 0x06 */ Vec3s maxBounds; // maximum coordinates of poly bounding box
-    /* 0x0C */ u16 numVertices;
+    /* 0x0C */ u32 numVertices;
     /* 0x10 */ Vec3s* vtxList;
-    /* 0x14 */ u16 numPolygons;
+    /* 0x14 */ u32 numPolygons;
     /* 0x18 */ CollisionPoly* polyList;
     /* 0x1C */ SurfaceType* surfaceTypeList;
     /* 0x20 */ CamData* cameraDataList;
-    /* 0x24 */ u16 numWaterBoxes;
+    /* 0x24 */ u32 numWaterBoxes;
     /* 0x28 */ WaterBox* waterBoxes;
     size_t cameraDataListLen; // OTRTODO: Added to allow for bounds checking the cameraDataList.
 } CollisionHeader; // original name: BGDataInfo

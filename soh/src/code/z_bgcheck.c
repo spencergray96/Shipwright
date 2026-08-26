@@ -2818,27 +2818,31 @@ void DynaPoly_ExpandSRT(PlayState* play, DynaCollisionContext* dyna, s32 bgId, s
         return;
     }
 
-    if (!(dyna->polyListMax >= *polyStartIndex + pbgdata->numPolygons)) {
+    // Every mixed-sign expression below is written (s32) on purpose. numPolygons/numVertices became
+    // u32 in sturdy-bassoon#27, and a bare `s32 >= s32 + u32` makes the whole comparison unsigned -
+    // which is precisely the sign that these two overflow guards exist to check. An actor's
+    // collision header is a few hundred polys at most, so nothing here needs the extra range.
+    if (!(dyna->polyListMax >= *polyStartIndex + (s32)pbgdata->numPolygons)) {
         osSyncPrintf(VT_FGCOL(RED));
         // "do not use if %d exceeds %d"
         osSyncPrintf("DynaPolyInfo_expandSRT():polygon over %dが%dを越えるとダメ\n",
-                     *polyStartIndex + pbgdata->numPolygons, dyna->polyListMax);
+                     *polyStartIndex + (s32)pbgdata->numPolygons, dyna->polyListMax);
     }
 
-    if (!(dyna->vtxListMax >= *vtxStartIndex + pbgdata->numVertices)) {
+    if (!(dyna->vtxListMax >= *vtxStartIndex + (s32)pbgdata->numVertices)) {
         osSyncPrintf(VT_FGCOL(RED));
         // "do not use if %d exceeds %d"
         osSyncPrintf("DynaPolyInfo_expandSRT():vertex over %dが%dを越えるとダメ\n",
-                     *vtxStartIndex + pbgdata->numVertices, dyna->vtxListMax);
+                     *vtxStartIndex + (s32)pbgdata->numVertices, dyna->vtxListMax);
     }
 
-    assert(dyna->polyListMax >= *polyStartIndex + pbgdata->numPolygons);
-    assert(dyna->vtxListMax >= *vtxStartIndex + pbgdata->numVertices);
+    assert(dyna->polyListMax >= *polyStartIndex + (s32)pbgdata->numPolygons);
+    assert(dyna->vtxListMax >= *vtxStartIndex + (s32)pbgdata->numVertices);
 
     if (!(dyna->bitFlag & DYNAPOLY_INVALIDATE_LOOKUP) &&
         (BgActor_IsTransformUnchanged(&dyna->bgActors[bgId]) == true)) {
         s32 pi;
-        for (pi = *polyStartIndex; pi < *polyStartIndex + pbgdata->numPolygons; pi++) {
+        for (pi = *polyStartIndex; pi < *polyStartIndex + (s32)pbgdata->numPolygons; pi++) {
             CollisionPoly* poly = &dyna->polyList[pi];
             s16 normalY = poly->normal.y;
 
@@ -2869,7 +2873,7 @@ void DynaPoly_ExpandSRT(PlayState* play, DynaCollisionContext* dyna, s32 bgId, s
 
         numVtxInverse = 1.0f / pbgdata->numVertices;
         newCenterPoint.x = newCenterPoint.y = newCenterPoint.z = 0.0f;
-        for (i = 0; i < pbgdata->numVertices; i++) {
+        for (i = 0; i < (s32)pbgdata->numVertices; i++) {
             Vec3f vtx;
             Vec3f vtxT; // Vtx after mtx transform
             Math_Vec3s_ToVec3f(&vtx, &pbgdata->vtxList[i]);
@@ -2896,7 +2900,7 @@ void DynaPoly_ExpandSRT(PlayState* play, DynaCollisionContext* dyna, s32 bgId, s
         sphere->center.z = newCenterPoint.z;
         newRadiusSq = -100.0f;
 
-        for (i = 0; i < pbgdata->numVertices; i++) {
+        for (i = 0; i < (s32)pbgdata->numVertices; i++) {
             f32 radiusSq;
 
             newVtx.x = dyna->vtxList[*vtxStartIndex + i].x;
@@ -2910,7 +2914,7 @@ void DynaPoly_ExpandSRT(PlayState* play, DynaCollisionContext* dyna, s32 bgId, s
 
         sphere->radius = sqrtf(newRadiusSq) * 1.1f;
 
-        for (i = 0; i < pbgdata->numPolygons; i++) {
+        for (i = 0; i < (s32)pbgdata->numPolygons; i++) {
             CollisionPoly* newPoly = &dyna->polyList[*polyStartIndex + i];
             f32 newNormMagnitude;
 
@@ -4294,7 +4298,7 @@ s32 WaterBox_GetSurface2(PlayState* play, CollisionContext* colCtx, Vec3f* pos, 
         return -1;
     }
 
-    for (i = 0; i < colHeader->numWaterBoxes; i++) {
+    for (i = 0; i < (s32)colHeader->numWaterBoxes; i++) {
         waterBox = &colHeader->waterBoxes[i];
 
         room = WATERBOX_ROOM(waterBox->properties);

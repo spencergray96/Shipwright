@@ -75,7 +75,11 @@ void EffectSsGRipple_DrawRipple(PlayState* play, EffectSs* this, void* segment) 
 
     radius = this->rRadius * 0.0025f;
 
-    if ((this->rWaterBoxNum != -1) && (this->rWaterBoxNum < play->colCtx.colHeader->numWaterBoxes)) {
+    // rWaterBoxNum is WaterBox_GetSurface2's return: an index, or -1 for "no water box". The cast
+    // keeps the range test signed now that numWaterBoxes is a u32 (sturdy-bassoon#27) - without it
+    // the comparison converts a negative index to a huge unsigned one, and the != -1 guard in front
+    // would be the only thing standing between that and an out-of-bounds read.
+    if ((this->rWaterBoxNum != -1) && (this->rWaterBoxNum < (s32)play->colCtx.colHeader->numWaterBoxes)) {
         yPos = (this->rWaterBoxNum + play->colCtx.colHeader->waterBoxes)->ySurface;
     } else {
         yPos = this->pos.y;

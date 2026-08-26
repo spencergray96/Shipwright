@@ -2,21 +2,49 @@
 #include "soh/resource/type/CollisionHeader.h"
 #include "spdlog/spdlog.h"
 #include <tinyxml2.h>
+#include <type_traits>
 
 extern "C" {
 #include "z64.h"
 }
 
-// SOH::CollisionPoly is a hand-kept copy of the engine's CollisionPoly (z64bgcheck.h) because
-// ResourceMgr_LoadColByName casts between them. Nothing in the type system enforces that, so pin
-// it here, in the one file that knows both: a widening applied to only one of them stops the build
-// instead of producing polys the engine reads at the wrong offsets.
+// SOH::CollisionPoly and SOH::CollisionHeaderData are hand-kept copies of the engine's
+// CollisionPoly and CollisionHeader (z64bgcheck.h), because ResourceMgr_LoadColByName casts a
+// CollisionHeaderData* straight to a CollisionHeader*. Nothing in the type system enforces that,
+// so pin both here, in the one file that knows both sides: a widening applied to only one copy
+// stops the build instead of producing collision the engine reads at the wrong offsets.
 static_assert(sizeof(SOH::CollisionPoly) == sizeof(::CollisionPoly));
 static_assert(offsetof(SOH::CollisionPoly, flags_vIA) == offsetof(::CollisionPoly, flags_vIA));
 static_assert(offsetof(SOH::CollisionPoly, flags_vIB) == offsetof(::CollisionPoly, flags_vIB));
 static_assert(offsetof(SOH::CollisionPoly, vIC) == offsetof(::CollisionPoly, vIC));
 static_assert(offsetof(SOH::CollisionPoly, normal) == offsetof(::CollisionPoly, normal));
 static_assert(offsetof(SOH::CollisionPoly, dist) == offsetof(::CollisionPoly, dist));
+
+// The header itself, added when its counts were widened to u32 (sturdy-bassoon#27). Field types
+// are pinned as well as offsets: numVertices and numPolygons each sit in padding ahead of a
+// pointer, so narrowing one back to u16 would leave every offset below it correct and only the
+// count wrong - which no offset assert would catch.
+static_assert(sizeof(SOH::CollisionHeaderData) == sizeof(::CollisionHeader));
+static_assert(offsetof(SOH::CollisionHeaderData, minBounds) == offsetof(::CollisionHeader, minBounds));
+static_assert(offsetof(SOH::CollisionHeaderData, maxBounds) == offsetof(::CollisionHeader, maxBounds));
+static_assert(offsetof(SOH::CollisionHeaderData, numVertices) == offsetof(::CollisionHeader, numVertices));
+static_assert(offsetof(SOH::CollisionHeaderData, vtxList) == offsetof(::CollisionHeader, vtxList));
+static_assert(offsetof(SOH::CollisionHeaderData, numPolygons) == offsetof(::CollisionHeader, numPolygons));
+static_assert(offsetof(SOH::CollisionHeaderData, polyList) == offsetof(::CollisionHeader, polyList));
+static_assert(offsetof(SOH::CollisionHeaderData, surfaceTypeList) == offsetof(::CollisionHeader, surfaceTypeList));
+static_assert(offsetof(SOH::CollisionHeaderData, cameraDataList) == offsetof(::CollisionHeader, cameraDataList));
+static_assert(offsetof(SOH::CollisionHeaderData, numWaterBoxes) == offsetof(::CollisionHeader, numWaterBoxes));
+static_assert(offsetof(SOH::CollisionHeaderData, waterBoxes) == offsetof(::CollisionHeader, waterBoxes));
+static_assert(offsetof(SOH::CollisionHeaderData, cameraDataListLen) == offsetof(::CollisionHeader, cameraDataListLen));
+static_assert(std::is_same_v<decltype(SOH::CollisionHeaderData::numVertices), decltype(::CollisionHeader::numVertices)>);
+static_assert(std::is_same_v<decltype(SOH::CollisionHeaderData::numPolygons), decltype(::CollisionHeader::numPolygons)>);
+static_assert(
+    std::is_same_v<decltype(SOH::CollisionHeaderData::numWaterBoxes), decltype(::CollisionHeader::numWaterBoxes)>);
+// The same trap exists on the poly, whose three vertex ids sit inside a union that pads to the
+// same size at either width.
+static_assert(std::is_same_v<decltype(SOH::CollisionPoly::flags_vIA), decltype(::CollisionPoly::flags_vIA)>);
+static_assert(std::is_same_v<decltype(SOH::CollisionPoly::flags_vIB), decltype(::CollisionPoly::flags_vIB)>);
+static_assert(std::is_same_v<decltype(SOH::CollisionPoly::vIC), decltype(::CollisionPoly::vIC)>);
 
 namespace SOH {
 
@@ -48,7 +76,7 @@ ResourceFactoryBinaryCollisionHeaderV0::ReadResource(std::shared_ptr<Ship::File>
 
     collisionHeader->collisionHeaderData.numVertices = reader->ReadInt32();
     collisionHeader->vertices.reserve(collisionHeader->collisionHeaderData.numVertices);
-    for (int32_t i = 0; i < collisionHeader->collisionHeaderData.numVertices; i++) {
+    for (uint32_t i = 0; i < collisionHeader->collisionHeaderData.numVertices; i++) {
         Vec3s vtx;
         vtx.x = reader->ReadInt16();
         vtx.y = reader->ReadInt16();
@@ -133,7 +161,7 @@ ResourceFactoryBinaryCollisionHeaderV0::ReadResource(std::shared_ptr<Ship::File>
 
     collisionHeader->collisionHeaderData.numWaterBoxes = reader->ReadInt32();
     collisionHeader->waterBoxes.reserve(collisionHeader->collisionHeaderData.numWaterBoxes);
-    for (int32_t i = 0; i < collisionHeader->collisionHeaderData.numWaterBoxes; i++) {
+    for (uint32_t i = 0; i < collisionHeader->collisionHeaderData.numWaterBoxes; i++) {
         WaterBox waterBox;
         waterBox.xMin = reader->ReadInt16();
         waterBox.ySurface = reader->ReadInt16();
@@ -256,12 +284,14 @@ ResourceFactoryXMLCollisionHeaderV0::ReadResource(std::shared_ptr<Ship::File> fi
         }
     }
 
-    collisionHeader->collisionHeaderData.numVertices = static_cast<u16>(collisionHeader->vertices.size());
-    collisionHeader->collisionHeaderData.numPolygons = static_cast<u16>(collisionHeader->polygons.size());
+    // u32 rather than u16 since sturdy-bassoon#27: these three narrowed silently before, so an XML
+    // scene past 65,535 vertices or polys used to load with a wrapped count and no diagnostic.
+    collisionHeader->collisionHeaderData.numVertices = static_cast<u32>(collisionHeader->vertices.size());
+    collisionHeader->collisionHeaderData.numPolygons = static_cast<u32>(collisionHeader->polygons.size());
     collisionHeader->surfaceTypesCount = static_cast<uint32_t>(collisionHeader->surfaceTypes.size());
     collisionHeader->camDataCount = static_cast<uint32_t>(collisionHeader->camData.size());
     collisionHeader->camPosCount = static_cast<int32_t>(collisionHeader->camPosData.size());
-    collisionHeader->collisionHeaderData.numWaterBoxes = static_cast<u16>(collisionHeader->waterBoxes.size());
+    collisionHeader->collisionHeaderData.numWaterBoxes = static_cast<u32>(collisionHeader->waterBoxes.size());
 
     collisionHeader->collisionHeaderData.vtxList = collisionHeader->vertices.data();
     collisionHeader->collisionHeaderData.polyList = collisionHeader->polygons.data();

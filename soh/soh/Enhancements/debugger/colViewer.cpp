@@ -386,7 +386,9 @@ void DrawDynapoly(std::vector<Gfx>& dl, CollisionHeader* col, int32_t bgId) {
     // This saves several hundred commands in larger scenes
     bool previousPoly = false;
 
-    for (int i = 0; i < col->numPolygons; i++) {
+    // u32 to match CollisionHeader::numPolygons, widened in sturdy-bassoon#27. An int loop
+    // counter here compared clean but signed-vs-unsigned against the count.
+    for (uint32_t i = 0; i < col->numPolygons; i++) {
         CollisionPoly* poly = &col->polyList[i];
 
         if (SurfaceType_IsHookshotSurface(&gPlayState->colCtx, poly, bgId)) {
@@ -727,7 +729,7 @@ void DrawWaterboxList() {
     dl.push_back(gsDPSetPrimColor(0, 0, color.r, color.g, color.b, 255));
 
     CollisionHeader* col = gPlayState->colCtx.colHeader;
-    for (int32_t waterboxIndex = 0; waterboxIndex < col->numWaterBoxes; waterboxIndex++) {
+    for (uint32_t waterboxIndex = 0; waterboxIndex < col->numWaterBoxes; waterboxIndex++) {
         WaterBox* water = &col->waterBoxes[waterboxIndex];
         DrawWaterbox(dl, water);
     }
