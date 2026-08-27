@@ -1659,16 +1659,22 @@ typedef struct {
     /* 0x08 */ f32 morphFrames;
 } AnimationMinimalInfo; // size = 0xC
 
-// `scene` is an s16 rather than the N64's s8 (sturdy-bassoon#27). Vanilla has 0x6E scenes, so one
-// byte was ample; with custom scenes appended the table passed 0x7F and the next id, 0x80, read
-// back as -128. Nothing caught it - the entrance simply landed somewhere else, because a negative
-// id fails every `== SCENE_*` test in Play_Init including the custom-scene check, which then lets
-// sceneLayer offset the table lookup past its own end. gEntranceTable is built at compile time
-// from tables/entrance_table.h and nothing serialises this struct (saves store the entrance
-// *index*), so widening it has no format consequence.
+// Both `scene` and `spawn` are s16 rather than the N64's s8 (sturdy-bassoon#27, #28). Vanilla has
+// 0x6E scenes, so one byte was ample; with custom scenes appended the table passed 0x7F and the
+// next id, 0x80, read back as -128. Nothing caught it - the entrance simply landed somewhere else,
+// because a negative id fails every `== SCENE_*` test in Play_Init including the custom-scene
+// check, which then lets sceneLayer offset the table lookup past its own end. gEntranceTable is
+// built at compile time from tables/entrance_table.h and nothing serialises this struct (saves
+// store the entrance *index*), so widening either field has no format consequence - and `spawn`
+// was free, since widening `scene` had already opened the padding it needed.
+//
+// Widening `spawn` removes the truncation, not the ceiling: Play_SpawnScene hands it to
+// PlayState.curSpawn, a u8, which is what actually indexes setupEntranceList. So a spawn index
+// stops at 255, and tools/grid-scene-tool/server/tableRegistration.ts refuses one past that at
+// emit time. Every scene this project generates uses spawn 0.
 typedef struct {
     /* 0x00 */ s16 scene;
-    /* 0x02 */ s8  spawn;
+    /* 0x02 */ s16 spawn;
     /* 0x04 */ u16 field;
 } EntranceInfo; // size = 0x6
 

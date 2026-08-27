@@ -301,7 +301,11 @@ s16 Entrance_OverrideDynamicExit(s16 dynamicExitIndex) {
     return Grotto_OverrideSpecialEntrance(Entrance_GetOverride(dynamicExitList[dynamicExitIndex]));
 }
 
-u32 Entrance_SceneAndSpawnAre(u8 scene, u8 spawn) {
+// `scene` and `spawn` are s16 to match the EntranceInfo fields they are compared against, widened
+// in sturdy-bassoon#27 and #28. As u8s this was the same silent truncation one level over: a
+// caller passing a scene id past 255 would have matched the wrong entrance rather than none.
+// Every call site passes a vanilla SCENE_* constant, so nothing here changes today.
+u32 Entrance_SceneAndSpawnAre(s16 scene, s16 spawn) {
     s16 entranceIndex;
 
     // Adjust the entrance to account for the exact scene/spawn combination for child/adult and day/night
