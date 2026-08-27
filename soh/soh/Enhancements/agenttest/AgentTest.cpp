@@ -32,7 +32,9 @@
  *                                        time, avg and max over the interval; mem_mb = working set
  *   room_changed from=<n> to=<n> frame=<n>   the current room changed within a scene
  *   state scene=0x<hex> room=<n> entrance=0x<hex> pos=<x>,<y>,<z> yaw=<n> age=<adult|child> time=0x<hex>
- *         night=<0|1> frame=<n>
+ *         night=<0|1> frame=<n> name="<scene name>"
+ *                                        name is last and quoted because it is the only field that can
+ *                                        contain a space
  *   trace <pre|post> frame=<n> pos=... prev=... velY=... lin=... bg=0x<hex> floorH=... sf1..sf3=0x<hex>
  *         anim=0x<hex> trans=<n> rdown=<x>,<y>,<z> rdent=0x<hex>
  *                                        per-tick Player diagnostic while "agenttest trace" is active: position,
@@ -95,6 +97,7 @@
 #include <ship/Context.h>
 #include <ship/debug/Console.h>
 #include "soh/OTRGlobals.h"
+#include "soh/util.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/ShipInit.hpp"
@@ -640,14 +643,21 @@ void OnPlayerUpdateAgentTest() {
 // Requires InNormalPlay().
 std::string StateLine() {
     Player* player = GET_PLAYER(gPlayState);
-    char buf[256];
+    // The fixed fields run to about 130 characters, so this leaves ~250 for the scene name -
+    // several times the longest the scene table can produce. snprintf truncates rather than
+    // overflows either way; the headroom is so the name is not what gets truncated.
+    char buf[384];
+    // `name` last, and quoted, because it is the only field that can contain a space - so anything
+    // splitting the line on whitespace still gets every other field intact.
     std::snprintf(buf, sizeof(buf),
-                  "state scene=%s room=%d entrance=%s pos=%.1f,%.1f,%.1f yaw=%d age=%s time=%s night=%d frame=%u",
+                  "state scene=%s room=%d entrance=%s pos=%.1f,%.1f,%.1f yaw=%d age=%s time=%s night=%d frame=%u "
+                  "name=\"%s\"",
                   Hex(gPlayState->sceneNum).c_str(), gPlayState->roomCtx.curRoom.num,
                   Hex(gSaveContext.entranceIndex).c_str(), player->actor.world.pos.x, player->actor.world.pos.y,
                   player->actor.world.pos.z, player->actor.shape.rot.y,
                   gSaveContext.linkAge == LINK_AGE_CHILD ? "child" : "adult", Hex(gSaveContext.dayTime).c_str(),
-                  gSaveContext.nightFlag, gPlayState->state.frames);
+                  gSaveContext.nightFlag, gPlayState->state.frames,
+                  SohUtils::GetSceneName(gPlayState->sceneNum).c_str());
     return buf;
 }
 
