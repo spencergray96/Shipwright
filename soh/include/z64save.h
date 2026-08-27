@@ -3,11 +3,19 @@
 
 #include <libultraship/libultra.h>
 #include "z64math.h"
+// For SCENE_ID_MAX, which sizes `sceneFlags` below.
+#include "z64scene.h"
 #include "z64audio.h"
 #include "soh/Enhancements/randomizer/randomizerTypes.h"
 #include "soh/Enhancements/gameplaystats.h"
 #include "soh/Enhancements/randomizer/randomizer_entrance.h"
 #include "soh/Enhancements/boss-rush/BossRush.h"
+
+/** How many scenes `SaveContext.sceneFlags` has room for. One per scene, plus one because
+ *  SCENE_UNUSED_6E is #defined to SCENE_ID_MAX itself and is still reachable through
+ *  ENTR_UNUSED_6E - and never fewer than the N64's 124, so an older save's entries are never
+ *  dropped on load. sturdy-bassoon#28. */
+#define SAVED_SCENE_FLAG_COUNT ((SCENE_ID_MAX + 1) > 124 ? (SCENE_ID_MAX + 1) : 124)
 
 #define FULL_HEART_HEALTH 0x10
 #define STARTING_HEALTH (3 * FULL_HEART_HEALTH)
@@ -314,7 +322,18 @@ typedef struct {
     /* 0x0066 */ s16 savedSceneNum; // Upstream TODO: sceneId
     /* 0x0068 */ ItemEquips equips;
     /* 0x0074 */ Inventory inventory;
-    /* 0x00D4 */ SavedSceneFlags sceneFlags[124];
+    // Sized off the scene table rather than the N64's fixed 124 (sturdy-bassoon#28). This is
+    // indexed straight by `play->sceneNum` in Play_SaveSceneFlags and Actor_InitContext, with no
+    // bounds check anywhere, so 124 stopped covering the table the moment custom scenes pushed it
+    // past that - ids 0x7C..0x80 were reading and writing into `fw`, `gsFlags`, `highScores` and
+    // `eventChkInf` below.
+    //
+    // Growing it is safe for existing saves: SaveManager stores this as a JSON array and
+    // SaveManager::LoadArray default-constructs any entries a shorter, older file does not have.
+    // Shrinking it would not be - a save's later entries would be dropped on load - so
+    // SAVED_SCENE_FLAG_COUNT is floored at the original 124 and this can only ever grow.
+    // The `/* 0x... */` offsets from here down are the N64's and no longer describe this build.
+    /* 0x00D4 */ SavedSceneFlags sceneFlags[SAVED_SCENE_FLAG_COUNT];
     /* 0x0E64 */ FaroresWindData fw;
     /* 0x0E8C */ char unk_E8C[0x10];
     /* 0x0E9C */ s32 gsFlags[6];
