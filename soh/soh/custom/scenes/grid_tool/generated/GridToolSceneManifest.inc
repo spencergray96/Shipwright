@@ -21,4 +21,5 @@
     { SCENE_TERRAIN_F2P_STEP2, CustomTerrainF2pStep2Scene_TrySpawn, CustomTerrainF2pStep2Scene_InitRoom }, // terrain-bake terrain_f2p_step2
     { SCENE_TERRAIN_F2P_ROOMS_2X2, CustomTerrainF2pRooms2x2Scene_TrySpawn, CustomTerrainF2pRooms2x2Scene_InitRoom }, // fast64-terrain terrain_f2p_rooms_2x2
     { SCENE_TERRAIN_F2P_GREYBOX_BPY, CustomTerrainF2pGreyboxBpyScene_TrySpawn, CustomTerrainF2pGreyboxBpyScene_InitRoom }, // fast64-terrain terrain_f2p_greybox_bpy
+    { SCENE_TERRAIN_F2P_SETTLEMENT, CustomTerrainF2pSettlementScene_TrySpawn, CustomTerrainF2pSettlementScene_InitRoom }, // terrain-bake terrain_f2p_settlement
 // END GRID TOOL EXPORTS

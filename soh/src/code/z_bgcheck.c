@@ -1536,6 +1536,14 @@ void BgCheck_Allocate(CollisionContext* colCtx, PlayState* play, CollisionHeader
         // 46,000, and asserts in SSNodeList_GetNextNodeIdx during Play_SpawnScene with nothing
         // naming the subdivision shape as the cause.
         { SCENE_TERRAIN_F2P_GREYBOX_BPY, { 16, 1, 16 }, 70000 },
+        // Merged terrain with the 3-storey Lumbridge settlement composited in (sturdy-bassoon#26):
+        // 38,573 collision polys, of which 13,517 are the settlement. The emitter's dry run models
+        // ~56,500 nodes at this shape (node_model.py's rule over the real polys, settlement
+        // included - the rule that landed within 3% on the two scenes above); 80,000 leaves the
+        // margin a density fixture wants. Collapsed Y matters even more here than for bare
+        // terrain: a settlement is mostly tall thin wall polys, the exact shape that pays 4x for
+        // Y subdivisions. Read the real figure off the perf marker's nodes= once loaded.
+        { SCENE_TERRAIN_F2P_SETTLEMENT, { 16, 1, 16 }, 80000 },
     };
     u32 tblMax;
     u32 memSize;
