@@ -1,6 +1,7 @@
 #include "util.h"
 
 #include <string.h>
+#include <cctype>
 #include <vector>
 #include <algorithm>
 #include <array>
@@ -122,7 +123,7 @@ std::vector<std::string> sceneNames = {
     "Castle Hedge Maze (Early)",
     "Sasa Test",
     "Treasure Chest Room",
-    "Unknown",
+    "Test Level", // 0x6E, this fork's first custom scene - was vanilla's unused slot
 };
 
 std::vector<std::string> itemNamesEng = {
@@ -687,14 +688,90 @@ std::array<std::string, RA_MAX> rcareaPrefixes = {
     "Ganon's Castle",
 };
 
+// Every scene the table defines, named from its own SCENE_* enum. Unlike the hand-written
+// `sceneNames` at the top of this file, it is generated from tables/scene_table.h - so it is
+// exactly SCENE_ID_MAX long and cannot fall out of step with the scene list however many scenes get
+// appended. `sceneNames` stops at vanilla, so every custom scene lands past its end, which is what
+// sturdy-bassoon#31 is about.
+//
+// The generation is an "X macro", a C idiom with no real equivalent in JS/TS. `scene_table.h` is
+// not a header of declarations - it is 129 bare `DEFINE_SCENE(...)` calls with no definition of its
+// own. Whoever includes it defines that macro first and so decides what the file expands into: the
+// SceneID enum defines it to emit `enum,`, and here it is defined to emit `#enumName,` - the `#`
+// being the preprocessor's stringify operator, turning the token SCENE_DEKU_TREE into the string
+// "SCENE_DEKU_TREE". So the same one list of scenes generates the enum, the scene table and this,
+// and they cannot disagree. `#undef` after, because the definition would otherwise leak into
+// whatever includes this file next.
+#define DEFINE_SCENE(_0, _1, enumName, _3, _4, _5) #enumName,
+static const char* const sSceneEnumNames[] = {
+#include "tables/scene_table.h"
+};
+#undef DEFINE_SCENE
+
+// CrashHandlerExt.cpp builds the same table from the same macro rather than sharing this one, and
+// should keep doing so: it runs after the game has already crashed, where calling into a lazily
+// built std::vector - one allocation on first use, possibly of the memory that just went wrong -
+// is exactly what a crash handler must not do. Its copy is raw pointers and no allocation.
+
+// The whole point of generating it is that it tracks the scene table, so say so to the compiler.
+// Too many initialisers would already fail to build; too few would silently leave scenes unnamed,
+// which is the direction that actually bites.
+static_assert(std::size(sSceneEnumNames) == SCENE_ID_MAX,
+              "sSceneEnumNames must cover exactly the scenes in tables/scene_table.h");
+
+// "SCENE_LUMBRIDGE_CASTLE" -> "Lumbridge Castle". Not as good as a hand-written name, which is why
+// it is only the fallback, but it beats "invalid" and it is never stale. Built once, on first use.
+// Returning a reference to a function-local static is what lets callers hold `.c_str()` - see
+// GetSceneName's contract below; both it and `invalidString` outlive any caller.
+static const std::vector<std::string>& GeneratedSceneNames() {
+    static const std::vector<std::string> names = [] {
+        std::vector<std::string> out;
+        out.reserve(std::size(sSceneEnumNames));
+        for (const char* raw : sSceneEnumNames) {
+            std::string name = raw;
+            if (name.rfind("SCENE_", 0) == 0) {
+                name = name.substr(strlen("SCENE_"));
+            }
+            std::string pretty;
+            bool startOfWord = true;
+            for (char c : name) {
+                if (c == '_') {
+                    pretty += ' ';
+                    startOfWord = true;
+                    continue;
+                }
+                // A letter straight after a digit keeps its case, so SCENE_TERRAIN_F2P_GREYBOX
+                // comes out "Terrain F2P Greybox" rather than "F2p". Slug-shaped names like that
+                // are the norm for this fork's scenes, which are the only ones that reach here.
+                const bool afterDigit = !pretty.empty() && std::isdigit(static_cast<unsigned char>(pretty.back()));
+                pretty += (startOfWord || afterDigit)
+                              ? c
+                              : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                startOfWord = false;
+            }
+            out.push_back(pretty);
+        }
+        return out;
+    }();
+    return names;
+}
+
 const std::string& SohUtils::GetSceneName(int32_t scene) {
-    if (scene < 0 || static_cast<size_t>(scene) >= sceneNames.size()) {
+    // Out of range of the scene table itself is the only genuinely invalid case, and it is the only
+    // one that warns. It used to be anything past `sceneNames`, which meant every custom scene -
+    // enough to pop an assert dialog just for opening the save editor's scene dropdown, since that
+    // walks 0..SCENE_ID_MAX.
+    if (scene < 0 || static_cast<size_t>(scene) >= std::size(sSceneEnumNames)) {
         SPDLOG_WARN("Passed invalid scene id to SohUtils::GetSceneName: ({})", scene);
         assert(false);
         return invalidString;
     }
 
-    return sceneNames[scene];
+    // The hand-written name where there is one, the generated one otherwise.
+    if (static_cast<size_t>(scene) < sceneNames.size()) {
+        return sceneNames[scene];
+    }
+    return GeneratedSceneNames()[scene];
 }
 
 const std::string& SohUtils::GetItemName(int32_t item) {

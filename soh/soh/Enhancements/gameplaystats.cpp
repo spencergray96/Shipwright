@@ -432,8 +432,14 @@ const char* ResolveSceneID(int sceneID, int roomID) {
     } else if (sceneID == SCENE_WINDMILL_AND_DAMPES_GRAVE) {
         // Only the last room of Dampe's Grave (rm 6) is considered the windmill.
         return roomID == 6 ? "Windmill" : "Dampe's Grave";
-    } else if (sceneID < SCENE_ID_MAX) {
+    } else if (sceneID >= 0 && static_cast<size_t>(sceneID) < ARRAY_COUNT(sceneMappings)) {
         return sceneMappings[sceneID];
+    } else if (sceneID >= 0 && sceneID < SCENE_ID_MAX) {
+        // Past the hand-written list, which stops at vanilla - so every custom scene. The guard here
+        // used to be `sceneID < SCENE_ID_MAX` on its own, which admitted exactly these ids and then
+        // read off the end of `sceneMappings` for them (sturdy-bassoon#31). GetSceneName covers the
+        // whole scene table, falling back to a name generated from the table itself.
+        return SohUtils::GetSceneName(sceneID).c_str();
     }
 
     return "???";
@@ -601,7 +607,12 @@ void DrawGameplayStatsBreakdownTab() {
         } else {
             name = sceneName;
         }
-        strcpy(sceneTimestampDisplay[i].name, name.c_str());
+        // Bounded, because `name` is no longer only ever a short hand-written string: past the
+        // hand-written list it is a generated scene name, and with RoomBreakdown on it also
+        // carries a " Room N" suffix. An unbounded strcpy into a 40-byte field was one long
+        // scene name away from a smash.
+        SohUtils::CopyStringToCharArray(sceneTimestampDisplay[i].name, name,
+                                        ARRAY_COUNT(sceneTimestampDisplay[i].name));
         sceneTimestampDisplay[i].time = CVarGetInteger(CVAR_GAMEPLAY_STATS("RoomBreakdown"), 0)
                                             ? gSaveContext.ship.stats.sceneTimestamps[i].roomTime
                                             : gSaveContext.ship.stats.sceneTimestamps[i].sceneTime;
