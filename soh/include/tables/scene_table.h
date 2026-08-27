@@ -143,4 +143,6 @@
 /* 0x7E */ DEFINE_SCENE(ledge_hop_retest_scene, none, SCENE_LEDGE_HOP_RETEST, SDC_DEFAULT, 0, 0) // project c9b3bb46-990f-4554-ba9f-8d36ed226544 name ledge_hop_retest
 /* 0x7F */ DEFINE_SCENE(terrain_f2p_greybox_merged_scene, none, SCENE_TERRAIN_F2P_GREYBOX_MERGED, SDC_DEFAULT, 0, 0) // terrain-bake terrain_f2p_greybox_merged
 /* 0x80 */ DEFINE_SCENE(terrain_f2p_step2_scene, none, SCENE_TERRAIN_F2P_STEP2, SDC_DEFAULT, 0, 0) // terrain-bake terrain_f2p_step2
+/* 0x81 */ DEFINE_SCENE(terrain_f2p_rooms_2x2_scene, none, SCENE_TERRAIN_F2P_ROOMS_2X2, SDC_DEFAULT, 0, 0) // fast64-terrain terrain_f2p_rooms_2x2
+/* 0x82 */ DEFINE_SCENE(terrain_f2p_greybox_bpy_scene, none, SCENE_TERRAIN_F2P_GREYBOX_BPY, SDC_DEFAULT, 0, 0) // fast64-terrain terrain_f2p_greybox_bpy
 // END GRID TOOL EXPORTS

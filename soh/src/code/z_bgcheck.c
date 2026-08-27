@@ -1527,6 +1527,15 @@ void BgCheck_Allocate(CollisionContext* colCtx, PlayState* play, CollisionHeader
         // node_model.py puts it at 98,864 nodes, which is also past the 65,535 the *node index*
         // capped at before #22 - both widenings are load-bearing here. 130,000 nodes is 1.04MB.
         { SCENE_TERRAIN_F2P_STEP2, { 16, 1, 16 }, 130000 },
+        // The same step-3 6x6 window again, but built through Blender/Fast64 instead of written
+        // straight to C (sturdy-bassoon#5). Its collision is the same geometry to within a unit of
+        // rounding - 32,824 polys against the greybox's 32,856, and the same 16,697 vertices - so
+        // it gets the same shape and the same budget, and the two are directly comparable.
+        // It is also the scene that showed this list is a trap: without a row here it takes the
+        // default {16, 4, 16}, needs ~62,000 nodes in that shape against a derived budget near
+        // 46,000, and asserts in SSNodeList_GetNextNodeIdx during Play_SpawnScene with nothing
+        // naming the subdivision shape as the cause.
+        { SCENE_TERRAIN_F2P_GREYBOX_BPY, { 16, 1, 16 }, 70000 },
     };
     u32 tblMax;
     u32 memSize;

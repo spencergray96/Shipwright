@@ -18,4 +18,6 @@
 #include "../ledge_hop_retest/CustomLedgeHopRetestScene.h" // project c9b3bb46-990f-4554-ba9f-8d36ed226544 name ledge_hop_retest
 #include "../terrain_f2p_greybox_merged/CustomTerrainF2pGreyboxMergedScene.h" // terrain-bake terrain_f2p_greybox_merged
 #include "../terrain_f2p_step2/CustomTerrainF2pStep2Scene.h" // terrain-bake terrain_f2p_step2
+#include "../terrain_f2p_rooms_2x2/CustomTerrainF2pRooms2x2Scene.h" // fast64-terrain terrain_f2p_rooms_2x2
+#include "../terrain_f2p_greybox_bpy/CustomTerrainF2pGreyboxBpyScene.h" // fast64-terrain terrain_f2p_greybox_bpy
 // END GRID TOOL EXPORTS
