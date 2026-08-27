@@ -98,6 +98,10 @@
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/ShipInit.hpp"
+// For SaveManager::Instance, which `save` and `loadsave` drive directly. The free
+// `Save_SaveFile`/`Save_LoadFile` wrappers are declared here with C++ linkage but defined
+// `extern "C"`, so calling them from a .cpp asks the linker for a symbol that is not there.
+#include "soh/SaveManager.h"
 
 extern "C" {
 #include <z64.h>
@@ -573,6 +577,22 @@ bool ParseU16(const std::string& text, int32_t* value) {
     } catch (...) { return false; }
 }
 
+// Whole-string integer in 0..0xFFFFFFFF, decimal or 0x-prefixed hex. Same explicit-base reasoning
+// as ParseU16; wider because a scene flag word is 32 bits and tests want to write a recognisable
+// one like 0xDEADBEEF.
+bool ParseU32(const std::string& text, uint32_t* value) {
+    try {
+        const bool hex = text.size() > 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X');
+        size_t consumed = 0;
+        const unsigned long long parsed = std::stoull(hex ? text.substr(2) : text, &consumed, hex ? 16 : 10);
+        if (consumed != (hex ? text.size() - 2 : text.size()) || parsed > 0xFFFFFFFFull) {
+            return false;
+        }
+        *value = static_cast<uint32_t>(parsed);
+        return true;
+    } catch (...) { return false; }
+}
+
 bool ParseFloat(const std::string& text, float* value) {
     try {
         size_t consumed = 0;
@@ -816,6 +836,105 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         }
         return 0;
     }
+    // Reads or writes one scene's saved flag word. The point is `sceneFlags` itself: it is indexed
+    // straight by scene id with no bounds check anywhere in the engine, so it silently ran off its
+    // own end once custom scenes pushed the table past 124 entries (sturdy-bassoon#30). Nothing
+    // else can observe these - they are not console-readable and the only in-game way to move one
+    // is to open a chest - so a save round-trip cannot be tested without this.
+    if (args.size() >= 3 && args[1] == "sceneflag") {
+        uint32_t sceneId = 0;
+        if (!ParseU32(args[2], &sceneId) || sceneId >= ARRAY_COUNT(gSaveContext.sceneFlags)) {
+            if (output) {
+                *output += "sceneflag needs a scene id in 0.." +
+                           std::to_string(ARRAY_COUNT(gSaveContext.sceneFlags) - 1) + " (0x-hex ok)";
+            }
+            return 1;
+        }
+        SavedSceneFlags* flags = &gSaveContext.sceneFlags[sceneId];
+        if (args.size() >= 4) {
+            uint32_t value = 0;
+            if (!ParseU32(args[3], &value)) {
+                if (output) {
+                    *output += "sceneflag value must be in 0..0xFFFFFFFF (0x-hex ok)";
+                }
+                return 1;
+            }
+            flags->chest = value;
+            flags->swch = value;
+        }
+        char buf[128];
+        std::snprintf(buf, sizeof(buf), "sceneflag scene=0x%X chest=0x%08X swch=0x%08X slots=%d",
+                      sceneId, flags->chest, flags->swch,
+                      static_cast<int>(ARRAY_COUNT(gSaveContext.sceneFlags)));
+        WriteMarker(buf);
+        if (output) {
+            *output += buf;
+        }
+        return 0;
+    }
+    // Writes gSaveContext to Save/file<n+1>.sav. In normal play this only happens at a save point
+    // or an owl statue, neither of which an agent can reach - and a save that is never written
+    // cannot be shown to round-trip.
+    //
+    // The file number is explicit rather than defaulting to gSaveContext.fileNum, which the boot
+    // sequence leaves at 0xFF - and SaveManager::SaveSection returns silently for 0xFF and 0xFE
+    // (debug save and boss rush), so defaulting would make this a no-op that reports success.
+    //
+    // The range is the save menu's three slots. Anything higher writes the .sav fine and then
+    // asserts in SaveFileThreaded's InitMeta, which indexes `fileMetaInfo` - a
+    // std::array<SaveFileMetaInfo, MaxFiles> - by the same number. Refused here so the message says
+    // so, rather than surfacing as "array subscript out of range" from inside <array>.
+    //
+    // The write is threaded, so the file appears shortly after this returns rather than during it.
+    if (args.size() >= 3 && args[1] == "save") {
+        uint32_t fileNum = 0;
+        if (!ParseU32(args[2], &fileNum) || fileNum >= SaveManager::MaxFiles) {
+            if (output) {
+                *output += "save needs a file number in 0.." + std::to_string(SaveManager::MaxFiles - 1) +
+                           " - the save menu's slots, and what SaveManager::fileMetaInfo is sized for. "
+                           "File n is written to Save/file<n+1>.sav";
+            }
+            return 1;
+        }
+        SaveManager::Instance->SaveFile(static_cast<int>(fileNum));
+        char buf[128];
+        std::snprintf(buf, sizeof(buf), "saving fileNum=%u -> Save/file%u.sav slots=%d (threaded)", fileNum,
+                      fileNum + 1, static_cast<int>(ARRAY_COUNT(gSaveContext.sceneFlags)));
+        WriteMarker(buf);
+        if (output) {
+            *output += buf;
+        }
+        return 0;
+    }
+    // Reads a .sav back into gSaveContext, so `sceneflag` can observe what actually survived the
+    // round trip. This is the deserialisation half only - it does not reload the scene, which is
+    // what makes it usable mid-run.
+    if (args.size() >= 3 && args[1] == "loadsave") {
+        uint32_t fileNum = 0;
+        if (!ParseU32(args[2], &fileNum) || fileNum >= SaveManager::MaxFiles) {
+            if (output) {
+                *output += "loadsave needs a file number in 0.." + std::to_string(SaveManager::MaxFiles - 1) +
+                           ", reading Save/file<n+1>.sav";
+            }
+            return 1;
+        }
+        if (!std::filesystem::exists(Ship::Context::GetPathRelativeToAppDirectory("Save") + "/file" +
+                                     std::to_string(fileNum + 1) + ".sav")) {
+            if (output) {
+                *output += "no Save/file" + std::to_string(fileNum + 1) + ".sav to load";
+            }
+            return 1;
+        }
+        SaveManager::Instance->LoadFile(static_cast<int>(fileNum));
+        char buf[128];
+        std::snprintf(buf, sizeof(buf), "loaded fileNum=%u slots=%d", fileNum,
+                      static_cast<int>(ARRAY_COUNT(gSaveContext.sceneFlags)));
+        WriteMarker(buf);
+        if (output) {
+            *output += buf;
+        }
+        return 0;
+    }
     if (args.size() >= 2 && args[1] == "mark") {
         std::string text;
         for (size_t i = 2; i < args.size(); i++) {
@@ -828,7 +947,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         *output +=
             "usage: agenttest perf <ticks> | state | goto <x> <y> <z> [yaw] | "
             "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | "
-            "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | mark <text>";
+            "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | "
+            "sceneflag <sceneId> [value] | save <fileNum> | loadsave <fileNum> | mark <text>";
     }
     return 1;
 }
@@ -849,7 +969,8 @@ void RegisterAgentTest() {
             { AgentTestCommand,
               "Agent test loop: perf <ticks> | state | goto <x> <y> <z> [yaw] | "
               "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | "
-              "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | mark <text>. "
+              "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | "
+              "sceneflag <sceneId> [value] | save <fileNum> | loadsave <fileNum> | mark <text>. "
               "walk/press inject controller 1 for N frames and end with an input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });
     }
