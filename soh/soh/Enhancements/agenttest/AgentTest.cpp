@@ -26,10 +26,13 @@
  *                                        command does not exist; otherwise it is the handler's return
  *                                        (0 = success). Most SoH handlers print to the ImGui console
  *                                        rather than <text>, so out= is usually empty for them.
- *   perf fps=<f> ms=<f> tick_ms=<f> tick_max_ms=<f> mem_mb=<n> scene=0x<hex> frame=<n>
+ *   perf fps=<f> ms=<f> tick_ms=<f> tick_max_ms=<f> mem_mb=<n> nodes=<used>/<max> cell_max=<n>
+ *        cell_p95=<n> cells=<occupied>/<total> heap_kb=<free>/<total> scene=0x<hex> frame=<n>
  *                                        every PerfInterval ticks (0 disables). fps/ms = ImGui render
  *                                        framerate (capped by the FPS setting); tick_ms = game-tick CPU
- *                                        time, avg and max over the interval; mem_mb = working set
+ *                                        time, avg and max over the interval; mem_mb = working set;
+ *                                        cell_max/cell_p95 = per-subdivision-cell static collision
+ *                                        list lengths (see RefreshCellStats)
  *   room_changed from=<n> to=<n> frame=<n>   the current room changed within a scene
  *   state scene=0x<hex> room=<n> entrance=0x<hex> pos=<x>,<y>,<z> yaw=<n> age=<adult|child> time=0x<hex>
  *         night=<0|1> frame=<n> name="<scene name>"
@@ -328,6 +331,57 @@ void ConsumeCommands() {
     }
 }
 
+// Per-cell static-collision list lengths (sturdy-bassoon#26). The subdivision grid is uniform but
+// scene content is not: a settlement drops hundreds of polys into one or two cells, and every
+// query landing there walks that cell's lists linearly - so the scene-wide nodes= total can look
+// healthy while the worst cell is pathological. Computed once per scene load (the static lookup is
+// immutable after BgCheck_Allocate builds it) and carried on every perf line alongside nodes=.
+constexpr uint32_t AGENT_SS_NULL = 0xFFFFFFFF; // z_bgcheck.c's SS_NULL (widened by sturdy-bassoon#22),
+                                               // which is file-local there
+int16_t sCellStatsScene = -1; // sceneNum the cached stats were computed for
+uint32_t sCellMax = 0;        // longest per-cell node count, floor+wall+ceiling lists summed
+uint32_t sCellP95 = 0;        // 95th percentile over occupied cells (empty cells cost queries nothing)
+uint32_t sCellsOccupied = 0;
+uint32_t sCellsTotal = 0;
+
+uint32_t CellListLength(const CollisionContext& colCtx, uint32_t head) {
+    uint32_t n = 0;
+    uint32_t idx = head;
+    // Bounded by the pool's used-node count so a corrupt list terminates instead of hanging.
+    while (idx != AGENT_SS_NULL && n <= colCtx.polyNodes.count) {
+        n++;
+        idx = colCtx.polyNodes.tbl[idx].next;
+    }
+    return n;
+}
+
+void RefreshCellStats() {
+    const CollisionContext& colCtx = gPlayState->colCtx;
+    const uint32_t total = static_cast<uint32_t>(colCtx.subdivAmount.x) *
+                           static_cast<uint32_t>(colCtx.subdivAmount.y) *
+                           static_cast<uint32_t>(colCtx.subdivAmount.z);
+    std::vector<uint32_t> occupied;
+    occupied.reserve(total);
+    uint32_t maxLen = 0;
+    for (uint32_t i = 0; i < total; i++) {
+        const StaticLookup& cell = colCtx.lookupTbl[i];
+        const uint32_t n = CellListLength(colCtx, cell.floor.head) + CellListLength(colCtx, cell.wall.head) +
+                           CellListLength(colCtx, cell.ceiling.head);
+        if (n == 0) {
+            continue;
+        }
+        occupied.push_back(n);
+        maxLen = std::max(maxLen, n);
+    }
+    std::sort(occupied.begin(), occupied.end());
+    sCellMax = maxLen;
+    // Index of the ceil(0.95 * n)-th smallest value, i.e. at least 95% of occupied cells are at
+    // or under this length.
+    sCellP95 = occupied.empty() ? 0 : occupied[(occupied.size() * 95 + 99) / 100 - 1];
+    sCellsOccupied = static_cast<uint32_t>(occupied.size());
+    sCellsTotal = total;
+}
+
 // Resident (working set) memory in MB, or -1 where unsupported.
 double ResidentMemoryMb() {
 #ifdef _WIN32
@@ -354,6 +408,12 @@ void EmitPerf() {
     // out of the budget BgCheck_Allocate derived. The measurement behind the node ceiling work
     // (sturdy-bassoon#22); fixed for the life of a scene load, so any perf line carries it.
     const SSNodeList& nodes = gPlayState->colCtx.polyNodes;
+    // Same lifetime as nodes=: fixed once the lookup is built, so refresh only on a scene change.
+    // A same-scene reload rebuilds an identical table, so keying on sceneNum is enough.
+    if (sCellStatsScene != gPlayState->sceneNum) {
+        RefreshCellStats();
+        sCellStatsScene = gPlayState->sceneNum;
+    }
 
     // Zelda heap free/total, in KB. This is what BgCheck's tables actually compete with: Play_Init
     // carves them out of the two-headed arena first and then hands the *entire* remainder to
@@ -364,13 +424,13 @@ void EmitPerf() {
     u32 heapFree;
     u32 heapAlloc;
     ZeldaArena_GetSizes(&heapMaxFree, &heapFree, &heapAlloc);
-    char buf[224];
+    char buf[320];
     std::snprintf(buf, sizeof(buf),
                   "perf fps=%.1f ms=%.2f tick_ms=%.2f tick_max_ms=%.2f mem_mb=%.0f nodes=%u/%u "
-                  "heap_kb=%u/%u scene=%s frame=%u",
-                  fps, ms, tickAvg, sTickMaxMs, ResidentMemoryMb(), nodes.count, nodes.max,
-                  heapFree / 1024, (heapFree + heapAlloc) / 1024, Hex(gPlayState->sceneNum).c_str(),
-                  gPlayState->state.frames);
+                  "cell_max=%u cell_p95=%u cells=%u/%u heap_kb=%u/%u scene=%s frame=%u",
+                  fps, ms, tickAvg, sTickMaxMs, ResidentMemoryMb(), nodes.count, nodes.max, sCellMax, sCellP95,
+                  sCellsOccupied, sCellsTotal, heapFree / 1024, (heapFree + heapAlloc) / 1024,
+                  Hex(gPlayState->sceneNum).c_str(), gPlayState->state.frames);
     WriteMarker(buf);
     sTickSumMs = 0.0;
     sTickMaxMs = 0.0;
