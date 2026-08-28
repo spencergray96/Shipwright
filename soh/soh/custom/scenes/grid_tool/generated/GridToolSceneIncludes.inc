@@ -21,4 +21,5 @@
 #include "../terrain_f2p_rooms_2x2/CustomTerrainF2pRooms2x2Scene.h" // fast64-terrain terrain_f2p_rooms_2x2
 #include "../terrain_f2p_greybox_bpy/CustomTerrainF2pGreyboxBpyScene.h" // fast64-terrain terrain_f2p_greybox_bpy
 #include "../terrain_f2p_settlement/CustomTerrainF2pSettlementScene.h" // terrain-bake terrain_f2p_settlement
+#include "../lumbridge_settlement_x3/CustomLumbridgeSettlementX3Scene.h" // project f5829f51-1d67-41a3-815c-2c1a3306ada8 name lumbridge_settlement_x3
 // END GRID TOOL EXPORTS

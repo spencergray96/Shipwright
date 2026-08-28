@@ -22,4 +22,5 @@
     { SCENE_TERRAIN_F2P_ROOMS_2X2, CustomTerrainF2pRooms2x2Scene_TrySpawn, CustomTerrainF2pRooms2x2Scene_InitRoom }, // fast64-terrain terrain_f2p_rooms_2x2
     { SCENE_TERRAIN_F2P_GREYBOX_BPY, CustomTerrainF2pGreyboxBpyScene_TrySpawn, CustomTerrainF2pGreyboxBpyScene_InitRoom }, // fast64-terrain terrain_f2p_greybox_bpy
     { SCENE_TERRAIN_F2P_SETTLEMENT, CustomTerrainF2pSettlementScene_TrySpawn, CustomTerrainF2pSettlementScene_InitRoom }, // terrain-bake terrain_f2p_settlement
+    { SCENE_LUMBRIDGE_SETTLEMENT_X3, CustomLumbridgeSettlementX3Scene_TrySpawn, CustomLumbridgeSettlementX3Scene_InitRoom }, // project f5829f51-1d67-41a3-815c-2c1a3306ada8 name lumbridge_settlement_x3
 // END GRID TOOL EXPORTS
