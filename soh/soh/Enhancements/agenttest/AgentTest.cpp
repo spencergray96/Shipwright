@@ -27,12 +27,17 @@
  *                                        (0 = success). Most SoH handlers print to the ImGui console
  *                                        rather than <text>, so out= is usually empty for them.
  *   perf fps=<f> ms=<f> tick_ms=<f> tick_max_ms=<f> mem_mb=<n> nodes=<used>/<max> cell_max=<n>
- *        cell_p95=<n> cells=<occupied>/<total> heap_kb=<free>/<total> scene=0x<hex> frame=<n>
+ *        cell_p95=<n> cells=<occupied>/<total> heap_kb=<free>/<total> fog=<near>/<far> cap=<n>
+ *        scene=0x<hex> frame=<n>
  *                                        every PerfInterval ticks (0 disables). fps/ms = ImGui render
  *                                        framerate (capped by the FPS setting); tick_ms = game-tick CPU
  *                                        time, avg and max over the interval; mem_mb = working set;
  *                                        cell_max/cell_p95 = per-subdivision-cell static collision
- *                                        list lengths (see RefreshCellStats)
+ *                                        list lengths (see RefreshCellStats); fog = lightCtx fogNear
+ *                                        (fog-space 0..1000) / fogFar (world units - also the view's
+ *                                        far clip plane); cap = the fps target the render loop is
+ *                                        actually holding to (InterpolationFPS after the vsync and
+ *                                        MatchRefreshRate clamps), so an "uncapped" line proves itself
  *   room_changed from=<n> to=<n> frame=<n>   the current room changed within a scene
  *   state scene=0x<hex> room=<n> entrance=0x<hex> pos=<x>,<y>,<z> yaw=<n> age=<adult|child> time=0x<hex>
  *         night=<0|1> frame=<n> name="<scene name>"
@@ -44,6 +49,9 @@
  *                                        prevPos, velocity, bgCheckFlags, floor height, state flags, anim movement
  *                                        flags, transition trigger and the void-out respawn point. "pre" is taken
  *                                        before the game tick runs, "post" after it (and after command consumption)
+ *   fog mode=override near=<n> far=<n> / fog mode=scene
+ *                                        echoed from "agenttest fog"; between these, the perf marker's fog=
+ *                                        field carries whatever band is actually live
  *   mark <text>                          echoed from "agenttest mark <text>"
  *   input_done [reason=scene_change]     a walk/press injection finished (or was cancelled by a scene change)
  *
@@ -69,6 +77,18 @@
  *   agenttest trace <ticks>                emit a "trace" marker pair (pre/post) around each of the next N game
  *                                          ticks (0 cancels, max MAX_TRACE_TICKS). The tick the command lands in
  *                                          contributes its post only. Diagnostic for teleport/movement bugs
+ *   agenttest fog <near> <far> | off       override the scene's fog band and far clip plane, or hand them back
+ *                                          to the scene's light settings. near is fog-space (0..1000, the scene
+ *                                          path clamps at 996); far is world units (100..12800) and is also the
+ *                                          view's zFar - Play_Draw builds the perspective from lightCtx.fogFar -
+ *                                          so pulling far in genuinely un-draws geometry past it. Rides the
+ *                                          engine's own reg-editor override (R_ENV_DISABLE_DBG +
+ *                                          R_ENV_FOG_NEAR/FAR in z_kankyo.c); while active, ambient/directional
+ *                                          light and fog colour are frozen at their flip-time values (fine in
+ *                                          flat-lit custom scenes; don't combine with "agenttest time").
+ *                                          Environment_Init re-arms scene control on every scene load, so the
+ *                                          override must be re-applied after each entrance - which is also the
+ *                                          safety net against leaking it into a later run
  *   agenttest mark <text>                  write a marker, for bracketing checkpoints in the log
  *
  * Command-file consumption pauses while an injection is in progress, so queued lines run in order.
@@ -424,13 +444,20 @@ void EmitPerf() {
     u32 heapFree;
     u32 heapAlloc;
     ZeldaArena_GetSizes(&heapMaxFree, &heapFree, &heapAlloc);
-    char buf[320];
+    // fog= is the live fog band / far clip (whether scene-driven or overridden by "agenttest fog"),
+    // cap= the fps target the render loop is actually holding to - GetInterpolationFPS applies the
+    // vsync and MatchRefreshRate clamps, so a fps reading only counts as uncapped when cap= (and
+    // the display class) sit well above it. Both exist so a perf line carries the config it was
+    // measured under instead of relying on the run README remembering it (sturdy-bassoon#33).
+    char buf[384];
     std::snprintf(buf, sizeof(buf),
                   "perf fps=%.1f ms=%.2f tick_ms=%.2f tick_max_ms=%.2f mem_mb=%.0f nodes=%u/%u "
-                  "cell_max=%u cell_p95=%u cells=%u/%u heap_kb=%u/%u scene=%s frame=%u",
+                  "cell_max=%u cell_p95=%u cells=%u/%u heap_kb=%u/%u fog=%d/%d cap=%u scene=%s frame=%u",
                   fps, ms, tickAvg, sTickMaxMs, ResidentMemoryMb(), nodes.count, nodes.max, sCellMax, sCellP95,
                   sCellsOccupied, sCellsTotal, heapFree / 1024, (heapFree + heapAlloc) / 1024,
-                  Hex(gPlayState->sceneNum).c_str(), gPlayState->state.frames);
+                  gPlayState->lightCtx.fogNear, gPlayState->lightCtx.fogFar,
+                  OTRGlobals::Instance->GetInterpolationFPS(), Hex(gPlayState->sceneNum).c_str(),
+                  gPlayState->state.frames);
     WriteMarker(buf);
     sTickSumMs = 0.0;
     sTickMaxMs = 0.0;
@@ -750,7 +777,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     }
     if (args.size() >= 2 &&
         (args[1] == "state" || args[1] == "goto" || args[1] == "walk" || args[1] == "press" || args[1] == "rooms" ||
-         args[1] == "time" || args[1] == "trace") &&
+         args[1] == "time" || args[1] == "trace" || args[1] == "fog") &&
         !InNormalPlay()) {
         if (output) {
             *output += "no scene loaded";
@@ -906,6 +933,45 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         }
         return 0;
     }
+    // Fog-band / far-clip override for draw-cost experiments (sturdy-bassoon#33): lightCtx.fogFar is
+    // both where fog saturates and the far plane Play_Draw builds the perspective from, so pulling it
+    // in un-draws everything past it - the rasterization share of draw cost - while the submitted
+    // display list stays identical. Implemented on the engine's own reg-editor path rather than by
+    // writing lightCtx directly, which Environment_Update would overwrite next frame: while
+    // R_ENV_DISABLE_DBG is false, Environment_Update copies fog (and the light colours it mirrored
+    // into the regs while scene control was live) *from* the regs instead of the scene's light
+    // settings. Environment_Init sets R_ENV_DISABLE_DBG back to true on every scene load, so the
+    // override never leaks past an entrance - and must be re-applied after one.
+    if (args.size() >= 3 && args[1] == "fog") {
+        if (args[2] == "off") {
+            R_ENV_DISABLE_DBG = true;
+            WriteMarker("fog mode=scene");
+            if (output) {
+                *output += "fog and far clip handed back to the scene's light settings";
+            }
+            return 0;
+        }
+        int32_t fogNear = 0;
+        int32_t fogFar = 0;
+        if (args.size() < 4 || !ParseInt(args[2], &fogNear) || !ParseInt(args[3], &fogFar) || fogNear < 0 ||
+            fogNear > 1000 || fogFar < 100 || fogFar > 12800) {
+            if (output) {
+                *output += "fog needs <near 0..1000> <far 100..12800>, or off. near is fog-space "
+                           "(996 = fog collapsed to the far plane); far is world units and the far clip";
+            }
+            return 1;
+        }
+        R_ENV_FOG_NEAR = static_cast<s16>(fogNear);
+        R_ENV_FOG_FAR = static_cast<s16>(fogFar);
+        R_ENV_DISABLE_DBG = false;
+        char buf[96];
+        std::snprintf(buf, sizeof(buf), "fog mode=override near=%d far=%d", fogNear, fogFar);
+        WriteMarker(buf);
+        if (output) {
+            *output += buf;
+        }
+        return 0;
+    }
     // Reads or writes one scene's saved flag word. The point is `sceneFlags` itself: it is indexed
     // straight by scene id with no bounds check anywhere in the engine, so it silently ran off its
     // own end once custom scenes pushed the table past 124 entries (sturdy-bassoon#30). Nothing
@@ -1018,7 +1084,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             "usage: agenttest perf <ticks> | state | goto <x> <y> <z> [yaw] | "
             "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | "
             "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | "
-            "sceneflag <sceneId> [value] | save <fileNum> | loadsave <fileNum> | mark <text>";
+            "fog <near> <far>|off | sceneflag <sceneId> [value] | save <fileNum> | loadsave <fileNum> | "
+            "mark <text>";
     }
     return 1;
 }
@@ -1040,8 +1107,8 @@ void RegisterAgentTest() {
               "Agent test loop: perf <ticks> | state | goto <x> <y> <z> [yaw] | "
               "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | "
               "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | "
-              "sceneflag <sceneId> [value] | save <fileNum> | loadsave <fileNum> | mark <text>. "
-              "walk/press inject controller 1 for N frames and end with an input_done marker.",
+              "fog <near> <far>|off | sceneflag <sceneId> [value] | save <fileNum> | loadsave <fileNum> | "
+              "mark <text>. walk/press inject controller 1 for N frames and end with an input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });
     }
 }
