@@ -6,6 +6,13 @@
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include <assert.h>
 
+// For naming the scene in collision diagnostics. Defined in z_play.c; declared locally the same way
+// AgentTest.cpp, AlwaysOnFixes.cpp and AudioHooks.cpp declare it, rather than pulling an
+// Enhancements header into vanilla code. Nothing here dereferences it without a NULL check, and
+// Play_Init assigns it well before Play_SpawnScene, so it names the scene being loaded rather than
+// the previous one.
+extern PlayState* gPlayState;
+
 #define SS_NULL 0xFFFFFFFF
 
 // bccFlags
@@ -1356,10 +1363,21 @@ s32 BgCheck_PolyIntersectsSubdivision(Vec3f* min, Vec3f* max, CollisionPoly* pol
 }
 
 /**
- * Initialize StaticLookup Table
- * returns size of table, in bytes
+ * Walk every (poly, subdivision cell) registration the static lookup is going to make.
+ *
+ * `lookupTbl` non-NULL performs the registrations, each of which consumes exactly one SSNode
+ * (StaticLookup_AddPoly appends to exactly one of the cell's floor/wall/ceiling lists). `lookupTbl`
+ * NULL is a dry run: nothing is written and the registrations are only counted, so the return value
+ * is the number of SSNodes the real pass will need. BgCheck_Allocate uses that to size the node
+ * table instead of guessing (sturdy-bassoon#32).
+ *
+ * Both modes share this one loop deliberately. The cell membership test is float arithmetic
+ * accumulated across the loop, so a separately written counter would be an estimate; this is the
+ * same code, and its count is exact.
+ *
+ * returns the number of registrations made (or, dry-running, that would be made)
  */
-u32 BgCheck_InitializeStaticLookup(CollisionContext* colCtx, PlayState* play, StaticLookup* lookupTbl) {
+u32 BgCheck_WalkStaticLookupRegistrations(CollisionContext* colCtx, StaticLookup* lookupTbl) {
     Vec3s* vtxList;
     CollisionPoly* polyList;
     s32 polyMax;
@@ -1379,25 +1397,16 @@ u32 BgCheck_InitializeStaticLookup(CollisionContext* colCtx, PlayState* play, St
     Vec3f curSubdivMin;
     Vec3f curSubdivMax;
     CollisionHeader* colHeader = colCtx->colHeader;
-    StaticLookup* spA4;
-    StaticLookup* phi_fp;
-    StaticLookup* phi_s0;
-    s32 sp98;
+    s32 lookupIdx;
+    u32 registrations;
     f32 subdivLengthX;
     f32 subdivLengthY;
     f32 subdivLengthZ;
 
-    for (spA4 = lookupTbl;
-         spA4 < (colCtx->subdivAmount.x * colCtx->subdivAmount.y * colCtx->subdivAmount.z + lookupTbl); spA4++) {
-        spA4->floor.head = SS_NULL;
-        spA4->wall.head = SS_NULL;
-        spA4->ceiling.head = SS_NULL;
-    }
-
+    registrations = 0;
     polyMax = colHeader->numPolygons;
     vtxList = colHeader->vtxList;
     polyList = colHeader->polyList;
-    sp98 = colCtx->subdivAmount.x * colCtx->subdivAmount.y;
     subdivLengthX = colCtx->subdivLength.x + (2 * BGCHECK_SUBDIV_OVERLAP);
     subdivLengthY = colCtx->subdivLength.y + (2 * BGCHECK_SUBDIV_OVERLAP);
     subdivLengthZ = colCtx->subdivLength.z + (2 * BGCHECK_SUBDIV_OVERLAP);
@@ -1405,37 +1414,63 @@ u32 BgCheck_InitializeStaticLookup(CollisionContext* colCtx, PlayState* play, St
     for (polyIdx = 0; polyIdx < polyMax; polyIdx++) {
         BgCheck_GetPolySubdivisionBounds(colCtx, vtxList, polyList, &sxMin, &syMin, &szMin, &sxMax, &syMax, &szMax,
                                          polyIdx);
-        spA4 = szMin * sp98 + lookupTbl;
         curSubdivMin.z = (colCtx->subdivLength.z * szMin + colCtx->minBounds.z) - BGCHECK_SUBDIV_OVERLAP;
         curSubdivMax.z = curSubdivMin.z + subdivLengthZ;
 
         for (sz = szMin; sz < szMax + 1; sz++) {
-            phi_fp = (colCtx->subdivAmount.x * syMin) + spA4;
             curSubdivMin.y = (colCtx->subdivLength.y * syMin + colCtx->minBounds.y) - BGCHECK_SUBDIV_OVERLAP;
             curSubdivMax.y = curSubdivMin.y + subdivLengthY;
 
             for (sy = syMin; sy < syMax + 1; sy++) {
-                phi_s0 = sxMin + phi_fp;
                 curSubdivMin.x = (colCtx->subdivLength.x * sxMin + colCtx->minBounds.x) - BGCHECK_SUBDIV_OVERLAP;
                 curSubdivMax.x = curSubdivMin.x + subdivLengthX;
 
                 for (sx = sxMin; sx < sxMax + 1; sx++) {
                     if (BgCheck_PolyIntersectsSubdivision(&curSubdivMin, &curSubdivMax, polyList, vtxList, polyIdx)) {
-                        StaticLookup_AddPoly(phi_s0, colCtx, polyList, vtxList, polyIdx);
+                        if (lookupTbl != NULL) {
+                            // Cells are indexed z-major, then y, then x - the layout the pointer
+                            // walk this loop replaced stepped through by hand.
+                            lookupIdx = (sz * colCtx->subdivAmount.y + sy) * colCtx->subdivAmount.x + sx;
+                            StaticLookup_AddPoly(&lookupTbl[lookupIdx], colCtx, polyList, vtxList, polyIdx);
+                        }
+                        registrations++;
                     }
                     curSubdivMin.x += colCtx->subdivLength.x;
                     curSubdivMax.x += colCtx->subdivLength.x;
-                    phi_s0++;
                 }
                 curSubdivMin.y += colCtx->subdivLength.y;
                 curSubdivMax.y += colCtx->subdivLength.y;
-                phi_fp += colCtx->subdivAmount.x;
             }
             curSubdivMin.z += colCtx->subdivLength.z;
             curSubdivMax.z += colCtx->subdivLength.z;
-            spA4 += sp98;
         }
     }
+    return registrations;
+}
+
+/**
+ * Count the SSNodes BgCheck_InitializeStaticLookup will consume for the current subdivision shape,
+ * without allocating or writing anything. Costs one extra pass over the scene's polys at load.
+ */
+u32 BgCheck_CountStaticLookupNodes(CollisionContext* colCtx) {
+    return BgCheck_WalkStaticLookupRegistrations(colCtx, NULL);
+}
+
+/**
+ * Initialize StaticLookup Table
+ * returns size of table, in bytes
+ */
+u32 BgCheck_InitializeStaticLookup(CollisionContext* colCtx, PlayState* play, StaticLookup* lookupTbl) {
+    StaticLookup* lookup;
+
+    for (lookup = lookupTbl;
+         lookup < (colCtx->subdivAmount.x * colCtx->subdivAmount.y * colCtx->subdivAmount.z + lookupTbl); lookup++) {
+        lookup->floor.head = SS_NULL;
+        lookup->wall.head = SS_NULL;
+        lookup->ceiling.head = SS_NULL;
+    }
+
+    BgCheck_WalkStaticLookupRegistrations(colCtx, lookupTbl);
     return colCtx->polyNodes.count * sizeof(SSNode);
 }
 
@@ -1502,60 +1537,97 @@ void BgCheck_SetSubdivisionDimension(f32 min, s32 subdivAmount, f32* max, f32* s
 typedef struct {
     s16 sceneId;
     Vec3s subdivAmount;
-    s32 nodeListMax; // if -1, dynamically compute max nodes
 } BgCheckSceneSubdivisionEntry;
+
+/**
+ * Set the scene's collision bounds from its header and derive the subdivision cell size for the
+ * subdivision amount currently in `colCtx`. Safe to call again after changing subdivAmount:
+ * BgCheck_SetSubdivisionDimension rounds maxBounds up to a whole number of cells, so the bounds are
+ * re-read from the header rather than reused.
+ */
+void BgCheck_DeriveSubdivisions(CollisionContext* colCtx) {
+    colCtx->minBounds.x = colCtx->colHeader->minBounds.x;
+    colCtx->minBounds.y = colCtx->colHeader->minBounds.y;
+    colCtx->minBounds.z = colCtx->colHeader->minBounds.z;
+    colCtx->maxBounds.x = colCtx->colHeader->maxBounds.x;
+    colCtx->maxBounds.y = colCtx->colHeader->maxBounds.y;
+    colCtx->maxBounds.z = colCtx->colHeader->maxBounds.z;
+    BgCheck_SetSubdivisionDimension(colCtx->minBounds.x, colCtx->subdivAmount.x, &colCtx->maxBounds.x,
+                                    &colCtx->subdivLength.x, &colCtx->subdivLengthInv.x);
+    BgCheck_SetSubdivisionDimension(colCtx->minBounds.y, colCtx->subdivAmount.y, &colCtx->maxBounds.y,
+                                    &colCtx->subdivLength.y, &colCtx->subdivLengthInv.y);
+    BgCheck_SetSubdivisionDimension(colCtx->minBounds.z, colCtx->subdivAmount.z, &colCtx->maxBounds.z,
+                                    &colCtx->subdivLength.z, &colCtx->subdivLengthInv.z);
+}
+
+/**
+ * Size in bytes of the StaticLookup grid for the subdivision amount currently in `colCtx`. One
+ * source for both the allocation and the budget arithmetic below - they have to agree.
+ */
+u32 BgCheck_GetLookupTblMemSize(CollisionContext* colCtx) {
+    return colCtx->subdivAmount.x * colCtx->subdivAmount.y * colCtx->subdivAmount.z * sizeof(StaticLookup);
+}
+
+/**
+ * Everything BgCheck allocates for a scene except the static node table: the lookup grid, the
+ * per-poly check byte, and the dyna lists. Subtracting this from colCtx->memSize is what is left
+ * for nodes. Depends on subdivAmount, so a caller that changes the subdivision shape and then uses
+ * the result must call this again.
+ */
+u32 BgCheck_GetFixedMemSize(CollisionContext* colCtx) {
+    return BgCheck_GetLookupTblMemSize(colCtx) + colCtx->colHeader->numPolygons * sizeof(u8) +
+           colCtx->dyna.polyNodesMax * sizeof(SSNode) + colCtx->dyna.polyListMax * sizeof(CollisionPoly) +
+           colCtx->dyna.vtxListMax * sizeof(Vec3s) + sizeof(CollisionContext);
+}
 
 /**
  * Allocate CollisionContext
  */
 void BgCheck_Allocate(CollisionContext* colCtx, PlayState* play, CollisionHeader* colHeader) {
+    // Subdivision *shape* only. Each row used to carry a hand-set node budget as well, because
+    // BgCheck_Allocate could not know what a scene would cost until it was already filling the
+    // table: a scene with no row here took the default {16, 4, 16}, ran out of nodes part-way
+    // through the build, and asserted in SSNodeList_GetNextNodeIdx naming neither the scene nor the
+    // shape that caused it. Since sturdy-bassoon#32 the demand is measured before allocating, so
+    // there is no budget field left to get wrong and a missing row can no longer stop a scene
+    // loading. A row is now purely a tuning hint - it trades query speed against how many nodes the
+    // scene needs, and the node count it produces is reported at load (the "BgCheck: scene=" line).
     static BgCheckSceneSubdivisionEntry sceneSubdivisionList[] = {
-        { SCENE_SHADOW_TEMPLE, { 23, 7, 14 }, -1 },
-        { SCENE_FOREST_TEMPLE, { 38, 1, 38 }, -1 },
+        { SCENE_SHADOW_TEMPLE, { 23, 7, 14 } },
+        { SCENE_FOREST_TEMPLE, { 38, 1, 38 } },
         // A single flat 13,440-unit square of terrain: subdividing Y buys nothing, and a 16x16
-        // floor grid keeps the per-cell poly lists short enough to query. The full step-3 bake
-        // models at ~50,200 nodes in this shape (tools/terrain/node_model.py), which is just past
-        // what the derived budget affords, so this is the first entry to set nodeListMax rather
-        // than -1. 70,000 nodes is 560KB of the ~3.6MB PlayState arena - headroom over the model
-        // without crowding out rooms and actors. Note the explicit path skips the memSize
-        // overflow check, so this number is sized against a measurement, not derived: see the
-        // nodes= field on the agent-test perf marker. sturdy-bassoon#22.
-        { SCENE_TERRAIN_F2P_GREYBOX, { 16, 1, 16 }, 70000 },
+        // floor grid keeps the per-cell poly lists short enough to query. Measured at ~49,800
+        // nodes in this shape.
+        { SCENE_TERRAIN_F2P_GREYBOX, { 16, 1, 16 } },
         // The same 6x6 window sampled at step 2 instead of step 3: 73,816 collision polys, past
         // what CollisionHeader's u16 counts could describe before sturdy-bassoon#27, and the scene
         // that proves the widening. Same {16,1,16} shape as the greybox so the two are comparable;
-        // node_model.py puts it at 98,864 nodes, which is also past the 65,535 the *node index*
-        // capped at before #22 - both widenings are load-bearing here. 130,000 nodes is 1.04MB.
-        { SCENE_TERRAIN_F2P_STEP2, { 16, 1, 16 }, 130000 },
+        // it models at ~98,900 nodes, which is also past the 65,535 the *node index* capped at
+        // before sturdy-bassoon#22 - both widenings are load-bearing here.
+        { SCENE_TERRAIN_F2P_STEP2, { 16, 1, 16 } },
         // The same step-3 6x6 window again, but built through Blender/Fast64 instead of written
         // straight to C (sturdy-bassoon#5). Its collision is the same geometry to within a unit of
         // rounding - 32,824 polys against the greybox's 32,856, and the same 16,697 vertices - so
-        // it gets the same shape and the same budget, and the two are directly comparable.
-        // It is also the scene that showed this list is a trap: without a row here it takes the
-        // default {16, 4, 16}, needs ~62,000 nodes in that shape against a derived budget near
-        // 46,000, and asserts in SSNodeList_GetNextNodeIdx during Play_SpawnScene with nothing
-        // naming the subdivision shape as the cause.
-        { SCENE_TERRAIN_F2P_GREYBOX_BPY, { 16, 1, 16 }, 70000 },
+        // it gets the same shape, and the two are directly comparable.
+        { SCENE_TERRAIN_F2P_GREYBOX_BPY, { 16, 1, 16 } },
         // Merged terrain with the 3-storey Lumbridge settlement composited in (sturdy-bassoon#26):
-        // 38,573 collision polys, of which 13,517 are the settlement. The emitter's dry run models
-        // ~56,500 nodes at this shape (node_model.py's rule over the real polys, settlement
-        // included - the rule that landed within 3% on the two scenes above); 80,000 leaves the
-        // margin a density fixture wants. Collapsed Y matters even more here than for bare
-        // terrain: a settlement is mostly tall thin wall polys, the exact shape that pays 4x for
-        // Y subdivisions. Read the real figure off the perf marker's nodes= once loaded.
-        { SCENE_TERRAIN_F2P_SETTLEMENT, { 16, 1, 16 }, 80000 },
+        // 38,573 collision polys, of which 13,517 are the settlement. Collapsed Y matters even more
+        // here than for bare terrain: a settlement is mostly tall thin wall polys, the exact shape
+        // that pays 4x for Y subdivisions.
+        { SCENE_TERRAIN_F2P_SETTLEMENT, { 16, 1, 16 } },
     };
     u32 tblMax;
-    u32 memSize;
+    u32 fixedMemSize;
+    u32 nodeBudget;
+    u32 nodeDemand;
+    u32 flatDemand;
+    s32 subdivAmountY;
     u32 lookupTblMemSize;
-    SSNodeList* nodeList;
     s32 useCustomSubdivisions;
     u32 customMemSize;
-    s32 customNodeListMax;
     s32 i;
 
     colCtx->colHeader = colHeader;
-    customNodeListMax = -1;
 
     // "/*---------------- BGCheck Buffer Memory Size -------------*/\n"
     osSyncPrintf("/*---------------- BGCheck バッファーメモリサイズ -------------*/\n");
@@ -1605,7 +1677,6 @@ void BgCheck_Allocate(CollisionContext* colCtx, PlayState* play, CollisionHeader
                 colCtx->subdivAmount.y = sceneSubdivisionList[i].subdivAmount.y;
                 colCtx->subdivAmount.z = sceneSubdivisionList[i].subdivAmount.z;
                 useCustomSubdivisions = true;
-                customNodeListMax = sceneSubdivisionList[i].nodeListMax;
             }
         }
         if (useCustomSubdivisions == false) {
@@ -1614,24 +1685,8 @@ void BgCheck_Allocate(CollisionContext* colCtx, PlayState* play, CollisionHeader
             colCtx->subdivAmount.z = 16;
         }
     }
-    colCtx->lookupTbl = THA_AllocEndAlign(
-        &play->state.tha,
-        colCtx->subdivAmount.x * sizeof(StaticLookup) * colCtx->subdivAmount.y * colCtx->subdivAmount.z, ~3);
-    if (colCtx->lookupTbl == NULL) {
-        LOG_HUNGUP_THREAD();
-    }
-    colCtx->minBounds.x = colCtx->colHeader->minBounds.x;
-    colCtx->minBounds.y = colCtx->colHeader->minBounds.y;
-    colCtx->minBounds.z = colCtx->colHeader->minBounds.z;
-    colCtx->maxBounds.x = colCtx->colHeader->maxBounds.x;
-    colCtx->maxBounds.y = colCtx->colHeader->maxBounds.y;
-    colCtx->maxBounds.z = colCtx->colHeader->maxBounds.z;
-    BgCheck_SetSubdivisionDimension(colCtx->minBounds.x, colCtx->subdivAmount.x, &colCtx->maxBounds.x,
-                                    &colCtx->subdivLength.x, &colCtx->subdivLengthInv.x);
-    BgCheck_SetSubdivisionDimension(colCtx->minBounds.y, colCtx->subdivAmount.y, &colCtx->maxBounds.y,
-                                    &colCtx->subdivLength.y, &colCtx->subdivLengthInv.y);
-    BgCheck_SetSubdivisionDimension(colCtx->minBounds.z, colCtx->subdivAmount.z, &colCtx->maxBounds.z,
-                                    &colCtx->subdivLength.z, &colCtx->subdivLengthInv.z);
+
+    BgCheck_DeriveSubdivisions(colCtx);
 
     // OTRTODO: Re-enable when the below DynaPoly workaround is removed.
     // #ifdef _SOH64 // BGCheck needs more memory on 64 bits because it crashes on some areas
@@ -1647,28 +1702,75 @@ void BgCheck_Allocate(CollisionContext* colCtx, PlayState* play, CollisionHeader
     colCtx->dyna.polyListMax *= 2;
     colCtx->dyna.vtxListMax *= 2;
 
-    // tblMax below is whatever is left of memSize once the fixed costs are subtracted, so the
-    // 32-bit index widening (sturdy-bassoon#22) would otherwise have roughly halved every scene's
-    // node budget: SSNode grew 4 -> 8 bytes and StaticLookup 6 -> 12, and both are subtracted
+    // The node budget below is whatever is left of memSize once the fixed costs are subtracted, so
+    // the 32-bit index widening (sturdy-bassoon#22) would otherwise have roughly halved every
+    // scene's budget: SSNode grew 4 -> 8 bytes and StaticLookup 6 -> 12, and both are subtracted
     // before the division. Doubling the budget again leaves every scene with at least as many
     // nodes as it had at u16 width.
     colCtx->memSize *= 2;
 
-    memSize = colCtx->subdivAmount.x * sizeof(StaticLookup) * colCtx->subdivAmount.y * colCtx->subdivAmount.z +
-              colCtx->colHeader->numPolygons * sizeof(u8) + colCtx->dyna.polyNodesMax * sizeof(SSNode) +
-              colCtx->dyna.polyListMax * sizeof(CollisionPoly) + colCtx->dyna.vtxListMax * sizeof(Vec3s) +
-              sizeof(CollisionContext);
-    if (customNodeListMax > 0) {
-        // tblMax is set without checking if customNodeListMax will result in a memory overflow.
-        // SCENE_TERRAIN_F2P_GREYBOX is the first entry to use this path, so any nodeListMax set in
-        // sceneSubdivisionList is only as safe as the measurement behind it - read the agent-test
-        // perf marker's nodes=count/max after changing one.
-        tblMax = customNodeListMax;
-    } else {
-        if (colCtx->memSize < memSize) {
-            LOG_HUNGUP_THREAD();
+    // Measure, then allocate (sturdy-bassoon#32). The old code reserved whatever memSize happened
+    // to leave over and found out mid-build whether that was enough, which is how a scene missing a
+    // sceneSubdivisionList row died in SSNodeList_GetNextNodeIdx. A dry run of the registration
+    // pass gives the exact demand for one extra walk over the polys - cheap next to the real pass,
+    // which also allocates and links - so the table is sized to what the scene actually needs and
+    // node exhaustion during the build cannot happen.
+    //
+    // memSize is a self-imposed budget rather than a hard wall: the tables come out of the
+    // PlayState arena either way, so exceeding it costs Zelda-heap headroom (the heap_kb field on
+    // the agent-test perf marker), not a failed allocation. It is kept as the line that decides
+    // when to warn, and when to work out what a cheaper subdivision shape would cost.
+    fixedMemSize = BgCheck_GetFixedMemSize(colCtx);
+    nodeBudget = colCtx->memSize > fixedMemSize ? (colCtx->memSize - fixedMemSize) / sizeof(SSNode) : 0;
+    nodeDemand = BgCheck_CountStaticLookupNodes(colCtx);
+
+    // A scene with no collision polys registers nothing; THA_AllocEndAlign still wants a size.
+    tblMax = nodeDemand > 0 ? nodeDemand : 1;
+
+    if (nodeDemand > nodeBudget) {
+        LUSLOG_WARN("BgCheck: scene=0x%X wants %u static collision nodes at subdiv %dx%dx%d, %u more than the %u its "
+                    "%u-byte budget affords. Allocating the measured demand anyway - it costs %u KB more of the "
+                    "Zelda heap than the budget expected. Coarser subdivisions or a room split would bring it down.",
+                    (u32)play->sceneNum, nodeDemand, colCtx->subdivAmount.x, colCtx->subdivAmount.y,
+                    colCtx->subdivAmount.z, nodeDemand - nodeBudget, nodeBudget, colCtx->memSize,
+                    ((nodeDemand - nodeBudget) * (u32)sizeof(SSNode)) / 1024);
+
+        if (colCtx->subdivAmount.y > 1) {
+            // Y is the cheapest axis to give up. Cells overlap by BGCHECK_SUBDIV_OVERLAP on every
+            // face, so a flat poly in a short Y cell registers in two cells for nothing; collapsing
+            // Y is worth almost nothing for terrain and is the single biggest waster of nodes.
+            //
+            // Measured and reported, never applied. Overrunning the budget is survivable now that
+            // the demand is allocated rather than guessed, so this is no longer a last resort
+            // before dying - it is an optimisation, and applying it would silently override a
+            // deliberately chosen shape at the exact moment the author most wants to know what is
+            // going on. Reporting the number is what makes the sceneSubdivisionList row writable.
+            subdivAmountY = colCtx->subdivAmount.y;
+            colCtx->subdivAmount.y = 1;
+            BgCheck_DeriveSubdivisions(colCtx);
+            flatDemand = BgCheck_CountStaticLookupNodes(colCtx);
+            colCtx->subdivAmount.y = subdivAmountY;
+            BgCheck_DeriveSubdivisions(colCtx);
+
+            LUSLOG_WARN("BgCheck: scene=0x%X would need %u nodes at subdiv %dx1x%d instead of %u at %dx%dx%d. Y is "
+                        "the cheapest axis to collapse - flat polys in short Y cells register twice for nothing. "
+                        "Add or change this scene's sceneSubdivisionList row to take it; the shape a row asks for "
+                        "is never overridden here.",
+                        (u32)play->sceneNum, flatDemand, colCtx->subdivAmount.x, colCtx->subdivAmount.z, nodeDemand,
+                        colCtx->subdivAmount.x, subdivAmountY, colCtx->subdivAmount.z);
         }
-        tblMax = (colCtx->memSize - memSize) / sizeof(SSNode);
+    }
+
+    // Always logged: this is the line that names the scene, the shape and the cost, so a later
+    // failure anywhere in collision has something to be read against.
+    LUSLOG_INFO("BgCheck: scene=0x%X polys=%u subdiv=%dx%dx%d nodes=%u budget=%u tables=%u KB", (u32)play->sceneNum,
+                colCtx->colHeader->numPolygons, colCtx->subdivAmount.x, colCtx->subdivAmount.y,
+                colCtx->subdivAmount.z, nodeDemand, nodeBudget,
+                (fixedMemSize + tblMax * (u32)sizeof(SSNode)) / 1024);
+
+    colCtx->lookupTbl = THA_AllocEndAlign(&play->state.tha, BgCheck_GetLookupTblMemSize(colCtx), ~3);
+    if (colCtx->lookupTbl == NULL) {
+        LOG_HUNGUP_THREAD();
     }
 
     SSNodeList_Initialize(&colCtx->polyNodes);
@@ -1676,7 +1778,7 @@ void BgCheck_Allocate(CollisionContext* colCtx, PlayState* play, CollisionHeader
 
     lookupTblMemSize = BgCheck_InitializeStaticLookup(colCtx, play, colCtx->lookupTbl);
     osSyncPrintf(VT_FGCOL(GREEN));
-    osSyncPrintf("/*---結局 BG使用サイズ %dbyte---*/\n", memSize + lookupTblMemSize);
+    osSyncPrintf("/*---結局 BG使用サイズ %dbyte---*/\n", fixedMemSize + lookupTblMemSize);
     osSyncPrintf(VT_RST);
 
     DynaPoly_Init(play, &colCtx->dyna);
@@ -2491,6 +2593,18 @@ void SSNodeList_Alloc(PlayState* play, SSNodeList* this, s32 tblMax, s32 numPoly
     this->count = 0;
     this->tbl = THA_AllocEndAlign(&play->state.tha, tblMax * sizeof(SSNode), -4);
 
+    if (this->tbl == NULL) {
+        // This is the real ceiling on a scene's static collision now that BgCheck_Allocate
+        // allocates the demand it measured rather than a budgeted guess (sturdy-bassoon#32): the
+        // arena, not a number in a table. Named rather than left to the assert below, which
+        // compiles out under NDEBUG and would leave a NULL write instead of a message.
+        LUSLOG_ERROR("SSNodeList_Alloc: could not allocate %d static collision nodes (%d KB) for scene=0x%X. See the "
+                     "\"BgCheck: scene=\" line for this scene's measured demand; it needs a coarser subdivision "
+                     "shape or a room split.",
+                     tblMax, (s32)((tblMax * sizeof(SSNode)) / 1024),
+                     gPlayState != NULL ? (u32)gPlayState->sceneNum : 0xFFFFu);
+    }
+
     assert(this->tbl != NULL);
 
     this->polyCheckTbl = GAMESTATE_ALLOC_MC(&play->state, numPolys);
@@ -2518,6 +2632,18 @@ SSNode* SSNodeList_GetNextNode(SSNodeList* this) {
 u32 SSNodeList_GetNextNodeIdx(SSNodeList* this) {
     u32 new_index = this->count++;
 
+    if (new_index >= this->max) {
+        // Unreachable by construction since sturdy-bassoon#32: BgCheck_Allocate dry-runs the
+        // registration pass and allocates the demand it measured, so the table cannot come up
+        // short. If this does fire, the dry run and the real pass disagreed - a bug here, not a
+        // scene that needs a bigger budget. The "BgCheck: scene=" line logged at allocate time
+        // names the scene, its subdivision shape and the number that was measured; this names how
+        // far past the end the real pass got.
+        LUSLOG_ERROR("SSNodeList_GetNextNodeIdx: static collision node table exhausted at node %u of %u "
+                     "(scene=0x%X). The demand measured in BgCheck_Allocate was short - see the "
+                     "\"BgCheck: scene=\" line logged when this scene loaded.",
+                     new_index, this->max, gPlayState != NULL ? (u32)gPlayState->sceneNum : 0xFFFFu);
+    }
     assert(new_index < this->max);
     return new_index;
 }
