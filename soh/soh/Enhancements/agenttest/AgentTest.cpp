@@ -158,6 +158,12 @@ constexpr uint32_t POLL_INTERVAL = 10; // game ticks between command-file polls 
 constexpr int32_t DEFAULT_PERF_INTERVAL = 60;
 constexpr int32_t MAX_INPUT_FRAMES = 20 * 60; // one minute of injected input; command channel is blocked meanwhile
 constexpr int32_t MAX_TRACE_TICKS = 400;      // 20 s of trace markers, two lines per tick
+// "agenttest fog" bounds. Near is fog-space (0..1000 across zNear..zFar; the engine's scene path
+// clamps at 996, so 1000 = band collapsed to the far plane). Far is world units and the far clip;
+// 12800 is the engine's own scene-path ceiling (z_kankyo.c) and 100 comfortably clears zNear.
+constexpr int32_t FOG_NEAR_MAX = 1000;
+constexpr int32_t FOG_FAR_MIN = 100;
+constexpr int32_t FOG_FAR_MAX = 12800;
 // Staging scene for the auto-boot: the door spawn of Link's house. Small, loads fast, nothing scripted.
 // The caller's real entrance comes through the command file afterwards.
 constexpr int32_t BOOT_ENTRANCE = ENTR_LINKS_HOUSE_0_1;
@@ -954,10 +960,12 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         int32_t fogNear = 0;
         int32_t fogFar = 0;
         if (args.size() < 4 || !ParseInt(args[2], &fogNear) || !ParseInt(args[3], &fogFar) || fogNear < 0 ||
-            fogNear > 1000 || fogFar < 100 || fogFar > 12800) {
+            fogNear > FOG_NEAR_MAX || fogFar < FOG_FAR_MIN || fogFar > FOG_FAR_MAX) {
             if (output) {
-                *output += "fog needs <near 0..1000> <far 100..12800>, or off. near is fog-space "
-                           "(996 = fog collapsed to the far plane); far is world units and the far clip";
+                *output += "fog needs <near 0.." + std::to_string(FOG_NEAR_MAX) + "> <far " +
+                           std::to_string(FOG_FAR_MIN) + ".." + std::to_string(FOG_FAR_MAX) +
+                           ">, or off. near is fog-space (996 = fog collapsed to the far plane); far is world "
+                           "units and the far clip";
             }
             return 1;
         }
