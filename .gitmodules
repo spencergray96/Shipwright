@@ -1,7 +1,7 @@
 [submodule "libultraship"]
 	path = libultraship
-	url = https://github.com/kenix3/libultraship.git
-	branch = port-maintenance
+	url = https://github.com/spencergray96/libultraship.git
+	branch = soh/static-bake
 [submodule "torch"]
 	path = torch
 	url = https://github.com/HarbourMasters/Torch.git
