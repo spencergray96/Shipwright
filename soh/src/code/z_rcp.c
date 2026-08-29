@@ -1539,7 +1539,13 @@ void Gfx_SetupFrame(GraphicsContext* gfxCtx, u8 r, u8 g, u8 b) {
     gDPSetDepthImage(OVERLAY_DISP++, gZBuffer);
 
     if ((R_PAUSE_MENU_MODE < 2) && (gTrnsnUnkState < 2)) {
-        s32 letterboxSize = ShrinkWindow_GetCurrentVal(); // Upstream TODO: Letterbox
+        // The safe (trailing-edge) size, not the stepped current one: the visible bars are the
+        // interpolated quads below, sweeping smoothly between last tick's size and this
+        // tick's, so everything that carves the frame around the bars - this z-buffer clear,
+        // the base fill, and these wide FILL rects (kept as the backstop that covers
+        // wider-than-4:3 margins the quads don't reach) - must never carve past the bars'
+        // trailing edge (sturdy-bassoon#42).
+        s32 letterboxSize = ShrinkWindow_GetSafeVal(); // Upstream TODO: Letterbox
 
         if (HREG(80) == 16) {
             if (HREG(95) != 16) {
@@ -1611,6 +1617,79 @@ void Gfx_SetupFrame(GraphicsContext* gfxCtx, u8 r, u8 g, u8 b) {
                                  OTRGetRectDimensionFromRightEdge(gScreenWidth - 1), letterboxSize - 1);
             gDPFillWideRectangle(OVERLAY_DISP++, OTRGetRectDimensionFromLeftEdge(0), gScreenHeight - letterboxSize,
                                  OTRGetRectDimensionFromRightEdge(gScreenWidth - 1), gScreenHeight - 1);
+            gDPPipeSync(OVERLAY_DISP++);
+        }
+
+        // The bars the player actually sees: two full-width quads under an interpolated
+        // modelview translate, so the frame-interpolation system sweeps them smoothly at the
+        // render framerate instead of the 10-unit-per-tick jumps the FILL rects above step in
+        // (sturdy-bassoon#42). Each quad is a constant screen-sized rectangle parked just off
+        // screen, slid in by the animated size; only the translate changes, which is exactly
+        // what the interpolator records (via the instrumented Matrix_ ops - OPEN_DISPS at the
+        // top of this function opened the interpolation node). Emitted unconditionally, even
+        // at size 0 (quads sit fully off screen), so the recorded op sequence lines up
+        // between every pair of frames.
+        {
+            s32 animatedSize = ShrinkWindow_GetCurrentVal();
+            Mtx* ortho = Graph_Alloc(gfxCtx, sizeof(Mtx));
+            Vp* vp = Graph_Alloc(gfxCtx, sizeof(Vp));
+            Vtx* vtx = Graph_Alloc(gfxCtx, 8 * sizeof(Vtx));
+            s16 halfW = gScreenWidth / 2;
+            s16 halfH = gScreenHeight / 2;
+            s32 i;
+
+            for (i = 0; i < 8; i++) {
+                s32 corner = i & 3;
+                // Corners: 0 = left/top, 1 = right/top, 2 = left/bottom, 3 = right/bottom of
+                // the quad, in the centered y-up ortho space View also uses.
+                vtx[i].v.ob[0] = (corner & 1) ? halfW : -halfW;
+                vtx[i].v.ob[2] = 0;
+                vtx[i].v.flag = 0;
+                vtx[i].v.tc[0] = vtx[i].v.tc[1] = 0;
+                vtx[i].v.cn[0] = vtx[i].v.cn[1] = vtx[i].v.cn[2] = 0;
+                vtx[i].v.cn[3] = 255;
+                if (i < 4) {
+                    // Top bar: parked in [halfH, halfH + screen height], slid down by the size.
+                    vtx[i].v.ob[1] = (corner < 2) ? halfH + gScreenHeight : halfH;
+                } else {
+                    // Bottom bar: parked in [-halfH - screen height, -halfH], slid up.
+                    vtx[i].v.ob[1] = (corner < 2) ? -halfH : -halfH - gScreenHeight;
+                }
+            }
+
+            vp->vp.vscale[0] = gScreenWidth * 2;
+            vp->vp.vscale[1] = gScreenHeight * 2;
+            vp->vp.vscale[2] = G_MAXZ / 2;
+            vp->vp.vscale[3] = 0;
+            vp->vp.vtrans[0] = gScreenWidth * 2;
+            vp->vp.vtrans[1] = gScreenHeight * 2;
+            vp->vp.vtrans[2] = G_MAXZ / 2;
+            vp->vp.vtrans[3] = 0;
+            guOrtho(ortho, -(f32)halfW, (f32)halfW, -(f32)halfH, (f32)halfH, -1.0f, 1.0f, 1.0f);
+
+            gDPPipeSync(OVERLAY_DISP++);
+            gDPSetCycleType(OVERLAY_DISP++, G_CYC_1CYCLE);
+            gDPSetRenderMode(OVERLAY_DISP++, G_RM_OPA_SURF, G_RM_OPA_SURF2);
+            gDPSetCombineMode(OVERLAY_DISP++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
+            gDPSetPrimColor(OVERLAY_DISP++, 0, 0, r, g, b, 255);
+            gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_OFF);
+            gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING |
+                                 G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
+            gSPViewport(OVERLAY_DISP++, vp);
+            gSPMatrix(OVERLAY_DISP++, ortho, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+
+            Matrix_Push();
+            Matrix_Translate(0.0f, -(f32)animatedSize, 0.0f, MTXMODE_NEW);
+            gSPMatrix(OVERLAY_DISP++, Matrix_NewMtx(gfxCtx, __FILE__, __LINE__),
+                      G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+            gSPVertex(OVERLAY_DISP++, vtx, 4, 0);
+            gSP2Triangles(OVERLAY_DISP++, 0, 2, 1, 0, 1, 2, 3, 0);
+            Matrix_Translate(0.0f, (f32)animatedSize, 0.0f, MTXMODE_NEW);
+            gSPMatrix(OVERLAY_DISP++, Matrix_NewMtx(gfxCtx, __FILE__, __LINE__),
+                      G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+            gSPVertex(OVERLAY_DISP++, vtx + 4, 4, 0);
+            gSP2Triangles(OVERLAY_DISP++, 0, 2, 1, 0, 1, 2, 3, 0);
+            Matrix_Pop();
             gDPPipeSync(OVERLAY_DISP++);
         }
     }

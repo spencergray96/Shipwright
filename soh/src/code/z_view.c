@@ -153,7 +153,10 @@ void func_800AA550(View* view) {
     s32 lry;
     GraphicsContext* gfxCtx = view->gfxCtx;
 
-    varY = ShrinkWindow_GetCurrentVal();
+    // Safe bound, not the stepped current value: the visible bars are interpolated geometry
+    // sweeping between ticks (sturdy-bassoon#42), and the 3D region must always reach at
+    // least as far as the bars' trailing edge so the sweep never uncovers undrawn rows.
+    varY = ShrinkWindow_GetSafeVal();
 
     varX = -1; // The following is optimized to varX = 0 but affects codegen
 
