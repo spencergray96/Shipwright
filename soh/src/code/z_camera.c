@@ -769,6 +769,14 @@ s32 Camera_CopyPREGToModeValues(Camera* camera) {
 #define SHRINKWIN_CURVAL (0x8000)
 #define IFACE_ALPHA_MASK (0x0F00)
 
+// How long a letterbox request must persist before the bars start, in 60Hz vsync units
+// accumulated via R_UPDATE_RATE - real time (> 100 ms) at any logic update rate. A tap of Z
+// to re-centre the camera drops the request again within the hold-off, so the bars never
+// flicker in; a held Z-lock or a cutscene passes it without a visible difference
+// (sturdy-bassoon#42).
+#define LETTERBOX_HOLDOFF_VSYNCS 6
+static s32 sLetterboxHoldOff = 0;
+
 void Camera_UpdateInterface(s16 flags) {
     s16 interfaceAlpha;
 
@@ -790,8 +798,17 @@ void Camera_UpdateInterface(s16 flags) {
 
         if (flags & SHRINKWIN_CURVAL) {
             ShrinkWindow_SetCurrentVal(sCameraShrinkWindowVal);
-        } else {
+            // A hard cut put the bars (or their absence) on screen already - align the
+            // hold-off with that so the following frames don't animate them away and back.
+            sLetterboxHoldOff = (sCameraShrinkWindowVal != 0) ? LETTERBOX_HOLDOFF_VSYNCS : 0;
+        } else if (sCameraShrinkWindowVal == 0) {
+            sLetterboxHoldOff = 0;
+            Letterbox_SetSizeTarget(0);
+        } else if (sLetterboxHoldOff >= LETTERBOX_HOLDOFF_VSYNCS) {
             Letterbox_SetSizeTarget(sCameraShrinkWindowVal);
+        } else {
+            sLetterboxHoldOff += R_UPDATE_RATE;
+            Letterbox_SetSizeTarget(0);
         }
     }
 
