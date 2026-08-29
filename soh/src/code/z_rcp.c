@@ -1636,13 +1636,23 @@ void Gfx_SetupFrame(GraphicsContext* gfxCtx, u8 r, u8 g, u8 b) {
             Vtx* vtx = Graph_Alloc(gfxCtx, 8 * sizeof(Vtx));
             s16 halfW = gScreenWidth / 2;
             s16 halfH = gScreenHeight / 2;
+            // The renderer squeezes every vertex's x by (4:3 / window aspect)
+            // (AdjXForAspectRatio) so 4:3-authored geometry keeps its proportions on a wide
+            // window. Pre-widen the quads by the inverse - the same half-extent the HUD's
+            // wide-edge helpers use, height/2 x aspect - so after the squeeze they span the
+            // full window width instead of just the 4:3 band; a few units of overshoot are
+            // clipped for free, and at exactly 4:3 this degrades to halfW.
+            s16 wideHalfW = (s16)((f32)halfH * OTRGetAspectRatio() + 8.0f);
             s32 i;
 
+            if (wideHalfW < halfW) {
+                wideHalfW = halfW;
+            }
             for (i = 0; i < 8; i++) {
                 s32 corner = i & 3;
                 // Corners: 0 = left/top, 1 = right/top, 2 = left/bottom, 3 = right/bottom of
                 // the quad, in the centered y-up ortho space View also uses.
-                vtx[i].v.ob[0] = (corner & 1) ? halfW : -halfW;
+                vtx[i].v.ob[0] = (corner & 1) ? wideHalfW : -wideHalfW;
                 vtx[i].v.ob[2] = 0;
                 vtx[i].v.flag = 0;
                 vtx[i].v.tc[0] = vtx[i].v.tc[1] = 0;
