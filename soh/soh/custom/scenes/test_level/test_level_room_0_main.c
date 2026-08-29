@@ -1,4 +1,4 @@
-#include "test_level_scene_data.h"
+#include "../CustomSceneData.h"
 
 // SceneCmd header array is unused (room is initialised directly in C++).
 // Only the object list and actor list are needed.

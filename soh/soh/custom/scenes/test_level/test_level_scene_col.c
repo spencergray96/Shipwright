@@ -1,11 +1,14 @@
-#include "test_level_scene_data.h"
+#include "../CustomSceneData.h"
 
+// Before #41 these went through a SURFACETYPE1 that shifted the material nibble to bits
+// 27:24, where SurfaceType_GetSfx never looks and bit 27 is SurfaceType_IsWallDamage - so the
+// two 0x08 (grass) types below played no footstep sound and carried a spurious wall-damage
+// flag. The conveyor fields were unaffected and still decode to speed 2, direction 48.
 SurfaceType test_level_scene_polygonTypes[3] = {
     { SURFACETYPE0(0, 0, 0x00, 0, 0x00, 0x00, 0, 0), SURFACETYPE1(0x08, 0x00, 0, 0, 0, 0, 0, 0) },
     { SURFACETYPE0(0, 0, 0x00, 0, 0x00, 0x00, 0, 0), SURFACETYPE1(0x00, 0x00, 0, 0, 0, 0, 0, 0) },
     // Floor conveyor (issue #25 rig): speed 2 = sFloorConveyorSpeeds[1] = 1.0 unit/frame, direction 48 = -X.
-    { SURFACETYPE0(0, 0, 0x00, 0, 0x00, 0x00, 0, 0),
-      SURFACETYPE1(0x08, 0x00, 0, 0, 0, 0, 0, 0) | SURFACETYPE1_CONVEYOR_SPEED(2) | SURFACETYPE1_CONVEYOR_DIR(48) },
+    { SURFACETYPE0(0, 0, 0x00, 0, 0x00, 0x00, 0, 0), SURFACETYPE1(0x08, 0, 0, 0, 0, 2, 48, 0) },
 };
 
 Vec3s test_level_scene_vertices[24] = {

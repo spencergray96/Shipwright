@@ -1,4 +1,4 @@
-#include "test_level_scene_data.h"
+#include "../CustomSceneData.h"
 
 // Forward declarations for display lists referenced before their definitions
 extern Gfx test_level_room_0_dl_Floor_mesh_layer_Opaque[];

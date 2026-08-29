@@ -1,4 +1,4 @@
-#include "test_level_scene_data.h"
+#include "../CustomSceneData.h"
 
 // Forward declarations for cross-file and same-file references
 extern Gfx test_level_room_0_shapeHeader_entry_0_opaque[];
