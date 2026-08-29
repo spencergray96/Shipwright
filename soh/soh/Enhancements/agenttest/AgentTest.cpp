@@ -47,8 +47,8 @@
  *                                        the measurable form of "the camera is sitting on the floor
  *                                        looking up" (issue #38). name is last and quoted because it is
  *                                        the only field that can contain a space
- *   trace <pre|post> frame=<n> pos=... prev=... velY=... lin=... bg=0x<hex> floorH=... sf1..sf3=0x<hex>
- *         anim=0x<hex> trans=<n> rdown=<x>,<y>,<z> rdent=0x<hex>
+ *   trace <pre|post> frame=<n> lbox=<cur>/<target> pos=... prev=... velY=... lin=... bg=0x<hex> floorH=...
+ *         sf1..sf3=0x<hex> anim=0x<hex> trans=<n> rdown=<x>,<y>,<z> rdent=0x<hex>
  *                                        per-tick Player diagnostic while "agenttest trace" is active: position,
  *                                        prevPos, velocity, bgCheckFlags, floor height, state flags, anim movement
  *                                        flags, transition trigger and the void-out respawn point. "pre" is taken
@@ -484,11 +484,14 @@ void EmitTrace(const char* phase) {
         return;
     }
     Player* player = GET_PLAYER(gPlayState);
-    char buf[320];
+    char buf[352];
+    // lbox= is the letterbox: current bar size / animation target, per tick - the readout for
+    // the hold-off before camera-requested bars start (sturdy-bassoon#42).
     std::snprintf(buf, sizeof(buf),
-                  "trace %s frame=%u pos=%.2f,%.2f,%.2f prev=%.2f,%.2f,%.2f velY=%.2f lin=%.2f bg=0x%X "
+                  "trace %s frame=%u lbox=%u/%u pos=%.2f,%.2f,%.2f prev=%.2f,%.2f,%.2f velY=%.2f lin=%.2f bg=0x%X "
                   "floorH=%.1f sf1=0x%X sf2=0x%X sf3=0x%X anim=0x%X trans=%d rdown=%.1f,%.1f,%.1f rdent=%s",
-                  phase, gPlayState->state.frames, player->actor.world.pos.x, player->actor.world.pos.y,
+                  phase, gPlayState->state.frames, ShrinkWindow_GetCurrentVal(), ShrinkWindow_GetVal(),
+                  player->actor.world.pos.x, player->actor.world.pos.y,
                   player->actor.world.pos.z, player->actor.prevPos.x, player->actor.prevPos.y,
                   player->actor.prevPos.z, player->actor.velocity.y, player->linearVelocity,
                   static_cast<unsigned>(player->actor.bgCheckFlags), player->actor.floorHeight,
