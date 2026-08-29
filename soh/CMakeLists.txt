@@ -244,8 +244,16 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
         VS_GLOBAL_KEYWORD "Win32Proj"
     )
     if(SOH_WINDOWS_64BIT)
+        # LTCG (/GL + /LTCG) is off on x64: link.exe dies with an access violation
+        # (exit -1073741819) in "Generating code", reproducibly, at ~9 GB working set on a
+        # 64 GB machine - so it is an internal linker failure, not memory pressure. The likely
+        # trigger is this target's Release-only /FORCE:MULTIPLE (see target_link_options below):
+        # whole-program codegen and forced duplicate symbols do not mix. Nothing was losing
+        # anything by this until now, because x64 Release also had no /O2 and so was never
+        # built (sturdy-bassoon#40); per-TU /O2 is where the optimization actually comes from,
+        # and dropping LTCG also takes ~10 minutes off every Release link.
         set_target_properties(${PROJECT_NAME} PROPERTIES
-            INTERPROCEDURAL_OPTIMIZATION_RELEASE "TRUE"
+            INTERPROCEDURAL_OPTIMIZATION_RELEASE "FALSE"
         )
     elseif("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "Win32")
         set_target_properties(${PROJECT_NAME} PROPERTIES
@@ -418,6 +426,7 @@ if(MSVC)
                 /Od
             >
             $<$<CONFIG:Release>:
+                /O2;
                 /Oi;
                 /Gy;
             >
