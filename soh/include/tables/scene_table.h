@@ -147,4 +147,7 @@
 /* 0x82 */ DEFINE_SCENE(terrain_f2p_greybox_bpy_scene, none, SCENE_TERRAIN_F2P_GREYBOX_BPY, SDC_DEFAULT, 0, 0) // fast64-terrain terrain_f2p_greybox_bpy
 /* 0x83 */ DEFINE_SCENE(terrain_f2p_settlement_scene, none, SCENE_TERRAIN_F2P_SETTLEMENT, SDC_DEFAULT, 0, 0) // terrain-bake terrain_f2p_settlement
 /* 0x84 */ DEFINE_SCENE(lumbridge_settlement_x3_scene, none, SCENE_LUMBRIDGE_SETTLEMENT_X3, SDC_DEFAULT, 0, 0) // project f5829f51-1d67-41a3-815c-2c1a3306ada8 name lumbridge_settlement_x3
+/* 0x85 */ DEFINE_SCENE(castle_cam_slab_scene, none, SCENE_CASTLE_CAM_SLAB, SDC_DEFAULT, 0, 0) // project c39f76fc-6263-446f-b84b-7601cc1b3d9f name castle_cam_slab
+/* 0x86 */ DEFINE_SCENE(castle_cam_ceiling_scene, none, SCENE_CASTLE_CAM_CEILING, SDC_DEFAULT, 0, 0) // project 46b3f624-ff9d-4a3e-ae2d-9c5031cf5fe1 name castle_cam_ceiling
+/* 0x87 */ DEFINE_SCENE(castle_cam_both_scene, none, SCENE_CASTLE_CAM_BOTH, SDC_DEFAULT, 0, 0) // project e4eba7bf-e016-470d-9d98-19856d0cae17 name castle_cam_both
 // END GRID TOOL EXPORTS

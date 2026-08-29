@@ -22,4 +22,7 @@
 #include "../terrain_f2p_greybox_bpy/CustomTerrainF2pGreyboxBpyScene.h" // fast64-terrain terrain_f2p_greybox_bpy
 #include "../terrain_f2p_settlement/CustomTerrainF2pSettlementScene.h" // terrain-bake terrain_f2p_settlement
 #include "../lumbridge_settlement_x3/CustomLumbridgeSettlementX3Scene.h" // project f5829f51-1d67-41a3-815c-2c1a3306ada8 name lumbridge_settlement_x3
+#include "../castle_cam_slab/CustomCastleCamSlabScene.h" // project c39f76fc-6263-446f-b84b-7601cc1b3d9f name castle_cam_slab
+#include "../castle_cam_ceiling/CustomCastleCamCeilingScene.h" // project 46b3f624-ff9d-4a3e-ae2d-9c5031cf5fe1 name castle_cam_ceiling
+#include "../castle_cam_both/CustomCastleCamBothScene.h" // project e4eba7bf-e016-470d-9d98-19856d0cae17 name castle_cam_both
 // END GRID TOOL EXPORTS
