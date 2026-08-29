@@ -132,6 +132,15 @@ extern "C" void CustomTerrainF2pGreyboxBpyScene_InitRoom(PlayState* play, RoomCo
     roomCtx->curRoom.echo       = 0;
     roomCtx->curRoom.meshHeader = shapeHeaders[room];
 
+    // Normal scenes get these from SCENE_CMD_ROOM_BEHAVIOR; this hand-rolled init bypasses the
+    // scene command list, and nothing on the load path clears them - func_80096FD4 resets only
+    // num/segment. Without them the room inherits the previous scene's values: a stale
+    // ROOM_BEHAVIOR_TYPE1_2 caps R_RUN_SPEED_LIMIT to 5.0 (the short ledge hop instead of the
+    // run-off leap) and disables backflip/sidehop/roll. See issue #39.
+    roomCtx->curRoom.behaviorType1 = ROOM_BEHAVIOR_TYPE1_0;
+    roomCtx->curRoom.behaviorType2 = ROOM_BEHAVIOR_TYPE2_0;
+    roomCtx->curRoom.lensMode      = LENS_MODE_HIDE_ACTORS;
+
     // No per-room actor placement yet - Link spawns via linkActorEntry, and the only other actors
     // are the room-transition planes, which come from the transition list rather than this one.
     play->numSetupActors = 0;

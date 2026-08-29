@@ -119,6 +119,15 @@ extern "C" void CustomGridTestMap11Scene_InitRoom(PlayState* play, RoomContext* 
     roomCtx->curRoom.echo       = 0;
     roomCtx->curRoom.meshHeader = (MeshHeader*)&grid_test_map_11_room_0_shapeHeader;
 
+    // Normal scenes get these from SCENE_CMD_ROOM_BEHAVIOR; this hand-rolled init bypasses the
+    // scene command list, and nothing on the load path clears them - func_80096FD4 resets only
+    // num/segment. Without them the room inherits the previous scene's values: a stale
+    // ROOM_BEHAVIOR_TYPE1_2 caps R_RUN_SPEED_LIMIT to 5.0 (the short ledge hop instead of the
+    // run-off leap) and disables backflip/sidehop/roll. See issue #39.
+    roomCtx->curRoom.behaviorType1 = ROOM_BEHAVIOR_TYPE1_0;
+    roomCtx->curRoom.behaviorType2 = ROOM_BEHAVIOR_TYPE2_0;
+    roomCtx->curRoom.lensMode      = LENS_MODE_HIDE_ACTORS;
+
     // v1 scope has no actor/NPC placement - only Link spawns, via linkActorEntry above.
     play->numSetupActors = 0;
     play->setupActorList = nullptr;
