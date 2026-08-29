@@ -459,14 +459,22 @@ void EmitPerf() {
     // vsync and MatchRefreshRate clamps, so a fps reading only counts as uncapped when cap= (and
     // the display class) sit well above it. Both exist so a perf line carries the config it was
     // measured under instead of relying on the run README remembering it (sturdy-bassoon#33).
+    // bld= is the build tier the exe was compiled at: "dbg" (/Od, asserts live) or "rel" (/O2,
+    // NDEBUG). The two tiers are not comparable at all - Release is the only honest timing build -
+    // so the tier rides on the line for the same reason cap= does (sturdy-bassoon#40).
+#ifdef NDEBUG
+    const char* const buildTier = "rel";
+#else
+    const char* const buildTier = "dbg";
+#endif
     char buf[384];
     std::snprintf(buf, sizeof(buf),
                   "perf fps=%.1f ms=%.2f tick_ms=%.2f tick_max_ms=%.2f mem_mb=%.0f nodes=%u/%u "
-                  "cell_max=%u cell_p95=%u cells=%u/%u heap_kb=%u/%u fog=%d/%d cap=%u scene=%s frame=%u",
+                  "cell_max=%u cell_p95=%u cells=%u/%u heap_kb=%u/%u fog=%d/%d cap=%u bld=%s scene=%s frame=%u",
                   fps, ms, tickAvg, sTickMaxMs, ResidentMemoryMb(), nodes.count, nodes.max, sCellMax, sCellP95,
                   sCellsOccupied, sCellsTotal, heapFree / 1024, (heapFree + heapAlloc) / 1024,
                   gPlayState->lightCtx.fogNear, gPlayState->lightCtx.fogFar,
-                  OTRGlobals::Instance->GetInterpolationFPS(), Hex(gPlayState->sceneNum).c_str(),
+                  OTRGlobals::Instance->GetInterpolationFPS(), buildTier, Hex(gPlayState->sceneNum).c_str(),
                   gPlayState->state.frames);
     WriteMarker(buf);
     sTickSumMs = 0.0;
