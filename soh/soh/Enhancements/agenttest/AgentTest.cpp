@@ -26,11 +26,16 @@
  *                                        command does not exist; otherwise it is the handler's return
  *                                        (0 = success). Most SoH handlers print to the ImGui console
  *                                        rather than <text>, so out= is usually empty for them.
- *   perf fps=<f> ms=<f> tick_ms=<f> tick_max_ms=<f> mem_mb=<n> nodes=<used>/<max> cell_max=<n>
+ *   perf fps=<f> ms=<f> sub_ms=<f> draws=<n> tris=<n> flushes=<n> tick_ms=<f> tick_max_ms=<f>
+ *        mem_mb=<n> nodes=<used>/<max> cell_max=<n>
  *        cell_p95=<n> cells=<occupied>/<total> heap_kb=<free>/<total> fog=<near>/<far> cap=<n>
  *        scene=0x<hex> frame=<n>
  *                                        every PerfInterval ticks (0 disables). fps/ms = ImGui render
- *                                        framerate (capped by the FPS setting); tick_ms = game-tick CPU
+ *                                        framerate (capped by the FPS setting); sub_ms = mean wall time
+ *                                        one rendered frame spent inside the Fast3D interpreter, and
+ *                                        draws/tris/flushes = what the last rendered frame submitted -
+ *                                        the render-side figures neither ms= (capped) nor tick_ms=
+ *                                        (ends before submission) can show; tick_ms = game-tick CPU
  *                                        time, avg and max over the interval; mem_mb = working set;
  *                                        cell_max/cell_p95 = per-subdivision-cell static collision
  *                                        list lengths (see RefreshCellStats); fog = lightCtx fogNear
@@ -123,6 +128,7 @@
 #include <spdlog/spdlog.h>
 #include <ship/Context.h>
 #include <ship/debug/Console.h>
+#include <fast/PerfCounters.h>
 #include "soh/OTRGlobals.h"
 #include "soh/util.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
@@ -202,6 +208,10 @@ double sTickSumMs = 0.0;
 double sTickMaxMs = 0.0;
 uint32_t sTickSamples = 0;
 int16_t sLastRoom = -1;
+
+// Fast3D's render-side counters as of the previous perf marker. They are cumulative, so the
+// interval's own figures are this subtracted from the current read.
+Fast::PerfCounters sLastRenderCounters = {};
 
 std::string CommandPath() {
     return Ship::Context::GetPathRelativeToAppDirectory(COMMAND_FILE);
@@ -467,13 +477,35 @@ void EmitPerf() {
 #else
     const char* const buildTier = "dbg";
 #endif
-    char buf[384];
+    // Render-side counters from the Fast3D interpreter (libultraship, sturdy-bassoon#40). Nothing
+    // else here measures submission: ms= is 1000/ImGui's framerate and stops moving at the fps
+    // cap, and tick_ms= ends before the display list is walked.
+    //
+    // sub_ms is the mean wall time one *rendered* frame spent inside Interpreter::Run - the
+    // display-list walk plus every draw it submits. The mean is over rendered frames, of which a
+    // game tick produces several (RunCommands loops InterpolationFPS/20 times over the same
+    // display list), so it is not a per-tick figure and does not sum with tick_ms.
+    //
+    // draws=/tris=/flushes= describe the last completed rendered frame rather than an interval
+    // mean, which keeps tris= directly comparable to a scene's known triangle count. draws=
+    // counts the flushes that actually issued geometry (one DrawTriangles each, so: GPU draw
+    // calls); flushes= counts every Flush(), so the gap between the two is state-change churn
+    // that submitted nothing. Which of tris= and draws= dominates sub_ms is the question that
+    // decides whether geometry caching or batching is the useful lever.
+    const Fast::PerfCounters render = Fast::PerfCountersGet();
+    const uint64_t renderFrames = render.frames - sLastRenderCounters.frames;
+    const double subMs = renderFrames > 0 ? (render.interpMs - sLastRenderCounters.interpMs) / renderFrames : 0.0;
+    sLastRenderCounters = render;
+
+    char buf[512];
     std::snprintf(buf, sizeof(buf),
-                  "perf fps=%.1f ms=%.2f tick_ms=%.2f tick_max_ms=%.2f mem_mb=%.0f nodes=%u/%u "
+                  "perf fps=%.1f ms=%.2f sub_ms=%.2f draws=%llu tris=%llu flushes=%llu tick_ms=%.2f "
+                  "tick_max_ms=%.2f mem_mb=%.0f nodes=%u/%u "
                   "cell_max=%u cell_p95=%u cells=%u/%u heap_kb=%u/%u fog=%d/%d cap=%u bld=%s scene=%s frame=%u",
-                  fps, ms, tickAvg, sTickMaxMs, ResidentMemoryMb(), nodes.count, nodes.max, sCellMax, sCellP95,
-                  sCellsOccupied, sCellsTotal, heapFree / 1024, (heapFree + heapAlloc) / 1024,
-                  gPlayState->lightCtx.fogNear, gPlayState->lightCtx.fogFar,
+                  fps, ms, subMs, (unsigned long long)render.lastDraws, (unsigned long long)render.lastTris,
+                  (unsigned long long)render.lastFlushes, tickAvg, sTickMaxMs, ResidentMemoryMb(), nodes.count,
+                  nodes.max, sCellMax, sCellP95, sCellsOccupied, sCellsTotal, heapFree / 1024,
+                  (heapFree + heapAlloc) / 1024, gPlayState->lightCtx.fogNear, gPlayState->lightCtx.fogFar,
                   OTRGlobals::Instance->GetInterpolationFPS(), buildTier, Hex(gPlayState->sceneNum).c_str(),
                   gPlayState->state.frames);
     WriteMarker(buf);
