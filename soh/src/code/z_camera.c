@@ -602,6 +602,21 @@ s16 func_80044ADC(Camera* camera, s16 yaw, s16 arg2) {
     playerPos.x = camera->playerPosRot.pos.x;
     playerPos.y = camera->playerGroundY + temp_f2;
     playerPos.z = camera->playerPosRot.pos.z;
+    // In a room whose ceiling sits within OREG(19)% of the player's height above the ground
+    // (any grid-tool storey with a storey above it, for adult Link), this probe's origin lands
+    // *above* that ceiling, and the floor raycast ahead reads the next storey's walkable top as
+    // an 80-unit slope rising in front of the player - which pitches the camera into the floor
+    // (sturdy-bassoon#38). Clamp the origin just below the ceiling over the player's head so the
+    // probe reads the floor of the space the player is actually in. Outdoors and in rooms with
+    // more headroom than the probe height, the check finds nothing and nothing changes.
+    {
+        Vec3f ceilChkPos = camera->playerPosRot.pos;
+        f32 ceilChkY;
+        if (BgCheck_AnyCheckCeiling(&camera->play->colCtx, &ceilChkY, &ceilChkPos, temp_f2) &&
+            playerPos.y > ceilChkY + temp_f2 - 1.0f) {
+            playerPos.y = ceilChkY + temp_f2 - 1.0f;
+        }
+    }
     rotatedPos.x = playerPos.x + (sp30 * sinYaw);
     rotatedPos.y = playerPos.y;
     rotatedPos.z = playerPos.z + (sp30 * cosYaw);
