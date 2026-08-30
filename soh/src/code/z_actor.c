@@ -14,6 +14,7 @@
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/nametag.h"
+#include "soh/Enhancements/actortiers/ActorTiers.h"
 
 #include "soh/ActorDB.h"
 #include "soh/OTRGlobals.h"
@@ -1284,6 +1285,16 @@ void Actor_Destroy(Actor* actor, PlayState* play) {
 
 void Actor_UpdatePos(Actor* actor) {
     f32 speedRate = R_UPDATE_RATE * 0.5f;
+
+    // #region SOH [sturdy-bassoon#6] Mitigation (b): velocity integration, scaled by the number of
+    // ticks this update stands in for. This is the single point both Actor_MoveXZGravity and
+    // Actor_MoveXYZ integrate through, so scaling here keeps a throttled vanilla actor moving at
+    // the right *wall-clock* speed instead of at 1/N of it. Exactly 1.0f whenever tiering is off
+    // or mitigation (b) is not armed, so the default path is one float compare.
+    if (gActorTiersTickScale != 1.0f) {
+        speedRate *= gActorTiersTickScale;
+    }
+    // #endregion
 
     actor->world.pos.x += (actor->velocity.x * speedRate) + actor->colChkInfo.displacement.x;
     actor->world.pos.y += (actor->velocity.y * speedRate) + actor->colChkInfo.displacement.y;
@@ -2664,6 +2675,16 @@ void Actor_UpdateAll(PlayState* play, ActorContext* actorCtx) {
                     Actor_Destroy(actor, play);
                     actor = actor->next;
                 }
+            // #region SOH [sturdy-bassoon#6] Distance-tiered actor updating - the Exp 2 prototype.
+            // Mid tier throttles (every Nth frame, staggered per actor), far tier skips the whole
+            // body. What is saved is the *fixed* per-resident-actor cost below - the prevPos copy,
+            // the sqrtf/atan2s to Link, CollisionCheck_ResetDamage - because vanilla already gates
+            // actor->update() itself on ACTOR_FLAG_INSIDE_CULLING_VOLUME. Inert until
+            // `agenttest tiers` sets gActorTiersOn, and the short circuit keeps the default path
+            // one global load and an untaken branch. See soh/Enhancements/actortiers/ActorTiers.h.
+            } else if (gActorTiersOn && ActorTiers_SkipThisFrame(play, actor)) {
+                actor = actor->next;
+            // #endregion
             } else {
                 Math_Vec3f_Copy(&actor->prevPos, &actor->world.pos);
                 actor->xzDistToPlayer = Actor_WorldDistXZToActor(actor, &player->actor);
@@ -3057,6 +3078,17 @@ void Actor_DrawAll(PlayState* play, ActorContext* actorCtx) {
         actor = actorListEntry->head;
 
         while (actor != NULL) {
+            // #region SOH [sturdy-bassoon#6] Optional draw-side half of the far tier. Separate
+            // lever from update tiering and off unless armed explicitly, because what it removes
+            // is a different cost: the per-actor projection matrix multiply, the ActorDB name
+            // lookup and the two gDPNoOpString commands below are paid for every resident actor
+            // every frame, culled or not, and none of that is in Actor_UpdateAll.
+            if (gActorTiersOn && ActorTiers_SkipDraw(play, actor)) {
+                actor->isDrawn = false;
+                actor = actor->next;
+                continue;
+            }
+            // #endregion
             char* actorName = ActorDB_Retrieve(actor->id)->name;
 
             gDPNoOpString(POLY_OPA_DISP++, actorName, i);

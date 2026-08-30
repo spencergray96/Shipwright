@@ -27,7 +27,7 @@
  *                                        (0 = success). Most SoH handlers print to the ImGui console
  *                                        rather than <text>, so out= is usually empty for them.
  *   perf fps=<f> ms=<f> sub_ms=<f> draws=<n> tris=<n> flushes=<n> tick_ms=<f> tick_max_ms=<f>
- *        mem_mb=<n> nodes=<used>/<max> cell_max=<n>
+ *        mem_mb=<n> actors=<n> act_near=<n> act_mid=<n> act_far=<n> nodes=<used>/<max> cell_max=<n>
  *        cell_p95=<n> cells=<occupied>/<total> heap_kb=<free>/<total> fog=<near>/<far> cap=<n>
  *        scene=0x<hex> frame=<n>
  *                                        every PerfInterval ticks (0 disables). fps/ms = ImGui render
@@ -37,6 +37,10 @@
  *                                        the render-side figures neither ms= (capped) nor tick_ms=
  *                                        (ends before submission) can show; tick_ms = game-tick CPU
  *                                        time, avg and max over the interval; mem_mb = working set;
+ *                                        actors = resident actor count (summed over the category
+ *                                        lists, because actorCtx.total is a u8 and wraps past 255);
+ *                                        act_near/act_mid/act_far = how "agenttest tiers" classified
+ *                                        them last frame, all zero while it is off;
  *                                        cell_max/cell_p95 = per-subdivision-cell static collision
  *                                        list lengths (see RefreshCellStats); fog = lightCtx fogNear
  *                                        (fog-space 0..1000) / fogFar (world units - also the view's
@@ -98,6 +102,14 @@
  *                                          Environment_Init re-arms scene control on every scene load, so the
  *                                          override must be re-applied after each entrance - which is also the
  *                                          safety net against leaking it into a later run
+ *   agenttest tiers <near> <mid> <n> [mitb] [drawcull] | off
+ *                                          arm the distance-tiered actor update prototype (sturdy-bassoon#6
+ *                                          Exp 2): full update inside <near>, every nth frame (staggered per
+ *                                          actor) out to <mid>, skipped beyond it. mitb=1 scales the shared
+ *                                          SkelAnime and velocity-integration paths by the skipped-tick count
+ *                                          so throttled vanilla actors keep wall-clock speed; drawcull=1 also
+ *                                          skips the per-actor draw-pass work past <mid>. "off" restores the
+ *                                          vanilla path. Per-tier counts ride the perf marker's act_* fields
  *   agenttest mark <text>                  write a marker, for bracketing checkpoints in the log
  *
  * Command-file consumption pauses while an injection is in progress, so queued lines run in order.
@@ -133,6 +145,7 @@
 #include "soh/util.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
+#include "soh/Enhancements/actortiers/ActorTiers.h"
 #include "soh/ShipInit.hpp"
 // For SaveManager::Instance, which `save` and `loadsave` drive directly. The free
 // `Save_SaveFile`/`Save_LoadFile` wrappers are declared here with C++ linkage but defined
@@ -422,6 +435,19 @@ void RefreshCellStats() {
     sCellsTotal = total;
 }
 
+// Resident actors, summed over the twelve actor categories. Not actorCtx.total: that field is a u8,
+// so it wraps past 255 - which is also why the ACTOR_NUMBER_MAX check in Actor_Spawn
+// ("if (actorCtx->total > ACTOR_NUMBER_MAX)", 2000) can never fire. The list lengths are s32 and
+// are the honest count. Density experiments (sturdy-bassoon#6) need every figure to carry the
+// actor count it was measured at, so this rides the perf line.
+uint32_t ResidentActors() {
+    uint32_t n = 0;
+    for (size_t i = 0; i < ARRAY_COUNT(gPlayState->actorCtx.actorLists); i++) {
+        n += static_cast<uint32_t>(gPlayState->actorCtx.actorLists[i].length);
+    }
+    return n;
+}
+
 // Resident (working set) memory in MB, or -1 where unsupported.
 double ResidentMemoryMb() {
 #ifdef _WIN32
@@ -497,13 +523,23 @@ void EmitPerf() {
     const double subMs = renderFrames > 0 ? (render.interpMs - sLastRenderCounters.interpMs) / renderFrames : 0.0;
     sLastRenderCounters = render;
 
-    char buf[512];
+    // actors= is the resident actor count and act_near=/act_mid=/act_far= is how the distance-tier
+    // prototype classified them on the last completed frame (all zero while it is off). The actor
+    // axis of sturdy-bassoon#6 Exp 2: a tick_ms figure without the actor count it was taken at is
+    // not evidence of anything.
+    uint32_t tierNear = 0;
+    uint32_t tierMid = 0;
+    uint32_t tierFar = 0;
+    ActorTiers_GetCounts(&tierNear, &tierMid, &tierFar);
+
+    char buf[640];
     std::snprintf(buf, sizeof(buf),
                   "perf fps=%.1f ms=%.2f sub_ms=%.2f draws=%llu tris=%llu flushes=%llu tick_ms=%.2f "
-                  "tick_max_ms=%.2f mem_mb=%.0f nodes=%u/%u "
+                  "tick_max_ms=%.2f mem_mb=%.0f actors=%u act_near=%u act_mid=%u act_far=%u nodes=%u/%u "
                   "cell_max=%u cell_p95=%u cells=%u/%u heap_kb=%u/%u fog=%d/%d cap=%u bld=%s scene=%s frame=%u",
                   fps, ms, subMs, (unsigned long long)render.lastDraws, (unsigned long long)render.lastTris,
-                  (unsigned long long)render.lastFlushes, tickAvg, sTickMaxMs, ResidentMemoryMb(), nodes.count,
+                  (unsigned long long)render.lastFlushes, tickAvg, sTickMaxMs, ResidentMemoryMb(), ResidentActors(),
+                  tierNear, tierMid, tierFar, nodes.count,
                   nodes.max, sCellMax, sCellP95, sCellsOccupied, sCellsTotal, heapFree / 1024,
                   (heapFree + heapAlloc) / 1024, gPlayState->lightCtx.fogNear, gPlayState->lightCtx.fogFar,
                   OTRGlobals::Instance->GetInterpolationFPS(), buildTier, Hex(gPlayState->sceneNum).c_str(),
@@ -1027,6 +1063,49 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         WriteMarker(buf);
         if (output) {
             *output += buf;
+        }
+        return 0;
+    }
+    // Distance-tiered actor updating (sturdy-bassoon#6 Exp 2). A console subcommand rather than a
+    // CVar or a rebuild, so every tier configuration can be A/B'd inside one game session against
+    // one scene load - which is the only way the differences here (tenths of a millisecond on
+    // Release) are measurable at all. "off" restores the vanilla path exactly.
+    //
+    //   agenttest tiers <near> <mid> <n> [mitb] [drawcull]
+    //
+    // near/mid are XZ world-unit radii (near = full update, near..mid = update every nth frame
+    // staggered per actor, beyond mid = skipped); n is that period. mitb arms mitigation (b): the
+    // shared SkelAnime and velocity-integration paths scale by the skipped-tick count so throttled
+    // vanilla actors keep wall-clock-correct speed. drawcull additionally skips the per-actor
+    // draw-pass work beyond the mid radius, which is a different cost from anything in
+    // Actor_UpdateAll and is measured separately.
+    if (args.size() >= 2 && args[1] == "tiers") {
+        if (args.size() >= 3 && args[2] == "off") {
+            ActorTiers_Disable();
+            WriteMarker(ActorTiers_Describe());
+            if (output) {
+                *output += ActorTiers_Describe();
+            }
+            return 0;
+        }
+        float nearRadius = 0.0f;
+        float midRadius = 0.0f;
+        int32_t period = 0;
+        int32_t mitigateB = 0;
+        int32_t drawCull = 0;
+        if (args.size() < 5 || !ParseFloat(args[2], &nearRadius) || !ParseFloat(args[3], &midRadius) ||
+            !ParseInt(args[4], &period) || !ParseIntArg(args, 5, 0, &mitigateB) ||
+            !ParseIntArg(args, 6, 0, &drawCull) || ActorTiers_Configure(nearRadius, midRadius, period, mitigateB,
+                                                                       drawCull) != 0) {
+            if (output) {
+                *output += "tiers needs <near radius> <mid radius> <n 1..60> [mitb 0|1] [drawcull 0|1], "
+                           "with mid >= near >= 0; or off";
+            }
+            return 1;
+        }
+        WriteMarker(ActorTiers_Describe());
+        if (output) {
+            *output += ActorTiers_Describe();
         }
         return 0;
     }

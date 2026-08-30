@@ -5,6 +5,7 @@
 #include <assert.h>
 #include "soh/ResourceManagerHelpers.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
+#include "soh/Enhancements/actortiers/ActorTiers.h"
 
 #define ANIM_INTERP 1
 
@@ -1555,6 +1556,23 @@ void SkelAnime_SetUpdate(SkelAnime* skelAnime) {
  * finishes.
  */
 s32 SkelAnime_Update(SkelAnime* skelAnime) {
+    // #region SOH [sturdy-bassoon#6] Mitigation (b): animation playback, scaled by the number of
+    // game ticks this update stands in for. OoT has no delta time, so a throttled actor would
+    // otherwise animate at 1/N speed. Scaling playSpeed around the call is exact for frame
+    // advancement (the update functions advance curFrame by playSpeed * R_UPDATE_RATE) and
+    // approximate for anything that reacts to a specific frame, which is what the per-actor
+    // exemption flag exists for. gActorTiersTickScale is exactly 1.0f unless the tier prototype is
+    // armed with mitigation (b) on, so the default path is one float compare.
+    if (gActorTiersTickScale != 1.0f) {
+        f32 savedPlaySpeed = skelAnime->playSpeed;
+        s32 ret;
+
+        skelAnime->playSpeed = savedPlaySpeed * gActorTiersTickScale;
+        ret = skelAnime->update.normal(skelAnime);
+        skelAnime->playSpeed = savedPlaySpeed;
+        return ret;
+    }
+    // #endregion
     return skelAnime->update.normal(skelAnime);
 }
 
