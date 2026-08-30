@@ -777,6 +777,24 @@ s32 Camera_CopyPREGToModeValues(Camera* camera) {
 #define LETTERBOX_HOLDOFF_VSYNCS 6
 static s32 sLetterboxHoldOff = 0;
 
+/**
+ * Is the scene now being entered one whose opening moments are a cutscene, rather than plain
+ * gameplay? Answered from the three ways a cutscene can already be set up when the camera first
+ * runs: a cutscene scene layer (a cutscene `cutsceneIndex`, or the end credits - every other
+ * non-NORMAL game mode is caught a branch earlier and gets no bars either way), an entrance-table
+ * cutscene queued by Cutscene_HandleEntranceTriggers, and the running cutscene itself.
+ *
+ * All three earn their place. Cutscene_Update runs earlier in the same tick than Camera_Update, so
+ * by the time this is read it has usually consumed `cutsceneTrigger` and `csCtx.state` is what
+ * carries - but it declines to start while the player is still in cutscene mode, which is the
+ * normal state during an entry fade, and the trigger is what covers those ticks.
+ *
+ * Only used to decide whether the scene-entry letterbox is wanted (sturdy-bassoon#43).
+ */
+static s32 Camera_IsCutsceneSceneEntry(PlayState* play) {
+    return IS_CUTSCENE_LAYER || (gSaveContext.cutsceneTrigger != 0) || (play->csCtx.state != CS_STATE_IDLE);
+}
+
 void Camera_UpdateInterface(s16 flags) {
     s16 interfaceAlpha;
 
@@ -7667,7 +7685,17 @@ Vec3s Camera_Update(Camera* camera) {
             Camera_UpdateInterface(sCameraInterfaceFlags);
         } else if ((D_8011D3F0 != 0) && (camera->thisIdx == CAM_ID_MAIN)) {
             D_8011D3F0--;
-            sCameraInterfaceFlags = 0x3200;
+            // The scene-entry letterbox. Vanilla forces size-32 bars (nibble 0x3000) for the
+            // first few ticks of *every* scene load, so that a scene opening on a cutscene
+            // already has its bars up by the time the entry fade finishes - the following
+            // transitionMode branch freezes the letterbox for the rest of the fade, so this
+            // short window is the only chance to arm them. On a plain spawn or warp nothing
+            // follows to hold them there, so they are simply retracted again as the scene
+            // becomes visible: the flash on every entrance (sturdy-bassoon#43).
+            //
+            // So arm them only for a cutscene entry. The alpha nibble is kept either way - it
+            // is what hides the HUD across the entry fade, and has nothing to do with the bars.
+            sCameraInterfaceFlags = Camera_IsCutsceneSceneEntry(camera->play) ? 0x3200 : 0x0200;
             Camera_UpdateInterface(sCameraInterfaceFlags);
         } else if (camera->play->transitionMode != TRANS_MODE_OFF) {
             sCameraInterfaceFlags = 0xF200;
