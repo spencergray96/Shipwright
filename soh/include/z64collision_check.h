@@ -9,6 +9,42 @@
 // From z64.h
 struct Actor;
 
+/*
+ * Overflow diagnostics for the three subscription lists above (sturdy-bassoon#49).
+ *
+ * Every collider that wants to attack, be attacked or push this frame calls CollisionCheck_SetAT /
+ * _SetAC / _SetOC during Actor_UpdateAll, and each of those appends to a fixed-size array. Past the
+ * cap the append is refused with a bare `return -1`: the collider simply is not in the list the
+ * next tick's CollisionCheck_AT/_OC walks, so its hits, hurts and bumps do not happen. Vanilla's
+ * only report is an osSyncPrintf, and this fork compiles those out in *both* build tiers
+ * (LOG_LEVEL_GAME_PRINTS is SPDLOG_LEVEL_OFF unconditionally in soh/CMakeLists.txt), so the failure
+ * is currently silent everywhere. It binds on how many colliders update near Link at once, which a
+ * dense scene reaches long before any performance limit - and a correctness cliff that reports
+ * nothing gets misread as buggy actor logic.
+ *
+ * So the refusal now warns (rate limited, at WARN, through the Ship log, on Release too) and the
+ * high-water occupancy is readable. Nothing here changes what the engine does: the caps, the
+ * refusal and its return value are untouched. Raising the caps is a separate content decision.
+ */
+typedef struct {
+    /* Worst colATCount/colACCount/colOCCount reached in any single frame of the window. Equal to
+       the matching COLLISION_CHECK_*_MAX means the list saturated and colliders were dropped. */
+    s32 peakAT;
+    s32 peakAC;
+    s32 peakOC;
+    /* Subscriptions refused because the list was full, summed over the window. */
+    u32 rejectedAT;
+    u32 rejectedAC;
+    u32 rejectedOC;
+} CollisionCheckDiagWindow;
+
+/*
+ * Read the worst-in-window occupancy and the refusal counts, then start a fresh window. Purely an
+ * observer: the engine never calls it, and not calling it only means the window keeps growing.
+ * Drives the agent-test perf marker's colchk_* fields.
+ */
+void CollisionCheck_DiagTakeWindow(CollisionCheckDiagWindow* out);
+
 typedef struct {
     /* 0x00 */ struct Actor* actor; // Attached actor
     /* 0x04 */ struct Actor* at; // Actor attached to what it collided with as an AT collider.

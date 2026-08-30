@@ -1161,6 +1161,93 @@ void CollisionCheck_DrawCollision(PlayState* play, CollisionCheckContext* colChk
     }
 }
 
+/*
+ * Overflow diagnostics for the AT/AC/OC subscription lists - sturdy-bassoon#49. See the block
+ * comment on CollisionCheckDiagWindow in z64collision_check.h for what the wall is and why it was
+ * invisible. Nothing below alters engine behaviour: the caps, the refusals and their return values
+ * are exactly vanilla, and this only counts and reports them.
+ */
+
+/* Game ticks between warnings, per list. The tick is 20 Hz, so this is about one line per second
+   per list however many colliders are being refused - a saturated frame otherwise writes one line
+   per refused collider per frame, which buries the log and costs more than the collision does. */
+#define COLCHK_DIAG_LOG_INTERVAL 20u
+
+typedef struct {
+    s32 peak;         /* worst occupancy in any frame since the window was last read */
+    u32 rejected;     /* refusals since the window was last read */
+    u32 sinceLog;     /* refusals since this list last warned; the warning reports and clears it */
+    u32 lastLogFrame; /* play->state.frames at that warning */
+    u8 everLogged;    /* whether lastLogFrame means anything yet */
+} ColChkDiagList;
+
+static ColChkDiagList sColChkDiagAT;
+static ColChkDiagList sColChkDiagAC;
+static ColChkDiagList sColChkDiagOC;
+
+/* Called on every accepted subscription, with the occupancy *after* the append. One compare and a
+   rarely-taken store per collider per frame. */
+static void CollisionCheck_DiagAccept(ColChkDiagList* diag, s32 count) {
+    if (count > diag->peak) {
+        diag->peak = count;
+    }
+}
+
+/* Called on every refused subscription. `name` is the list ("AT"/"AC"/"OC"), `max` its cap, and
+   `collider` the one being dropped - its actor is what a reader needs to find the offending
+   content, so the warning names the id and category rather than just the count. */
+static void CollisionCheck_DiagReject(PlayState* play, ColChkDiagList* diag, const char* name, s32 max,
+                                      Collider* collider) {
+    u32 now = (play != NULL) ? play->state.frames : 0;
+    s32 actorId = -1;
+    s32 category = -1;
+
+    diag->rejected++;
+    diag->sinceLog++;
+    if (max > diag->peak) {
+        diag->peak = max; /* the list is full by definition, so the peak is the cap */
+    }
+
+    /* Unsigned subtraction, so the frame counter resetting to 0 (GameState_Init) reads as a huge
+       gap and lets one extra warning through rather than suppressing warnings forever. */
+    if (diag->everLogged && (now - diag->lastLogFrame) < COLCHK_DIAG_LOG_INTERVAL) {
+        return;
+    }
+
+    if (collider != NULL && collider->actor != NULL) {
+        actorId = collider->actor->id;
+        category = collider->actor->category;
+    }
+
+    LUSLOG_WARN("CollisionCheck: %s list full at %d - collider refused, its hits/bumps will not "
+                "register this frame (actor id=%d cat=%d shape=%d); %u refused since the last warning",
+                name, max, actorId, category, (collider != NULL) ? collider->shape : -1, diag->sinceLog);
+
+    diag->lastLogFrame = now;
+    diag->everLogged = 1;
+    diag->sinceLog = 0;
+}
+
+void CollisionCheck_DiagTakeWindow(CollisionCheckDiagWindow* out) {
+    if (out == NULL) {
+        return;
+    }
+
+    out->peakAT = sColChkDiagAT.peak;
+    out->peakAC = sColChkDiagAC.peak;
+    out->peakOC = sColChkDiagOC.peak;
+    out->rejectedAT = sColChkDiagAT.rejected;
+    out->rejectedAC = sColChkDiagAC.rejected;
+    out->rejectedOC = sColChkDiagOC.rejected;
+
+    sColChkDiagAT.peak = 0;
+    sColChkDiagAC.peak = 0;
+    sColChkDiagOC.peak = 0;
+    sColChkDiagAT.rejected = 0;
+    sColChkDiagAC.rejected = 0;
+    sColChkDiagOC.rejected = 0;
+}
+
 static ColChkResetFunc sATResetFuncs[] = {
     Collider_ResetJntSphAT,
     Collider_ResetCylinderAT,
@@ -1190,6 +1277,7 @@ s32 CollisionCheck_SetAT(PlayState* play, CollisionCheckContext* colChkCtx, Coll
     if (colChkCtx->colATCount >= COLLISION_CHECK_AT_MAX) {
         // "Index exceeded and cannot add more"
         osSyncPrintf("CollisionCheck_setAT():インデックスがオーバーして追加不能\n");
+        CollisionCheck_DiagReject(play, &sColChkDiagAT, "AT", COLLISION_CHECK_AT_MAX, collider);
         return -1;
     }
     if (colChkCtx->sacFlags & 1) {
@@ -1197,6 +1285,7 @@ s32 CollisionCheck_SetAT(PlayState* play, CollisionCheckContext* colChkCtx, Coll
     }
     index = colChkCtx->colATCount;
     colChkCtx->colAT[colChkCtx->colATCount++] = collider;
+    CollisionCheck_DiagAccept(&sColChkDiagAT, colChkCtx->colATCount);
     return index;
 }
 
@@ -1268,6 +1357,7 @@ s32 CollisionCheck_SetAC(PlayState* play, CollisionCheckContext* colChkCtx, Coll
     if (colChkCtx->colACCount >= COLLISION_CHECK_AC_MAX) {
         // "Index exceeded and cannot add more"
         osSyncPrintf("CollisionCheck_setAC():インデックスがオーバして追加不能\n");
+        CollisionCheck_DiagReject(play, &sColChkDiagAC, "AC", COLLISION_CHECK_AC_MAX, collider);
         return -1;
     }
     if (colChkCtx->sacFlags & 1) {
@@ -1275,6 +1365,7 @@ s32 CollisionCheck_SetAC(PlayState* play, CollisionCheckContext* colChkCtx, Coll
     }
     index = colChkCtx->colACCount;
     colChkCtx->colAC[colChkCtx->colACCount++] = collider;
+    CollisionCheck_DiagAccept(&sColChkDiagAC, colChkCtx->colACCount);
     return index;
 }
 
@@ -1348,6 +1439,7 @@ s32 CollisionCheck_SetOC(PlayState* play, CollisionCheckContext* colChkCtx, Coll
     if (colChkCtx->colOCCount >= COLLISION_CHECK_OC_MAX) {
         // "Index exceeded and cannot add more"
         osSyncPrintf("CollisionCheck_setOC():インデックスがオーバして追加不能\n");
+        CollisionCheck_DiagReject(play, &sColChkDiagOC, "OC", COLLISION_CHECK_OC_MAX, collider);
         return -1;
     }
     if (colChkCtx->sacFlags & 1) {
@@ -1355,6 +1447,7 @@ s32 CollisionCheck_SetOC(PlayState* play, CollisionCheckContext* colChkCtx, Coll
     }
     index = colChkCtx->colOCCount;
     colChkCtx->colOC[colChkCtx->colOCCount++] = collider;
+    CollisionCheck_DiagAccept(&sColChkDiagOC, colChkCtx->colOCCount);
     return index;
 }
 
