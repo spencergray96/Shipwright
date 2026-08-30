@@ -47,7 +47,13 @@
  *                                        far clip plane); cap = the fps target the render loop is
  *                                        actually holding to (InterpolationFPS after the vsync and
  *                                        MatchRefreshRate clamps), so an "uncapped" line proves itself
- *   room_changed from=<n> to=<n> frame=<n>   the current room changed within a scene
+ *   room_changed from=<n> to=<n> frame=<n> pos=<x>,<y>,<z>
+ *                                        the current room changed within a scene, and where Link stood on
+ *                                        the tick it changed - transition-trigger latency is measured in
+ *                                        units from the boundary, not in ticks
+ *   roomdist <event>                     the distance-based room trigger requested or finished a room
+ *                                        change (sturdy-bassoon#6 Exp 4), with the two centre distances
+ *                                        that decided it
  *   state scene=0x<hex> room=<n> entrance=0x<hex> pos=<x>,<y>,<z> yaw=<n> age=<adult|child> time=0x<hex>
  *         night=<0|1> frame=<n> cam_at=<x>,<y>,<z> cam_eye=<x>,<y>,<z> cam_setting=<n> cam_mode=<n>
  *         cam_dist=<f> name="<scene name>"
@@ -110,6 +116,14 @@
  *                                          so throttled vanilla actors keep wall-clock speed; drawcull=1 also
  *                                          skips the per-actor draw-pass work past <mid>. "off" restores the
  *                                          vanilla path. Per-tier counts ride the perf marker's act_* fields
+ *   agenttest roomdist [hysteresis] | off
+ *                                          arm the distance-based room trigger (sturdy-bassoon#6 Exp 4):
+ *                                          each tick, pick the room whose centre is nearest Link and drive
+ *                                          Room_RequestNewRoom when it differs from the current one.
+ *                                          hysteresis (world units, default 0) is how much closer the
+ *                                          candidate must be before the change is taken. While armed the
+ *                                          En_Holl planes stand down, so the two triggers are measured one
+ *                                          at a time
  *   agenttest mark <text>                  write a marker, for bracketing checkpoints in the log
  *
  * Command-file consumption pauses while an injection is in progress, so queued lines run in order.
@@ -146,6 +160,7 @@
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/actortiers/ActorTiers.h"
+#include "soh/Enhancements/roomdist/RoomDist.h"
 #include "soh/ShipInit.hpp"
 // For SaveManager::Instance, which `save` and `loadsave` drive directly. The free
 // `Save_SaveFile`/`Save_LoadFile` wrappers are declared here with C++ linkage but defined
@@ -621,11 +636,28 @@ void OnGameFrameUpdateAgentTest() {
     if (!sAgentMode || !InNormalPlay() || !sReady) {
         return;
     }
+    // Trigger events from the distance-based room prototype (sturdy-bassoon#6 Exp 4). Polled here
+    // rather than written from RoomDist.cpp so the marker channel stays this file's, which is also
+    // why RoomDist needs no file I/O of its own. At most one event per tick, and this runs every
+    // tick, so nothing queues.
+    {
+        char event[256];
+        if (RoomDist_TakeEvent(event, sizeof(event))) {
+            WriteMarker(std::string("roomdist ") + event);
+        }
+    }
     const int16_t room = gPlayState->roomCtx.curRoom.num;
     if (room != sLastRoom) {
         if (sLastRoom >= 0) {
-            WriteMarker("room_changed from=" + std::to_string(sLastRoom) + " to=" + std::to_string(room) +
-                        " frame=" + std::to_string(gPlayState->state.frames));
+            // pos= is where Link stood on the tick the room actually changed - the figure a
+            // transition-trigger comparison needs, since latency is measured in units from the
+            // boundary rather than in ticks (sturdy-bassoon#6 Exp 4).
+            Player* player = GET_PLAYER(gPlayState);
+            char buf[160];
+            std::snprintf(buf, sizeof(buf), "room_changed from=%d to=%d frame=%u pos=%.1f,%.1f,%.1f", sLastRoom,
+                          room, gPlayState->state.frames, player->actor.world.pos.x, player->actor.world.pos.y,
+                          player->actor.world.pos.z);
+            WriteMarker(buf);
         }
         sLastRoom = room;
     }
@@ -647,11 +679,17 @@ void OnGameStateMainStartAgentTest() {
     if (!sAgentMode) {
         return;
     }
-    sTickStart = std::chrono::steady_clock::now();
-    sTickStarted = true;
+    // The trace write goes *before* the tick clock starts. It appends a line to two files, which is
+    // tens of microseconds - small, but it was landing inside the timed window and inflating
+    // tick_ms/tick_max_ms by ~0.1-0.15 ms on Release, where an ordinary tick is 0.4-0.5 ms. Found
+    // while measuring room-transition hitches (sturdy-bassoon#6 Exp 4), where a trace-armed
+    // crossing read high for a reason that had nothing to do with the crossing. The "post" trace
+    // is already outside the window (OnGameFrameUpdate reads the clock before emitting anything).
     if (sTraceTicksLeft > 0) {
         EmitTrace("pre");
     }
+    sTickStart = std::chrono::steady_clock::now();
+    sTickStarted = true;
     if (sInputFramesLeft <= 0 || !InNormalPlay()) {
         return;
     }
@@ -1117,6 +1155,53 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         }
         return 0;
     }
+    // Distance-based room selection (sturdy-bassoon#6 Exp 4). Same reasoning as `tiers`: a console
+    // subcommand rather than a CVar or a rebuild, so both triggers can be walked in one session
+    // against one scene load. While armed, En_Holl's planes stand down (see EnHoll_Update), so this
+    // is an either/or rather than a both.
+    //
+    //   agenttest roomdist [hysteresis] | off
+    //
+    // hysteresis is how much closer (world units) the candidate room's centre must be before the
+    // change is taken; the switch then lands hysteresis/2 units past the boundary. Default 0 is the
+    // naive nearest-centre rule, which is the configuration worth measuring for flapping first.
+    if (args.size() >= 2 && args[1] == "roomdist") {
+        if (args.size() >= 3 && args[2] == "off") {
+            RoomDist_Disable();
+            WriteMarker(RoomDist_Describe());
+            if (output) {
+                *output += RoomDist_Describe();
+            }
+            return 0;
+        }
+        if (!InNormalPlay()) {
+            if (output) {
+                *output += "no scene loaded";
+            }
+            return 1;
+        }
+        float hysteresis = 0.0f;
+        if ((args.size() >= 3 && !ParseFloat(args[2], &hysteresis)) || hysteresis < 0.0f) {
+            if (output) {
+                *output += "roomdist needs an optional non-negative hysteresis in world units, or off";
+            }
+            return 1;
+        }
+        const int32_t rc = RoomDist_Configure(hysteresis);
+        if (rc != 0) {
+            if (output) {
+                *output += rc == 2 ? "roomdist needs a scene whose room count is a perfect square (it derives "
+                                     "an NxN grid of room centres from the collision bounds)"
+                                   : "roomdist could not be armed";
+            }
+            return 1;
+        }
+        WriteMarker(RoomDist_Describe());
+        if (output) {
+            *output += RoomDist_Describe();
+        }
+        return 0;
+    }
     // Reads or writes one scene's saved flag word. The point is `sceneFlags` itself: it is indexed
     // straight by scene id with no bounds check anywhere in the engine, so it silently ran off its
     // own end once custom scenes pushed the table past 124 entries (sturdy-bassoon#30). Nothing
@@ -1229,8 +1314,9 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             "usage: agenttest perf <ticks> | state | goto <x> <y> <z> [yaw] | "
             "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | "
             "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | "
-            "fog <near> <far>|off | sceneflag <sceneId> [value] | save <fileNum> | loadsave <fileNum> | "
-            "mark <text>";
+            "fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
+            "roomdist [hysteresis]|off | sceneflag <sceneId> [value] | save <fileNum> | "
+            "loadsave <fileNum> | mark <text>";
     }
     return 1;
 }
@@ -1252,8 +1338,10 @@ void RegisterAgentTest() {
               "Agent test loop: perf <ticks> | state | goto <x> <y> <z> [yaw] | "
               "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | "
               "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | "
-              "fog <near> <far>|off | sceneflag <sceneId> [value] | save <fileNum> | loadsave <fileNum> | "
-              "mark <text>. walk/press inject controller 1 for N frames and end with an input_done marker.",
+              "fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
+              "roomdist [hysteresis]|off | sceneflag <sceneId> [value] | save <fileNum> | "
+              "loadsave <fileNum> | mark <text>. walk/press inject controller 1 for N frames and end "
+              "with an input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });
     }
 }

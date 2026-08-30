@@ -1,4 +1,5 @@
 #include "z_en_holl.h"
+#include "soh/Enhancements/roomdist/RoomDist.h"
 
 #define FLAGS ACTOR_FLAG_UPDATE_CULLING_DISABLED
 
@@ -402,6 +403,14 @@ void EnHoll_WaitRoomLoaded(EnHoll* this, PlayState* play) {
 
 void EnHoll_Update(Actor* thisx, PlayState* play) {
     EnHoll* this = (EnHoll*)thisx;
+
+    // sturdy-bassoon#6 Exp 4: while the distance-based room trigger is armed the planes stand down,
+    // so the two mechanisms are measured one at a time instead of both writing roomCtx in the same
+    // tick. Zero unless `agenttest roomdist` armed it, and this is the only thing that file costs
+    // the vanilla path.
+    if (gRoomDistOn) {
+        return;
+    }
 
     this->actionFunc(this, play);
 }
