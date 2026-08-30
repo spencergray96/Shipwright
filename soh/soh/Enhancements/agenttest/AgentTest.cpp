@@ -518,6 +518,12 @@ void EmitPerf() {
     // calls); flushes= counts every Flush(), so the gap between the two is state-change churn
     // that submitted nothing. Which of tris= and draws= dominates sub_ms is the question that
     // decides whether geometry caching or batching is the useful lever.
+    //
+    // draws_baked=/tris_baked= are the subset of that frame's draws which replayed a pre-recorded
+    // static mesh instead of walking a display list (sturdy-bassoon#40 Stage 1; zero unless
+    // SOH_STATIC_BAKE=1). tris_baked is *not* included in tris: baked geometry never reaches
+    // GfxSpTri1, so it is neither CPU-culled nor counted there, which is exactly why turning the
+    // bake on makes tris= fall for a scene that is drawing strictly more than before.
     const Fast::PerfCounters render = Fast::PerfCountersGet();
     const uint64_t renderFrames = render.frames - sLastRenderCounters.frames;
     const double subMs = renderFrames > 0 ? (render.interpMs - sLastRenderCounters.interpMs) / renderFrames : 0.0;
@@ -532,13 +538,15 @@ void EmitPerf() {
     uint32_t tierFar = 0;
     ActorTiers_GetCounts(&tierNear, &tierMid, &tierFar);
 
-    char buf[640];
+    char buf[704];
     std::snprintf(buf, sizeof(buf),
-                  "perf fps=%.1f ms=%.2f sub_ms=%.2f draws=%llu tris=%llu flushes=%llu tick_ms=%.2f "
+                  "perf fps=%.1f ms=%.2f sub_ms=%.2f draws=%llu tris=%llu flushes=%llu draws_baked=%llu "
+                  "tris_baked=%llu tick_ms=%.2f "
                   "tick_max_ms=%.2f mem_mb=%.0f actors=%u act_near=%u act_mid=%u act_far=%u nodes=%u/%u "
                   "cell_max=%u cell_p95=%u cells=%u/%u heap_kb=%u/%u fog=%d/%d cap=%u bld=%s scene=%s frame=%u",
                   fps, ms, subMs, (unsigned long long)render.lastDraws, (unsigned long long)render.lastTris,
-                  (unsigned long long)render.lastFlushes, tickAvg, sTickMaxMs, ResidentMemoryMb(), ResidentActors(),
+                  (unsigned long long)render.lastFlushes, (unsigned long long)render.lastDrawsBaked,
+                  (unsigned long long)render.lastTrisBaked, tickAvg, sTickMaxMs, ResidentMemoryMb(), ResidentActors(),
                   tierNear, tierMid, tierFar, nodes.count,
                   nodes.max, sCellMax, sCellP95, sCellsOccupied, sCellsTotal, heapFree / 1024,
                   (heapFree + heapAlloc) / 1024, gPlayState->lightCtx.fogNear, gPlayState->lightCtx.fogFar,

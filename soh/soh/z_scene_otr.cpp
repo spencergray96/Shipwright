@@ -32,6 +32,7 @@
 #include <spdlog/spdlog.h>
 #include "soh/custom/scenes/test_level/CustomTestLevel.h"
 #include "soh/custom/scenes/grid_tool/GridToolSceneRegistry.h"
+#include "soh/Enhancements/staticbake/StaticBakeRegistry.h"
 
 extern Ship::IResource* OTRPlay_LoadFile(PlayState* play, const char* fileName);
 extern "C" s32 Object_Spawn(ObjectContext* objectCtx, s16 objectId);
@@ -483,6 +484,10 @@ extern "C" s32 OTRfunc_800973FC(PlayState* play, RoomContext* roomCtx) {
                 if (!GridToolSceneRegistry_TryInitRoom(play, roomCtx)) {
                     CustomTestLevel_InitRoom(play, roomCtx);
                 }
+                // Only compiled-in rooms are offered to the static-geometry bake, and only when
+                // SOH_STATIC_BAKE=1 (sturdy-bassoon#40). The OTR branch above deliberately has no
+                // equivalent call.
+                StaticBake_RegisterRoom(play, roomCtx);
             }
 
             return 1;
