@@ -188,7 +188,9 @@ void DoorShutter_SetupAction(DoorShutter* this, DoorShutterActionFunc actionFunc
 }
 
 s32 DoorShutter_SetupDoor(DoorShutter* this, PlayState* play) {
-    TransitionActorEntry* transitionEntry = &play->transiActorCtx.list[(u16)this->dyna.actor.params >> 0xA];
+    // #region SOH [Fork] was `(u16)this->dyna.actor.params >> 0xA`, which aliases every index past 63
+    TransitionActorEntry* transitionEntry = &play->transiActorCtx.list[GET_TRANSITION_ACTOR_INDEX(&this->dyna.actor)];
+    // #endregion
     s8 frontRoom = transitionEntry->sides[0].room;
     s32 doorType = this->doorType;
     ShutterObjectInfo* temp_t0 = &sObjectInfo[this->styleType];
@@ -292,7 +294,9 @@ void DoorShutter_Destroy(Actor* thisx, PlayState* play) {
 
     DynaPoly_DeleteBgActor(play, &play->colCtx.dyna, this->dyna.bgId);
     if (this->dyna.actor.room >= 0) {
-        s32 transitionActorId = (u16)this->dyna.actor.params >> 0xA;
+        // #region SOH [Fork] was `(u16)this->dyna.actor.params >> 0xA`, which aliases every index past 63
+        s32 transitionActorId = GET_TRANSITION_ACTOR_INDEX(&this->dyna.actor);
+        // #endregion
 
         play->transiActorCtx.list[transitionActorId].id *= -1;
     }
@@ -562,8 +566,11 @@ void DoorShutter_SetupClosed(DoorShutter* this, PlayState* play) {
         Vec3f vec;
 
         Actor_WorldToActorCoords(&this->dyna.actor, &vec, &player->actor.world.pos);
-        this->dyna.actor.room =
-            play->transiActorCtx.list[(u16)this->dyna.actor.params >> 0xA].sides[(vec.z < 0.0f) ? 0 : 1].room;
+        // #region SOH [Fork] was `(u16)this->dyna.actor.params >> 0xA`, which aliases every index past 63
+        this->dyna.actor.room = play->transiActorCtx.list[GET_TRANSITION_ACTOR_INDEX(&this->dyna.actor)]
+                                    .sides[(vec.z < 0.0f) ? 0 : 1]
+                                    .room;
+        // #endregion
         if (room != this->dyna.actor.room) {
             Room tempRoom = play->roomCtx.curRoom;
 
@@ -750,7 +757,10 @@ void DoorShutter_Draw(Actor* thisx, PlayState* play) {
             }
         } else {
             if (sp70->b != NULL) {
-                TransitionActorEntry* transitionEntry = &play->transiActorCtx.list[(u16)this->dyna.actor.params >> 0xA];
+                // #region SOH [Fork] was `(u16)this->dyna.actor.params >> 0xA`, aliases every index past 63
+                TransitionActorEntry* transitionEntry =
+                    &play->transiActorCtx.list[GET_TRANSITION_ACTOR_INDEX(&this->dyna.actor)];
+                // #endregion
 
                 if (play->roomCtx.prevRoom.num >= 0 ||
                     transitionEntry->sides[0].room == transitionEntry->sides[1].room) {

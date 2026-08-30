@@ -142,7 +142,9 @@ void EnDoor_Destroy(Actor* thisx, PlayState* play) {
     TransitionActorEntry* transitionEntry;
     EnDoor* this = (EnDoor*)thisx;
 
-    transitionEntry = &play->transiActorCtx.list[(u16)this->actor.params >> 0xA];
+    // #region SOH [Fork] was `(u16)this->actor.params >> 0xA`, which aliases every index past 63
+    transitionEntry = &play->transiActorCtx.list[GET_TRANSITION_ACTOR_INDEX(&this->actor)];
+    // #endregion
     if (transitionEntry->id < 0) {
         transitionEntry->id = -transitionEntry->id;
     }
@@ -320,7 +322,9 @@ s32 EnDoor_OverrideLimbDraw(PlayState* play, s32 limbIndex, Gfx** dList, Vec3f* 
 
     if (limbIndex == 4) {
         temp_a2 = D_809FCEE4[this->dListIndex];
-        transitionEntry = &play->transiActorCtx.list[(u16)this->actor.params >> 0xA];
+        // #region SOH [Fork] was `(u16)this->actor.params >> 0xA`, which aliases every index past 63
+        transitionEntry = &play->transiActorCtx.list[GET_TRANSITION_ACTOR_INDEX(&this->actor)];
+        // #endregion
         rot->z += this->actor.world.rot.y;
         if ((play->roomCtx.prevRoom.num >= 0) || (transitionEntry->sides[0].room == transitionEntry->sides[1].room)) {
             phi_v0_2 = ((this->actor.shape.rot.y + this->skelAnime.jointTable[3].z) + rot->z) -

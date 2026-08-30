@@ -277,6 +277,14 @@ typedef struct Actor {
     /* 0x134 */ ActorFunc draw; // Draw Routine. Called by `Actor_Draw`
     /* 0x138 */ ActorResetFunc reset;
     /* 0x13C */ char dbgPad[0x10]; // Padding that only exists in the debug rom
+    // #region SOH [Fork] Transition actor list index, out of line from `params`.
+    // Vanilla packs it into `params` bits 10..15 in `Actor_SpawnTransitionActors`, which only round-trips for
+    // indices 0..63; past that the index aliases and a crossing loads an unrelated room. `Actor_Spawn` seeds
+    // this from the packed bits so every actor reads exactly what it used to, and
+    // `Actor_SpawnTransitionActors` then overwrites it with the real list index. Read it with
+    // `GET_TRANSITION_ACTOR_INDEX`, never by shifting `params`.
+    s32 transitionActorIndex;
+    // #endregion
 } Actor; // size = 0x14C
 
 typedef enum {
@@ -518,6 +526,9 @@ typedef struct {
 #define PARAMS_MAKE_MASK(s, n) PARAMS_GET_NOSHIFT(~0, s, n)
 
 #define TRANSITION_ACTOR_PARAMS_INDEX_SHIFT 10
-#define GET_TRANSITION_ACTOR_INDEX(actor) PARAMS_GET_NOMASK((u16)(actor)->params, 10)
+// #region SOH [Fork] Reads `Actor.transitionActorIndex` instead of `params` bits 10..15, which are only six
+// bits wide and so alias every index past 63. See the field's comment on `Actor`.
+#define GET_TRANSITION_ACTOR_INDEX(actor) ((actor)->transitionActorIndex)
+// #endregion
 
 #endif

@@ -3437,6 +3437,12 @@ Actor* Actor_Spawn(ActorContext* actorCtx, PlayState* play, s16 actorId, f32 pos
     actor->home.rot.y = rotY;
     actor->home.rot.z = rotZ;
     actor->params = params;
+    // #region SOH [Fork] Default the transition actor index to what the old `params`-shifting readers would
+    // have computed, so non-transition actors (and anything hand-spawned with a packed index, e.g. the actor
+    // viewer's En_Door spawner) behave exactly as before. `Actor_SpawnTransitionActors` overwrites it with
+    // the true list index, which is the only place an index past 63 can occur.
+    actor->transitionActorIndex = PARAMS_GET_NOMASK((u16)params, TRANSITION_ACTOR_PARAMS_INDEX_SHIFT);
+    // #endregion
 
     Actor_AddToCategory(actorCtx, actor, dbEntry->category);
 
@@ -3493,9 +3499,20 @@ void Actor_SpawnTransitionActors(PlayState* play, ActorContext* actorCtx) {
                 ((transitionActor->sides[1].room >= 0) &&
                  ((transitionActor->sides[1].room == play->roomCtx.curRoom.num) ||
                   (transitionActor->sides[1].room == play->roomCtx.prevRoom.num)))) {
-                Actor_Spawn(actorCtx, play, (s16)(transitionActor->id & 0x1FFF), transitionActor->pos.x,
-                            transitionActor->pos.y, transitionActor->pos.z, 0, transitionActor->rotY, 0,
-                            (i << 0xA) + transitionActor->params);
+                // #region SOH [Fork] The `i << 0xA` packing below is kept so anything still reading the
+                // params bits sees the vanilla value, but it is six bits wide and truncates past index 63.
+                // The spawned actor carries the real index in its own field; that is what
+                // `GET_TRANSITION_ACTOR_INDEX` reads. Nothing reads the index during `Actor_Init`, so
+                // assigning it after the spawn returns is soon enough.
+                Actor* spawnedTransitionActor =
+                    Actor_Spawn(actorCtx, play, (s16)(transitionActor->id & 0x1FFF), transitionActor->pos.x,
+                                transitionActor->pos.y, transitionActor->pos.z, 0, transitionActor->rotY, 0,
+                                (i << 0xA) + transitionActor->params);
+
+                if (spawnedTransitionActor != NULL) {
+                    spawnedTransitionActor->transitionActorIndex = i;
+                }
+                // #endregion
 
                 transitionActor->id = -transitionActor->id;
                 numActors = play->transiActorCtx.numActors;

@@ -2171,7 +2171,9 @@ s32 func_800C0D34(PlayState* play, Actor* actor, s16* yaw) {
         return 0;
     }
 
-    transitionActor = &play->transiActorCtx.list[(u16)actor->params >> 10];
+    // #region SOH [Fork] was `(u16)actor->params >> 10`, which aliases every index past 63
+    transitionActor = &play->transiActorCtx.list[GET_TRANSITION_ACTOR_INDEX(actor)];
+    // #endregion
     frontRoom = transitionActor->sides[0].room;
 
     if (frontRoom == transitionActor->sides[1].room) {
