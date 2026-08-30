@@ -352,7 +352,13 @@ typedef struct {
     /* 0x0002 */ u8     unk_02;
     /* 0x0003 */ u8     lensActive;
     /* 0x0004 */ char   unk_04[0x04];
-    /* 0x0008 */ u8     total; // total number of actors loaded
+    // #region SOH [Fork] `total` was a u8 upstream, which wraps at 256 and made Actor_Spawn's
+    // `actorCtx->total > ACTOR_NUMBER_MAX` (2000) guard dead code - 1,802 actors were resident with
+    // no warning. s32 matches ActorListEntry::length, the other count of the same actors, and fills
+    // the three padding bytes the u8 already sat in front of, so ActorContext keeps its 0x140 size
+    // and every later offset. See sturdy-bassoon#45.
+    /* 0x0008 */ s32    total; // total number of actors loaded
+    // #endregion
     /* 0x000C */ ActorListEntry actorLists[ACTORCAT_MAX];
     /* 0x006C */ TargetContext targetCtx;
     struct {
@@ -1463,8 +1469,16 @@ typedef struct PlayState {
     /* 0x11DE8 */ u8 linkAgeOnLoad;
     /* 0x11DE9 */ u8 haltAllActors;
     /* 0x11DEA */ u8 curSpawn;
-    /* 0x11DEB */ u8 numSetupActors;
-    /* 0x11DEC */ u8 numRooms;
+    // #region SOH [Fork] `numSetupActors` was a u8 upstream, so a room's authored setup actor list
+    // silently truncated modulo 256 - a generated room assigning 360 spawned 104. s16 rather than
+    // u16 because Actor_UpdateAll hands the entry's index to SetActorListIndex, whose store is an
+    // int16_t with -1 as its "not from a setup list" sentinel; keeping the count signed keeps every
+    // representable count's indices inside that domain. The field moves from 0x11DEB to 0x11DEC,
+    // both of which were inside the padding run before roomList, so PlayState keeps its size and
+    // every later offset. See sturdy-bassoon#45.
+    /* 0x11DEC */ s16 numSetupActors;
+    // #endregion
+    /* 0x11DEE */ u8 numRooms;
     /* 0x11DF0 */ RomFile* roomList;
     /* 0x11DF4 */ ActorEntry* linkActorEntry;
     /* 0x11DF8 */ ActorEntry* setupActorList;

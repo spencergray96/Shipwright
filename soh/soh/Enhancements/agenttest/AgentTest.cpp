@@ -38,7 +38,8 @@
  *                                        (ends before submission) can show; tick_ms = game-tick CPU
  *                                        time, avg and max over the interval; mem_mb = working set;
  *                                        actors = resident actor count (summed over the category
- *                                        lists, because actorCtx.total is a u8 and wraps past 255);
+ *                                        lists; equals actorCtx.total since sturdy-bassoon#45
+ *                                        widened that field, which used to wrap past 255);
  *                                        act_near/act_mid/act_far = how "agenttest tiers" classified
  *                                        them last frame, all zero while it is off;
  *                                        cell_max/cell_p95 = per-subdivision-cell static collision
@@ -450,11 +451,12 @@ void RefreshCellStats() {
     sCellsTotal = total;
 }
 
-// Resident actors, summed over the twelve actor categories. Not actorCtx.total: that field is a u8,
-// so it wraps past 255 - which is also why the ACTOR_NUMBER_MAX check in Actor_Spawn
-// ("if (actorCtx->total > ACTOR_NUMBER_MAX)", 2000) can never fire. The list lengths are s32 and
-// are the honest count. Density experiments (sturdy-bassoon#6) need every figure to carry the
-// actor count it was measured at, so this rides the perf line.
+// Resident actors, summed over the twelve actor categories. This deliberately does not read
+// actorCtx.total, which was a u8 and wrapped past 255 (sturdy-bassoon#45 has since widened it to
+// s32, so the two now agree - the same Actor_AddToCategory/Actor_RemoveFromCategory pair maintains
+// both). Summing the s32 list lengths keeps the field honest without depending on that fix.
+// Density experiments (sturdy-bassoon#6) need every figure to carry the actor count it was
+// measured at, so this rides the perf line.
 uint32_t ResidentActors() {
     uint32_t n = 0;
     for (size_t i = 0; i < ARRAY_COUNT(gPlayState->actorCtx.actorLists); i++) {

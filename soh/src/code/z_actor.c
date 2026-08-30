@@ -3405,7 +3405,15 @@ Actor* Actor_Spawn(ActorContext* actorCtx, PlayState* play, s16 actorId, f32 pos
     SetActorListIndex(actor, -1);
     // #endregion
 
-    assert(dbEntry->numLoaded < 255);
+    // #region SOH [Fork] The bound was `< 255`, left over from vanilla's `ActorOverlay.numLoaded`,
+    // which really was a u8. SoH's ActorDBEntry::numLoaded is an s32 and does not wrap, so 255 was
+    // never protecting anything - it only made Debug abort on the 255th instance of one actor type
+    // while Release (NDEBUG, assert compiled out) ran the same scene correctly. A room of 360
+    // signposts is enough to trip it. The real ceiling on instances of any one type is the actor
+    // cap checked above, since every one of them counts against `actorCtx->total`; assert that
+    // instead, so the check still catches a leaked or unbalanced counter. See sturdy-bassoon#45.
+    assert(dbEntry->numLoaded <= ACTOR_NUMBER_MAX);
+    // #endregion
 
     dbEntry->numLoaded++;
 
