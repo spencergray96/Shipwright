@@ -104,6 +104,14 @@
  *   agenttest trace <ticks>                emit a "trace" marker pair (pre/post) around each of the next N game
  *                                          ticks (0 cancels, max MAX_TRACE_TICKS). The tick the command lands in
  *                                          contributes its post only. Diagnostic for teleport/movement bugs
+ *   agenttest cutscene <index> | off       arm the NEXT scene load to enter on a cutscene layer, the way a scene
+ *                                          whose opening is a cutscene does. index is 0xFFF0..0xFFFF (0..15 is
+ *                                          accepted as the layer number and offset for you). "off" clears both
+ *                                          the queue and the live index - warping out of a cutscene leaves the
+ *                                          latter armed, and the next load would silently be a cutscene entry.
+ *                                          The entrance's table group must actually have that many rows or the
+ *                                          load lands in a neighbouring scene - Temple of Time (0x53) has 11
+ *                                          and is the safe default target
  *   agenttest fog <near> <far> | off       override the scene's fog band and far clip plane, or hand them back
  *                                          to the scene's light settings. near is fog-space (0..1000, the scene
  *                                          path clamps at 996); far is world units (100..12800) and is also the
@@ -210,6 +218,12 @@ constexpr int32_t MAX_TRACE_TICKS = 400;      // 20 s of trace markers, two line
 constexpr int32_t FOG_NEAR_MAX = 1000;
 constexpr int32_t FOG_FAR_MIN = 100;
 constexpr int32_t FOG_FAR_MAX = 12800;
+// "agenttest cutscene" bounds, both Play_Init's own. nextCutsceneIndex holds NONE when nothing is
+// queued; anything from FIRST up is read as "this entry is a cutscene", and the scene layer it picks
+// is SCENE_LAYER_CUTSCENE_FIRST + (index & LAYER_MAX).
+constexpr int32_t CUTSCENE_INDEX_NONE = 0xFFEF;
+constexpr int32_t CUTSCENE_INDEX_FIRST = 0xFFF0;
+constexpr int32_t CUTSCENE_LAYER_MAX = 0xF;
 // Staging scene for the auto-boot: the door spawn of Link's house. Small, loads fast, nothing scripted.
 // The caller's real entrance comes through the command file afterwards.
 constexpr int32_t BOOT_ENTRANCE = ENTR_LINKS_HOUSE_0_1;
@@ -1094,6 +1108,40 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         }
         return 0;
     }
+    // Scene entry is either plain or a cutscene entry, and the two want different letterbox
+    // behaviour (sturdy-bassoon#43) - but every entrance cutscene in sEntranceCutsceneTable is
+    // gated on an EventChkInf flag the debug save already has set, so no console warp can reach
+    // one. Play_Init reads nextCutsceneIndex into cutsceneIndex and treats >= 0xFFF0 as "this
+    // entry is a cutscene", which is the switch this writes. Deliberately not gated on
+    // InNormalPlay - it only touches the save context, and applies to the next load either way.
+    if (args.size() >= 3 && args[1] == "cutscene") {
+        if (args[2] == "off") {
+            // Both halves. nextCutsceneIndex is the queue Play_Init reads - but a cutscene left
+            // early (warping out of one) never clears cutsceneIndex, and Play_Init would still
+            // read that as a cutscene entry on the next load.
+            gSaveContext.nextCutsceneIndex = CUTSCENE_INDEX_NONE;
+            gSaveContext.cutsceneIndex = 0;
+            if (output) {
+                *output += "next scene load enters plain";
+            }
+            return 0;
+        }
+        int32_t index = 0;
+        if (!ParseU16(args[2], &index) || (index > CUTSCENE_LAYER_MAX && index < CUTSCENE_INDEX_FIRST)) {
+            if (output) {
+                *output += "cutscene needs a layer in 0..15, an index in 0xFFF0..0xFFFF, or off";
+            }
+            return 1;
+        }
+        if (index <= CUTSCENE_LAYER_MAX) {
+            index += CUTSCENE_INDEX_FIRST;
+        }
+        gSaveContext.nextCutsceneIndex = static_cast<u16>(index);
+        if (output) {
+            *output += "next scene load enters with cutsceneIndex=" + Hex(index);
+        }
+        return 0;
+    }
     // Fog-band / far-clip override for draw-cost experiments (sturdy-bassoon#33): lightCtx.fogFar is
     // both where fog saturates and the far plane Play_Draw builds the perspective from, so pulling it
     // in un-draws everything past it - the rasterization share of draw cost - while the submitted
@@ -1337,7 +1385,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             "usage: agenttest perf <ticks> | state | goto <x> <y> <z> [yaw] | "
             "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | "
             "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | "
-            "fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
+            "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
             "roomdist [hysteresis]|off | sceneflag <sceneId> [value] | save <fileNum> | "
             "loadsave <fileNum> | mark <text>";
     }
@@ -1361,7 +1409,7 @@ void RegisterAgentTest() {
               "Agent test loop: perf <ticks> | state | goto <x> <y> <z> [yaw] | "
               "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | "
               "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | "
-              "fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
+              "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
               "roomdist [hysteresis]|off | sceneflag <sceneId> [value] | save <fileNum> | "
               "loadsave <fileNum> | mark <text>. walk/press inject controller 1 for N frames and end "
               "with an input_done marker.",
