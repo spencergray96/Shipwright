@@ -39,7 +39,17 @@
 #endif
 
 #define AUDIO_HEAP_SIZE  0x380000
-#define SYSTEM_HEAP_SIZE (1024 * 1024 * 4)
+#define SYSTEM_HEAP_SIZE (1024 * 1024 * 8)
+
+// PlayState's two-headed arena request (z_play.c). Derived from SYSTEM_HEAP_SIZE because
+// GameState_Realloc silently CLAMPS any request the system heap cannot satisfy (game.c - and its
+// warning is a compiled-out osSyncPrintf), so an independent constant here is how the two drift
+// apart unnoticed; main.c's arena size hardcoded the same 4 MiB separately until
+// sturdy-bassoon#51. The 512 KiB slack covers everything else the SystemArena carries while Play
+// is live (gamestate struct, GameInfo, View, vismono, transition wipes, allocator headers -
+// ~350 KB proven sufficient at the old sizes). Verify a raise landed via the heap_kb denominator
+// on the agenttest perf line. See ENGINE_BUDGETS.md, "Static collision memory".
+#define PLAY_ARENA_REQUEST (SYSTEM_HEAP_SIZE - 0x80000)
 
 #ifdef __cplusplus
 namespace LUS

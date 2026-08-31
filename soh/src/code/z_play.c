@@ -390,7 +390,9 @@ void Play_Init(GameState* thisx) {
     // OTRTODO allocate double the normal amount of memory
     // This is to avoid some parts of the game, like loading actors, causing OoM
     // This is potionally unavoidable due to struct size differences, but is x2 the right amount?
-    GameState_Realloc(&play->state, 0x1D4790 * 2);
+    // (Since sturdy-bassoon#51 the request is derived from SYSTEM_HEAP_SIZE - see z64.h - so the
+    // silent GameState_Realloc clamp can never quietly undo a raise again.)
+    GameState_Realloc(&play->state, PLAY_ARENA_REQUEST);
     KaleidoManager_Init(play);
     View_Init(&play->view, gfxCtx);
     Audio_SetExtraFilter(0);
@@ -557,7 +559,11 @@ void Play_Init(GameState* thisx) {
     Flags_UnsetAllEnv(play);
 
     osSyncPrintf("ZELDA ALLOC SIZE=%x\n", THA_GetSize(&play->state.tha));
-    zAllocSize = THA_GetSize(&play->state.tha);
+    // Round the exact-fit request down to 16: the allocation lands via THA_AllocEndAlign16, which
+    // aligns tail down before subtracting, so an unaligned remainder used to end up to 15 bytes
+    // below head - unnoticed only because nothing checked. Since the #51 bounds check refuses
+    // that, request only the aligned portion (loses <=15 bytes).
+    zAllocSize = THA_GetSize(&play->state.tha) & ~0xF;
     zAlloc = (uintptr_t)GAMESTATE_ALLOC_MC(&play->state, zAllocSize);
     zAllocAligned = (zAlloc + 8) & ~0xF;
     ZeldaArena_Init((void*)zAllocAligned, zAllocSize - (zAllocAligned - zAlloc));

@@ -90,7 +90,10 @@ void Main(void* arg) {
     SysCfb_Init(0);
     sysHeap = (uintptr_t)gSystemHeap;
     fb = SysCfb_GetFbPtr(0);
-    gSystemHeapSize = 1024 * 1024 * 4;
+    // The arena laid over the heaps.c buffer. Was a hardcoded 4 MiB that silently diverged from
+    // SYSTEM_HEAP_SIZE (which sizes that buffer) - the third constant the #51 pot raise had to
+    // find. Keep it on the macro so the buffer and the arena can never disagree again.
+    gSystemHeapSize = SYSTEM_HEAP_SIZE;
     // "System heap initalization"
     osSyncPrintf("システムヒープ初期化 %08x-%08x %08x\n", sysHeap, fb, gSystemHeapSize);
     SystemHeap_Init((void*)sysHeap, gSystemHeapSize); // initializes the system heap

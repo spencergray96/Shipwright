@@ -392,6 +392,14 @@ void GameState_Realloc(GameState* gameState, size_t size) {
         osSyncPrintf("メモリが足りません。ハイラルサイズを可能な最大値に変更します\n");
         osSyncPrintf("(hyral=%08x max=%08x free=%08x alloc=%08x)\n", size, systemMaxFree, systemFree, systemAlloc);
         osSyncPrintf(VT_RST);
+        // The osSyncPrintf warning above compiles to nothing in every config, which made this
+        // clamp the silent killer of naive pot raises (sturdy-bassoon#51: z_play.c's request,
+        // SYSTEM_HEAP_SIZE and main.c's arena size all had to move together and nothing said so).
+        // Shout on both tiers so a future divergence is visible without a perf line.
+        LUSLOG_WARN("GameState_Realloc: request %u KB exceeds the SystemArena's largest free block %u KB - clamping to "
+                    "%u KB. If this follows a SYSTEM_HEAP_SIZE / PLAY_ARENA_REQUEST change, a constant was missed "
+                    "(z64.h / main.c) - see ENGINE_BUDGETS.md, \"Static collision memory\".",
+                    (u32)(size / 1024), systemMaxFree / 1024, (systemMaxFree - 0x10) / 1024);
         size = systemMaxFree - 0x10;
     }
 
