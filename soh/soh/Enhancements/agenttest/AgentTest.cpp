@@ -177,6 +177,7 @@
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/actortiers/ActorTiers.h"
 #include "soh/Enhancements/roomdist/RoomDist.h"
+#include "soh/Enhancements/worldstate/WorldFlags.h"
 #include "soh/ShipInit.hpp"
 // For SaveManager::Instance, which `save` and `loadsave` drive directly. The free
 // `Save_SaveFile`/`Save_LoadFile` wrappers are declared here with C++ linkage but defined
@@ -1309,6 +1310,51 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         }
         return 0;
     }
+    // Reads or writes one project world flag (sturdy-bassoon#54). Same argument as sceneflag:
+    // there are no custom actors yet, so nothing in-game can touch the store, and a save
+    // round-trip cannot be demonstrated without a console-level probe.
+    //   worldflag count        -> emits how many flags are set and the capacity
+    //   worldflag <n>          -> reads flag n
+    //   worldflag <n> <0|1>    -> clears/sets flag n, then reads it back through the real getter
+    if (args.size() >= 3 && args[1] == "worldflag") {
+        char buf[128];
+        if (args[2] == "count") {
+            std::snprintf(buf, sizeof(buf), "worldflag count=%d max=%d", WorldFlags_CountSet(), WORLD_FLAG_MAX);
+            WriteMarker(buf);
+            if (output) {
+                *output += buf;
+            }
+            return 0;
+        }
+        int32_t flag = 0;
+        if (!ParseInt(args[2], &flag) || flag < 0 || flag >= WORLD_FLAG_MAX) {
+            if (output) {
+                *output += "worldflag needs `count` or a flag in 0.." + std::to_string(WORLD_FLAG_MAX - 1);
+            }
+            return 1;
+        }
+        if (args.size() >= 4) {
+            int32_t value = 0;
+            if (!ParseInt(args[3], &value) || (value != 0 && value != 1)) {
+                if (output) {
+                    *output += "worldflag value must be 0 or 1";
+                }
+                return 1;
+            }
+            if (value) {
+                Flags_SetWorldFlag(flag);
+            } else {
+                Flags_UnsetWorldFlag(flag);
+            }
+        }
+        std::snprintf(buf, sizeof(buf), "worldflag flag=%d value=%d max=%d", flag, Flags_GetWorldFlag(flag) ? 1 : 0,
+                      WORLD_FLAG_MAX);
+        WriteMarker(buf);
+        if (output) {
+            *output += buf;
+        }
+        return 0;
+    }
     // Writes gSaveContext to Save/file<n+1>.sav. In normal play this only happens at a save point
     // or an owl statue, neither of which an agent can reach - and a save that is never written
     // cannot be shown to round-trip.
@@ -1386,8 +1432,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | "
             "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | "
             "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
-            "roomdist [hysteresis]|off | sceneflag <sceneId> [value] | save <fileNum> | "
-            "loadsave <fileNum> | mark <text>";
+            "roomdist [hysteresis]|off | sceneflag <sceneId> [value] | worldflag count|<n> [0|1] | "
+            "save <fileNum> | loadsave <fileNum> | mark <text>";
     }
     return 1;
 }
@@ -1410,8 +1456,8 @@ void RegisterAgentTest() {
               "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | "
               "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | "
               "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
-              "roomdist [hysteresis]|off | sceneflag <sceneId> [value] | save <fileNum> | "
-              "loadsave <fileNum> | mark <text>. walk/press inject controller 1 for N frames and end "
+              "roomdist [hysteresis]|off | sceneflag <sceneId> [value] | worldflag count|<n> [0|1] | "
+              "save <fileNum> | loadsave <fileNum> | mark <text>. walk/press inject controller 1 for N frames and end "
               "with an input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });
     }
