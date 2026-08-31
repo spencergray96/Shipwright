@@ -2838,6 +2838,92 @@ void DynaPoly_Alloc(PlayState* play, DynaCollisionContext* dyna) {
     DynaSSNodeList_Alloc(play, &dyna->polyNodes, dyna->polyNodesMax);
 }
 
+/*
+ * Occupancy/refusal diagnostics for the BG_ACTOR_MAX dynapoly slots - sturdy-bassoon#55, the
+ * z_bgcheck twin of the #49 CollisionCheck diagnostics (z_collision_check.c). See the block
+ * comment on DynaPolyDiagWindow in z64bgcheck.h. The caps and the refusal are vanilla; the one
+ * behavioural change is the refusal's return value, documented at the return site below.
+ */
+
+/* Game ticks between warnings; the tick is 20 Hz, so about one line per second however many
+   registrations are being refused. */
+#define DYNAPOLY_DIAG_LOG_INTERVAL 20u
+
+typedef struct {
+    s32 peak;         /* worst slot occupancy since the window was last read */
+    u32 rejected;     /* refused registrations since the window was last read */
+    u32 sinceLog;     /* refusals since the last warning; the warning reports and clears it */
+    u32 lastLogFrame; /* play->state.frames at that warning */
+    u8 everLogged;    /* whether lastLogFrame means anything yet */
+} DynaPolyDiag;
+
+static DynaPolyDiag sDynaPolyDiag;
+
+/* Slots unavailable to a new registration: the in-use bit stays set on a delete-reserved slot
+   (flag & 2) until DynaPoly_Setup actually frees it, and DynaPoly_SetBgActor skips such slots,
+   so counting bit 1 is the honest occupancy. 50 u16 reads; called on registration and on the
+   perf-marker read, both rare. */
+static s32 DynaPoly_DiagOccupancy(DynaCollisionContext* dyna) {
+    s32 count = 0;
+    s32 i;
+
+    for (i = 0; i < BG_ACTOR_MAX; i++) {
+        if (dyna->bgActorFlags[i] & 1) {
+            count++;
+        }
+    }
+    return count;
+}
+
+/* Called on every accepted registration, after the slot is claimed. */
+static void DynaPoly_DiagAccept(DynaCollisionContext* dyna) {
+    s32 occupancy = DynaPoly_DiagOccupancy(dyna);
+
+    if (occupancy > sDynaPolyDiag.peak) {
+        sDynaPolyDiag.peak = occupancy;
+    }
+}
+
+/* Called on every refused registration. Unsigned frame subtraction so a frame-counter reset
+   reads as a huge gap and lets one extra warning through (same rationale as #49). */
+static void DynaPoly_DiagReject(PlayState* play, Actor* actor) {
+    u32 now = (play != NULL) ? play->state.frames : 0;
+
+    sDynaPolyDiag.rejected++;
+    sDynaPolyDiag.sinceLog++;
+    sDynaPolyDiag.peak = BG_ACTOR_MAX; /* full by definition */
+
+    if (sDynaPolyDiag.everLogged && (now - sDynaPolyDiag.lastLogFrame) < DYNAPOLY_DIAG_LOG_INTERVAL) {
+        return;
+    }
+
+    LUSLOG_WARN("DynaPoly: all %d BgActor slots taken - registration refused, the actor exists but has "
+                "no dynapoly collision (actor id=%d params=0x%04X); %u refused since the last warning",
+                BG_ACTOR_MAX, (actor != NULL) ? actor->id : -1,
+                (actor != NULL) ? (u16)actor->params : 0, sDynaPolyDiag.sinceLog);
+
+    sDynaPolyDiag.lastLogFrame = now;
+    sDynaPolyDiag.everLogged = 1;
+    sDynaPolyDiag.sinceLog = 0;
+}
+
+void DynaPoly_DiagTakeWindow(CollisionContext* colCtx, DynaPolyDiagWindow* out) {
+    s32 current;
+
+    if (out == NULL || colCtx == NULL) {
+        return;
+    }
+    current = DynaPoly_DiagOccupancy(&colCtx->dyna);
+    out->current = current;
+    out->peak = (sDynaPolyDiag.peak > current) ? sDynaPolyDiag.peak : current;
+    out->rejected = sDynaPolyDiag.rejected;
+
+    /* Occupancy persists between frames (unlike the per-frame colchk lists), so the fresh
+       window's floor is the current occupancy, not zero. */
+    sDynaPolyDiag.peak = current;
+    sDynaPolyDiag.rejected = 0;
+}
+
 /**
  * Set BgActor
  * original name: DynaPolyInfo_setActor
@@ -2858,13 +2944,21 @@ s32 DynaPoly_SetBgActor(PlayState* play, DynaCollisionContext* dyna, Actor* acto
         osSyncPrintf(VT_FGCOL(RED));
         osSyncPrintf("DynaPolyInfo_setActor():ダイナミックポリゴン 空きインデックスはありません\n");
         osSyncPrintf(VT_RST);
-        return BG_ACTOR_MAX;
+        DynaPoly_DiagReject(play, actor);
+        // Vanilla returns BG_ACTOR_MAX here, but BG_ACTOR_MAX IS BGCHECK_SCENE (z64bgcheck.h):
+        // a refused actor's bgId would silently answer BgCheck_GetCollisionHeader and every other
+        // bgId-keyed query with the scene's static collision. BGACTOR_NEG_ONE is the engine's own
+        // "no bg" value - DynaPolyActor_Init starts there, DynaPoly_DeleteBgActor both writes it
+        // and explicitly aborts on it, and every indexing path rejects negatives through
+        // DynaPoly_IsBgIdBgActor (sturdy-bassoon#55; consumer audit on the issue).
+        return BGACTOR_NEG_ONE;
     }
 
     BgActor_SetActor(&dyna->bgActors[bgId], actor, colHeader);
     dyna->bitFlag |= DYNAPOLY_INVALIDATE_LOOKUP;
 
     dyna->bgActorFlags[bgId] &= ~2;
+    DynaPoly_DiagAccept(dyna);
     osSyncPrintf(VT_FGCOL(GREEN));
     osSyncPrintf("DynaPolyInfo_setActor():index %d\n", bgId);
     osSyncPrintf(VT_RST);

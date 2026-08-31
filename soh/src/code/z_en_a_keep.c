@@ -181,8 +181,19 @@ void EnAObj_Init(Actor* thisx, PlayState* play) {
     }
 
     if (this->dyna.bgId != BGACTOR_NEG_ONE) {
-        CollisionHeader_GetVirtual(sColHeaders[this->dyna.bgId], &colHeader);
-        this->dyna.bgId = DynaPoly_SetBgActor(play, &play->colCtx.dyna, thisx, colHeader);
+        if (this->dyna.bgId < (s32)ARRAY_COUNT(sColHeaders)) {
+            CollisionHeader_GetVirtual(sColHeaders[this->dyna.bgId], &colHeader);
+            this->dyna.bgId = DynaPoly_SetBgActor(play, &play->colCtx.dyna, thisx, colHeader);
+        } else {
+            // A_OBJ_UNKNOWN_6 asks for the 6th collision header (D_06000730), which upstream left
+            // OTRTODO-commented-out of sColHeaders - the index read past the array and handed
+            // CollisionHeader_GetVirtual whatever bytes followed it (found by the #55 audit).
+            // No header, no dynapoly; the actor still spawns and talks.
+            LUSLOG_WARN("En_A_Obj: params %d wants colHeader index %d but sColHeaders has %d entries - "
+                        "skipping dynapoly registration",
+                        thisx->params, this->dyna.bgId, (s32)ARRAY_COUNT(sColHeaders));
+            this->dyna.bgId = BGACTOR_NEG_ONE;
+        }
     }
 }
 

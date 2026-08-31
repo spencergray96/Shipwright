@@ -29,8 +29,8 @@
  *   perf fps=<f> ms=<f> sub_ms=<f> draws=<n> tris=<n> flushes=<n> tick_ms=<f> tick_max_ms=<f>
  *        mem_mb=<n> actors=<n> act_near=<n> act_mid=<n> act_far=<n> nodes=<used>/<max> cell_max=<n>
  *        cell_p95=<n> cells=<occupied>/<total> heap_kb=<free>/<total> colchk_at=<peak>/<max>
- *        colchk_ac=<peak>/<max> colchk_oc=<peak>/<max> colchk_rej=<at>/<ac>/<oc> fog=<near>/<far>
- *        cap=<n> scene=0x<hex> frame=<n>
+ *        colchk_ac=<peak>/<max> colchk_oc=<peak>/<max> colchk_rej=<at>/<ac>/<oc>
+ *        dynapoly=<peak>/<max> dynapoly_rej=<n> fog=<near>/<far> cap=<n> scene=0x<hex> frame=<n>
  *                                        every PerfInterval ticks (0 disables). fps/ms = ImGui render
  *                                        framerate (capped by the FPS setting); sub_ms = mean wall time
  *                                        one rendered frame spent inside the Fast3D interpreter, and
@@ -50,6 +50,10 @@
  *                                        colchk_rej = subscriptions refused because a list was
  *                                        full - a correctness headroom, since a refused collider's
  *                                        hits and bumps silently do not happen (sturdy-bassoon#49);
+ *                                        dynapoly = worst BgActor-slot occupancy this interval
+ *                                        against BG_ACTOR_MAX and dynapoly_rej = registrations
+ *                                        DynaPoly_SetBgActor refused - a refused actor exists and
+ *                                        draws but has no dynapoly collision (sturdy-bassoon#55);
  *                                        fog = lightCtx fogNear
  *                                        (fog-space 0..1000) / fogFar (world units - also the view's
  *                                        far clip plane); cap = the fps target the render loop is
@@ -588,13 +592,23 @@ void EmitPerf() {
     CollisionCheckDiagWindow colChk{};
     CollisionCheck_DiagTakeWindow(&colChk);
 
+    // dynapoly= is the worst BgActor-slot occupancy of the interval against BG_ACTOR_MAX, and
+    // dynapoly_rej= how many registrations DynaPoly_SetBgActor refused (sturdy-bassoon#55).
+    // Correctness headroom like colchk: a refused actor exists and draws but has no moving
+    // collision, and pre-#55 its bgId aliased the scene's static collision. Occupancy persists
+    // across frames (slots free only when DynaPoly_Setup collects a deleted actor), so
+    // peak==current in steady state.
+    DynaPolyDiagWindow dynaPoly{};
+    DynaPoly_DiagTakeWindow(&gPlayState->colCtx, &dynaPoly);
+
     char buf[832];
     std::snprintf(buf, sizeof(buf),
                   "perf fps=%.1f ms=%.2f sub_ms=%.2f draws=%llu tris=%llu flushes=%llu draws_baked=%llu "
                   "tris_baked=%llu tick_ms=%.2f "
                   "tick_max_ms=%.2f mem_mb=%.0f actors=%u act_near=%u act_mid=%u act_far=%u nodes=%u/%u "
                   "cell_max=%u cell_p95=%u cells=%u/%u heap_kb=%u/%u colchk_at=%d/%d colchk_ac=%d/%d "
-                  "colchk_oc=%d/%d colchk_rej=%u/%u/%u fog=%d/%d cap=%u bld=%s scene=%s frame=%u",
+                  "colchk_oc=%d/%d colchk_rej=%u/%u/%u dynapoly=%d/%d dynapoly_rej=%u fog=%d/%d cap=%u bld=%s "
+                  "scene=%s frame=%u",
                   fps, ms, subMs, (unsigned long long)render.lastDraws, (unsigned long long)render.lastTris,
                   (unsigned long long)render.lastFlushes, (unsigned long long)render.lastDrawsBaked,
                   (unsigned long long)render.lastTrisBaked, tickAvg, sTickMaxMs, ResidentMemoryMb(), ResidentActors(),
@@ -602,7 +616,8 @@ void EmitPerf() {
                   nodes.max, sCellMax, sCellP95, sCellsOccupied, sCellsTotal, heapFree / 1024,
                   (heapFree + heapAlloc) / 1024, colChk.peakAT, COLLISION_CHECK_AT_MAX, colChk.peakAC,
                   COLLISION_CHECK_AC_MAX, colChk.peakOC, COLLISION_CHECK_OC_MAX, colChk.rejectedAT,
-                  colChk.rejectedAC, colChk.rejectedOC, gPlayState->lightCtx.fogNear, gPlayState->lightCtx.fogFar,
+                  colChk.rejectedAC, colChk.rejectedOC, dynaPoly.peak, BG_ACTOR_MAX, dynaPoly.rejected,
+                  gPlayState->lightCtx.fogNear, gPlayState->lightCtx.fogFar,
                   OTRGlobals::Instance->GetInterpolationFPS(), buildTier, Hex(gPlayState->sceneNum).c_str(),
                   gPlayState->state.frames);
     WriteMarker(buf);

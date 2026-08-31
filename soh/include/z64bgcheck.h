@@ -34,6 +34,9 @@ struct DynaPolyActor;
 
 #define BGACTOR_NEG_ONE -1
 #define BG_ACTOR_MAX 50
+// BGCHECK_SCENE shares its value with BG_ACTOR_MAX, so BG_ACTOR_MAX can never double as a "no
+// slot" sentinel: a bgId of 50 aliases the scene's static collision in every query. The engine's
+// "no bg" value is BGACTOR_NEG_ONE (sturdy-bassoon#55).
 #define BGCHECK_SCENE BG_ACTOR_MAX
 #define BGCHECK_Y_MIN -32000.0f
 #define BGCHECK_XYZ_ABSMAX 32760.0f
@@ -289,5 +292,28 @@ typedef struct {
     /* 0x24 */ f32* distSq;    // distance from posA to poly squared
     /* 0x28 */ f32 chkDist;    // distance from poly
 } DynaLineTest;
+
+/*
+ * Occupancy/refusal diagnostics for the BG_ACTOR_MAX dynapoly slots (sturdy-bassoon#55), the
+ * z_bgcheck twin of CollisionCheckDiagWindow (z64collision_check.h, #49). Every dynapoly actor
+ * takes one of 50 slots scene-wide via DynaPoly_SetBgActor; the 51st is refused, loudly since
+ * #55 (rate-limited LUSLOG_WARN, on Release too) and with BGACTOR_NEG_ONE instead of the vanilla
+ * BG_ACTOR_MAX return, whose value is BGCHECK_SCENE and aliased the scene's static collision.
+ * Reading the window is purely an observer; the engine never calls it. Drives the agent-test
+ * perf marker's dynapoly= fields.
+ */
+typedef struct {
+    /* Slots with the in-use bit at the moment of the read. Delete-reserved slots still count:
+       they refuse new registrations until DynaPoly_Setup frees them. */
+    s32 current;
+    /* Worst occupancy since the last read; >= current, and == BG_ACTOR_MAX means registrations
+       may have been refused - `rejected` says how many were. */
+    s32 peak;
+    /* Registrations DynaPoly_SetBgActor refused because all slots were taken, since the last
+       read. A refused actor exists and draws but has no dynapoly collision. */
+    u32 rejected;
+} DynaPolyDiagWindow;
+
+void DynaPoly_DiagTakeWindow(CollisionContext* colCtx, DynaPolyDiagWindow* out);
 
 #endif
