@@ -1,9 +1,17 @@
 #ifndef Z_COLLISION_CHECK_H
 #define Z_COLLISION_CHECK_H
 
+// AC/OC raised from vanilla's 60/50 for the one-scene F2P world (sturdy-bassoon#50, 2026-08-31).
+// Sized by the occupancy sweep in docs/test-runs/2026-08-31-colcheck-occupancy-sweep: both lists'
+// marginal cost is flat (indistinguishable from the per-actor background) through 256 on the
+// sweep build, so these are demand-driven numbers, not perf ceilings - worst-case planned zone
+// reads ~47 OC / ~137 AC. AC gets more than OC because self-gating props register AC at 600
+// units but OC at 150-400, so a prop-dense square fills AC first (see ENGINE_BUDGETS.md,
+// "Collision check subscriptions"). AT stays vanilla: it reads 0/50 in every run ever logged and
+// only fills mid-attack. Raising further is safe per the sweep; raise both AC and OC or neither.
 #define COLLISION_CHECK_AT_MAX 50
-#define COLLISION_CHECK_AC_MAX 60
-#define COLLISION_CHECK_OC_MAX 50
+#define COLLISION_CHECK_AC_MAX 192
+#define COLLISION_CHECK_OC_MAX 128
 #define COLLISION_CHECK_OC_LINE_MAX 3
 
 // From z64.h

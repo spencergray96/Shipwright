@@ -953,12 +953,38 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     }
     if (args.size() >= 2 &&
         (args[1] == "state" || args[1] == "goto" || args[1] == "walk" || args[1] == "press" || args[1] == "rooms" ||
-         args[1] == "time" || args[1] == "trace" || args[1] == "fog") &&
+         args[1] == "time" || args[1] == "trace" || args[1] == "fog" || args[1] == "uncull") &&
         !InNormalPlay()) {
         if (output) {
             *output += "no scene loaded";
         }
         return 1;
+    }
+    // ORs ACTOR_FLAG_UPDATE_CULLING_DISABLED onto every resident actor except the player
+    // (sturdy-bassoon#50). Most props evaluate their AC/OC distance gates only when their update
+    // runs, and their updates are camera-frustum-culled - so a measurement ring's subscription
+    // count would otherwise depend on where the camera points. This removes exactly that
+    // confound; the distance gates themselves still apply. One-shot over actors alive right now:
+    // re-issue after every spawn batch. Nothing persists - a scene load spawns fresh actors
+    // without the flag.
+    if (args.size() >= 2 && args[1] == "uncull") {
+        uint32_t n = 0;
+        for (size_t i = 0; i < ARRAY_COUNT(gPlayState->actorCtx.actorLists); i++) {
+            if (i == ACTORCAT_PLAYER) {
+                continue;
+            }
+            for (Actor* actor = gPlayState->actorCtx.actorLists[i].head; actor != nullptr; actor = actor->next) {
+                actor->flags |= ACTOR_FLAG_UPDATE_CULLING_DISABLED;
+                n++;
+            }
+        }
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "uncull n=%u", n);
+        WriteMarker(buf);
+        if (output) {
+            *output += buf;
+        }
+        return 0;
     }
     if (args.size() >= 2 && args[1] == "state") {
         return EmitState(output);
@@ -1432,7 +1458,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | "
             "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | "
             "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
-            "roomdist [hysteresis]|off | sceneflag <sceneId> [value] | worldflag count|<n> [0|1] | "
+            "roomdist [hysteresis]|off | uncull | sceneflag <sceneId> [value] | worldflag count|<n> [0|1] | "
             "save <fileNum> | loadsave <fileNum> | mark <text>";
     }
     return 1;
@@ -1456,7 +1482,7 @@ void RegisterAgentTest() {
               "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | "
               "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | "
               "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
-              "roomdist [hysteresis]|off | sceneflag <sceneId> [value] | worldflag count|<n> [0|1] | "
+              "roomdist [hysteresis]|off | uncull | sceneflag <sceneId> [value] | worldflag count|<n> [0|1] | "
               "save <fileNum> | loadsave <fileNum> | mark <text>. walk/press inject controller 1 for N frames and end "
               "with an input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });
