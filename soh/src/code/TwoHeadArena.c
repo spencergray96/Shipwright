@@ -106,16 +106,32 @@ void* THA_AllocEnd(TwoHeadArena* tha, size_t size) {
     return tha->tail;
 }
 
-void* THA_AllocEndAlign16(TwoHeadArena* tha, size_t size) {
-    size_t mask = ~0xF;
+/*
+ * Tail-side allocation with a pre-write bounds check (sturdy-bassoon#51). The vanilla body is
+ * pure pointer arithmetic and cannot fail, so on overflow `tail` walked below `head`/`bufp` and
+ * the caller's write corrupted whatever precedes the arena - every downstream NULL guard on
+ * these returns was dead code. Refusing the request BEFORE moving `tail` makes those guards
+ * live and leaves the arena intact for the caller's diagnostics (THA_GetSize still reports the
+ * true remainder). THA_AllocStart/THA_AllocEnd are deliberately untouched: they serve the
+ * graphics arenas (THGA_*), which have their own overflow protocol (THGA_IsCrash).
+ */
+static void* THA_AllocEndAlignChecked(TwoHeadArena* tha, size_t size, size_t mask) {
+    uintptr_t alignedTail = (uintptr_t)tha->tail & mask;
+    uintptr_t newTail = (alignedTail - size) & mask;
 
-    tha->tail = (((uintptr_t)tha->tail & mask) - size) & mask;
+    if (size > alignedTail || newTail < (uintptr_t)tha->head) {
+        return NULL;
+    }
+    tha->tail = (void*)newTail;
     return tha->tail;
 }
 
+void* THA_AllocEndAlign16(TwoHeadArena* tha, size_t size) {
+    return THA_AllocEndAlignChecked(tha, size, ~(size_t)0xF);
+}
+
 void* THA_AllocEndAlign(TwoHeadArena* tha, size_t size, size_t mask) {
-    tha->tail = (((uintptr_t)tha->tail & mask) - size) & mask;
-    return tha->tail;
+    return THA_AllocEndAlignChecked(tha, size, mask);
 }
 
 s32 THA_GetSize(TwoHeadArena* tha) {

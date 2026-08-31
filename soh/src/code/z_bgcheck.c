@@ -121,13 +121,33 @@ void DynaSSNodeList_Initialize(PlayState* play, DynaSSNodeList* nodeList) {
     nodeList->count = 0;
 }
 
+/*
+ * The PlayState arena ran out while building this scene's collision (sturdy-bassoon#51). There
+ * is no recovery: BgCheck_Allocate has no error contract (void, called from a void scene
+ * command), and continuing used to mean the node table was written outside the arena and the
+ * crash surfaced later at the ZeldaArena handoff (z_play.c) blaming the wrong subsystem. Name
+ * the real cause on both tiers - LUSLOG_ERROR is a real call, not a compiled-out macro - then
+ * stop the way GameState_Realloc's own failure path does. Deliberately not an assert (dead
+ * under NDEBUG) and not rate-limited (fires once, at scene load).
+ */
+static void BgCheck_FatalArenaExhausted(PlayState* play, const char* what, size_t bytes) {
+    LUSLOG_ERROR("BgCheck: PlayState arena exhausted allocating %s (%u KB) for scene=0x%X; %d bytes remain. "
+                 "This scene's static collision does not fit the pot: raise SYSTEM_HEAP_SIZE / the arena "
+                 "request (z64.h / z_play.c) or shrink the scene. See ENGINE_BUDGETS.md, \"Static collision "
+                 "memory\".",
+                 what, (u32)(bytes / 1024), (u32)play->sceneNum, THA_GetSize(&play->state.tha));
+    Fault_AddHungupAndCrash(__FILE__, __LINE__);
+}
+
 /**
  * Initialize DynaSSNodeList tbl
  */
 void DynaSSNodeList_Alloc(PlayState* play, DynaSSNodeList* nodeList, s32 max) {
     nodeList->tbl = THA_AllocEndAlign(&play->state.tha, max * sizeof(SSNode), -4);
 
-    assert(nodeList->tbl != NULL);
+    if (nodeList->tbl == NULL) {
+        BgCheck_FatalArenaExhausted(play, "the dyna collision node table", max * sizeof(SSNode));
+    }
 
     nodeList->max = max;
     nodeList->count = 0;
@@ -1770,7 +1790,7 @@ void BgCheck_Allocate(CollisionContext* colCtx, PlayState* play, CollisionHeader
 
     colCtx->lookupTbl = THA_AllocEndAlign(&play->state.tha, BgCheck_GetLookupTblMemSize(colCtx), ~3);
     if (colCtx->lookupTbl == NULL) {
-        LOG_HUNGUP_THREAD();
+        BgCheck_FatalArenaExhausted(play, "the static collision lookup grid", BgCheck_GetLookupTblMemSize(colCtx));
     }
 
     SSNodeList_Initialize(&colCtx->polyNodes);
@@ -2594,22 +2614,21 @@ void SSNodeList_Alloc(PlayState* play, SSNodeList* this, s32 tblMax, s32 numPoly
     this->tbl = THA_AllocEndAlign(&play->state.tha, tblMax * sizeof(SSNode), -4);
 
     if (this->tbl == NULL) {
-        // This is the real ceiling on a scene's static collision now that BgCheck_Allocate
-        // allocates the demand it measured rather than a budgeted guess (sturdy-bassoon#32): the
-        // arena, not a number in a table. Named rather than left to the assert below, which
-        // compiles out under NDEBUG and would leave a NULL write instead of a message.
+        // Reachable since sturdy-bassoon#51 gave THA_AllocEndAlign a pre-write bounds check: this
+        // is the real ceiling on a scene's static collision - the arena, not a number in a table.
         LUSLOG_ERROR("SSNodeList_Alloc: could not allocate %d static collision nodes (%d KB) for scene=0x%X. See the "
-                     "\"BgCheck: scene=\" line for this scene's measured demand; it needs a coarser subdivision "
-                     "shape or a room split.",
+                     "\"BgCheck: scene=\" line for this scene's measured demand; it needs a bigger pot "
+                     "(SYSTEM_HEAP_SIZE, z64.h), a coarser subdivision shape, or a room split.",
                      tblMax, (s32)((tblMax * sizeof(SSNode)) / 1024),
                      gPlayState != NULL ? (u32)gPlayState->sceneNum : 0xFFFFu);
+        Fault_AddHungupAndCrash(__FILE__, __LINE__);
     }
-
-    assert(this->tbl != NULL);
 
     this->polyCheckTbl = GAMESTATE_ALLOC_MC(&play->state, numPolys);
 
-    assert(this->polyCheckTbl != NULL);
+    if (this->polyCheckTbl == NULL) {
+        BgCheck_FatalArenaExhausted(play, "the per-poly check table", (size_t)numPolys);
+    }
 }
 
 /**
@@ -2750,7 +2769,9 @@ void DynaPoly_NullPolyList(CollisionPoly** polyList) {
  */
 void DynaPoly_AllocPolyList(PlayState* play, CollisionPoly** polyList, s32 numPolys) {
     *polyList = THA_AllocEndAlign(&play->state.tha, numPolys * sizeof(CollisionPoly), -4);
-    assert(*polyList != NULL);
+    if (*polyList == NULL) {
+        BgCheck_FatalArenaExhausted(play, "the dyna poly list", numPolys * sizeof(CollisionPoly));
+    }
 }
 
 /**
@@ -2765,7 +2786,9 @@ void DynaPoly_NullVtxList(Vec3s** vtxList) {
  */
 void DynaPoly_AllocVtxList(PlayState* play, Vec3s** vtxList, s32 numVtx) {
     *vtxList = THA_AllocEndAlign(&play->state.tha, numVtx * sizeof(Vec3s), -2);
-    assert(*vtxList != NULL);
+    if (*vtxList == NULL) {
+        BgCheck_FatalArenaExhausted(play, "the dyna vertex list", numVtx * sizeof(Vec3s));
+    }
 }
 
 /**
