@@ -182,6 +182,8 @@
 #include "soh/Enhancements/actortiers/ActorTiers.h"
 #include "soh/Enhancements/roomdist/RoomDist.h"
 #include "soh/Enhancements/worldstate/WorldFlags.h"
+#include "soh/Enhancements/rs/quest/QuestStore.h"
+#include "soh/Enhancements/rs/quest/QuestPredicate.h"
 #include "soh/ShipInit.hpp"
 // For SaveManager::Instance, which `save` and `loadsave` drive directly. The free
 // `Save_SaveFile`/`Save_LoadFile` wrappers are declared here with C++ linkage but defined
@@ -1396,6 +1398,80 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         }
         return 0;
     }
+    // Reads or writes one entry of the project quest store (sturdy-bassoon#58 P0). Store-level only:
+    // there are no quest definitions yet, so this is the console-level probe that lets the save
+    // round-trip be demonstrated, exactly as `worldflag` was for #54. P1's `agenttest quest ...`
+    // markers are the definition-aware surface; this one stays raw on purpose.
+    //   queststore count                 -> touched-entry count and the capacity/bands
+    //   queststore <id>                  -> reads status + step mask for quest id
+    //   queststore <id> <status> <mask>  -> writes both (mask accepts 0x hex), reads back via getters
+    if (args.size() >= 3 && args[1] == "queststore") {
+        char buf[160];
+        if (args[2] == "count") {
+            std::snprintf(buf, sizeof(buf), "queststore touched=%d max=%d debug_first=%d", QuestStore_CountTouched(),
+                          QUEST_MAX, QUEST_ID_DEBUG_FIRST);
+            WriteMarker(buf);
+            if (output) {
+                *output += buf;
+            }
+            return 0;
+        }
+        int32_t questId = 0;
+        if (!ParseInt(args[2], &questId) || !QUEST_ID_IS_VALID(questId)) {
+            if (output) {
+                *output += "queststore needs `count` or a quest id in 0.." + std::to_string(QUEST_MAX - 1);
+            }
+            return 1;
+        }
+        if (args.size() >= 4) {
+            int32_t status = 0;
+            uint32_t mask = 0;
+            if (args.size() < 5 || !ParseInt(args[3], &status) || status < 0 || status >= QUEST_STATUS_COUNT ||
+                !ParseU32(args[4], &mask)) {
+                if (output) {
+                    *output += "queststore <id> <status 0.." + std::to_string(QUEST_STATUS_COUNT - 1) +
+                               "> <stepMask, 0x hex ok>";
+                }
+                return 1;
+            }
+            QuestStore_SetStatus(questId, status);
+            QuestStore_SetStepMask(questId, mask);
+        }
+        std::snprintf(buf, sizeof(buf), "queststore id=%d status=%d steps=0x%08X tier=%s", questId,
+                      QuestStore_GetStatus(questId), QuestStore_GetStepMask(questId),
+                      QUEST_ID_IS_DEBUG(questId) ? "debug" : "prod");
+        WriteMarker(buf);
+        if (output) {
+            *output += buf;
+        }
+        return 0;
+    }
+    // Evaluates one predicate from the vocabulary against the live stores (sturdy-bassoon#58 P0),
+    // so the five words can be proven in-game before any quest, NPC or journal uses them.
+    //   questpred <kind> <a> <b> <negate>   kind: 0 Always, 1 QuestStatusIs, 2 QuestStepSet, 3 WorldFlagSet
+    if (args.size() >= 6 && args[1] == "questpred") {
+        int32_t kind = 0;
+        int32_t a = 0;
+        int32_t b = 0;
+        int32_t negate = 0;
+        if (!ParseInt(args[2], &kind) || kind < 0 || kind >= QUEST_PRED_KIND_COUNT || !ParseInt(args[3], &a) ||
+            !ParseInt(args[4], &b) || !ParseInt(args[5], &negate) || (negate != 0 && negate != 1)) {
+            if (output) {
+                *output += "questpred <kind 0.." + std::to_string(QUEST_PRED_KIND_COUNT - 1) + "> <a> <b> <negate 0|1>";
+            }
+            return 1;
+        }
+        QuestPredicate pred = { static_cast<QuestPredicateKind>(kind), a, b, static_cast<uint8_t>(negate) };
+        char desc[96];
+        QuestPredicate_Describe(&pred, desc, sizeof(desc));
+        char buf[160];
+        std::snprintf(buf, sizeof(buf), "questpred %s value=%d", desc, QuestPredicate_Eval(&pred));
+        WriteMarker(buf);
+        if (output) {
+            *output += buf;
+        }
+        return 0;
+    }
     // Writes gSaveContext to Save/file<n+1>.sav. In normal play this only happens at a save point
     // or an owl statue, neither of which an agent can reach - and a save that is never written
     // cannot be shown to round-trip.
@@ -1474,6 +1550,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | "
             "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
             "roomdist [hysteresis]|off | uncull | sceneflag <sceneId> [value] | worldflag count|<n> [0|1] | "
+            "queststore count|<id> [status mask] | questpred <kind> <a> <b> <negate> | "
             "save <fileNum> | loadsave <fileNum> | mark <text>";
     }
     return 1;
@@ -1498,6 +1575,7 @@ void RegisterAgentTest() {
               "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | "
               "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
               "roomdist [hysteresis]|off | uncull | sceneflag <sceneId> [value] | worldflag count|<n> [0|1] | "
+              "queststore count|<id> [status mask] | questpred <kind> <a> <b> <negate> | "
               "save <fileNum> | loadsave <fileNum> | mark <text>. walk/press inject controller 1 for N frames and end "
               "with an input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });
