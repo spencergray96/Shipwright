@@ -2,10 +2,12 @@
 
 #include <array>
 #include <cassert>
+#include <cstdarg>
 #include <cstdio>
 #include <cstring>
 #include <spdlog/spdlog.h>
 
+#include "QuestJournal.h"
 #include "WorldFlagIds.h"
 #include "soh/Enhancements/worldstate/WorldFlags.h"
 
@@ -29,101 +31,249 @@ static void Shout(const char* op, int32_t questId, const char* what) {
     SPDLOG_ERROR("Quest: {} quest {}: {}", op, questId, what);
 }
 
-// Bug-class refusal: log, debug-assert, and hand the code back for the caller to return.
-#define QUEST_BUG(op, questId, what, result) \
-    do {                                     \
-        Shout(op, questId, what);            \
-        assert(false && what);               \
-        return (result);                     \
-    } while (0)
-
-static bool StringIsClean(const char* s, bool allowSpaces) {
+// Tokens (name, stepNames) - console/marker words, not prose. '#' is refused here as well as '%'
+// so ONE rule holds across a whole definition: '#' appears only inside well-formed markup.
+static bool TokenIsClean(const char* s) {
     if (s == nullptr) {
         return false;
     }
     for (const char* p = s; *p != '\0'; p++) {
         // '%' is refused because the ImGui console hands a handler's output to vsnprintf as the
-        // FORMAT string (ConsoleWindow::SendInfoMessage); a stray '%' would corrupt the human sink.
-        if (*p == '%' || (!allowSpaces && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r'))) {
+        // FORMAT string (ConsoleWindow::Append); a stray '%' would read off the stack. '"' is
+        // refused because every line both sinks print is key="value".
+        if (*p == '%' || *p == '#' || *p == '"' || *p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') {
             return false;
         }
     }
     return true;
 }
 
-static const char* ValidateDef(const QuestDef* def) {
+// Writes the reason into the CALLER'S buffer and returns false, so validation composes as
+// `if (!Problem(...)) return false;`. Caller-supplied, matching Quest_Describe and
+// QuestPredicate_Describe: a file-static buffer would be clobbered by a second call in the same
+// expression - exactly what a probe printing several definitions' problems on one line does - and
+// it would print plausible-looking wrong text rather than failing visibly.
+//
+// The message NEVER echoes the offending string. It reports kind and byte offset, so a '%' or a
+// '"' inside a bad definition cannot reach a console sink by way of its own error message.
+static bool Problem(char* buf, size_t len, const char* fmt, ...) {
+    if (buf != nullptr && len > 0) {
+        va_list args;
+        va_start(args, fmt);
+        std::vsnprintf(buf, len, fmt, args);
+        va_end(args);
+    }
+    return false;
+}
+
+static bool CheckMarkup(char* buf, size_t len, const char* what, int32_t index, const char* text) {
+    const QuestMarkupResult result = QuestMarkup_Validate(text);
+    if (result.error == QUEST_MARKUP_OK) {
+        return true;
+    }
+    if (index >= 0) {
+        return Problem(buf, len, "%s[%d]: markup %s at offset %d", what, index,
+                       QuestMarkup_ErrorName(result.error), result.pos);
+    }
+    return Problem(buf, len, "%s: markup %s at offset %d", what, QuestMarkup_ErrorName(result.error), result.pos);
+}
+
+// Operand range checks for one predicate. Registered-ness is DELIBERATELY not checked: nothing
+// defines the order in which two quests register, so "is quest 50 registered yet" is not a
+// question this gate can answer. Only ranges, which are order-independent. AllStepsSet handles an
+// unregistered id quietly at evaluation time (QuestPredicate.h).
+static bool CheckPredicate(char* buf, size_t len, const char* what, int32_t index, const QuestPredicate& p) {
+    switch (p.kind) {
+        case QUEST_PRED_ALWAYS:
+            break;
+        case QUEST_PRED_QUEST_STATUS_IS:
+            if (!QUEST_ID_IS_VALID(p.a)) {
+                return Problem(buf, len, "%s[%d]: QuestStatusIs quest id %d out of range", what, index, p.a);
+            }
+            if (p.b < 0 || p.b >= QUEST_STATUS_COUNT) {
+                return Problem(buf, len, "%s[%d]: QuestStatusIs status %d out of range", what, index, p.b);
+            }
+            break;
+        case QUEST_PRED_QUEST_STEP_SET:
+            if (!QUEST_ID_IS_VALID(p.a)) {
+                return Problem(buf, len, "%s[%d]: QuestStepSet quest id %d out of range", what, index, p.a);
+            }
+            if (p.b < 0 || p.b >= QUEST_STEP_MAX) {
+                return Problem(buf, len, "%s[%d]: QuestStepSet step %d out of range", what, index, p.b);
+            }
+            break;
+        case QUEST_PRED_WORLD_FLAG_SET:
+            if (p.a < 0 || p.a >= WORLD_FLAG_MAX) {
+                return Problem(buf, len, "%s[%d]: WorldFlagSet flag %d out of range", what, index, p.a);
+            }
+            break;
+        case QUEST_PRED_ALL_STEPS_SET:
+            if (!QUEST_ID_IS_VALID(p.a)) {
+                return Problem(buf, len, "%s[%d]: AllStepsSet quest id %d out of range", what, index, p.a);
+            }
+            break;
+        default:
+            return Problem(buf, len, "%s[%d]: unknown predicate kind %d", what, index, static_cast<int>(p.kind));
+    }
+    return true;
+}
+
+static bool ValidateBlock(char* buf, size_t len, const QuestDef* def, int32_t b) {
+    const QuestJournalBlock& block = def->journal[b];
+    char what[40];
+    if (block.whenCount < 0 || (block.whenCount > 0 && block.when == nullptr)) {
+        return Problem(buf, len, "journal[%d]: `when` is NULL with a nonzero count", b);
+    }
+    std::snprintf(what, sizeof(what), "journal[%d].when", b);
+    for (int32_t i = 0; i < block.whenCount; i++) {
+        if (!CheckPredicate(buf, len, what, i, block.when[i])) {
+            return false;
+        }
+    }
+    if (block.itemCount < 0 || (block.itemCount > 0 && block.items == nullptr)) {
+        return Problem(buf, len, "journal[%d]: `items` is NULL with a nonzero count", b);
+    }
+    switch (block.kind) {
+        case QUEST_BLOCK_PARAGRAPH:
+            if (block.text == nullptr) {
+                return Problem(buf, len, "journal[%d]: a paragraph needs text", b);
+            }
+            if (block.itemCount != 0) {
+                return Problem(buf, len, "journal[%d]: a paragraph must not carry checklist items", b);
+            }
+            break;
+        case QUEST_BLOCK_CHECKLIST:
+            if (block.itemCount < 1) {
+                return Problem(buf, len, "journal[%d]: a checklist needs at least one item", b);
+            }
+            break;
+        default:
+            return Problem(buf, len, "journal[%d]: unknown block kind %d", b, static_cast<int>(block.kind));
+    }
+    // A checklist lead-in may legitimately be NULL (QuestJournalDef.h), so only a present string
+    // is swept. A paragraph's text was proven non-NULL just above.
+    if (block.text != nullptr) {
+        std::snprintf(what, sizeof(what), "journal[%d].text", b);
+        if (!CheckMarkup(buf, len, what, -1, block.text)) {
+            return false;
+        }
+    }
+    std::snprintf(what, sizeof(what), "journal[%d].item", b);
+    for (int32_t i = 0; i < block.itemCount; i++) {
+        const QuestJournalItem& item = block.items[i];
+        if (item.text == nullptr) {
+            return Problem(buf, len, "%s[%d]: text is NULL", what, i);
+        }
+        if (!CheckMarkup(buf, len, what, i, item.text)) {
+            return false;
+        }
+        // -1 means "never struck through". Anything else must name a real step of THIS quest, or
+        // the row would silently never strike - the failure a checklist exists to make visible.
+        if (item.step < -1 || item.step >= def->stepCount) {
+            return Problem(buf, len, "%s[%d]: step %d outside [-1, %d)", what, i, item.step, def->stepCount);
+        }
+    }
+    return true;
+}
+
+// True when the definition is clean; otherwise writes the reason into `buf` and returns false.
+static bool ValidateDef(const QuestDef* def, char* buf, size_t len) {
+    if (def == nullptr) {
+        return Problem(buf, len, "NULL definition");
+    }
     if (!QUEST_ID_IS_VALID(def->id)) {
-        return "id out of range";
+        return Problem(buf, len, "id %d out of range", def->id);
     }
     if (def->tier != QUEST_ID_TIER(def->id)) {
-        return "tier does not match the id's band";
+        return Problem(buf, len, "tier does not match the id's band");
     }
-    if (!StringIsClean(def->name, false)) {
-        return "name is NULL, or contains whitespace or '%'";
+    if (!TokenIsClean(def->name)) {
+        return Problem(buf, len, "name is NULL, or carries whitespace, percent, hash or quote");
     }
-    if (!StringIsClean(def->title, true)) {
-        return "title is NULL or contains '%'";
+    if (def->title == nullptr) {
+        return Problem(buf, len, "title is NULL");
+    }
+    if (!CheckMarkup(buf, len, "title", -1, def->title)) {
+        return false;
     }
     if (def->stepCount < 1 || def->stepCount > QUEST_STEP_MAX) {
-        return "stepCount outside [1, QUEST_STEP_MAX]";
+        return Problem(buf, len, "stepCount %d outside [1, %d]", def->stepCount, QUEST_STEP_MAX);
     }
     if (def->stepNames != nullptr) {
         for (int32_t i = 0; i < def->stepCount; i++) {
-            if (!StringIsClean(def->stepNames[i], false)) {
-                return "a stepName is NULL, or contains whitespace or '%'";
+            if (!TokenIsClean(def->stepNames[i])) {
+                return Problem(buf, len, "stepNames[%d] is NULL, or carries whitespace, percent, hash or quote", i);
             }
         }
     }
     if (def->requirementCount < 0 || (def->requirementCount > 0 && def->requirements == nullptr)) {
-        return "requirements list is NULL with a nonzero count";
+        return Problem(buf, len, "requirements list is NULL with a nonzero count");
     }
     for (int32_t i = 0; i < def->requirementCount; i++) {
-        const QuestPredicate& p = def->requirements[i];
-        if (p.kind < 0 || p.kind >= QUEST_PRED_KIND_COUNT) {
-            return "a requirement has an unknown predicate kind";
+        if (!CheckPredicate(buf, len, "req", i, def->requirements[i])) {
+            return false;
         }
     }
     if (def->hintCount < 0 || (def->hintCount > 0 && def->hints == nullptr)) {
-        return "hints list is NULL with a nonzero count";
+        return Problem(buf, len, "hints list is NULL with a nonzero count");
     }
     for (int32_t i = 0; i < def->hintCount; i++) {
-        if (!StringIsClean(def->hints[i], true)) {
-            return "a hint is NULL or contains '%'";
+        if (def->hints[i] == nullptr) {
+            return Problem(buf, len, "hint[%d] is NULL", i);
+        }
+        if (!CheckMarkup(buf, len, "hint", i, def->hints[i])) {
+            return false;
         }
     }
     if (def->rewardCount < 0 || (def->rewardCount > 0 && def->rewards == nullptr)) {
-        return "rewards list is NULL with a nonzero count";
+        return Problem(buf, len, "rewards list is NULL with a nonzero count");
     }
     for (int32_t i = 0; i < def->rewardCount; i++) {
         const QuestReward& r = def->rewards[i];
         switch (r.kind) {
             case QUEST_REWARD_WORLD_FLAG:
                 if (r.a < 0 || r.a >= WORLD_FLAG_MAX) {
-                    return "a world-flag reward is outside the store";
+                    return Problem(buf, len, "reward[%d]: world flag %d is outside the store", i, r.a);
                 }
                 if ((WORLD_FLAG_IS_DEBUG(r.a) != 0) != (def->tier == QUEST_TIER_DEBUG)) {
-                    return "a world-flag reward is in the other tier's band";
+                    return Problem(buf, len, "reward[%d]: world flag %d is in the other tier's band", i, r.a);
                 }
                 break;
             case QUEST_REWARD_RUPEES:
                 if (r.a < -32768 || r.a > 32767 || r.a == 0) {
-                    return "a rupee reward is zero or outside s16";
+                    return Problem(buf, len, "reward[%d]: rupee amount %d is zero or outside s16", i, r.a);
                 }
                 break;
             default:
-                return "a reward has an unknown kind";
+                return Problem(buf, len, "reward[%d]: unknown kind %d", i, static_cast<int>(r.kind));
         }
     }
-    return nullptr;
+    if (def->journalCount < 0 || (def->journalCount > 0 && def->journal == nullptr)) {
+        return Problem(buf, len, "journal list is NULL with a nonzero count");
+    }
+    for (int32_t b = 0; b < def->journalCount; b++) {
+        if (!ValidateBlock(buf, len, def, b)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// The same gate, with no assert and no log, so a console probe can prove a definition WOULD be
+// refused without tripping the Debug assert that Quest_Register deliberately keeps (the same
+// check-then-write rule the Quest_Check* family follows). Returns 0 when clean.
+extern "C" int32_t Quest_DefProblem(const QuestDef* def, char* buf, size_t len) {
+    if (buf != nullptr && len > 0) {
+        buf[0] = '\0';
+    }
+    return ValidateDef(def, buf, len) ? 0 : 1;
 }
 
 extern "C" int32_t Quest_Register(const QuestDef* def) {
-    if (def == nullptr) {
-        QUEST_BUG("register", -1, "NULL definition", QUEST_ERR_BAD_DEF);
-    }
-    const char* problem = ValidateDef(def);
-    if (problem != nullptr) {
-        SPDLOG_ERROR("Quest: register quest {} ({}): {}", def->id, def->name ? def->name : "<null>", problem);
+    char problem[192];
+    if (!ValidateDef(def, problem, sizeof(problem))) {
+        SPDLOG_ERROR("Quest: register quest {} ({}): {}", def != nullptr ? def->id : -1,
+                     (def != nullptr && def->name != nullptr) ? def->name : "<null>", problem);
         assert(false && "quest definition failed validation");
         return QUEST_ERR_BAD_DEF;
     }

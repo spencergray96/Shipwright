@@ -4,7 +4,26 @@
 #include <cstdio>
 #include <spdlog/spdlog.h>
 
+#include "Quest.h"
 #include "soh/Enhancements/worldstate/WorldFlags.h"
+
+// AllStepsSet needs a definition's stepCount, so this .cpp - and only this .cpp - reaches up into
+// the registry. QuestPredicate.h stays definition-free, so the header layering is unchanged and
+// nothing that includes it gains a dependency. Quest_GetDef is safe at any point in static init:
+// sDefs is a constant-initialised std::array, so there is no ordering hazard with the
+// RegisterShipInitFunc objects.
+static int32_t AllStepsSet(int32_t questId) {
+    const QuestDef* def = Quest_GetDef(questId); // NULL for an invalid OR unregistered id; no assert
+    if (def == nullptr) {
+        // Outcome class, not bug class - see the note in QuestPredicate.h. Registration
+        // range-checks operands, so the only way here is a reference to a quest this build does
+        // not define, and the honest answer to "are all its steps set" is no.
+        SPDLOG_DEBUG("QuestPredicate: AllStepsSet({}) has no definition in this build -> 0", questId);
+        return 0;
+    }
+    const uint32_t all = Quest_AllStepsMask(def->stepCount);
+    return (QuestStore_GetStepMask(questId) & all) == all;
+}
 
 static int32_t EvalPositive(const QuestPredicate* pred) {
     switch (pred->kind) {
@@ -16,6 +35,8 @@ static int32_t EvalPositive(const QuestPredicate* pred) {
             return QuestStore_IsStepSet(pred->a, pred->b);
         case QUEST_PRED_WORLD_FLAG_SET:
             return Flags_GetWorldFlag(pred->a) != 0;
+        case QUEST_PRED_ALL_STEPS_SET:
+            return AllStepsSet(pred->a);
         default:
             SPDLOG_ERROR("QuestPredicate: unknown predicate kind {} (max {})", static_cast<int>(pred->kind),
                          QUEST_PRED_KIND_COUNT - 1);
@@ -55,6 +76,9 @@ extern "C" void QuestPredicate_Describe(const QuestPredicate* pred, char* buf, s
             break;
         case QUEST_PRED_WORLD_FLAG_SET:
             std::snprintf(inner, sizeof(inner), "WorldFlagSet(%d)", pred->a);
+            break;
+        case QUEST_PRED_ALL_STEPS_SET:
+            std::snprintf(inner, sizeof(inner), "AllStepsSet(%d)", pred->a);
             break;
         default:
             std::snprintf(inner, sizeof(inner), "<bad kind %d>", static_cast<int>(pred->kind));

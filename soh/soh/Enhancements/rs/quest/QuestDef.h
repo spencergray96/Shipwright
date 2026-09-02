@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "QuestIds.h"
 #include "QuestPredicate.h"
+#include "QuestJournalDef.h"
 
 // A quest DEFINITION (sturdy-bassoon#58 P1): what a quest is, as plain C data. One file-scope
 // `static const QuestDef` per quest, registered with Quest_Register (Quest.h) from a ShipInit
@@ -45,15 +46,17 @@ typedef void (*QuestCompleteFn)(int32_t questId);
 typedef struct QuestDef {
     int32_t id;     // QuestId (QuestIds.h) - the only thing about a quest that a save file knows
     QuestTier tier; // must equal QUEST_ID_TIER(id); Quest_Register refuses otherwise (D7)
-    const char* name;  // snake_case token for console lines and markers: no spaces, no '%'
-    const char* title; // display text
+    const char* name;  // snake_case token for console lines and markers: no spaces, no '%', no '#'
+    const char* title; // display text - MARKUP (QuestJournalDef.h), parsed into runs by the read API
     uint8_t ordered;   // D2: nonzero => step N may be set only when steps 0..N-1 are all set, and
                        // cleared only when no step above N is set. Zero => any order.
     int32_t stepCount; // 1..QUEST_STEP_MAX. A step >= stepCount is refused as invalid.
     const char* const* stepNames; // stepCount entries, or NULL
 
     // D8/D9: `requirements` are evaluated and blocking (Quest_Start refuses while any is false);
-    // `hints` are display text shown before the quest starts and are never evaluated.
+    // `hints` are display text shown before the quest starts and are never evaluated. Hints are
+    // MARKUP too, so `#hint:...#` may appear inside one - the two senses of the word are different
+    // scopes of the same idea and are pinned as such in CONTEXT.md.
     const QuestPredicate* requirements;
     int32_t requirementCount;
     QuestPrereqFn prereqFn; // may be NULL
@@ -64,7 +67,12 @@ typedef struct QuestDef {
     int32_t rewardCount;
     QuestCompleteFn onComplete; // may be NULL
 
-    // P2 appends the journal block list here. P1 leaves it out on purpose.
+    // D13: the journal, an ordered block list (QuestJournalDef.h). May be NULL with a count of 0 -
+    // a quest with no journal is legal and renders as an entry with zero blocks. Not serialized,
+    // so blocks may be added, reworded or reordered freely; only the STEP INDICES the checklist
+    // items reference are frozen once the quest ships (D3).
+    const QuestJournalBlock* journal;
+    int32_t journalCount;
 } QuestDef;
 
 // The mask with the low `stepCount` bits set. A function rather than a macro so no shift-by-32

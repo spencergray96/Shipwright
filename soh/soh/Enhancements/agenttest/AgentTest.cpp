@@ -93,7 +93,15 @@
  *                                        `id=<n> name=<s> tier=<s> status=<s> steps=0x<mask>/<count>
  *                                        ordered=<0|1> available=<0|1> prereqs=<met|unmet>`, and for a
  *                                        mutating subcommand `op=<sub> id=<n> [step=<n>] result=<name>`
- *                                        first. Same renderer as the human `quest` command
+ *                                        first. Same renderer as the human `quest` command.
+ *                                        P2 adds the journal surface: `journal <id|all> [runs]` emits
+ *                                        `journal id=<n> ... visible=<n>` then `line[i]=para|item ...`
+ *                                        with spans rendered as `[item:Egg]` and a checked row wrapped
+ *                                        in ~tildes~; `runs` adds `run[i.r]=<style> emphasis=<name>`
+ *                                        per run. `parse <text...>` is the markup probe
+ *                                        (`op=parse result=ok|error error=<kind> pos=<n>`), and
+ *                                        `badcheck` runs the registration gate over the malformed
+ *                                        definition table (`bad[i]=<label> refused=1 problem="..."`)
  *   mark <text>                          echoed from "agenttest mark <text>"
  *   input_done [reason=scene_change]     a walk/press injection finished (or was cancelled by a scene change)
  *
@@ -1463,7 +1471,10 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     }
     // Evaluates one predicate from the vocabulary against the live stores (sturdy-bassoon#58 P0),
     // so the five words can be proven in-game before any quest, NPC or journal uses them.
-    //   questpred <kind> <a> <b> <negate>   kind: 0 Always, 1 QuestStatusIs, 2 QuestStepSet, 3 WorldFlagSet
+    //   questpred <kind> <a> <b> <negate>   kind: 0 Always, 1 QuestStatusIs, 2 QuestStepSet,
+    //                                             3 WorldFlagSet, 4 AllStepsSet (P2)
+    // AllStepsSet is the one kind whose `a` can be in range and still name a quest this build does
+    // not define; it answers 0 quietly in that case, so the probe cannot assert on any input.
     if (args.size() >= 6 && args[1] == "questpred") {
         int32_t kind = 0;
         int32_t a = 0;
@@ -1561,12 +1572,22 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         std::vector<std::string> lines;
         const int32_t rc = QuestConsole_Run(sub, lines);
         for (const std::string& line : lines) {
-            WriteMarker("quest " + line);
+            WriteMarker("quest " + line); // the marker is written verbatim - it is not a format string
             if (output) {
                 if (!output->empty()) {
                     *output += " | ";
                 }
-                *output += line;
+                // ConsoleWindow hands a handler's `output` to vsnprintf as the FORMAT string when
+                // the command is typed, so '%' must be doubled here exactly as the human `quest`
+                // sink does it (QuestConsole.cpp). Today nothing can produce one - definition
+                // strings and `quest parse` input both refuse '%' - so this only ever escapes a
+                // future line that grows one, which is the point of having it.
+                for (char c : line) {
+                    *output += c;
+                    if (c == '%') {
+                        *output += '%';
+                    }
+                }
             }
         }
         return rc;
@@ -1588,6 +1609,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             "roomdist [hysteresis]|off | uncull | sceneflag <sceneId> [value] | worldflag count|<n> [0|1] | "
             "queststore count|<id> [status mask] | questpred <kind> <a> <b> <negate> | "
               "quest list|dump <id>|start <id>|setstep <id> <n>|clearstep <id> <n>|check <id> <n>|complete <id>|"
+              "journal <id|all> [runs]|parse <text...>|badcheck|"
               "force <id>|reset <id>|debugwipe | "
             "save <fileNum> | loadsave <fileNum> | mark <text>";
     }

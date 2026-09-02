@@ -45,6 +45,8 @@ typedef enum QuestId {
     // --- debug band: [QUEST_ID_DEBUG_FIRST, QUEST_MAX) ------------------------------------
     QUEST_DEBUG_SMOKE = 48,   // any-order fixture (quests/DebugQuests.cpp); never a real quest
     QUEST_DEBUG_ORDERED = 49, // ordered fixture with a declarative + escape-hatch prerequisite
+    QUEST_DEBUG_JOURNAL = 50, // journal fixture (quests/DebugJournalQuest.cpp): Cook's-Assistant-shaped,
+                              // three any-order steps, the block list P2's accumulation proof runs on
 } QuestId;
 
 #define QUEST_ID_IS_VALID(id) ((id) >= 0 && (id) < QUEST_MAX)
@@ -64,5 +66,7 @@ RS_STATIC_ASSERT(QUEST_DEBUG_SMOKE >= QUEST_ID_DEBUG_FIRST && QUEST_DEBUG_SMOKE 
                  "QUEST_DEBUG_SMOKE must sit in the debug band");
 RS_STATIC_ASSERT(QUEST_DEBUG_ORDERED >= QUEST_ID_DEBUG_FIRST && QUEST_DEBUG_ORDERED < QUEST_MAX,
                  "QUEST_DEBUG_ORDERED must sit in the debug band");
+RS_STATIC_ASSERT(QUEST_DEBUG_JOURNAL >= QUEST_ID_DEBUG_FIRST && QUEST_DEBUG_JOURNAL < QUEST_MAX,
+                 "QUEST_DEBUG_JOURNAL must sit in the debug band");
 
 #endif // SOH_RS_QUEST_IDS_H

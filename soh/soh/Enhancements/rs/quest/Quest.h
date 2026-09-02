@@ -50,8 +50,19 @@ extern "C" {
 // match the id's band; a NULL name/title or one containing a space or '%'; stepCount outside
 // [1, QUEST_STEP_MAX]; a NULL list with a nonzero count; an unknown predicate or reward kind; a
 // rupee amount outside s16; a world-flag reward outside the store or in the other tier's band
-// (a debug quest must not set a flag debugwipe cannot clear).
+// (a debug quest must not set a flag debugwipe cannot clear); a journal block with an unknown
+// kind, a bad step reference, or MARKUP THAT DOES NOT PARSE (QuestJournal.h). Every display
+// string in the definition - title, hints, block text, checklist items - goes through the markup
+// parser here, so a mis-tagged span can never reach a screen: it fails to register instead.
 int32_t Quest_Register(const QuestDef* def);
+
+// The same validation with NO log and NO assert: 0 when the definition is clean, 1 otherwise with
+// the reason written into `buf` (always NUL-terminated for len > 0). This is Quest_Check*'s rule
+// applied to registration - it lets a console probe prove the gate refuses a bad definition
+// without tripping the Debug assert that would hang the agent loop. The message reports the kind
+// and byte offset of the problem and NEVER echoes the offending string, so a '%' or '"' in a bad
+// definition cannot reach a console sink through its own error message.
+int32_t Quest_DefProblem(const QuestDef* def, char* buf, size_t len);
 const QuestDef* Quest_GetDef(int32_t questId); // NULL if unregistered or invalid (no assert)
 int32_t Quest_IsRegistered(int32_t questId);   // 0 for an invalid id (no assert)
 int32_t Quest_RegisteredCount(void);

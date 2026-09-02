@@ -7,9 +7,16 @@
 
 #include "Quest.h"
 #include "QuestDef.h"
+#include "QuestJournal.h"
 #include "QuestPredicate.h"
 #include "WorldFlagIds.h"
 #include "soh/ShipInit.hpp"
+
+// The malformed-definition table, defined in quests/DebugJournalQuest.cpp next to the good
+// definition it contrasts with.
+int32_t QuestDebug_BadDefCount();
+const char* QuestDebug_BadDefLabel(int32_t index);
+const QuestDef* QuestDebug_BadDef(int32_t index);
 
 namespace {
 
@@ -29,6 +36,21 @@ std::string Describe(int32_t questId) {
     char buf[256];
     Quest_Describe(questId, buf, sizeof(buf));
     return buf;
+}
+
+// One display string through the parser and back out as a line. Used for the fields `dump` shows;
+// the journal proper goes through QuestJournal_Build, which parses the same way.
+std::string RenderMarkup(const char* text) {
+    std::vector<QuestRun> runs;
+    const QuestMarkupResult result = QuestMarkup_Parse(text, &runs);
+    if (result.error != QUEST_MARKUP_OK) {
+        // Unreachable for a registered quest - Quest_Register refuses a definition whose markup
+        // does not parse. Kept because a diagnostic is the only acceptable fallback: rendering the
+        // raw prose is the exact silent failure the parser exists to prevent.
+        return std::string("<markup ") + QuestMarkup_ErrorName(result.error) + " at " + std::to_string(result.pos) +
+               ">";
+    }
+    return QuestJournal_RenderInline(runs);
 }
 
 // Console-layer pre-validation, the P0 rule: a bad id never reaches an accessor that would assert.
@@ -72,7 +94,7 @@ int32_t Report(const std::string& op, int32_t questId, int32_t step, int32_t res
 void Dump(int32_t questId, std::vector<std::string>& lines) {
     const QuestDef* def = Quest_GetDef(questId);
     lines.push_back(Describe(questId));
-    lines.push_back("title=\"" + std::string(def->title) + "\"");
+    lines.push_back("title=\"" + RenderMarkup(def->title) + "\"");
     for (int32_t i = 0; i < def->stepCount; i++) {
         lines.push_back("step[" + std::to_string(i) + "]=" + (def->stepNames ? def->stepNames[i] : "-") +
                         " set=" + std::to_string(Quest_IsStepSet(questId, i)));
@@ -93,13 +115,103 @@ void Dump(int32_t questId, std::vector<std::string>& lines) {
                         " a=" + std::to_string(def->rewards[i].a));
     }
     lines.push_back(std::string("on_complete=") + (def->onComplete ? "set" : "none"));
+    // Hints are markup too (D9/D23), so they render as runs like everything else - which is how
+    // a `#hint:...#` SPAN inside a hint STRING shows up as `[hint:...]` rather than as raw prose.
     for (int32_t i = 0; i < def->hintCount; i++) {
-        lines.push_back("hint[" + std::to_string(i) + "]=\"" + def->hints[i] + "\"");
+        lines.push_back("hint[" + std::to_string(i) + "]=\"" + RenderMarkup(def->hints[i]) + "\"");
     }
 }
 
+// The resolved entry, one line per rendered line, plus a header. `~text~` marks a struck-through
+// checklist row: visible on a surface with no colour, and greppable.
+void RenderEntry(const QuestJournalEntry& entry, bool showRuns, std::vector<std::string>& lines) {
+    lines.push_back("journal id=" + std::to_string(entry.questId) + " name=" + entry.name +
+                    " status=" + Quest_StatusName(entry.status) + " blocks=" + std::to_string(entry.blockCount) +
+                    " visible=" + std::to_string(entry.visibleCount) +
+                    " lines=" + std::to_string(entry.lines.size()) + " title=\"" +
+                    QuestJournal_RenderInline(entry.title) + "\"");
+    for (size_t i = 0; i < entry.lines.size(); i++) {
+        const QuestJournalLine& line = entry.lines[i];
+        std::string rendered = QuestJournal_RenderInline(line.runs);
+        std::string out = "line[" + std::to_string(i) + "]=";
+        if (line.kind == QUEST_LINE_CHECK_ITEM) {
+            out += "item block=" + std::to_string(line.blockIndex) + " step=" + std::to_string(line.step) +
+                   " checked=" + std::to_string(line.checked ? 1 : 0) + " \"" +
+                   (line.checked ? "~" + rendered + "~" : rendered) + "\"";
+        } else {
+            out += "para block=" + std::to_string(line.blockIndex) + " \"" + rendered + "\"";
+        }
+        lines.push_back(out);
+        if (!showRuns) {
+            continue;
+        }
+        // The run list itself - the thing D23 says the console exists to validate. A renderer that
+        // printed only the joined line could be hiding a single plain run holding the whole string.
+        for (size_t r = 0; r < line.runs.size(); r++) {
+            const QuestRun& run = line.runs[r];
+            lines.push_back("run[" + std::to_string(i) + "." + std::to_string(r) + "]=" +
+                            QuestJournal_StyleName(run.style) + " emphasis=" +
+                            QuestJournal_EmphasisName(QuestJournal_StyleEmphasis(run.style)) + " \"" + run.text + "\"");
+        }
+    }
+}
+
+// `quest parse <text...>`: the grammar probe. The console tokenizer is a naive split on " ", so
+// the remaining arguments are re-joined with single spaces; runs of spaces survive because the
+// split keeps empty tokens. NEVER echoes its input - only runs (which cannot contain a refused
+// character, because the parse failed first) or the error kind and offset.
+int32_t Parse(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() < 2) {
+        lines.push_back("error=parse needs text");
+        return 1;
+    }
+    std::string text;
+    for (size_t i = 1; i < args.size(); i++) {
+        if (i > 1) {
+            text += " ";
+        }
+        text += args[i];
+    }
+    std::vector<QuestRun> runs;
+    const QuestMarkupResult result = QuestMarkup_Parse(text.c_str(), &runs);
+    if (result.error != QUEST_MARKUP_OK) {
+        lines.push_back("op=parse result=error error=" + std::string(QuestMarkup_ErrorName(result.error)) +
+                        " pos=" + std::to_string(result.pos) + " runs=" + std::to_string(runs.size()));
+        return 1;
+    }
+    lines.push_back("op=parse result=ok runs=" + std::to_string(runs.size()) + " text=\"" +
+                    QuestJournal_RenderInline(runs) + "\"");
+    for (size_t r = 0; r < runs.size(); r++) {
+        lines.push_back("run[" + std::to_string(r) + "]=" + QuestJournal_StyleName(runs[r].style) + " emphasis=" +
+                        QuestJournal_EmphasisName(QuestJournal_StyleEmphasis(runs[r].style)) + " \"" + runs[r].text +
+                        "\"");
+    }
+    return 0;
+}
+
+// `quest badcheck`: Quest_DefProblem over the malformed table. Proves the REGISTRATION GATE is
+// wired to the parser, which `parse` alone cannot show. rc is 0 when every entry was refused -
+// a table entry that validated clean is the failure.
+int32_t BadCheck(std::vector<std::string>& lines) {
+    const int32_t count = QuestDebug_BadDefCount();
+    int32_t clean = 0;
+    for (int32_t i = 0; i < count; i++) {
+        char problem[192];
+        const int32_t rc = Quest_DefProblem(QuestDebug_BadDef(i), problem, sizeof(problem));
+        if (rc == 0) {
+            clean++;
+        }
+        lines.push_back("bad[" + std::to_string(i) + "]=" + QuestDebug_BadDefLabel(i) +
+                        " refused=" + std::to_string(rc) + " problem=\"" + problem + "\"");
+    }
+    lines.push_back("op=badcheck defs=" + std::to_string(count) + " refused=" + std::to_string(count - clean) +
+                    " accepted=" + std::to_string(clean));
+    return clean == 0 ? 0 : 1;
+}
+
 const char* kUsage = "usage: quest list | dump <id> | start <id> | setstep <id> <step> | clearstep <id> <step> | "
-                     "check <id> <step> | complete <id> | force <id> | reset <id> | debugwipe";
+                     "check <id> <step> | complete <id> | force <id> | reset <id> | debugwipe | "
+                     "journal <id|all> [runs] | parse <text...> | badcheck";
 
 } // namespace
 
@@ -129,6 +241,36 @@ int32_t QuestConsole_Run(const std::vector<std::string>& args, std::vector<std::
         lines.push_back("op=debugwipe quests=" + std::to_string(quests) + " flags=" + std::to_string(flags) +
                         " quest_band=" + std::to_string(QUEST_ID_DEBUG_FIRST) + ".." + std::to_string(QUEST_MAX - 1) +
                         " flag_band=" + std::to_string(WORLD_FLAG_DEBUG_FIRST) + ".." + std::to_string(WORLD_FLAG_MAX - 1));
+        return 0;
+    }
+    if (sub == "parse") {
+        return Parse(args, lines);
+    }
+    if (sub == "badcheck") {
+        return BadCheck(lines);
+    }
+    if (sub == "journal") {
+        const bool showRuns = args.size() >= 3 && args[2] == "runs";
+        if (args.size() >= 2 && args[1] == "all") {
+            // D15's snapshot builder. Unfiltered, in id order - a quest with nothing visible still
+            // gets a header, so `entries=` is a count of registered quests, not of interesting ones.
+            const std::vector<QuestJournalEntry> entries = QuestJournal_Snapshot();
+            lines.push_back("op=journal scope=all entries=" + std::to_string(entries.size()));
+            for (const QuestJournalEntry& entry : entries) {
+                RenderEntry(entry, showRuns, lines);
+            }
+            return 0;
+        }
+        if (!ParseQuestId(args, 1, &questId, lines)) {
+            return 1;
+        }
+        QuestJournalEntry entry;
+        if (!QuestJournal_Build(questId, &entry)) {
+            lines.push_back("op=journal id=" + std::to_string(questId) + " result=" +
+                            Quest_ResultName(QUEST_ERR_NOT_REGISTERED));
+            return 1;
+        }
+        RenderEntry(entry, showRuns, lines);
         return 0;
     }
     if (sub == "dump") {
@@ -227,11 +369,15 @@ void RegisterQuestConsole() {
                         { QuestCommandHandler,
                           "Quest system (sturdy-bassoon#58): list | dump <id> | start <id> | setstep <id> <step> | "
                           "clearstep <id> <step> | check <id> <step> | complete <id> | force <id> | reset <id> | "
-                          "debugwipe. debugwipe clears only the debug bands of quests and world flags.",
-                          { { "list|dump|start|setstep|clearstep|check|complete|force|reset|debugwipe",
+                          "debugwipe | journal <id|all> [runs] | parse <text...> | badcheck. debugwipe clears only "
+                          "the debug bands of quests and world flags; journal renders the resolved entry with "
+                          "spans as [item:Egg]; parse is the markup probe; badcheck proves registration refuses "
+                          "malformed definitions.",
+                          { { "list|dump|start|setstep|clearstep|check|complete|force|reset|debugwipe|journal|parse|"
+                              "badcheck",
                               Ship::ArgumentType::TEXT },
-                            { "quest id", Ship::ArgumentType::NUMBER, true },
-                            { "step", Ship::ArgumentType::NUMBER, true } } });
+                            { "quest id / text", Ship::ArgumentType::TEXT, true },
+                            { "step / runs", Ship::ArgumentType::TEXT, true } } });
 }
 
 RegisterShipInitFunc questConsoleInitFunc(RegisterQuestConsole);

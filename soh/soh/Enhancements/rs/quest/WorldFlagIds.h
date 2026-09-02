@@ -34,7 +34,10 @@ typedef enum WorldFlagId {
     // Add each one with an explicit number and a RS_STATIC_ASSERT line below.
 
     // --- debug band: [WORLD_FLAG_DEBUG_FIRST, WORLD_FLAG_MAX) -----------------------------
-    WORLD_FLAG_DEBUG_SMOKE = 3840, // exercised by the agent-test predicate probe; never real state
+    WORLD_FLAG_DEBUG_SMOKE = 3840,   // exercised by the agent-test predicate probe; never real state
+    WORLD_FLAG_DEBUG_JOURNAL = 3841, // QUEST_DEBUG_JOURNAL's completion witness (P2). Its OWN flag on
+                                     // purpose: sharing 3840 would couple it to the P1 smoke fixture,
+                                     // whose acceptance run asserts that flag's value directly.
 } WorldFlagId;
 
 #define WORLD_FLAG_IS_DEBUG(flag) ((flag) >= WORLD_FLAG_DEBUG_FIRST)
@@ -44,5 +47,7 @@ RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_FIRST < WORLD_FLAG_MAX, "the debug band must b
 
 RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_SMOKE >= WORLD_FLAG_DEBUG_FIRST && WORLD_FLAG_DEBUG_SMOKE < WORLD_FLAG_MAX,
                  "WORLD_FLAG_DEBUG_SMOKE must sit in the debug band");
+RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_JOURNAL >= WORLD_FLAG_DEBUG_FIRST && WORLD_FLAG_DEBUG_JOURNAL < WORLD_FLAG_MAX,
+                 "WORLD_FLAG_DEBUG_JOURNAL must sit in the debug band");
 
 #endif // SOH_RS_WORLD_FLAG_IDS_H
