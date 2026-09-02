@@ -67,8 +67,13 @@
  *                                        change (sturdy-bassoon#6 Exp 4), with the two centre distances
  *                                        that decided it
  *   state scene=0x<hex> room=<n> entrance=0x<hex> pos=<x>,<y>,<z> yaw=<n> age=<adult|child> time=0x<hex>
- *         night=<0|1> frame=<n> cam_at=<x>,<y>,<z> cam_eye=<x>,<y>,<z> cam_setting=<n> cam_mode=<n>
- *         cam_dist=<f> name="<scene name>"
+ *         night=<0|1> rupees=<n> rupees_pending=<n> frame=<n> cam_at=<x>,<y>,<z> cam_eye=<x>,<y>,<z>
+ *         cam_setting=<n> cam_mode=<n> cam_dist=<f> name="<scene name>"
+ *                                        rupees is gSaveContext.rupees and rupees_pending the
+ *                                        accumulator Interface_Update drains into it one per frame
+ *                                        (wallet-capped) - together they are the witness for a quest
+ *                                        reward, since Rupees_ChangeBy only ever feeds the accumulator
+ *                                        while a scene is loaded
  *                                        cam_* is the active camera: where it looks, where it sits,
  *                                        which CameraSettingType/mode is live, and the at-eye distance -
  *                                        the measurable form of "the camera is sitting on the floor
@@ -83,6 +88,12 @@
  *   fog mode=override near=<n> far=<n> / fog mode=scene
  *                                        echoed from "agenttest fog"; between these, the perf marker's fog=
  *                                        field carries whatever band is actually live
+ *   quest <line>                         one line of QuestConsole_Run output per marker, from
+ *                                        "agenttest quest ..." (sturdy-bassoon#58 P1): the Describe line
+ *                                        `id=<n> name=<s> tier=<s> status=<s> steps=0x<mask>/<count>
+ *                                        ordered=<0|1> available=<0|1> prereqs=<met|unmet>`, and for a
+ *                                        mutating subcommand `op=<sub> id=<n> [step=<n>] result=<name>`
+ *                                        first. Same renderer as the human `quest` command
  *   mark <text>                          echoed from "agenttest mark <text>"
  *   input_done [reason=scene_change]     a walk/press injection finished (or was cancelled by a scene change)
  *
@@ -184,6 +195,8 @@
 #include "soh/Enhancements/worldstate/WorldFlags.h"
 #include "soh/Enhancements/rs/quest/QuestStore.h"
 #include "soh/Enhancements/rs/quest/QuestPredicate.h"
+#include "soh/Enhancements/rs/quest/Quest.h"
+#include "soh/Enhancements/rs/quest/QuestConsole.h"
 #include "soh/ShipInit.hpp"
 // For SaveManager::Instance, which `save` and `loadsave` drive directly. The free
 // `Save_SaveFile`/`Save_LoadFile` wrappers are declared here with C++ linkage but defined
@@ -928,14 +941,16 @@ std::string StateLine() {
     // `name` last, and quoted, because it is the only field that can contain a space - so anything
     // splitting the line on whitespace still gets every other field intact.
     std::snprintf(buf, sizeof(buf),
-                  "state scene=%s room=%d entrance=%s pos=%.1f,%.1f,%.1f yaw=%d age=%s time=%s night=%d frame=%u "
+                  "state scene=%s room=%d entrance=%s pos=%.1f,%.1f,%.1f yaw=%d age=%s time=%s night=%d "
+                  "rupees=%d rupees_pending=%d frame=%u "
                   "cam_at=%.1f,%.1f,%.1f cam_eye=%.1f,%.1f,%.1f cam_setting=%d cam_mode=%d cam_dist=%.1f "
                   "name=\"%s\"",
                   Hex(gPlayState->sceneNum).c_str(), gPlayState->roomCtx.curRoom.num,
                   Hex(gSaveContext.entranceIndex).c_str(), player->actor.world.pos.x, player->actor.world.pos.y,
                   player->actor.world.pos.z, player->actor.shape.rot.y,
                   gSaveContext.linkAge == LINK_AGE_CHILD ? "child" : "adult", Hex(gSaveContext.dayTime).c_str(),
-                  gSaveContext.nightFlag, gPlayState->state.frames, camera->at.x, camera->at.y, camera->at.z,
+                  gSaveContext.nightFlag, gSaveContext.rupees, gSaveContext.rupeeAccumulator, gPlayState->state.frames,
+                  camera->at.x, camera->at.y, camera->at.z,
                   camera->eye.x, camera->eye.y, camera->eye.z, camera->setting, camera->mode, camera->dist,
                   SohUtils::GetSceneName(gPlayState->sceneNum).c_str());
     return buf;
@@ -1439,7 +1454,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         }
         std::snprintf(buf, sizeof(buf), "queststore id=%d status=%d steps=0x%08X tier=%s", questId,
                       QuestStore_GetStatus(questId), QuestStore_GetStepMask(questId),
-                      QUEST_ID_IS_DEBUG(questId) ? "debug" : "prod");
+                      Quest_TierName(QUEST_ID_TIER(questId)));
         WriteMarker(buf);
         if (output) {
             *output += buf;
@@ -1535,6 +1550,27 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         }
         return 0;
     }
+    // The definition-aware quest surface (sturdy-bassoon#58 P1 / D18). Same parser and renderer as
+    // the human `quest` console command - QuestConsole_Run - so the two cannot drift; the only
+    // difference is the sink: every line becomes its own `quest <line>` marker (greppable), and the
+    // lines are also joined into `out=` with " | ". rc is 0 only when the operation succeeded, so a
+    // refused write (prereq_unmet, order_violation, already_complete ...) is rc=1 on every tier -
+    // pre-validated through the Quest_Check* calls, never via an assert.
+    if (args.size() >= 3 && args[1] == "quest") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        std::vector<std::string> lines;
+        const int32_t rc = QuestConsole_Run(sub, lines);
+        for (const std::string& line : lines) {
+            WriteMarker("quest " + line);
+            if (output) {
+                if (!output->empty()) {
+                    *output += " | ";
+                }
+                *output += line;
+            }
+        }
+        return rc;
+    }
     if (args.size() >= 2 && args[1] == "mark") {
         std::string text;
         for (size_t i = 2; i < args.size(); i++) {
@@ -1551,6 +1587,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
             "roomdist [hysteresis]|off | uncull | sceneflag <sceneId> [value] | worldflag count|<n> [0|1] | "
             "queststore count|<id> [status mask] | questpred <kind> <a> <b> <negate> | "
+              "quest list|dump <id>|start <id>|setstep <id> <n>|clearstep <id> <n>|check <id> <n>|complete <id>|"
+              "force <id>|reset <id>|debugwipe | "
             "save <fileNum> | loadsave <fileNum> | mark <text>";
     }
     return 1;
@@ -1576,6 +1614,8 @@ void RegisterAgentTest() {
               "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
               "roomdist [hysteresis]|off | uncull | sceneflag <sceneId> [value] | worldflag count|<n> [0|1] | "
               "queststore count|<id> [status mask] | questpred <kind> <a> <b> <negate> | "
+              "quest list|dump <id>|start <id>|setstep <id> <n>|clearstep <id> <n>|check <id> <n>|complete <id>|"
+              "force <id>|reset <id>|debugwipe | "
               "save <fileNum> | loadsave <fileNum> | mark <text>. walk/press inject controller 1 for N frames and end "
               "with an input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });

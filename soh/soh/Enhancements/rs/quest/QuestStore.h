@@ -11,8 +11,8 @@
 //
 // This is the STORE layer only: raw, bounds-checked reads and writes of the persisted bytes. It
 // knows nothing about quest definitions. The definition-aware API (ordered-step enforcement,
-// tier assert at registration, COMPLETE-before-rewards completion, debugwipe) is P1 and sits on
-// top of these calls; nothing below should ever grow a rule about what a quest *means*.
+// tier check at registration, COMPLETE-before-rewards completion, debugwipe) is Quest.h and sits
+// on top of these calls; nothing below should ever grow a rule about what a quest *means*.
 //
 // Every accessor bounds-checks and SHOUTS on a bad quest id / status / step: SPDLOG_ERROR plus a
 // debug assert, then a safe no-op or zero return. Silent-failure limits are this project's stated

@@ -18,8 +18,8 @@
 // above an existing entry would silently renumber everything below it.
 //
 // Bands (D7): one store, two reserved ID ranges. Production quests count up from 0; debug/test
-// quests count up from QUEST_ID_DEBUG_FIRST. `quest debugwipe` (P1) clears only the debug band,
-// and registration (P1) asserts a definition's declared tier matches its band. A single store
+// quests count up from QUEST_ID_DEBUG_FIRST. `quest debugwipe` clears only the debug band, and
+// Quest_Register (Quest.h) refuses a definition whose declared tier does not match its band. A single store
 // means debug quests exercise the production save path, so "it worked in testing" cannot be an
 // artefact of testing running different code.
 //
@@ -43,7 +43,8 @@ typedef enum QuestId {
     QUEST_COOKS_ASSISTANT = 0, // sturdy-bassoon#58 P4 - the reference implementation
 
     // --- debug band: [QUEST_ID_DEBUG_FIRST, QUEST_MAX) ------------------------------------
-    QUEST_DEBUG_SMOKE = 48, // exercised by the agent-test store probe; never a real quest
+    QUEST_DEBUG_SMOKE = 48,   // any-order fixture (quests/DebugQuests.cpp); never a real quest
+    QUEST_DEBUG_ORDERED = 49, // ordered fixture with a declarative + escape-hatch prerequisite
 } QuestId;
 
 #define QUEST_ID_IS_VALID(id) ((id) >= 0 && (id) < QUEST_MAX)
@@ -61,5 +62,7 @@ RS_STATIC_ASSERT(QUEST_COOKS_ASSISTANT >= 0 && QUEST_COOKS_ASSISTANT < QUEST_ID_
 
 RS_STATIC_ASSERT(QUEST_DEBUG_SMOKE >= QUEST_ID_DEBUG_FIRST && QUEST_DEBUG_SMOKE < QUEST_MAX,
                  "QUEST_DEBUG_SMOKE must sit in the debug band");
+RS_STATIC_ASSERT(QUEST_DEBUG_ORDERED >= QUEST_ID_DEBUG_FIRST && QUEST_DEBUG_ORDERED < QUEST_MAX,
+                 "QUEST_DEBUG_ORDERED must sit in the debug band");
 
 #endif // SOH_RS_QUEST_IDS_H

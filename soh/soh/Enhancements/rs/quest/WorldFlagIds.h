@@ -17,7 +17,8 @@
 // progress lives in the `quests` section (QuestStore.h); do not mirror quest steps here.
 //
 // Bands mirror QuestIds.h: production flags count up from 0, debug/test flags count up from
-// WORLD_FLAG_DEBUG_FIRST (the top 256 of the store). `quest debugwipe` (P1) clears the debug band.
+// WORLD_FLAG_DEBUG_FIRST (the top 256 of the store). `quest debugwipe` clears the debug band, and
+// Quest_Register refuses a quest whose world-flag reward sits in the other tier's band.
 // WORLD_FLAG_MAX may be raised freely (see WorldFlags.h); if it is, WORLD_FLAG_DEBUG_FIRST stays
 // where it is - the debug band simply grows.
 //
