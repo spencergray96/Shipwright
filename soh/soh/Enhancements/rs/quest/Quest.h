@@ -78,6 +78,12 @@ int32_t Quest_AllStepsSet(int32_t questId);
 
 // D8: every `requirements` predicate true AND (`prereqFn` NULL or nonzero). 0 on a bad id.
 int32_t Quest_PrereqsMet(int32_t questId);
+// The same answer with NO log and NO assert on a bad or unregistered id (0 in both cases). This is
+// the Quest_Check* rule applied to a read: QUEST_PRED_QUEST_PREREQS_MET (P3) evaluates on the
+// console's behalf and an assert there would hang the agent loop. It exists so the MEANING of
+// "prerequisites met" stays defined in exactly one place - the predicate does not re-implement the
+// walk over `requirements` and `prereqFn`.
+int32_t Quest_PrereqsMetQuiet(int32_t questId);
 // What a quest-giver asks (P3): NOT_STARTED and prerequisites met.
 int32_t Quest_IsAvailable(int32_t questId);
 

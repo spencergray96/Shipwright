@@ -38,6 +38,16 @@ typedef enum WorldFlagId {
     WORLD_FLAG_DEBUG_JOURNAL = 3841, // QUEST_DEBUG_JOURNAL's completion witness (P2). Its OWN flag on
                                      // purpose: sharing 3840 would couple it to the P1 smoke fixture,
                                      // whose acceptance run asserts that flag's value directly.
+    WORLD_FLAG_DEBUG_GIVER = 3842,   // QUEST_DEBUG_GIVER's completion witness (P3)
+    WORLD_FLAG_DEBUG_GIVER_GATE = 3843, // QUEST_DEBUG_GIVER's declarative prerequisite. Toggled with
+                                        // `agenttest worldflag 3843 0|1` to show the quest-giver
+                                        // refusing to offer, then offering (D8).
+    WORLD_FLAG_DEBUG_THREE = 3844,      // set by the THIRD option of NPC_DEBUG_THREE's only rule, so the
+                                        // non-binary response shape is proven by an option that DOES
+                                        // something, not only by one that renders (D11, #59).
+    WORLD_FLAG_DEBUG_TWIN = 3845,       // NPC_DEBUG_TWIN's own one-shot. Its whole point is that no
+                                        // other character can move it: 194 shares 192's actor type and
+                                        // model and is still a different character (D21).
 } WorldFlagId;
 
 #define WORLD_FLAG_IS_DEBUG(flag) ((flag) >= WORLD_FLAG_DEBUG_FIRST)
@@ -49,5 +59,13 @@ RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_SMOKE >= WORLD_FLAG_DEBUG_FIRST && WORLD_FLAG_
                  "WORLD_FLAG_DEBUG_SMOKE must sit in the debug band");
 RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_JOURNAL >= WORLD_FLAG_DEBUG_FIRST && WORLD_FLAG_DEBUG_JOURNAL < WORLD_FLAG_MAX,
                  "WORLD_FLAG_DEBUG_JOURNAL must sit in the debug band");
+RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_GIVER >= WORLD_FLAG_DEBUG_FIRST && WORLD_FLAG_DEBUG_GIVER < WORLD_FLAG_MAX,
+                 "WORLD_FLAG_DEBUG_GIVER must sit in the debug band");
+RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_GIVER_GATE >= WORLD_FLAG_DEBUG_FIRST && WORLD_FLAG_DEBUG_GIVER_GATE < WORLD_FLAG_MAX,
+                 "WORLD_FLAG_DEBUG_GIVER_GATE must sit in the debug band");
+RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_THREE >= WORLD_FLAG_DEBUG_FIRST && WORLD_FLAG_DEBUG_THREE < WORLD_FLAG_MAX,
+                 "WORLD_FLAG_DEBUG_THREE must sit in the debug band");
+RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_TWIN >= WORLD_FLAG_DEBUG_FIRST && WORLD_FLAG_DEBUG_TWIN < WORLD_FLAG_MAX,
+                 "WORLD_FLAG_DEBUG_TWIN must sit in the debug band");
 
 #endif // SOH_RS_WORLD_FLAG_IDS_H

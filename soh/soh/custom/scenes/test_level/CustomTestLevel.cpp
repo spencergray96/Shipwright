@@ -126,7 +126,9 @@ extern "C" void CustomTestLevel_InitRoom(PlayState* play, RoomContext* roomCtx) 
     Object_Spawn(&play->objectCtx, OBJECT_KANBAN); // signpost
     Object_Spawn(&play->objectCtx, OBJECT_WARP1);
 
-    play->numSetupActors = 2;  // Signpost + Door_Warp1; Link spawns via linkActorEntry
+    // Signpost, Door_Warp1, four RS NPCs and one RS quest item; Link spawns via linkActorEntry.
+    // The list is consumed once, on the first Actor_UpdateAll after the room loads.
+    play->numSetupActors = 7;
     play->setupActorList = test_level_room_0_header00_actorList;
 
     Player_SetBootData(play, GET_PLAYER(play));

@@ -12,6 +12,7 @@
 //     QuestStatusIs     QuestStore_GetStatus(a) == b
 //     QuestStepSet      QuestStore_IsStepSet(a, b)
 //     AllStepsSet       every step of quest a is set (added in P2 - see below)
+//     QuestPrereqsMet   quest a's declarative prerequisites hold (added in P3 - see below)
 //     WorldFlagSet      Flags_GetWorldFlag(a)
 //     Not               negates any of the above
 //
@@ -32,6 +33,24 @@
 // of negations, and per-predicate `negate` over QuestStepSet cannot say it - the vocabulary
 // genuinely lacked the word, which is exactly the condition D10 says to grow on. It is the only
 // word that reads a DEFINITION (for stepCount) rather than the raw store; see QuestPredicate.cpp.
+//
+// QuestPrereqsMet is the SEVENTH word, added in P3 (#64) under the same rule, and the bar was the
+// same: D8 says a quest-giver's gate is the quest's OWN declarative prerequisites, and no
+// combination of the first six can ask a quest whether its `requirements` list currently holds -
+// that list is arbitrary per-quest data. Without the word every NPC rule table has to DUPLICATE
+// the quest's requirements, which is two sources of truth that drift, i.e. the thing D8 and D11
+// exist to prevent. One word, not two: `QuestPrereqsMet(q)` AND `QuestStatusIs(q, NOT_STARTED)` in
+// the same list already means "available", because the list is the conjunction.
+//   Two documented costs. (1) Like AllStepsSet it reads a DEFINITION, so it lives in the .cpp and
+//       answers 0 quietly for an in-range id this build does not define.
+//   (2) A quest carrying a `prereqFn` escape hatch (D8) is only partly introspectable through this
+//       word: a dump reports the word and its live value, never why - the same cost `prereq_fn=set`
+//       already carries in `quest dump`.
+// It is REFUSED inside a QuestDef's own `requirements` list (Quest.cpp): a quest whose requirement
+// asks about a quest's requirements is unbounded recursion, and the journal builder and both
+// console surfaces evaluate predicates on the caller's behalf, so it would be a stack overflow on
+// a console-typed command rather than an assert. Journal `when` lists and NPC dialogue rules may
+// use it freely - the ban on one side is enough to make a cycle impossible.
 
 typedef enum QuestPredicateKind {
     QUEST_PRED_ALWAYS = 0,
@@ -41,6 +60,7 @@ typedef enum QuestPredicateKind {
     QUEST_PRED_ALL_STEPS_SET = 4,   // a = QuestId; b unused. Appended, never inserted - and safe to
                                     // append because predicates are DEFINITION data and are never
                                     // serialized (only QuestStore's {status, stepMask} is).
+    QUEST_PRED_QUEST_PREREQS_MET = 5, // a = QuestId; b unused. Same append rule.
     QUEST_PRED_KIND_COUNT,
 } QuestPredicateKind;
 
@@ -60,11 +80,13 @@ typedef struct QuestPredicate {
 #define QP_QUEST_STEP_SET(questId, step) { QUEST_PRED_QUEST_STEP_SET, (questId), (step), 0 }
 #define QP_WORLD_FLAG_SET(flag) { QUEST_PRED_WORLD_FLAG_SET, (flag), 0, 0 }
 #define QP_ALL_STEPS_SET(questId) { QUEST_PRED_ALL_STEPS_SET, (questId), 0, 0 }
+#define QP_QUEST_PREREQS_MET(questId) { QUEST_PRED_QUEST_PREREQS_MET, (questId), 0, 0 }
 #define QP_NOT_ALWAYS() { QUEST_PRED_ALWAYS, 0, 0, 1 }
 #define QP_NOT_QUEST_STATUS_IS(questId, status) { QUEST_PRED_QUEST_STATUS_IS, (questId), (status), 1 }
 #define QP_NOT_QUEST_STEP_SET(questId, step) { QUEST_PRED_QUEST_STEP_SET, (questId), (step), 1 }
 #define QP_NOT_WORLD_FLAG_SET(flag) { QUEST_PRED_WORLD_FLAG_SET, (flag), 0, 1 }
 #define QP_NOT_ALL_STEPS_SET(questId) { QUEST_PRED_ALL_STEPS_SET, (questId), 0, 1 }
+#define QP_NOT_QUEST_PREREQS_MET(questId) { QUEST_PRED_QUEST_PREREQS_MET, (questId), 0, 1 }
 
 #ifdef __cplusplus
 extern "C" {
@@ -74,12 +96,13 @@ extern "C" {
 // kind is logged + debug-asserted and evaluates to 0; out-of-range ids/steps/flags shout through
 // the store accessors they delegate to.
 //
-// AllStepsSet is the one exception to that shouting: an id that is in range but has no definition
-// in this build evaluates to 0 QUIETLY (debug-level log, no assert). It has to, because it is the
-// only word whose operand can be in range and still unresolvable, and because Quest_Describe and
-// the journal read API evaluate predicates on the console's behalf - a tripped assert there would
-// hang the agent loop on a Debug build, which is precisely what the Quest_Check* rule exists to
-// prevent. Registration still range-checks every operand, so a typo'd id is caught up front.
+// AllStepsSet and QuestPrereqsMet are the exceptions to that shouting: an id that is in range but
+// has no definition in this build evaluates to 0 QUIETLY (debug-level log, no assert). They have
+// to, because they are the only words whose operand can be in range and still unresolvable, and
+// because Quest_Describe, the journal read API and the NPC console evaluate predicates on the
+// console's behalf - a tripped assert there would hang the agent loop on a Debug build, which is
+// precisely what the Quest_Check* rule exists to prevent. Registration still range-checks every
+// operand, so a typo'd id is caught up front.
 int32_t QuestPredicate_Eval(const QuestPredicate* pred);
 
 // Renders the predicate as text, e.g. `Not(QuestStepSet(0, 3))`, for console dumps and markers.
@@ -106,6 +129,9 @@ constexpr QuestPredicate WorldFlagSet(int32_t flag) {
 }
 constexpr QuestPredicate AllStepsSet(int32_t questId) {
     return { QUEST_PRED_ALL_STEPS_SET, questId, 0, 0 };
+}
+constexpr QuestPredicate QuestPrereqsMet(int32_t questId) {
+    return { QUEST_PRED_QUEST_PREREQS_MET, questId, 0, 0 };
 }
 constexpr QuestPredicate Not(QuestPredicate pred) {
     pred.negate = pred.negate ? 0 : 1;

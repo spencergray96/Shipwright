@@ -82,7 +82,8 @@ static bool CheckMarkup(char* buf, size_t len, const char* what, int32_t index, 
 // defines the order in which two quests register, so "is quest 50 registered yet" is not a
 // question this gate can answer. Only ranges, which are order-independent. AllStepsSet handles an
 // unregistered id quietly at evaluation time (QuestPredicate.h).
-static bool CheckPredicate(char* buf, size_t len, const char* what, int32_t index, const QuestPredicate& p) {
+static bool CheckPredicate(char* buf, size_t len, const char* what, int32_t index, const QuestPredicate& p,
+                           bool inRequirements = false) {
     switch (p.kind) {
         case QUEST_PRED_ALWAYS:
             break;
@@ -110,6 +111,21 @@ static bool CheckPredicate(char* buf, size_t len, const char* what, int32_t inde
         case QUEST_PRED_ALL_STEPS_SET:
             if (!QUEST_ID_IS_VALID(p.a)) {
                 return Problem(buf, len, "%s[%d]: AllStepsSet quest id %d out of range", what, index, p.a);
+            }
+            break;
+        case QUEST_PRED_QUEST_PREREQS_MET:
+            if (!QUEST_ID_IS_VALID(p.a)) {
+                return Problem(buf, len, "%s[%d]: QuestPrereqsMet quest id %d out of range", what, index, p.a);
+            }
+            // A requirement that asks about a quest's requirements is unbounded recursion - directly
+            // for a self-reference, through a cycle for two quests. Evaluation happens on the
+            // console's behalf (Quest_Describe, the journal builder, `npc dump`), so it would be a
+            // stack overflow on a typed command rather than an assert. Banning it on THIS side is
+            // enough to make a cycle impossible, which is why journal `when` lists and NPC dialogue
+            // rules may use the word freely.
+            if (inRequirements) {
+                return Problem(buf, len, "%s[%d]: QuestPrereqsMet may not appear in a quest's own requirements", what,
+                               index);
             }
             break;
         default:
@@ -210,7 +226,7 @@ static bool ValidateDef(const QuestDef* def, char* buf, size_t len) {
         return Problem(buf, len, "requirements list is NULL with a nonzero count");
     }
     for (int32_t i = 0; i < def->requirementCount; i++) {
-        if (!CheckPredicate(buf, len, "req", i, def->requirements[i])) {
+        if (!CheckPredicate(buf, len, "req", i, def->requirements[i], /*inRequirements=*/true)) {
             return false;
         }
     }
@@ -383,6 +399,14 @@ static bool PrereqsMet(const QuestDef* def) {
 extern "C" int32_t Quest_PrereqsMet(int32_t questId) {
     int32_t rc;
     const QuestDef* def = Resolve("prereqs met", questId, &rc);
+    return def != nullptr && PrereqsMet(def);
+}
+
+extern "C" int32_t Quest_PrereqsMetQuiet(int32_t questId) {
+    if (!QUEST_ID_IS_VALID(questId)) {
+        return 0;
+    }
+    const QuestDef* def = sDefs[questId];
     return def != nullptr && PrereqsMet(def);
 }
 

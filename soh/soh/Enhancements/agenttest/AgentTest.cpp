@@ -205,6 +205,8 @@
 #include "soh/Enhancements/rs/quest/QuestPredicate.h"
 #include "soh/Enhancements/rs/quest/Quest.h"
 #include "soh/Enhancements/rs/quest/QuestConsole.h"
+#include "soh/Enhancements/rs/dialogue/NpcConsole.h"
+#include "AgentTest.h"
 #include "soh/ShipInit.hpp"
 // For SaveManager::Instance, which `save` and `loadsave` drive directly. The free
 // `Save_SaveFile`/`Save_LoadFile` wrappers are declared here with C++ linkage but defined
@@ -1592,6 +1594,32 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         }
         return rc;
     }
+    // The NPC dialogue surface (sturdy-bassoon#58 P3 / D18). Same arrangement as `quest` above:
+    // one implementation (RsNpcConsole_Run) behind two sinks, so the human command and the agent
+    // markers cannot drift. Read-only - nothing here writes quest or world state; picking a
+    // dialogue option is what writes, and only an actor in a real conversation does that.
+    if (args.size() >= 3 && args[1] == "npc") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        std::vector<std::string> lines;
+        const int32_t rc = RsNpcConsole_Run(sub, lines);
+        for (const std::string& line : lines) {
+            WriteMarker("npc " + line); // written verbatim - it is not a format string
+            if (output) {
+                if (!output->empty()) {
+                    *output += " | ";
+                }
+                // ConsoleWindow hands a handler's `output` to vsnprintf as the FORMAT string when
+                // the command is typed, so '%' is doubled exactly as the human `npc` sink does it.
+                for (char c : line) {
+                    *output += c;
+                    if (c == '%') {
+                        *output += '%';
+                    }
+                }
+            }
+        }
+        return rc;
+    }
     if (args.size() >= 2 && args[1] == "mark") {
         std::string text;
         for (size_t i = 2; i < args.size(); i++) {
@@ -1611,6 +1639,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "quest list|dump <id>|start <id>|setstep <id> <n>|clearstep <id> <n>|check <id> <n>|complete <id>|"
               "journal <id|all> [runs]|parse <text...>|badcheck|"
               "force <id>|reset <id>|debugwipe | "
+              "npc list|dump <id>|resolve <id>|actors|badcheck | "
             "save <fileNum> | loadsave <fileNum> | mark <text>";
     }
     return 1;
@@ -1638,6 +1667,7 @@ void RegisterAgentTest() {
               "queststore count|<id> [status mask] | questpred <kind> <a> <b> <negate> | "
               "quest list|dump <id>|start <id>|setstep <id> <n>|clearstep <id> <n>|check <id> <n>|complete <id>|"
               "force <id>|reset <id>|debugwipe | "
+              "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "save <fileNum> | loadsave <fileNum> | mark <text>. walk/press inject controller 1 for N frames and end "
               "with an input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });
@@ -1647,3 +1677,15 @@ void RegisterAgentTest() {
 } // namespace
 
 static RegisterShipInitFunc initFunc(RegisterAgentTest);
+
+// The marker channel, opened up to gameplay code (sturdy-bassoon#58 P3). Gated on sAgentMode for
+// the reason every other WriteMarker caller is: outside agent mode there is no agent-log.txt to
+// append to and no one reading it, and an ordinary session should not grow a marker stream it
+// never asked for. This is what lets an actor make an in-game conversation ASSERTABLE - a
+// screenshot shows a textbox, a marker names the rule that produced it.
+extern "C" void AgentTest_WriteMarker(const char* text) {
+    if (!sAgentMode || text == nullptr) {
+        return;
+    }
+    WriteMarker(text);
+}

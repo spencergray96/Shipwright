@@ -7,11 +7,11 @@
 #include "Quest.h"
 #include "soh/Enhancements/worldstate/WorldFlags.h"
 
-// AllStepsSet needs a definition's stepCount, so this .cpp - and only this .cpp - reaches up into
-// the registry. QuestPredicate.h stays definition-free, so the header layering is unchanged and
-// nothing that includes it gains a dependency. Quest_GetDef is safe at any point in static init:
-// sDefs is a constant-initialised std::array, so there is no ordering hazard with the
-// RegisterShipInitFunc objects.
+// AllStepsSet needs a definition's stepCount and QuestPrereqsMet needs a definition's requirement
+// list, so this .cpp - and only this .cpp - reaches up into the registry. QuestPredicate.h stays
+// definition-free, so the header layering is unchanged and nothing that includes it gains a
+// dependency. Quest_GetDef is safe at any point in static init: sDefs is a constant-initialised
+// std::array, so there is no ordering hazard with the RegisterShipInitFunc objects.
 static int32_t AllStepsSet(int32_t questId) {
     const QuestDef* def = Quest_GetDef(questId); // NULL for an invalid OR unregistered id; no assert
     if (def == nullptr) {
@@ -23,6 +23,19 @@ static int32_t AllStepsSet(int32_t questId) {
     }
     const uint32_t all = Quest_AllStepsMask(def->stepCount);
     return (QuestStore_GetStepMask(questId) & all) == all;
+}
+
+// The rule "are this quest's declarative prerequisites met" lives ONCE, in Quest.cpp. This word
+// calls the non-asserting reader rather than re-implementing the walk, so D8's meaning cannot
+// come to differ between "the quest-giver's gate" and "what Quest_Start checks". The quiet-zero
+// contract is the same as AllStepsSet's and is enforced there; Quest_PrereqsMetQuiet never
+// asserts (Quest_PrereqsMet, which does, goes through Resolve and is the gameplay-side reader).
+static int32_t QuestPrereqsMet(int32_t questId) {
+    if (Quest_GetDef(questId) == nullptr) {
+        SPDLOG_DEBUG("QuestPredicate: QuestPrereqsMet({}) has no definition in this build -> 0", questId);
+        return 0;
+    }
+    return Quest_PrereqsMetQuiet(questId);
 }
 
 static int32_t EvalPositive(const QuestPredicate* pred) {
@@ -37,6 +50,8 @@ static int32_t EvalPositive(const QuestPredicate* pred) {
             return Flags_GetWorldFlag(pred->a) != 0;
         case QUEST_PRED_ALL_STEPS_SET:
             return AllStepsSet(pred->a);
+        case QUEST_PRED_QUEST_PREREQS_MET:
+            return QuestPrereqsMet(pred->a);
         default:
             SPDLOG_ERROR("QuestPredicate: unknown predicate kind {} (max {})", static_cast<int>(pred->kind),
                          QUEST_PRED_KIND_COUNT - 1);
@@ -79,6 +94,9 @@ extern "C" void QuestPredicate_Describe(const QuestPredicate* pred, char* buf, s
             break;
         case QUEST_PRED_ALL_STEPS_SET:
             std::snprintf(inner, sizeof(inner), "AllStepsSet(%d)", pred->a);
+            break;
+        case QUEST_PRED_QUEST_PREREQS_MET:
+            std::snprintf(inner, sizeof(inner), "QuestPrereqsMet(%d)", pred->a);
             break;
         default:
             std::snprintf(inner, sizeof(inner), "<bad kind %d>", static_cast<int>(pred->kind));
