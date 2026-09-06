@@ -53,6 +53,23 @@ typedef struct QuestDef {
     int32_t stepCount; // 1..QUEST_STEP_MAX. A step >= stepCount is refused as invalid.
     const char* const* stepNames; // stepCount entries, or NULL
 
+    // Display prose for each step - "an egg", "a bucket of milk" - as opposed to stepNames, which
+    // are greppable snake_case TOKENS for console lines and markers (D26, P4). Optional: NULL, or
+    // stepCount entries. Two consumers, both of which need to name a step to a PLAYER: a dialogue
+    // rule's missing-steps clause (NpcDialogueDef.h) and a quest item's pickup line.
+    //
+    // Separate from stepNames on purpose. A token is chosen to read well in a log and to grep
+    // cleanly; the moment it doubles as player-facing text, renaming a step for clarity in the log
+    // silently rewrites a textbox - and a step called `kill_the_boss` renders at the player as
+    // "kill the boss" (AutoFormatString turns '_' into a space, which is its own surprise).
+    // Fallback order where a label is read: stepLabels[i], then stepNames[i], then "step N" - a
+    // missing label shows up as a token, never as silence.
+    //
+    // Validated with the strictest hygiene of both surfaces (no '#', '%', '"', '^', '&', control
+    // characters), because one of the two consumers is a CustomMessage textbox and the other may
+    // yet be a journal line; a label is prose that has to be safe on either.
+    const char* const* stepLabels;
+
     // D8/D9: `requirements` are evaluated and blocking (Quest_Start refuses while any is false);
     // `hints` are display text shown before the quest starts and are never evaluated. Hints are
     // MARKUP too, so `#hint:...#` may appear inside one - the two senses of the word are different

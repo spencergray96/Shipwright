@@ -48,6 +48,24 @@ static bool TokenIsClean(const char* s) {
     return true;
 }
 
+// A step LABEL is player-facing prose, and it is the one string in a QuestDef that can land on
+// EITHER surface: a dialogue rule's missing-steps clause renders it through CustomMessageManager,
+// and a journal line may yet. So it takes the union of both rulebooks - the journal's markup
+// characters ('#', '%', '"'), the textbox's control characters ('^' box break, '&' line break, and
+// '%' again as the colour escape) and anything unprintable. Spaces are the whole point of a label,
+// so unlike TokenIsClean they are allowed.
+static bool LabelIsClean(const char* s) {
+    if (s == nullptr) {
+        return false;
+    }
+    for (const char* p = s; *p != '\0'; p++) {
+        if (*p == '%' || *p == '#' || *p == '"' || *p == '^' || *p == '&' || *p == '\n' || *p == '\r' || *p == '\t') {
+            return false;
+        }
+    }
+    return true;
+}
+
 // Writes the reason into the CALLER'S buffer and returns false, so validation composes as
 // `if (!Problem(...)) return false;`. Caller-supplied, matching Quest_Describe and
 // QuestPredicate_Describe: a file-static buffer would be clobbered by a second call in the same
@@ -219,6 +237,15 @@ static bool ValidateDef(const QuestDef* def, char* buf, size_t len) {
         for (int32_t i = 0; i < def->stepCount; i++) {
             if (!TokenIsClean(def->stepNames[i])) {
                 return Problem(buf, len, "stepNames[%d] is NULL, or carries whitespace, percent, hash or quote", i);
+            }
+        }
+    }
+    if (def->stepLabels != nullptr) {
+        for (int32_t i = 0; i < def->stepCount; i++) {
+            if (!LabelIsClean(def->stepLabels[i])) {
+                return Problem(buf, len, "stepLabels[%d] is NULL, or carries percent, hash, quote, caret, ampersand "
+                                         "or a control character",
+                               i);
             }
         }
     }
@@ -683,6 +710,23 @@ extern "C" void Quest_DebugWipe(int32_t* questsWiped, int32_t* flagsCleared) {
 }
 
 // --- rendering ----------------------------------------------------------------------------------
+
+// The one place the label fallback chain lives (D26). QUIET on every bad input - it is called by a
+// dialogue renderer while a textbox is opening and by an item actor at pickup, neither of which may
+// assert, and a step whose label is missing must READ as something rather than vanish.
+extern "C" const char* Quest_StepLabel(int32_t questId, int32_t step) {
+    const QuestDef* def = Quest_GetDef(questId); // NULL for invalid OR unregistered; never asserts
+    if (def == nullptr || step < 0 || step >= def->stepCount) {
+        return "something";
+    }
+    if (def->stepLabels != nullptr && def->stepLabels[step] != nullptr) {
+        return def->stepLabels[step];
+    }
+    if (def->stepNames != nullptr && def->stepNames[step] != nullptr) {
+        return def->stepNames[step]; // a token, and it will look like one - see QuestDef.h
+    }
+    return "something";
+}
 
 extern "C" const char* Quest_ResultName(int32_t result) {
     switch (result) {

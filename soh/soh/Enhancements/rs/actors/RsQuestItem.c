@@ -23,9 +23,10 @@
 // step did not get set" and "I landed 6 units short" the same symptom.
 #define RS_ITEM_COLLECT_RANGE 55.0f
 
-// The pickup line. One string for every item in P3 - the three real items and their own wording
-// arrive in P4 with the Cook's Assistant definitions.
-static const char* sPickupText = "You picked something up.&The quest journal will&remember it.";
+// The pickup line names WHAT was picked up, from the quest's own step label (Quest_StepLabel,
+// QuestDef.h) - so the three items of one quest say three different things without three item
+// actors, and a quest that supplies no labels still gets a sentence rather than a blank.
+#define RS_ITEM_PICKUP_FORMAT "You found %s.&The quest journal will&remember it."
 static const char* sBadParamsText = "This item does not know&which quest it belongs to.";
 
 void RsQuestItem_Init(Actor* thisx, PlayState* play);
@@ -99,6 +100,7 @@ void RsQuestItem_Destroy(Actor* thisx, PlayState* play) {
 
 static void RsQuestItem_Wait(RsQuestItem* this, PlayState* play) {
     char line[128];
+    char pickup[128];
     Player* player = GET_PLAYER(play);
     s32 result;
 
@@ -122,7 +124,12 @@ static void RsQuestItem_Wait(RsQuestItem* this, PlayState* play) {
         if (result == QUEST_OK) {
             result = Quest_SetStep(this->questId, this->step);
         }
-        RsText_SetDirect(sPickupText);
+        // Composed, so it has to be COPIED rather than pointed at: this actor is killed as soon as
+        // the box starts closing and its instance memory goes back to the arena, while the text is
+        // still being read (Message_OpenText re-enters from the draw path on a language switch).
+        // Quest_StepLabel itself returns a definition string, but the sentence around it is local.
+        snprintf(pickup, sizeof(pickup), RS_ITEM_PICKUP_FORMAT, Quest_StepLabel(this->questId, this->step));
+        RsText_SetDirectCopy(pickup);
     } else {
         result = QUEST_ERR_BAD_DEF;
         RsText_SetDirect(sBadParamsText);

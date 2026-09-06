@@ -10,7 +10,9 @@
 #include "NpcIds.h"
 #include "soh/Enhancements/rs/actors/RsActorParams.h"
 #include "soh/Enhancements/rs/quest/Quest.h"
+#include "soh/Enhancements/rs/quest/QuestDef.h"
 #include "soh/Enhancements/rs/quest/QuestPredicate.h"
+#include "soh/Enhancements/rs/quest/QuestStore.h"
 #include "soh/ShipInit.hpp"
 
 extern "C" {
@@ -71,9 +73,18 @@ void Dump(int32_t npcId, std::vector<std::string>& lines) {
         // The rule line carries `match=` AND `first=`, because "this rule is true" and "this rule
         // is the one that speaks" are different facts - and the gap between them is exactly what
         // first-match-wins means. A table where rule 2 is true while rule 1 speaks is the proof.
-        lines.push_back("rule[" + std::to_string(r) + "]=" + std::to_string(rule.whenCount) + "when options=" +
-                        std::to_string(rule.optionCount) + " match=" + std::to_string(RsNpc_RuleMatches(npcId, r)) +
-                        " first=" + std::to_string(r == first ? 1 : 0) + " text=\"" + rule.text + "\"");
+        // `text=` is the COMPOSED body - what the player would actually read if this rule spoke
+        // right now - so the console cannot validate a string the textbox never shows (D18). The
+        // fields after it are appended rather than inserted, so every earlier phase's assertions
+        // on this line keep matching.
+        std::string line = "rule[" + std::to_string(r) + "]=" + std::to_string(rule.whenCount) + "when options=" +
+                           std::to_string(rule.optionCount) + " match=" + std::to_string(RsNpc_RuleMatches(npcId, r)) +
+                           " first=" + std::to_string(r == first ? 1 : 0) + " text=\"" +
+                           RsNpc_ComposeRuleText(rule) + "\" missing_of=" + std::to_string(rule.missingOf);
+        if (rule.missingOf != RS_DLG_NO_MISSING) {
+            line += " missing=\"" + RsNpc_MissingList(rule) + "\"";
+        }
+        lines.push_back(line);
         for (int32_t i = 0; i < rule.whenCount; i++) {
             char desc[96];
             QuestPredicate_Describe(&rule.when[i], desc, sizeof(desc));
@@ -117,12 +128,20 @@ int32_t Actors(std::vector<std::string>& lines) {
             } else if (actor->id == ACTOR_RS_QUEST_ITEM) {
                 const int32_t questId = RS_ITEM_PARAMS_GET_QUEST(actor->params);
                 const int32_t step = RS_ITEM_PARAMS_GET_STEP(actor->params);
+                // Quest_IsStepSet asserts on a step past the definition's stepCount, and `step`
+                // here comes from a hand-authored params word - so it is read through the
+                // definition and the raw store instead. A placement naming a step its quest does
+                // not have is a mistake worth SEEING in this dump (set=0, and the actor's own Init
+                // shouts), not one worth hanging the agent loop over.
+                const QuestDef* itemDef = Quest_GetDef(questId); // NULL for invalid or unregistered
+                const int32_t stepSet =
+                    (itemDef != nullptr && step >= 0 && step < itemDef->stepCount) ? QuestStore_IsStepSet(questId, step)
+                                                                                  : 0;
                 std::snprintf(buf, sizeof(buf),
                               "actor[%d]=rs_quest_item quest=%d step=%d params=0x%04X rsvd=%d set=%d room=%d "
                               "pos=%d,%d,%d",
                               found, questId, step, static_cast<unsigned>(actor->params) & 0xFFFF,
-                              RS_ITEM_PARAMS_GET_RSVD(actor->params),
-                              Quest_IsRegistered(questId) ? Quest_IsStepSet(questId, step) : 0, actor->room,
+                              RS_ITEM_PARAMS_GET_RSVD(actor->params), stepSet, actor->room,
                               static_cast<int>(actor->world.pos.x), static_cast<int>(actor->world.pos.y),
                               static_cast<int>(actor->world.pos.z));
                 lines.push_back(buf);
@@ -200,7 +219,7 @@ int32_t RsNpcConsole_Run(const std::vector<std::string>& args, std::vector<std::
         // wording not to appear in this output.
         lines.push_back("op=resolve id=" + std::to_string(npcId) + " rule=" + std::to_string(rule) + " options=" +
                         std::to_string(rule >= 0 ? def->rules[rule].optionCount : 0) + " text=\"" +
-                        (rule >= 0 ? def->rules[rule].text : "-") + "\"");
+                        (rule >= 0 ? RsNpc_ComposeRuleText(def->rules[rule]) : std::string("-")) + "\"");
         return rule >= 0 ? 0 : 1;
     }
     lines.push_back(kUsage);
@@ -244,9 +263,10 @@ void RegisterNpcConsole() {
     console->AddCommand("npc", { NpcCommandHandler,
                                  "NPC dialogue (sturdy-bassoon#58 P3): list | dump <id> | resolve <id> | actors | "
                                  "badcheck. dump prints every rule with each predicate's live value, which rule "
-                                 "MATCHES and which one SPEAKS (first match wins); resolve prints the speaking rule "
-                                 "alone; actors lists the live RS actor instances in the loaded scene; badcheck "
-                                 "proves registration refuses malformed definitions.",
+                                 "MATCHES and which one SPEAKS (first match wins), and - for a rule carrying a "
+                                 "missing-steps clause - the list it would append right now; resolve prints the "
+                                 "speaking rule's composed body alone; actors lists the live RS actor instances in "
+                                 "the loaded scene; badcheck proves registration refuses malformed definitions.",
                                  { { "list|dump|resolve|actors|badcheck", Ship::ArgumentType::TEXT },
                                    { "npc id", Ship::ArgumentType::TEXT, true } } });
 }

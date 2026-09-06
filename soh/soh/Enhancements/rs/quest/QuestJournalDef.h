@@ -30,28 +30,40 @@
 // will - it is prose the author marked as npc-ish. That is the load-bearing property: it keeps
 // the parser trivial, keeps every tag uniform, and makes `hint` - guidance pointing at nothing
 // that exists in code - the normal case rather than an exception.
+//
+// FOUR TAGS, THREE STYLES: `npc` and `place` are PARSER ALIASES OF `hint` since P4 (2026-09-03).
+// That is D23's exit condition firing, not an oversight. The bet was that `npc`/`place` would earn
+// a distinct rendering by the time the first real quest shipped; P4 shipped and they were still
+// mapped to the same emphasis as `hint`, so they collapsed - the check was reading
+// QuestJournal_StyleEmphasis, exactly as the ADR said it would be.
+//
+// The TAGS stay accepted, which is the half of the bet that survives: an author still writes
+// `#npc:the Cook#` while the sentence is being written, and un-collapsing later is
+// (1) add the enumerator back here, (2) point `kTags` in QuestJournal.cpp at it, (3) give it an
+// emphasis. Re-deriving which spans were npc-ish from finished prose is the expensive half, and
+// that work is not being thrown away.
 typedef enum QuestRunStyle {
     QUEST_RUN_PLAIN = 0, // untagged prose
     QUEST_RUN_ITEM = 1,  // a thing to obtain or carry
-    QUEST_RUN_NPC = 2,   // a character to find or speak to
-    QUEST_RUN_PLACE = 3, // a location to go
-    QUEST_RUN_HINT = 4,  // guidance that maps to no code object at all ("wait until it gets dark")
+    QUEST_RUN_HINT = 2,  // guidance: what to wait for, who to see, where to go. The tags `hint`,
+                         // `npc` and `place` all produce this style.
     QUEST_RUN_STYLE_COUNT,
 } QuestRunStyle;
 
-// How much weight a renderer should give a style. This is where D23's deferred-value bet on `npc`
-// and `place` LIVES, rather than in prose: today they share GUIDE with `hint` and buy nothing
-// functional, and the ADR's exit condition is "if P4 ships and they still render identically to
-// hint, collapse them". With the mapping in a table, that check is reading one function instead of
-// re-reading every journal entry.
+// How much weight a renderer should give a style. Keeping the mapping in a table rather than in
+// prose is what made P4's D23 checkpoint mechanical: the question was "do npc and place still
+// return the same emphasis as hint", answered by reading this one function. They did, so the
+// styles collapsed above and this table is now one line per style.
 //
 // ITEM and HINT are on purpose the one pair that can never share an emphasis: "fetch a bucket of
 // milk" and "wait until dark" are different kinds of information to a scanning player, and
-// collapsing them loses the distinction the feature exists for (D23).
+// collapsing them loses the distinction the feature exists for (D23). If a future style is added,
+// it earns a place here by rendering differently - that is what `npc` and `place` failed to do.
 typedef enum QuestRunEmphasis {
     QUEST_EMPHASIS_NONE = 0,  // plain prose
     QUEST_EMPHASIS_KEY = 1,   // a concrete thing the player must get or hold - `item`
-    QUEST_EMPHASIS_GUIDE = 2, // where to go / who to see / what to wait for - `npc`, `place`, `hint`
+    QUEST_EMPHASIS_GUIDE = 2, // where to go / who to see / what to wait for - the `hint` style, and
+                              // so the `hint`, `npc` and `place` tags that all produce it
     QUEST_EMPHASIS_COUNT,
 } QuestRunEmphasis;
 

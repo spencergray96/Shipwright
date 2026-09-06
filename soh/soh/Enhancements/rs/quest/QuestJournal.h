@@ -25,7 +25,9 @@
 //
 // Grammar: `#tag:text#` spans mixed into plain prose. Tags are exactly `item`, `npc`, `place`,
 // `hint`, lowercase, untrimmed. The tag/text split is at the FIRST ':' inside the span, so a colon
-// in the prose is fine ("#hint:go north: then east#").
+// in the prose is fine ("#hint:go north: then east#"). FOUR tags, THREE styles: `npc` and `place`
+// are aliases of `hint` since P4's D23 checkpoint - see QuestJournalDef.h for why, and for the
+// three-line recipe that un-collapses them.
 //
 // THERE IS NO ESCAPE FOR A LITERAL '#'. That is the point: it makes a stray '#' unambiguously an
 // error instead of a guess, and a mis-tagged span can never quietly render as literal prose - the

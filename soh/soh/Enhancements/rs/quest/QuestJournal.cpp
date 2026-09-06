@@ -17,10 +17,14 @@ struct TagEntry {
 // Exact, lowercase, untrimmed. `#ITEM:x#` and `#item :x#` are UNKNOWN_TAG on purpose: a
 // near-miss that silently became plain prose would be the exact failure this parser exists to
 // prevent, and a near-miss that was quietly accepted would teach authors the tag is fuzzy.
+//
+// `npc` and `place` are ALIASES of `hint` since P4's D23 checkpoint (QuestJournalDef.h says why).
+// They are still accepted tags - only their STYLE collapsed - so no prose had to be rewritten and
+// un-collapsing is re-pointing these two rows at their own enumerator.
 const TagEntry kTags[] = {
     { "item", QUEST_RUN_ITEM },
-    { "npc", QUEST_RUN_NPC },
-    { "place", QUEST_RUN_PLACE },
+    { "npc", QUEST_RUN_HINT },
+    { "place", QUEST_RUN_HINT },
     { "hint", QUEST_RUN_HINT },
 };
 
@@ -193,10 +197,9 @@ const char* QuestJournal_StyleName(QuestRunStyle style) {
             return "plain";
         case QUEST_RUN_ITEM:
             return "item";
-        case QUEST_RUN_NPC:
-            return "npc";
-        case QUEST_RUN_PLACE:
-            return "place";
+        // One name per STYLE, not per tag: a `#npc:…#` span reports `hint`, because that is what
+        // it now is. A surface that printed the tag back would be claiming a distinction the
+        // renderer does not make (D23, collapsed in P4).
         case QUEST_RUN_HINT:
             return "hint";
         default:
@@ -208,10 +211,9 @@ QuestRunEmphasis QuestJournal_StyleEmphasis(QuestRunStyle style) {
     switch (style) {
         case QUEST_RUN_ITEM:
             return QUEST_EMPHASIS_KEY;
-        // D23's deferred-value bet, in one place: npc and place ride with hint today. The exit
-        // condition is P4 - if they are still on this line then, collapse them into hint.
-        case QUEST_RUN_NPC:
-        case QUEST_RUN_PLACE:
+        // This is the function P4's D23 checkpoint read. `npc` and `place` were still returning
+        // GUIDE here alongside `hint`, so they were collapsed into it (QuestJournalDef.h). A style
+        // that shares an emphasis with another style is a style that buys nothing.
         case QUEST_RUN_HINT:
             return QUEST_EMPHASIS_GUIDE;
         default:

@@ -4,10 +4,14 @@
 #include <cassert>
 #include <cstdarg>
 #include <cstdio>
+#include <vector>
 #include <spdlog/spdlog.h>
 
+#include "soh/Enhancements/rs/actors/RsActors.h" // RsText_ChoiceWouldPaginate - the renderer answers
 #include "soh/Enhancements/rs/quest/Quest.h"
+#include "soh/Enhancements/rs/quest/QuestDef.h"
 #include "soh/Enhancements/rs/quest/QuestIds.h"
+#include "soh/Enhancements/rs/quest/QuestStore.h"
 #include "soh/Enhancements/rs/quest/WorldFlagIds.h"
 #include "soh/Enhancements/worldstate/WorldFlags.h"
 
@@ -210,6 +214,47 @@ bool ValidateRule(char* buf, size_t len, const RsNpcDef* def, int32_t r) {
         return Problem(buf, len, "rule[%d]: %d options; the renderer does at most %d (see sturdy-bassoon#59)", r,
                        rule.optionCount, RS_DIALOGUE_MAX_OPTIONS);
     }
+    if (rule.missingOf != RS_DLG_NO_MISSING) {
+        if (!QUEST_ID_IS_VALID(rule.missingOf)) {
+            return Problem(buf, len, "rule[%d]: missingOf quest id %d out of range (use RS_DLG_NO_MISSING for none)",
+                           r, rule.missingOf);
+        }
+        // The invariant that also catches a forgotten RS_DLG_NO_MISSING, since a value-initialised
+        // 0 is a real QuestId (NpcDialogueDef.h). A clause listing what is missing from a quest the
+        // rule does not gate on would render "I still need everything" at a player who has never
+        // been offered it. Registered-ness is not checked here for the usual reason: nothing
+        // defines the order two translation units' ShipInit functions run in.
+        bool gated = false;
+        for (int32_t i = 0; i < rule.whenCount && !gated; i++) {
+            const QuestPredicate& p = rule.when[i];
+            switch (p.kind) {
+                case QUEST_PRED_QUEST_STATUS_IS:
+                case QUEST_PRED_QUEST_STEP_SET:
+                case QUEST_PRED_ALL_STEPS_SET:
+                case QUEST_PRED_QUEST_PREREQS_MET:
+                    gated = (p.a == rule.missingOf);
+                    break;
+                default:
+                    break;
+            }
+        }
+        if (!gated) {
+            return Problem(buf, len, "rule[%d]: missingOf names quest %d but no predicate in this rule gates on it",
+                           r, rule.missingOf);
+        }
+        if (rule.optionCount != 0) {
+            // A clause is only allowed on a STATEMENT, and the reason is that its length is a
+            // RUNTIME fact - it grows with the number of steps still missing - while everything
+            // else about a box's layout is checked here, once. A statement that grows too long
+            // simply paginates, and pagination costs a reader one more A press. A CHOICE that
+            // paginates lands on the second page, where the first A press turns the page instead
+            // of picking an option: the box looks right and the conversation does something else.
+            // Refusing the combination outright is the only check that holds for every future
+            // state of the quest.
+            return Problem(buf, len, "rule[%d]: a missing-steps clause needs a statement; this rule has %d options",
+                           r, rule.optionCount);
+        }
+    }
     if (rule.optionCount == RS_DIALOGUE_MAX_OPTIONS) {
         // CustomMessage::AutoFormatString is CTRL_TWO_CHOICE-aware and lays the choice out itself,
         // but it does NOT know CTRL_THREE_CHOICE - so a three-way rule is hand-laid-out through
@@ -226,6 +271,21 @@ bool ValidateRule(char* buf, size_t len, const RsNpcDef* def, int32_t r) {
         if (!CheckOption(buf, len, def, r, i)) {
             return false;
         }
+    }
+    // LAST, and the ordering is load-bearing: this one FORMATS the rule's real message, so it
+    // dereferences every option label. It must run only after CheckOption has proven each label is
+    // a non-NULL single line - otherwise the validator crashes on exactly the malformed definitions
+    // it exists to refuse, which is how `npc badcheck` first hung.
+    //
+    // Asked of the RENDERER rather than guessed at (RsActors.cpp). A two-option body that wraps to a
+    // second line pushes AutoFormatString past four rows, and its answer is a page break before the
+    // choice - so the box renders perfectly and the first A press turns the page instead of
+    // choosing. The alternative is a character cap standing in for a 216-pixel budget, which is
+    // exactly the guess that let this ship once.
+    if (RsText_ChoiceWouldPaginate(&rule)) {
+        return Problem(buf, len, "rule[%d]: the body is too long beside a two-option choice - the choice would land "
+                                 "on a second page, where the first A press turns the page instead of picking",
+                       r);
     }
     return true;
 }
@@ -393,6 +453,50 @@ extern "C" void RsNpc_Describe(int32_t npcId, char* buf, size_t len) {
     const int32_t options = (rule >= 0) ? def->rules[rule].optionCount : 0;
     std::snprintf(buf, len, "id=%d name=%s tier=%s rules=%d rule=%d options=%d display=\"%s\"", def->id, def->name,
                   Quest_TierName(def->tier), def->ruleCount, rule, options, def->displayName);
+}
+
+// --- the missing-steps clause (D26) -------------------------------------------------------------
+//
+// Every read here is quiet: Quest_GetDef answers NULL for an invalid or unregistered id without
+// asserting, QuestStore_IsStepSet is range-checked by the loop bound, and Quest_StepLabel has its
+// own fallback chain. It has to be - this runs while a textbox is opening and from a console
+// command, and an assert on either path hangs the agent loop.
+std::string RsNpc_MissingList(const RsDialogueRule& rule) {
+    if (rule.missingOf == RS_DLG_NO_MISSING) {
+        return "";
+    }
+    const QuestDef* def = Quest_GetDef(rule.missingOf);
+    if (def == nullptr) {
+        return "";
+    }
+    std::vector<const char*> missing;
+    for (int32_t step = 0; step < def->stepCount; step++) {
+        if (!QuestStore_IsStepSet(def->id, step)) {
+            missing.push_back(Quest_StepLabel(def->id, step));
+        }
+    }
+    std::string out;
+    for (size_t i = 0; i < missing.size(); i++) {
+        if (i > 0) {
+            // "a, b and c" - the last separator is a word, not a comma. One place, so the giver
+            // and the console agree on the wording as well as on the contents.
+            out += (i + 1 == missing.size()) ? " and " : ", ";
+        }
+        out += missing[i];
+    }
+    return out;
+}
+
+std::string RsNpc_ComposeRuleText(const RsDialogueRule& rule) {
+    std::string text = rule.text != nullptr ? rule.text : "";
+    const std::string missing = RsNpc_MissingList(rule);
+    if (!missing.empty()) {
+        // '&' is the author's line break and what AutoFormatString breaks on, so the list starts
+        // its own line rather than running on from the lead-in.
+        text += "&";
+        text += missing;
+    }
+    return text;
 }
 
 extern "C" int32_t RsNpc_RunAction(const RsDialogueOption* option) {

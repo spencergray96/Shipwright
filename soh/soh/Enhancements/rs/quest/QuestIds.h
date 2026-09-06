@@ -40,7 +40,10 @@ typedef enum QuestTier {
 
 typedef enum QuestId {
     // --- production band: [0, QUEST_ID_DEBUG_FIRST) ---------------------------------------
-    QUEST_COOKS_ASSISTANT = 0, // sturdy-bassoon#58 P4 - the reference implementation
+    QUEST_COOKS_ASSISTANT = 0, // sturdy-bassoon#58 P4 - the reference implementation, and the first
+                               // quest in the production band (quests/CooksAssistantQuest.cpp).
+                               // Three any-order steps; its reward flag is an unlock other systems
+                               // read. D20: this is the one people copy.
 
     // --- debug band: [QUEST_ID_DEBUG_FIRST, QUEST_MAX) ------------------------------------
     QUEST_DEBUG_SMOKE = 48,   // any-order fixture (quests/DebugQuests.cpp); never a real quest

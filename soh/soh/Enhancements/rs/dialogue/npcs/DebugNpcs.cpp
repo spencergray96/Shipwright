@@ -64,15 +64,15 @@ const RsDialogueOption sGiverOfferOptions[] = {
 };
 
 const RsDialogueRule sGiverRules[] = {
-    { sGiverDoneWhen, 1, "Thanks again for the ingredients.", nullptr, 0 },
-    { sGiverReadyWhen, 2, "You have everything I asked for!", sGiverHandOverOptions, 2 },
+    { sGiverDoneWhen, 1, "Thanks again for the ingredients.", nullptr, 0, RS_DLG_NO_MISSING },
+    { sGiverReadyWhen, 2, "You have everything I asked for!", sGiverHandOverOptions, 2, RS_DLG_NO_MISSING },
     // Rule 2's gate is true at rule 1's state too. That overlap is deliberate: it is what makes
     // first-match-wins an observable fact in `npc dump` (match=1 on both, first=1 on one).
-    { sGiverCollectingWhen, 1, "You are still missing something.", nullptr, 0 },
-    { sGiverOfferWhen, 2, "Fetch two things for me?", sGiverOfferOptions, 2 },
+    { sGiverCollectingWhen, 1, "You are still missing something.", nullptr, 0, RS_DLG_NO_MISSING },
+    { sGiverOfferWhen, 2, "Fetch two things for me?", sGiverOfferOptions, 2, RS_DLG_NO_MISSING },
     // The generic fallthrough. Registration REQUIRES the last rule to be unconditional, so an NPC
     // whose gate is unmet can never resolve to nothing (D8).
-    { nullptr, 0, "Lovely weather for standing about.", nullptr, 0 },
+    { nullptr, 0, "Lovely weather for standing about.", nullptr, 0, RS_DLG_NO_MISSING },
 };
 
 const RsNpcDef sGiver = {
@@ -90,7 +90,7 @@ const RsDialogueOption sThreeOptions[] = {
 // A three-option body is hand-laid-out and capped to one short line at registration, because
 // CustomMessage::AutoFormatString knows CTRL_TWO_CHOICE and does not know CTRL_THREE_CHOICE.
 const RsDialogueRule sThreeRules[] = {
-    { nullptr, 0, "Pick a colour.", sThreeOptions, 3 },
+    { nullptr, 0, "Pick a colour.", sThreeOptions, 3, RS_DLG_NO_MISSING },
 };
 
 const RsNpcDef sThree = {
@@ -107,8 +107,8 @@ const RsDialogueOption sTwinOptions[] = {
     { "Say nothing", RS_DLG_ACTION_NONE, 0, nullptr },
 };
 const RsDialogueRule sTwinRules[] = {
-    { sTwinMetWhen, 1, "We have met before.", nullptr, 0 },
-    { nullptr, 0, "Hello there, stranger.", sTwinOptions, 2 },
+    { sTwinMetWhen, 1, "We have met before.", nullptr, 0, RS_DLG_NO_MISSING },
+    { nullptr, 0, "Hello there, stranger.", sTwinOptions, 2, RS_DLG_NO_MISSING },
 };
 
 const RsNpcDef sTwin = {
@@ -129,32 +129,34 @@ const RsDialogueOption sOkOptions[] = {
     { "No", RS_DLG_ACTION_NONE, 0, nullptr },
 };
 const RsDialogueRule sOkRules[] = {
-    { nullptr, 0, "A clean rule.", nullptr, 0 },
+    { nullptr, 0, "A clean rule.", nullptr, 0, RS_DLG_NO_MISSING },
 };
+// The one table that does NOT state missingOf per row, because it cannot: it is zero-initialised
+// on purpose to be too long. Its rows never reach rule validation - ruleCount is refused first.
 const RsDialogueRule sManyRules[RS_DIALOGUE_MAX_RULES + 1] = {};
 
 // Every one of these is a NAMED file-scope object. A table of pointers to temporaries would dangle
 // the moment its initialiser finished, and `badcheck` would be reading freed memory in order to
 // report that a definition is bad - a failure that would look exactly like success.
-const RsDialogueRule sBadWhenNull[] = { { nullptr, 1, "text", nullptr, 0 } };
+const RsDialogueRule sBadWhenNull[] = { { nullptr, 1, "text", nullptr, 0, RS_DLG_NO_MISSING } };
 const QuestPredicate sPredUnknownKind[] = { { (QuestPredicateKind)99, 0, 0, 0 } };
-const RsDialogueRule sBadPredKind[] = { { sPredUnknownKind, 1, "text", nullptr, 0 } };
+const RsDialogueRule sBadPredKind[] = { { sPredUnknownKind, 1, "text", nullptr, 0, RS_DLG_NO_MISSING } };
 const QuestPredicate sPredStatusRange[] = { QP_QUEST_STATUS_IS(999, QUEST_STATUS_COMPLETE) };
-const RsDialogueRule sBadPredStatus[] = { { sPredStatusRange, 1, "text", nullptr, 0 } };
+const RsDialogueRule sBadPredStatus[] = { { sPredStatusRange, 1, "text", nullptr, 0, RS_DLG_NO_MISSING } };
 const QuestPredicate sPredPrereqRange[] = { QP_QUEST_PREREQS_MET(999) };
-const RsDialogueRule sBadPredPrereq[] = { { sPredPrereqRange, 1, "text", nullptr, 0 } };
+const RsDialogueRule sBadPredPrereq[] = { { sPredPrereqRange, 1, "text", nullptr, 0, RS_DLG_NO_MISSING } };
 const QuestPredicate sPredFlagRange[] = { QP_WORLD_FLAG_SET(999999) };
-const RsDialogueRule sBadPredFlag[] = { { sPredFlagRange, 1, "text", nullptr, 0 } };
+const RsDialogueRule sBadPredFlag[] = { { sPredFlagRange, 1, "text", nullptr, 0, RS_DLG_NO_MISSING } };
 
-const RsDialogueRule sBadTextNull[] = { { nullptr, 0, nullptr, nullptr, 0 } };
-const RsDialogueRule sBadTextHash[] = { { nullptr, 0, "a #item:hash# span", nullptr, 0 } };
-const RsDialogueRule sBadTextPercent[] = { { nullptr, 0, "one hundred percent: 100%", nullptr, 0 } };
-const RsDialogueRule sBadTextCaret[] = { { nullptr, 0, "a box^break", nullptr, 0 } };
-const RsDialogueRule sBadTextQuote[] = { { nullptr, 0, "a \"quoted\" word", nullptr, 0 } };
-const RsDialogueRule sBadTextEmpty[] = { { nullptr, 0, "", nullptr, 0 } };
-const RsDialogueRule sBadOptionsNull[] = { { nullptr, 0, "text", nullptr, 2 } };
-const RsDialogueRule sBadOneOption[] = { { nullptr, 0, "text", sOkOptions, 1 } };
-const RsDialogueRule sBadFourOptions[] = { { nullptr, 0, "text", sOkOptions, 4 } };
+const RsDialogueRule sBadTextNull[] = { { nullptr, 0, nullptr, nullptr, 0, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadTextHash[] = { { nullptr, 0, "a #item:hash# span", nullptr, 0, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadTextPercent[] = { { nullptr, 0, "one hundred percent: 100%", nullptr, 0, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadTextCaret[] = { { nullptr, 0, "a box^break", nullptr, 0, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadTextQuote[] = { { nullptr, 0, "a \"quoted\" word", nullptr, 0, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadTextEmpty[] = { { nullptr, 0, "", nullptr, 0, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadOptionsNull[] = { { nullptr, 0, "text", nullptr, 2, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadOneOption[] = { { nullptr, 0, "text", sOkOptions, 1, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadFourOptions[] = { { nullptr, 0, "text", sOkOptions, 4, RS_DLG_NO_MISSING } };
 
 const RsDialogueOption sThreeOk[] = {
     { "A", RS_DLG_ACTION_NONE, 0, nullptr },
@@ -162,58 +164,77 @@ const RsDialogueOption sThreeOk[] = {
     { "C", RS_DLG_ACTION_NONE, 0, nullptr },
 };
 const RsDialogueRule sBadThreeLong[] = {
-    { nullptr, 0, "This body is far too long to fit one line beside a three-way choice.", sThreeOk, 3 },
+    { nullptr, 0, "This body is far too long to fit one line beside a three-way choice.", sThreeOk, 3,
+      RS_DLG_NO_MISSING },
 };
-const RsDialogueRule sBadThreeMultiline[] = { { nullptr, 0, "Two&lines", sThreeOk, 3 } };
+const RsDialogueRule sBadThreeMultiline[] = { { nullptr, 0, "Two&lines", sThreeOk, 3, RS_DLG_NO_MISSING } };
 
 const RsDialogueOption sOptLabelNull[] = {
     { nullptr, RS_DLG_ACTION_NONE, 0, nullptr },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr },
 };
-const RsDialogueRule sBadLabelNull[] = { { nullptr, 0, "text", sOptLabelNull, 2 } };
+const RsDialogueRule sBadLabelNull[] = { { nullptr, 0, "text", sOptLabelNull, 2, RS_DLG_NO_MISSING } };
 const RsDialogueOption sOptLabelEmpty[] = {
     { "", RS_DLG_ACTION_NONE, 0, nullptr },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr },
 };
-const RsDialogueRule sBadLabelEmpty[] = { { nullptr, 0, "text", sOptLabelEmpty, 2 } };
+const RsDialogueRule sBadLabelEmpty[] = { { nullptr, 0, "text", sOptLabelEmpty, 2, RS_DLG_NO_MISSING } };
 const RsDialogueOption sOptLabelLines[] = {
     { "Two&lines", RS_DLG_ACTION_NONE, 0, nullptr },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr },
 };
-const RsDialogueRule sBadLabelLines[] = { { nullptr, 0, "text", sOptLabelLines, 2 } };
+const RsDialogueRule sBadLabelLines[] = { { nullptr, 0, "text", sOptLabelLines, 2, RS_DLG_NO_MISSING } };
 const RsDialogueOption sOptReplyPercent[] = {
     { "Yes", RS_DLG_ACTION_NONE, 0, "a reply with 50% too much" },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr },
 };
-const RsDialogueRule sBadReply[] = { { nullptr, 0, "text", sOptReplyPercent, 2 } };
+const RsDialogueRule sBadReply[] = { { nullptr, 0, "text", sOptReplyPercent, 2, RS_DLG_NO_MISSING } };
 const RsDialogueOption sOptActionKind[] = {
     { "Yes", (RsDialogueActionKind)99, 0, nullptr },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr },
 };
-const RsDialogueRule sBadActionKind[] = { { nullptr, 0, "text", sOptActionKind, 2 } };
+const RsDialogueRule sBadActionKind[] = { { nullptr, 0, "text", sOptActionKind, 2, RS_DLG_NO_MISSING } };
 const RsDialogueOption sOptActionQuest[] = {
     { "Yes", RS_DLG_ACTION_START_QUEST, 999, nullptr },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr },
 };
-const RsDialogueRule sBadActionQuest[] = { { nullptr, 0, "text", sOptActionQuest, 2 } };
+const RsDialogueRule sBadActionQuest[] = { { nullptr, 0, "text", sOptActionQuest, 2, RS_DLG_NO_MISSING } };
 const RsDialogueOption sOptActionFlagRange[] = {
     { "Yes", RS_DLG_ACTION_SET_WORLD_FLAG, 999999, nullptr },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr },
 };
-const RsDialogueRule sBadActionFlagRange[] = { { nullptr, 0, "text", sOptActionFlagRange, 2 } };
+const RsDialogueRule sBadActionFlagRange[] = { { nullptr, 0, "text", sOptActionFlagRange, 2, RS_DLG_NO_MISSING } };
 // A DEBUG-band NPC setting a PRODUCTION-band flag: `quest debugwipe` clears only the debug band, so
 // this would leave state a wipe cannot undo. Same rule Quest_Register applies to a world-flag reward.
 const RsDialogueOption sOptActionFlagBand[] = {
     { "Yes", RS_DLG_ACTION_SET_WORLD_FLAG, 0, nullptr },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr },
 };
-const RsDialogueRule sBadActionFlagBand[] = { { nullptr, 0, "text", sOptActionFlagBand, 2 } };
+const RsDialogueRule sBadActionFlagBand[] = { { nullptr, 0, "text", sOptActionFlagBand, 2, RS_DLG_NO_MISSING } };
+
+// The three ways a missing-steps clause can be wrong (D26, P4). The third one is the interesting
+// one: a rule whose `missingOf` names a quest it does not gate on is usually not a typo'd quest id
+// at all - it is a row that stopped one field early, value-initialising the field to 0, which is a
+// real QuestId. This is the check that turns that silent copy-paste into a refused definition.
+const RsDialogueRule sBadMissingRange[] = { { nullptr, 0, "text", nullptr, 0, 999 } };
+const RsDialogueRule sBadMissingUngated[] = { { nullptr, 0, "text", nullptr, 0, QUEST_DEBUG_GIVER } };
+const QuestPredicate sMissingGate[] = { QP_QUEST_STATUS_IS(QUEST_DEBUG_GIVER, QUEST_STATUS_IN_PROGRESS) };
+const RsDialogueRule sBadMissingThree[] = { { sMissingGate, 1, "Pick one.", sThreeOk, 3, QUEST_DEBUG_GIVER } };
+
+// A two-option body long enough that AutoFormatString pushes the choice onto a second page. The
+// cost of getting this wrong is not cosmetic: the first A press turns the page instead of
+// picking, so the conversation does something other than what the table says. It shipped once,
+// in P4, and only a screenshot found it - which is why the check now asks the renderer.
+const RsDialogueRule sBadTwoOptionLong[] = {
+    { nullptr, 0, "Will you fetch what my cake needs, and be quick about it before the Duke arrives?",
+      sOkOptions, 2, RS_DLG_NO_MISSING },
+};
 
 // The gate here is Always() - it EVALUATES true. The check is structural (whenCount == 0), not
 // semantic, because "this rule happens to be true right now" is not the same guarantee as "this
 // rule is true in every state", and only the second one makes the fallthrough safe.
 const QuestPredicate sAlwaysGate[] = { QP_ALWAYS() };
-const RsDialogueRule sBadLastConditional[] = { { sAlwaysGate, 1, "a conditional last rule", nullptr, 0 } };
+const RsDialogueRule sBadLastConditional[] = { { sAlwaysGate, 1, "a conditional last rule", nullptr, 0, RS_DLG_NO_MISSING } };
 
 #define BAD_NPC_DEF(sym, rules, count)                                                                                 \
     const RsNpcDef sym = { NPC_DEBUG_GIVER, QUEST_TIER_DEBUG, "bad", "Bad", (rules), (count) }
@@ -256,6 +277,10 @@ BAD_NPC_DEF(sDefActionQuest, sBadActionQuest, 1);
 BAD_NPC_DEF(sDefActionFlagRange, sBadActionFlagRange, 1);
 BAD_NPC_DEF(sDefActionFlagBand, sBadActionFlagBand, 1);
 BAD_NPC_DEF(sDefLastConditional, sBadLastConditional, 1);
+BAD_NPC_DEF(sDefMissingRange, sBadMissingRange, 1);
+BAD_NPC_DEF(sDefMissingUngated, sBadMissingUngated, 1);
+BAD_NPC_DEF(sDefMissingThree, sBadMissingThree, 1);
+BAD_NPC_DEF(sDefTwoOptionLong, sBadTwoOptionLong, 1);
 
 struct BadEntry {
     const char* label;
@@ -300,6 +325,11 @@ const BadEntry sBadDefs[] = {
     { "action_flag_range", &sDefActionFlagRange },
     { "action_flag_other_band", &sDefActionFlagBand },
     { "last_rule_conditional", &sDefLastConditional },
+    // APPENDED, never inserted: an acceptance run pins several of these by index.
+    { "missing_of_range", &sDefMissingRange },
+    { "missing_of_ungated", &sDefMissingUngated },
+    { "missing_of_with_options", &sDefMissingThree },
+    { "two_option_body_paginates", &sDefTwoOptionLong },
 };
 
 // RsNpc_Register is idempotent for the same pointer, which is what makes a ShipInit "*" re-run safe.

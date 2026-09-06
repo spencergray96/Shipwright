@@ -141,6 +141,8 @@ const QuestDef sJournalQuest = {
 const char* const sBadStepNames[] = { "a", "b", "c" };
 const char* const sBadHints[] = { "Talk to #npc:the Cook" };
 const char* const sHashStepNames[] = { "a", "#b#", "c" };
+const char* const sNullLabels[] = { "an egg", nullptr, "a pot of flour" };
+const char* const sBreakLabels[] = { "an egg", "a bucket&of milk", "a pot of flour" };
 const QuestJournalItem sOutOfRangeStep[] = { { "#item:x#", 7 } }; // step 7 of a 3-step quest
 const QuestJournalItem sOkItem[] = { { "#item:x#", 0 } };
 const QuestPredicate sBadWhen[] = { { QUEST_PRED_ALL_STEPS_SET, 999, 0, 0 } }; // quest id out of range
@@ -251,6 +253,22 @@ const std::vector<BadDef>& BadDefs() {
         block.when = sBadWhen;
         block.whenCount = Count(sBadWhen);
         add("when_operand", block);
+    }
+
+    // APPENDED, never inserted: an acceptance run pins entries in this table by index.
+    // Step LABELS (D26, P4) are the one string that can land on either surface, so they refuse the
+    // union of both rulebooks. '&' is the interesting member: legal in dialogue prose, and refused
+    // here because a label is dropped INTO a line the renderer is already laying out - an embedded
+    // break would push a choice off the box, which renders plausibly and cannot be read.
+    {
+        QuestDef def = BaseBad();
+        def.stepLabels = sNullLabels;
+        defs.push_back({ "step_label_null", def });
+    }
+    {
+        QuestDef def = BaseBad();
+        def.stepLabels = sBreakLabels;
+        defs.push_back({ "step_label_break", def });
     }
     return defs;
 }

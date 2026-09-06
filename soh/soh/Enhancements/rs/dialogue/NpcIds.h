@@ -39,8 +39,10 @@
 
 typedef enum NpcId {
     // --- production band: [0, NPC_ID_DEBUG_FIRST) ------------------------------------------
-    NPC_COOK = 0, // sturdy-bassoon#58 P4 - the Cook's Assistant quest-giver. Declared here, defined
-                  // by nothing yet; an unregistered id renders a visible diagnostic, never silence.
+    NPC_COOK = 0, // sturdy-bassoon#58 P4 - the Cook's Assistant quest-giver, and the first
+                  // production-band character. Defined in dialogue/npcs/CookNpc.cpp, placed in the
+                  // test level (0x614). Six rules, one of which speaks all seven of the quest's
+                  // incomplete collection states.
 
     // --- debug band: [NPC_ID_DEBUG_FIRST, NPC_MAX) ----------------------------------------
     NPC_DEBUG_GIVER = 192, // the P3 quest-giver (dialogue/npcs/DebugNpcs.cpp). Placed TWICE in

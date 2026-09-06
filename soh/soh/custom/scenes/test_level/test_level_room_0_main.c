@@ -24,7 +24,7 @@ s16 test_level_room_0_header00_objectList[2] = {
 //
 // The y values are deliberately above the floor: both RS actors carry gravity and settle onto
 // whatever is beneath them, so a hand-guessed height cannot leave one floating.
-ActorEntry test_level_room_0_header00_actorList[7] = {
+ActorEntry test_level_room_0_header00_actorList[] = {
     // Signpost — scene-agnostic, always renders, no crash-prone update logic
     { ACTOR_EN_KANBAN,  { 300, 0, 0 },  { 0, 0, 0 }, 0x0 },
     // Blue warp
@@ -45,4 +45,31 @@ ActorEntry test_level_room_0_header00_actorList[7] = {
     // quest requires both scenes — which is what makes "advancing in one scene is reflected in the
     // other" a thing the run has to do rather than a thing it can fake.
     { ACTOR_RS_QUEST_ITEM, { 0, 20, 200 }, { 0, 0, 0 }, RS_ITEM_PARAMS(QUEST_DEBUG_GIVER, 0) },
+
+    // --- The Cook's Assistant (sturdy-bassoon#58 P4) --------------------------------------------
+    //
+    // The first PRODUCTION-band character and quest to be placed anywhere. NPC_COOK is 0, so his
+    // params word is a literal 0x0000 — the same value an unspecified placement carries. That is
+    // legitimate and not a hazard (nothing else emits RS actors), and it is exactly why `npc actors`
+    // prints `registered=` and `rsvd=` on every row: an id of 0 that resolves to a real character
+    // looks different from one that resolves to nothing.
+    //
+    // He stands 500 units from Link's spawn at { 0, 0, -500 } — clear of the 110-unit talk range,
+    // and not directly under the entry camera.
+    { ACTOR_RS_NPC, { 0, 20, -1000 }, { 0, 0, 0 }, RS_NPC_PARAMS(NPC_COOK) },
+
+    // His three ingredients, one per step, spread so that no two are inside the 55-unit collect
+    // range at once and every one of them is a separate walk. They do not respawn once collected:
+    // a ShouldActorInit hook (rs/actors/RsActors.cpp) refuses to build an item whose step is
+    // already set — which is a READ, and so stays on the right side of the "flags are set on
+    // collection, never on spawn" pitfall.
+    { ACTOR_RS_QUEST_ITEM, { -700, 20, 700 }, { 0, 0, 0 }, RS_ITEM_PARAMS(QUEST_COOKS_ASSISTANT, 0) },
+    { ACTOR_RS_QUEST_ITEM, { 0, 20, 900 },    { 0, 0, 0 }, RS_ITEM_PARAMS(QUEST_COOKS_ASSISTANT, 1) },
+    { ACTOR_RS_QUEST_ITEM, { 700, 20, 700 },  { 0, 0, 0 }, RS_ITEM_PARAMS(QUEST_COOKS_ASSISTANT, 2) },
 };
+
+// The count, derived HERE - the only translation unit where the array's size is known. The scene's
+// C++ side sees it through an unbounded `extern ActorEntry[]`, so it cannot measure the array
+// itself, and a hand-typed count that drifts short does not fail: it silently drops the last
+// placements off the end of the list.
+const s32 test_level_room_0_header00_actorCount = ARRAY_COUNT(test_level_room_0_header00_actorList);

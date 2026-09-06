@@ -61,6 +61,38 @@ typedef struct RsDialogueRule {
     // not a change to this struct or to any definition written against it.
     const RsDialogueOption* options;
     int32_t optionCount; // 0 = a plain statement
+
+    // THE MISSING-STEPS CLAUSE (D26, added in P4). -1 for none; otherwise a QuestId whose UNSET
+    // steps are listed after `text`, on their own line, named through QuestDef.stepLabels.
+    //
+    // Why the model grew for this. A quest with three any-order steps has seven distinct
+    // "still missing" states, and rule text is static data - so saying "you still need an egg and
+    // a pot of flour" for each of them means SEVEN hand-written rules, which is the same 2^n
+    // snapshot explosion D13 rejects for journal blocks. Predicates cannot help: they choose which
+    // rule SPEAKS, not what it says. With this one field, ONE rule speaks all seven states and the
+    // table stays O(1) in the step count.
+    //
+    // It stays introspectable, which is the D11 bargain: the clause is declared data, so
+    // `npc dump` prints the live composed list beside each predicate's live value, and the whole
+    // eight-state sweep is readable from a console without holding eight conversations.
+    // Composition reads only the GLOBAL stores at render time, so the property that makes two
+    // NPCs in talk range safe - the entry textbox's id carrying the speaker and the rule, with no
+    // state anywhere - is untouched.
+    //
+    // THERE IS NO SAFE DEFAULT, so every rule states this field. A brace list that stops early
+    // value-initialises it to 0 - and 0 is QUEST_COOKS_ASSISTANT, a real quest - so a forgotten
+    // `-1` would quietly append the Cook's shopping list to somebody else's line. Two things make
+    // that impossible to ship rather than merely discouraged: every rule row in the tree writes it
+    // explicitly (so a copied row carries it), and registration REFUSES a rule whose `missingOf`
+    // names a quest that no predicate in its own `when` list gates on. A clause listing what is
+    // missing from a quest the rule does not condition on is meaningless anyway - it would say
+    // "I still need everything" to a player who has not been offered the quest - so the check is a
+    // real invariant that happens to catch the typo.
+    //
+    // Also refused on a THREE-option rule: those are hand-laid-out through Format(), which does not
+    // paginate, so an appended list would run off the bottom of the box - visible only in a
+    // screenshot, which is exactly the bug class P3 shipped and caught by eye.
+    int32_t missingOf; // -1 = no clause; otherwise a QuestId
 } RsDialogueRule;
 
 typedef struct RsNpcDef {
@@ -74,6 +106,9 @@ typedef struct RsNpcDef {
 
 #define RS_DIALOGUE_MAX_RULES 32
 #define RS_DIALOGUE_MAX_OPTIONS 3
+
+// The `missingOf` sentinel. Spelled out rather than written as a bare -1 in twenty rule rows.
+#define RS_DLG_NO_MISSING (-1)
 
 // --- text ids -----------------------------------------------------------------------------------
 //

@@ -102,6 +102,19 @@
  *                                        (`op=parse result=ok|error error=<kind> pos=<n>`), and
  *                                        `badcheck` runs the registration gate over the malformed
  *                                        definition table (`bad[i]=<label> refused=1 problem="..."`)
+ *   rs_dialogue npc=<n> event=<open|close|choice> rule=<n> [index=<n> action=<name> a=<n> result=<name>]
+ *                                        written by the quest-giver actor itself (sturdy-bassoon#58 P3), so
+ *                                        an in-game conversation is assertable rather than screenshot-only:
+ *                                        which character spoke, which rule produced the box, which option
+ *                                        index was taken and what the quest API returned
+ *   rs_item quest=<n> step=<n> event=<collect|suppressed> [result=<name>]
+ *                                        `collect` is a quest item being picked up - the ONLY thing that
+ *                                        sets a step, never a spawn. `suppressed` (P4) is the mirror: an
+ *                                        item whose step is already set, refused at ShouldActorInit during
+ *                                        scene load, so a collected item does not come back
+ *   rs_quest quest=<n> event=on_complete a quest's optional completion callback ran (D12). It runs after the
+ *                                        declarative rewards with the status already COMPLETE, so counting
+ *                                        these markers is how a run proves a reward fired exactly once
  *   mark <text>                          echoed from "agenttest mark <text>"
  *   input_done [reason=scene_change]     a walk/press injection finished (or was cancelled by a scene change)
  *

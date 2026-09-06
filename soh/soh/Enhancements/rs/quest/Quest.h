@@ -48,7 +48,8 @@ extern "C" {
 // re-run on preset apply and config drop); a DIFFERENT definition for an already-owned id is
 // QUEST_ERR_DUPLICATE. Validation refuses (QUEST_ERR_BAD_DEF): an invalid id; a tier that does not
 // match the id's band; a NULL name/title or one containing a space or '%'; stepCount outside
-// [1, QUEST_STEP_MAX]; a NULL list with a nonzero count; an unknown predicate or reward kind; a
+// [1, QUEST_STEP_MAX]; a step LABEL carrying a character that is unsafe on either surface
+// (QuestDef.h); a NULL list with a nonzero count; an unknown predicate or reward kind; a
 // rupee amount outside s16; a world-flag reward outside the store or in the other tier's band
 // (a debug quest must not set a flag debugwipe cannot clear); a journal block with an unknown
 // kind, a bad step reference, or MARKUP THAT DOES NOT PARSE (QuestJournal.h). Every display
@@ -114,6 +115,13 @@ int32_t Quest_Reset(int32_t questId);
 void Quest_DebugWipe(int32_t* questsWiped, int32_t* flagsCleared);
 
 // --- rendering (the one read API both console surfaces print - D18) --------------------------
+
+// One step, named to a PLAYER: `stepLabels[step]`, else `stepNames[step]`, else "something"
+// (QuestDef.h, D26). Quiet on every bad input - an invalid id, an unregistered quest and a step
+// past stepCount all answer "something" with no log and no assert, because both callers are
+// rendering paths: a dialogue rule's missing-steps clause and a quest item's pickup line. Returns a
+// definition string, so it outlives any textbox built from it.
+const char* Quest_StepLabel(int32_t questId, int32_t step);
 
 const char* Quest_ResultName(int32_t result);   // "ok", "order_violation", ...
 const char* Quest_StatusName(int32_t status);   // "not_started", "in_progress", "complete"

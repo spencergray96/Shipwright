@@ -19,7 +19,9 @@ typedef void (*RsQuestItemActionFunc)(struct RsQuestItem*, PlayState*);
 // player leave the zone without picking the item up and be soft-locked out of a key item forever.
 // Init here reads params and validates; it writes nothing.
 //
-// Suppressing an ALREADY-COLLECTED item's spawn (ShouldActorInit) is P4's, not this phase's.
+// An ALREADY-COLLECTED item never gets this far: a ShouldActorInit hook (RsActors.cpp, P4) answers
+// false for a step that is already set, so the actor is killed before Init runs. That hook only
+// READS, which is what keeps it on the right side of the pitfall above.
 typedef struct RsQuestItem {
     /* 0x0000 */ Actor actor;
     /* 0x014C */ ColliderCylinder collider;

@@ -69,6 +69,28 @@ int32_t RsNpc_RunAction(const RsDialogueOption* option);
 
 #ifdef __cplusplus
 }
+
+#include <string>
+
+// The rule body as a PLAYER sees it: `rule->text`, plus the missing-steps clause when the rule
+// carries one (D26 - NpcDialogueDef.h says why the model grew for it). One implementation, three
+// sinks: the textbox renderer (RsActors.cpp), `npc dump` and `npc resolve`. That is D18's rule
+// applied to composition - if the console printed the raw text and the box showed the composed one,
+// the console would be validating something the player never sees.
+//
+// C++ only, and deliberately returning std::string rather than filling a caller's buffer. A body
+// plus up to QUEST_STEP_MAX labels has no useful fixed bound, and a truncating snprintf would cut a
+// sentence in half and render plausibly - the failure mode this project treats as the enemy. No C
+// actor needs this: the entry textbox is built by the C++ OnOpenText hook, and the one string a C
+// actor hands over directly (an item's pickup line) is composed there from Quest_StepLabel.
+//
+// Reads the live stores, so two calls a frame apart can legitimately differ - that IS the point.
+std::string RsNpc_ComposeRuleText(const RsDialogueRule& rule);
+
+// Just the list part - "an egg and a pot of flour", or "" when nothing is missing or the rule
+// carries no clause. What `npc dump` prints as `missing="…"`, so a run can assert the composition
+// without matching the whole body.
+std::string RsNpc_MissingList(const RsDialogueRule& rule);
 #endif
 
 #endif // SOH_RS_NPC_DIALOGUE_H

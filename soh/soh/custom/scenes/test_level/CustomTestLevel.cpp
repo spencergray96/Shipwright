@@ -14,6 +14,7 @@ extern "C" {
     extern PolygonType0    test_level_room_0_shapeHeader;
     extern s16             test_level_room_0_header00_objectList[];
     extern ActorEntry      test_level_room_0_header00_actorList[];
+    extern const s32       test_level_room_0_header00_actorCount;
 
     extern s16   gLinkObjectIds[];
     s32  Object_Spawn(ObjectContext* objectCtx, s16 objectId);
@@ -126,9 +127,12 @@ extern "C" void CustomTestLevel_InitRoom(PlayState* play, RoomContext* roomCtx) 
     Object_Spawn(&play->objectCtx, OBJECT_KANBAN); // signpost
     Object_Spawn(&play->objectCtx, OBJECT_WARP1);
 
-    // Signpost, Door_Warp1, four RS NPCs and one RS quest item; Link spawns via linkActorEntry.
+    // Signpost, Door_Warp1, the RS NPCs and the RS quest items; Link spawns via linkActorEntry.
     // The list is consumed once, on the first Actor_UpdateAll after the room loads.
-    play->numSetupActors = 7;
+    //
+    // Derived rather than typed: the count and the array were two places to change, and only one of
+    // them fails loudly when they disagree - a short count silently drops the last placements.
+    play->numSetupActors = test_level_room_0_header00_actorCount;
     play->setupActorList = test_level_room_0_header00_actorList;
 
     Player_SetBootData(play, GET_PLAYER(play));

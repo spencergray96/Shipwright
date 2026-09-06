@@ -29,9 +29,14 @@
 
 typedef enum WorldFlagId {
     // --- production band: [0, WORLD_FLAG_DEBUG_FIRST) -------------------------------------
-    // None yet. The first real entries arrive with the quest-giver NPC and quest items (P3/P4):
-    //     WORLD_FLAG_COOK_MET = 0,
-    // Add each one with an explicit number and a RS_STATIC_ASSERT line below.
+    WORLD_FLAG_COOK_RANGE_OPEN = 0, // QUEST_COOKS_ASSISTANT's reward, and the first production flag
+                                    // there has ever been (P4). It is an UNLOCK: a durable
+                                    // permission bit that anything may read, deliberately separate
+                                    // from the quest's status. The Cook's post-completion rule and
+                                    // one journal block gate on THIS, not on `status == COMPLETE`,
+                                    // which is why clearing it leaves a completed quest whose
+                                    // unlocked behaviour is gone - the proof that the bit, and not
+                                    // the status, is what carries the permission.
 
     // --- debug band: [WORLD_FLAG_DEBUG_FIRST, WORLD_FLAG_MAX) -----------------------------
     WORLD_FLAG_DEBUG_SMOKE = 3840,   // exercised by the agent-test predicate probe; never real state
@@ -54,6 +59,9 @@ typedef enum WorldFlagId {
 
 RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_FIRST > 0, "the production band must be non-empty");
 RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_FIRST < WORLD_FLAG_MAX, "the debug band must be non-empty");
+
+RS_STATIC_ASSERT(WORLD_FLAG_COOK_RANGE_OPEN >= 0 && WORLD_FLAG_COOK_RANGE_OPEN < WORLD_FLAG_DEBUG_FIRST,
+                 "WORLD_FLAG_COOK_RANGE_OPEN must sit in the production band");
 
 RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_SMOKE >= WORLD_FLAG_DEBUG_FIRST && WORLD_FLAG_DEBUG_SMOKE < WORLD_FLAG_MAX,
                  "WORLD_FLAG_DEBUG_SMOKE must sit in the debug band");
