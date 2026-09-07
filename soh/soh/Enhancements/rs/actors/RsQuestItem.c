@@ -11,6 +11,7 @@
 #include "RsQuestItem.h"
 #include "RsActorParams.h"
 #include "RsActors.h"
+#include "RsItemArt.h"
 #include "global.h"
 #include "objects/gameplay_keep/gameplay_keep.h"
 #include "soh/Enhancements/rs/quest/Quest.h"
@@ -84,6 +85,18 @@ void RsQuestItem_Init(Actor* thisx, PlayState* play) {
     Collider_SetCylinder(play, &this->collider, &this->actor, &sCylinderInit);
     ActorShape_Init(&thisx->shape, 0.0f, ActorShadow_DrawCircle, 9.0f);
     Actor_SetScale(thisx, 0.02f);
+
+    // A SPRITE HAS TO BE LIFTED OFF THE FLOOR; THE FALLBACK MODEL DOES NOT. Actor_Draw translates
+    // by `world.pos.y + shape.yOffset * scale.y`, and gItemDropDL's quad is centred on that origin
+    // - so at yOffset 0 an item that has settled on the ground is drawn half buried in it, which is
+    // exactly how it first appeared. gHeartPieceInteriorDL has its geometry modelled above its own
+    // origin instead, which is why it has never needed this and why the offset is applied ONLY when
+    // there is art: raising it unconditionally would move all five existing placements.
+    // 450 * 0.02f = 9 units, half the sprite's 15 plus a little clearance. Vanilla's own drops do
+    // the same thing with a larger, animated offset (EnItem00_Update, soh/src/code/z_en_item00.c).
+    if (RsItemArt_Texture(this->questId, this->step) != NULL) {
+        thisx->shape.yOffset = 450.0f;
+    }
 
     thisx->uncullZoneDownward = 1200.0f;
     thisx->uncullZoneScale = 200.0f;
@@ -171,18 +184,64 @@ void RsQuestItem_Update(Actor* thisx, PlayState* play) {
 
 void RsQuestItem_Draw(Actor* thisx, PlayState* play) {
     RsQuestItem* this = (RsQuestItem*)thisx;
+    const char* tex;
 
     if (this->actionFunc != RsQuestItem_Wait) {
         return; // collected: nothing to draw while the pickup textbox finishes
     }
 
+    // NULL for any (quest, step) with no art of its own - every debug fixture, and any quest added
+    // before its sprites are - which is what keeps this change invisible to everything but the
+    // three items it is for.
+    tex = this->valid ? RsItemArt_Texture(this->questId, this->step) : NULL;
+
     OPEN_DISPS(play->state.gfxCtx);
 
-    Gfx_SetupDL_25Opa(play->state.gfxCtx);
-    gSPMatrix(POLY_OPA_DISP++, Matrix_NewMtx(play->state.gfxCtx, (char*)__FILE__, __LINE__),
-              G_MTX_MODELVIEW | G_MTX_LOAD);
-    // gameplay_keep again, so no scene needs an object list entry (see the note in RsNpc_Draw).
-    gSPDisplayList(POLY_OPA_DISP++, (Gfx*)gHeartPieceInteriorDL);
+    if (tex != NULL) {
+        // VANILLA'S OWN DROP SPRITE, with our texture in it. This is the non-bombchu branch of
+        // EnItem00_DrawCollectible (soh/src/code/z_en_item00.c) copied exactly: gItemDropDL is the
+        // flat billboarded quad every recovery heart, deku nut and magic jar in the game is drawn
+        // on, and it reads its texture from SEGMENT 0x08. So the whole of "draw a collectible" is
+        // two commands, and the size, the billboarding, the render mode and the alpha cutout are
+        // all vanilla's rather than ours to get wrong.
+        //
+        // Written this way after the hand-rolled quad it replaced drew NOTHING AT ALL: that path
+        // was copied from the *bombchu* branch beside this one, which is reachable only through an
+        // enhancement and is evidently not exercised. See the P6 record - the lesson is to copy the
+        // path the game runs thousands of times per playthrough, not the one that merely looks
+        // closest.
+        //
+        // gItemDropDL expects a 32x32 RGBA16 texture, which is what every entry of vanilla's
+        // sItemDropTex is and what RS_ITEM_ART_SIZE / the .rgb5a1.png suffix exist to guarantee.
+        // Passing an archive path through a segment is exactly what vanilla does here too - post
+        // Torch, sItemDropTex holds "__OTR__..." strings - so this still needs no object-bank
+        // entry, the property RsNpc_Draw's note is about.
+        // gItemDropDL PUTS TEXTURE ROW 0 AT THE BOTTOM, so a normally-oriented image renders upside
+        // down on it. That is not a bug in the display list: vanilla's own drop textures are stored
+        // flipped to suit it, which is why the one branch beside this one that loads a normally
+        // -oriented image (the bombchu inventory icon) follows it with exactly this line. Doing it
+        // here rather than flipping the PNGs keeps the artwork the right way up on disk, which is
+        // the whole point of the asset being a PNG someone can open.
+        Matrix_Scale(1.0f, -1.0f, 1.0f, MTXMODE_APPLY);
+
+        POLY_OPA_DISP = Play_SetFog(play, POLY_OPA_DISP);
+        POLY_OPA_DISP = Gfx_SetupDL_66(POLY_OPA_DISP);
+
+        // Matrix_NewMtx by hand rather than MATRIX_NEWMTX: the macro passes __FILE__, a
+        // `const char[]`, into a `char*` parameter. soh/src builds at /w and gets away with it;
+        // everything under soh/soh is /W3 /WX, so the cast is not optional here. RsNpc_Draw and
+        // the fallback below do the same, and gSPSegment's cast below is the same story.
+        gSPMatrix(POLY_OPA_DISP++, Matrix_NewMtx(play->state.gfxCtx, (char*)__FILE__, __LINE__),
+                  G_MTX_MODELVIEW | G_MTX_LOAD);
+        gSPSegment(POLY_OPA_DISP++, 0x08, (uintptr_t)tex);
+        gSPDisplayList(POLY_OPA_DISP++, (Gfx*)gItemDropDL);
+    } else {
+        Gfx_SetupDL_25Opa(play->state.gfxCtx);
+        gSPMatrix(POLY_OPA_DISP++, Matrix_NewMtx(play->state.gfxCtx, (char*)__FILE__, __LINE__),
+                  G_MTX_MODELVIEW | G_MTX_LOAD);
+        // gameplay_keep again, so no scene needs an object list entry (see the note in RsNpc_Draw).
+        gSPDisplayList(POLY_OPA_DISP++, (Gfx*)gHeartPieceInteriorDL);
+    }
 
     CLOSE_DISPS(play->state.gfxCtx);
 }

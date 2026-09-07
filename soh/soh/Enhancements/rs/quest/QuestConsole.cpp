@@ -11,6 +11,7 @@
 #include "QuestOverlay.h"
 #include "QuestPredicate.h"
 #include "WorldFlagIds.h"
+#include "soh/Enhancements/rs/actors/RsItemArt.h"
 #include "soh/ShipInit.hpp"
 
 // The malformed-definition table, defined in quests/DebugJournalQuest.cpp next to the good
@@ -247,9 +248,38 @@ int32_t Overlay(const std::vector<std::string>& args, std::vector<std::string>& 
     return 0;
 }
 
+// Which sprite each quest item wears, and - the reason this is a command at all - whether the game
+// can actually FIND it (sturdy-bassoon#58 P6 / D19). A texture that fails to resolve does not fall
+// back to the old art and does not log from the draw path: the renderer skips a second graphics
+// command along with the failed one and the quad draws garbage. The check itself runs once at boot
+// (RsItemArt.cpp); this reports it, on both sinks, and RETURNS 1 IF ANYTHING IS MISSING, so a
+// regenerated soh.o2r that was never copied next to soh.exe fails a command instead of quietly
+// looking wrong.
+//
+// `checked=` is reported separately from `missing=` because "the check ran and found everything"
+// and "the check never ran" both produce missing=0, and only one of them is evidence.
+int32_t ItemArt(std::vector<std::string>& lines) {
+    const int32_t count = RsItemArt_Count();
+    const int32_t missing = RsItemArt_MissingCount();
+    const int32_t checked = RsItemArt_Checked();
+
+    lines.push_back("op=itemart entries=" + std::to_string(count) + " missing=" + std::to_string(missing) +
+                    " checked=" + std::to_string(checked));
+    for (int32_t i = 0; i < count; i++) {
+        RsItemArtInfo info = {};
+        if (RsItemArt_Get(i, &info) == 0) {
+            continue;
+        }
+        lines.push_back("itemart quest=" + std::to_string(info.questId) + " step=" + std::to_string(info.step) +
+                        " name=" + info.name + " resolved=" + std::to_string(info.resolved) + " tex=" + info.tex);
+    }
+    return (checked != 0 && missing == 0) ? 0 : 1;
+}
+
 const char* kUsage = "usage: quest list | dump <id> | start <id> | setstep <id> <step> | clearstep <id> <step> | "
                      "check <id> <step> | complete <id> | force <id> | reset <id> | debugwipe | "
-                     "journal <id|all> [runs] | parse <text...> | badcheck | overlay [on|off|all|<id>]";
+                     "journal <id|all> [runs] | parse <text...> | badcheck | overlay [on|off|all|<id>] | "
+                     "itemart";
 
 } // namespace
 
@@ -289,6 +319,9 @@ int32_t QuestConsole_Run(const std::vector<std::string>& args, std::vector<std::
     }
     if (sub == "overlay") {
         return Overlay(args, lines);
+    }
+    if (sub == "itemart") {
+        return ItemArt(lines);
     }
     if (sub == "journal") {
         const bool showRuns = args.size() >= 3 && args[2] == "runs";
@@ -411,13 +444,14 @@ void RegisterQuestConsole() {
                           "Quest system (sturdy-bassoon#58): list | dump <id> | start <id> | setstep <id> <step> | "
                           "clearstep <id> <step> | check <id> <step> | complete <id> | force <id> | reset <id> | "
                           "debugwipe | journal <id|all> [runs] | parse <text...> | badcheck | "
-                          "overlay [on|off|all|<id>]. debugwipe clears only "
+                          "overlay [on|off|all|<id>] | itemart. debugwipe clears only "
                           "the debug bands of quests and world flags; journal renders the resolved entry with "
                           "spans as [item:Egg]; parse is the markup probe; badcheck proves registration refuses "
                           "malformed definitions; overlay switches the on-screen journal overlay and reports what "
-                          "it drew last frame.",
+                          "it drew last frame; itemart lists which sprite each quest item wears and "
+                          "fails if one cannot be found in the asset archive.",
                           { { "list|dump|start|setstep|clearstep|check|complete|force|reset|debugwipe|journal|parse|"
-                              "badcheck|overlay",
+                              "badcheck|overlay|itemart",
                               Ship::ArgumentType::TEXT },
                             { "quest id / text", Ship::ArgumentType::TEXT, true },
                             { "step / runs", Ship::ArgumentType::TEXT, true } } });
