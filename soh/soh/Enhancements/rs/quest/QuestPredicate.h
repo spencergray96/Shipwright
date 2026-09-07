@@ -6,7 +6,8 @@
 #include "QuestIds.h"
 #include "QuestStore.h"
 
-// The predicate vocabulary (sturdy-bassoon#58 decisions D10/D11). Exactly five words:
+// The predicate vocabulary (sturdy-bassoon#58 decisions D10/D11). Seven words - five at P0, one
+// added in P2 and one in P3, each on the bar described below:
 //
 //     Always            true
 //     QuestStatusIs     QuestStore_GetStatus(a) == b

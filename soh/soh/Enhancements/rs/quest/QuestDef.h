@@ -33,7 +33,7 @@ typedef struct QuestReward {
     int32_t a;
 } QuestReward;
 
-// D8 escape hatch: a per-quest predicate for prerequisites the five-word vocabulary cannot say
+// D8 escape hatch: a per-quest predicate for prerequisites the predicate vocabulary cannot say
 // ("three bottles and it is night"). Nonzero = met. NON-INTROSPECTABLE by construction - a dump
 // can only report that it exists and what it currently returns - so prefer `requirements` for
 // anything the vocabulary can express, and grow the vocabulary before reaching for this twice.
@@ -62,8 +62,8 @@ typedef struct QuestDef {
     // cleanly; the moment it doubles as player-facing text, renaming a step for clarity in the log
     // silently rewrites a textbox - and a step called `kill_the_boss` renders at the player as
     // "kill the boss" (AutoFormatString turns '_' into a space, which is its own surprise).
-    // Fallback order where a label is read: stepLabels[i], then stepNames[i], then "step N" - a
-    // missing label shows up as a token, never as silence.
+    // Fallback order where a label is read (Quest_StepLabel): stepLabels[i], then stepNames[i], then
+    // the literal "something" - a missing label shows up as a token, never as silence.
     //
     // Validated with the strictest hygiene of both surfaces (no '#', '%', '"', '^', '&', control
     // characters), because one of the two consumers is a CustomMessage textbox and the other may

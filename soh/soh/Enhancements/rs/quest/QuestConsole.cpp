@@ -8,6 +8,7 @@
 #include "Quest.h"
 #include "QuestDef.h"
 #include "QuestJournal.h"
+#include "QuestOverlay.h"
 #include "QuestPredicate.h"
 #include "WorldFlagIds.h"
 #include "soh/ShipInit.hpp"
@@ -209,9 +210,46 @@ int32_t BadCheck(std::vector<std::string>& lines) {
     return clean == 0 ? 0 : 1;
 }
 
+// `quest overlay [on|off|all|<id>]`: the switch for the on-screen journal overlay (QuestOverlay.h,
+// D18 - "switches which quest the on-screen overlay tracks"). Living here rather than on its own
+// command is what puts it on both sinks at once: a human types `quest overlay 0`, the loop sends
+// `agenttest quest overlay 0`, and both get the same report line. With no argument it only reports.
+// `<id>` goes through ParseQuestId, so an invalid or unregistered quest is refused (rc=1) before the
+// overlay is pointed at it. The `drawn_*` fields are what the LAST ImGui frame rendered - the only
+// console-readable evidence that the overlay drew anything, since a marker cannot see a pixel.
+int32_t Overlay(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() >= 2) {
+        const std::string& what = args[1];
+        int32_t questId = 0;
+        if (what == "on") {
+            QuestOverlay_SetEnabled(true);
+        } else if (what == "off") {
+            QuestOverlay_SetEnabled(false);
+        } else if (what == "all") {
+            QuestOverlay_SetTrack(QUEST_OVERLAY_TRACK_ALL);
+            QuestOverlay_SetEnabled(true);
+        } else if (!ParseInt(what, &questId)) {
+            lines.push_back("error=overlay takes on|off|all|<id>");
+            return 1;
+        } else {
+            if (!ParseQuestId(args, 1, &questId, lines)) {
+                return 1;
+            }
+            QuestOverlay_SetTrack(questId);
+            QuestOverlay_SetEnabled(true);
+        }
+    }
+    const QuestOverlayState state = QuestOverlay_Get();
+    lines.push_back("op=overlay enabled=" + std::to_string(state.enabled ? 1 : 0) +
+                    " track=" + (state.track < 0 ? std::string("all") : std::to_string(state.track)) +
+                    " drawn_entries=" + std::to_string(state.drawnEntries) +
+                    " drawn_lines=" + std::to_string(state.drawnLines));
+    return 0;
+}
+
 const char* kUsage = "usage: quest list | dump <id> | start <id> | setstep <id> <step> | clearstep <id> <step> | "
                      "check <id> <step> | complete <id> | force <id> | reset <id> | debugwipe | "
-                     "journal <id|all> [runs] | parse <text...> | badcheck";
+                     "journal <id|all> [runs] | parse <text...> | badcheck | overlay [on|off|all|<id>]";
 
 } // namespace
 
@@ -248,6 +286,9 @@ int32_t QuestConsole_Run(const std::vector<std::string>& args, std::vector<std::
     }
     if (sub == "badcheck") {
         return BadCheck(lines);
+    }
+    if (sub == "overlay") {
+        return Overlay(args, lines);
     }
     if (sub == "journal") {
         const bool showRuns = args.size() >= 3 && args[2] == "runs";
@@ -369,12 +410,14 @@ void RegisterQuestConsole() {
                         { QuestCommandHandler,
                           "Quest system (sturdy-bassoon#58): list | dump <id> | start <id> | setstep <id> <step> | "
                           "clearstep <id> <step> | check <id> <step> | complete <id> | force <id> | reset <id> | "
-                          "debugwipe | journal <id|all> [runs] | parse <text...> | badcheck. debugwipe clears only "
+                          "debugwipe | journal <id|all> [runs] | parse <text...> | badcheck | "
+                          "overlay [on|off|all|<id>]. debugwipe clears only "
                           "the debug bands of quests and world flags; journal renders the resolved entry with "
                           "spans as [item:Egg]; parse is the markup probe; badcheck proves registration refuses "
-                          "malformed definitions.",
+                          "malformed definitions; overlay switches the on-screen journal overlay and reports what "
+                          "it drew last frame.",
                           { { "list|dump|start|setstep|clearstep|check|complete|force|reset|debugwipe|journal|parse|"
-                              "badcheck",
+                              "badcheck|overlay",
                               Ship::ArgumentType::TEXT },
                             { "quest id / text", Ship::ArgumentType::TEXT, true },
                             { "step / runs", Ship::ArgumentType::TEXT, true } } });

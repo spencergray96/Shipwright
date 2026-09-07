@@ -12,7 +12,7 @@
 //
 // C++ ONLY, no extern "C" shim - a deliberate departure from D5's habit. D5's shim exists so
 // idiomatic-C actors can call the quest API; no actor renders a journal, and every consumer of
-// this file (QuestConsole, Quest.cpp's registration gate, the eventual ImGui overlay) is C++.
+// this file (QuestConsole, Quest.cpp's registration gate, the ImGui overlay in QuestOverlay.cpp) is C++.
 // The DEFINITION side stays plain C in QuestJournalDef.h, which is the half actors include.
 //
 // THE RETURN TYPE IS RUNS, NEVER STRINGS (D23). This is settled here, before anything consumes
@@ -75,7 +75,7 @@ QuestMarkupResult QuestMarkup_Validate(const char* text);
 QuestMarkupResult QuestMarkup_Parse(const char* text, std::vector<QuestRun>* out);
 
 const char* QuestMarkup_ErrorName(QuestMarkupError error); // "unclosed", "unknown_tag", ...
-const char* QuestJournal_StyleName(QuestRunStyle style);   // "plain", "item", "npc", ...
+const char* QuestJournal_StyleName(QuestRunStyle style);   // "plain", "item", "hint" - one per STYLE
 QuestRunEmphasis QuestJournal_StyleEmphasis(QuestRunStyle style);
 const char* QuestJournal_EmphasisName(QuestRunEmphasis emphasis); // "none", "key", "guide"
 

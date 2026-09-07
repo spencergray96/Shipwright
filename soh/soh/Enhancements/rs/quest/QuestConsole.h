@@ -26,6 +26,13 @@
 //   force <id>                 Quest_ForceComplete
 //   reset <id>                 Quest_Reset
 //   debugwipe                  Quest_DebugWipe
+//   journal <id|all> [runs]    the resolved journal entry (P2): header, then one line per rendered
+//                              line, spans as [item:Egg], struck rows in ~tildes~; `runs` adds one
+//                              run[i.r]=<style> emphasis=<name> line per run
+//   parse <text...>            the markup probe (P2): runs, or the error kind and byte offset
+//   badcheck                   Quest_DefProblem over the malformed table (P2): proves the gate
+//   overlay [on|off|all|<id>]  the on-screen journal overlay switch (P5, QuestOverlay.h); reports
+//                              enabled=, track= and what the last frame drew
 // Mutating subcommands emit `op=<sub> id=<n> [step=<n>] result=<Quest_ResultName>` then the
 // Describe line. Returns 0 when the operation succeeded (or for read-only subcommands), 1 otherwise
 // - so `rc=` on the agent-loop cmd marker is the pass/fail bit.

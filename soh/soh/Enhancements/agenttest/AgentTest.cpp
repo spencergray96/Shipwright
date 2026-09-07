@@ -101,7 +101,11 @@
  *                                        per run. `parse <text...>` is the markup probe
  *                                        (`op=parse result=ok|error error=<kind> pos=<n>`), and
  *                                        `badcheck` runs the registration gate over the malformed
- *                                        definition table (`bad[i]=<label> refused=1 problem="..."`)
+ *                                        definition table (`bad[i]=<label> refused=1 problem="..."`).
+ *                                        P5 adds `overlay [on|off|all|<id>]`, the on-screen journal
+ *                                        overlay switch: `op=overlay enabled=<0|1> track=<all|n>
+ *                                        drawn_entries=<n> drawn_lines=<n>`, drawn_* being what the
+ *                                        LAST ImGui frame rendered
  *   rs_dialogue npc=<n> event=<open|close|choice> rule=<n> [index=<n> action=<name> a=<n> result=<name>]
  *                                        written by the quest-giver actor itself (sturdy-bassoon#58 P3), so
  *                                        an in-game conversation is assertable rather than screenshot-only:
@@ -1485,9 +1489,10 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         return 0;
     }
     // Evaluates one predicate from the vocabulary against the live stores (sturdy-bassoon#58 P0),
-    // so the five words can be proven in-game before any quest, NPC or journal uses them.
+    // so the vocabulary can be proven in-game before any quest, NPC or journal uses them.
     //   questpred <kind> <a> <b> <negate>   kind: 0 Always, 1 QuestStatusIs, 2 QuestStepSet,
-    //                                             3 WorldFlagSet, 4 AllStepsSet (P2)
+    //                                             3 WorldFlagSet, 4 AllStepsSet (P2),
+    //                                             5 QuestPrereqsMet (P3)
     // AllStepsSet is the one kind whose `a` can be in range and still name a quest this build does
     // not define; it answers 0 quietly in that case, so the probe cannot assert on any input.
     if (args.size() >= 6 && args[1] == "questpred") {
@@ -1650,7 +1655,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             "roomdist [hysteresis]|off | uncull | sceneflag <sceneId> [value] | worldflag count|<n> [0|1] | "
             "queststore count|<id> [status mask] | questpred <kind> <a> <b> <negate> | "
               "quest list|dump <id>|start <id>|setstep <id> <n>|clearstep <id> <n>|check <id> <n>|complete <id>|"
-              "journal <id|all> [runs]|parse <text...>|badcheck|"
+              "journal <id|all> [runs]|parse <text...>|badcheck|overlay [on|off|all|<id>]|"
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
             "save <fileNum> | loadsave <fileNum> | mark <text>";
@@ -1679,6 +1684,7 @@ void RegisterAgentTest() {
               "roomdist [hysteresis]|off | uncull | sceneflag <sceneId> [value] | worldflag count|<n> [0|1] | "
               "queststore count|<id> [status mask] | questpred <kind> <a> <b> <negate> | "
               "quest list|dump <id>|start <id>|setstep <id> <n>|clearstep <id> <n>|check <id> <n>|complete <id>|"
+              "journal <id|all> [runs]|parse <text...>|badcheck|overlay [on|off|all|<id>]|"
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "save <fileNum> | loadsave <fileNum> | mark <text>. walk/press inject controller 1 for N frames and end "

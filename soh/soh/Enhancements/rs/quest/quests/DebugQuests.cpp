@@ -1,6 +1,7 @@
 // The two permanent debug-band fixture quests (sturdy-bassoon#58 P1). They exist so every rule in
-// Quest.h can be driven and proven from the console with no NPC, item or scene involved, and they
-// double as the copy-paste shape for a real definition. Both live in the debug band, so
+// Quest.h can be driven and proven from the console with no NPC, item or scene involved. They were
+// the copy-paste shape until P4; the pair to copy for a real quest is now
+// quests/CooksAssistantQuest.cpp + dialogue/npcs/CookNpc.cpp. Both live in the debug band, so
 // `quest debugwipe` clears everything they touch.
 //
 //   QUEST_DEBUG_SMOKE   (48)  any-order, three steps, no prerequisites, two rewards (a debug-band
