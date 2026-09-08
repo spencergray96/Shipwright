@@ -54,11 +54,13 @@ typedef struct RsDialogueRule {
     const char* text; // the body; never NULL
 
     // D11's forward constraint (sturdy-bassoon#59) made concrete: THE MODEL IS N. `optionCount` is
-    // an int and the option list is a list; nothing here is shaped like yes/no. What caps it today
-    // is the RENDERER - OoT's message system offers a two-way (CTRL_TWO_CHOICE) and a three-way
-    // (CTRL_THREE_CHOICE) textbox and nothing else - so registration refuses more than
-    // RS_DIALOGUE_MAX_OPTIONS and says so. Raising it is a change to one function in RsActors.cpp,
-    // not a change to this struct or to any definition written against it.
+    // an int and the option list is a list; nothing here is shaped like yes/no. What caps it is the
+    // RENDERER, and that claim has now been paid out once: raising the cap from 3 to 4 changed the
+    // engine and this line, and touched no definition written against this struct.
+    //
+    // Vanilla offers a two-way (CTRL_TWO_CHOICE) and a three-way (CTRL_THREE_CHOICE). The four-way
+    // is ours: CTRL_FOUR_CHOICE plus TEXTBOX_ENDTYPE_4_CHOICE plus a fifth row of box, so a menu can
+    // ask a question AND offer four answers. Past four the box runs out of screen, not out of model.
     const RsDialogueOption* options;
     int32_t optionCount; // 0 = a plain statement
 
@@ -89,9 +91,9 @@ typedef struct RsDialogueRule {
     // "I still need everything" to a player who has not been offered the quest - so the check is a
     // real invariant that happens to catch the typo.
     //
-    // Also refused on a THREE-option rule: those are hand-laid-out through Format(), which does not
-    // paginate, so an appended list would run off the bottom of the box - visible only in a
-    // screenshot, which is exactly the bug class P3 shipped and caught by eye.
+    // Also refused on any rule WITH OPTIONS: a three- or four-way is hand-laid-out through Format(),
+    // which does not paginate, so an appended list would run off the bottom of the box - visible
+    // only in a screenshot, which is exactly the bug class P3 shipped and caught by eye.
     int32_t missingOf; // -1 = no clause; otherwise a QuestId
 } RsDialogueRule;
 
@@ -105,7 +107,7 @@ typedef struct RsNpcDef {
 } RsNpcDef;
 
 #define RS_DIALOGUE_MAX_RULES 32
-#define RS_DIALOGUE_MAX_OPTIONS 3
+#define RS_DIALOGUE_MAX_OPTIONS 4
 
 // The `missingOf` sentinel. Spelled out rather than written as a bare -1 in twenty rule rows.
 #define RS_DLG_NO_MISSING (-1)
@@ -139,6 +141,9 @@ RS_STATIC_ASSERT(RS_DIALOGUE_MAX_RULES == (1 << RS_TEXT_RULE_SHIFT),
                  "the rule field width and RS_DIALOGUE_MAX_RULES are the same number");
 RS_STATIC_ASSERT(RS_TEXT_NPC_END < RS_TEXT_DIRECT,
                  "raising NPC_MAX must not push an NPC text id onto RS_TEXT_DIRECT");
-RS_STATIC_ASSERT(RS_DIALOGUE_MAX_OPTIONS <= 3, "OoT's message system renders at most a three-way choice");
+// Four is the box, not the model. A choice puts one option per row and the body needs a row of its
+// own, so five options need six rows; six rows is 96px, and the LOWER box position starts at y=142
+// on a 240px screen. Raising this again means moving the box, not adding another control code.
+RS_STATIC_ASSERT(RS_DIALOGUE_MAX_OPTIONS <= 4, "the four-way is the widest choice the textbox renders");
 
 #endif // SOH_RS_NPC_DIALOGUE_DEF_H

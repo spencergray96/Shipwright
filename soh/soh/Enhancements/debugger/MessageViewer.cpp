@@ -194,6 +194,15 @@ void MessageDebug_StartTextBox(const char* tableId, uint16_t textId, uint8_t lan
     R_TEXT_CHAR_SCALE = 75;
     R_TEXT_LINE_SPACING = 12;
     R_TEXT_INIT_XPOS = 65;
+    // SOH [sturdy-bassoon#59] This function is the one place in the tree that reaches
+    // MSGMODE_TEXT_START without going through Message_OpenText, so the OnOpenText hook that
+    // normally restores the box geometry never fires for a viewer box. Without these four lines a
+    // viewer box opened after a four-option rs textbox inherits its taller frame. Same reason the
+    // three text registers above are re-stated here.
+    R_TEXTBOX_HEIGHT_TARGET = 64;
+    R_TEXTBOX_TEXHEIGHT_TARGET = 512;
+    R_TEXTBOX_HEIGHT = 64;
+    R_TEXTBOX_TEXHEIGHT = 512;
     if (language == LANGUAGE_JPN) {
         R_TEXT_CHAR_SCALE = 88;
         R_TEXT_LINE_SPACING = 18;

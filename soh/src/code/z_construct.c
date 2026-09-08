@@ -383,7 +383,11 @@ void Regs_InitDataImpl(void) {
     R_TEXT_CHOICE_YPOS(0) = 54;
     R_TEXT_CHOICE_YPOS(1) = 70;
     R_TEXT_CHOICE_YPOS(2) = 86;
-    XREG(70) = -300;
+    // SOH [sturdy-bassoon#59] was XREG(70) = -300, a value nothing in the tree ever read. That
+    // register IS R_TEXT_CHOICE_YPOS(3), so it becomes the fourth choice row's default. Every
+    // textbox re-derives all four from the box top in MSGMODE_TEXT_START, so this is only ever
+    // the value between Play_Init and the first choice box.
+    R_TEXT_CHOICE_YPOS(3) = 102;
     XREG(71) = 0;
     R_TEXTBOX_X_TARGET = 54;
     R_TEXTBOX_Y_TARGET = 48;

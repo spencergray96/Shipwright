@@ -63,6 +63,13 @@ class CustomMessage {
     static std::string PLAYER_NAME();
     static std::string TWO_WAY_CHOICE();
     static std::string THREE_WAY_CHOICE();
+    // #region SOH [sturdy-bassoon#59]
+    static std::string FOUR_WAY_CHOICE();
+    // True when `text` fits on one rendered row of `maxPixels`. A full-width row is 216px; a choice
+    // option row is indented 32px and so is 184. Lets a validator ask the renderer's own pixel
+    // table instead of guessing with a character count.
+    static bool LineFitsInPixels(const std::string& text, size_t maxPixels);
+    // #endregion
 
     const std::string GetEnglish(MessageFormat format = MF_FORMATTED) const;
     const std::string GetFrench(MessageFormat format = MF_FORMATTED) const;

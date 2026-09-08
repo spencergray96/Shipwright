@@ -20,6 +20,15 @@ extern "C" {
 // formatting run rather than a character count guessing at a 216-pixel budget.
 int32_t RsText_ChoiceWouldPaginate(const struct RsDialogueRule* rule);
 
+// 1 when the BODY of a hand-laid-out choice (three or four options) needs a second row, which the
+// hand layout has no room for - the option rows are already spoken for. Replaced a 24-character cap
+// that stood in for a 216-pixel budget; same reason as above, same technique.
+int32_t RsText_BodyWouldWrap(const struct RsDialogueRule* rule);
+
+// 1 when an option label is wider than its row. An option row is indented 32px, so the budget is
+// 184, not the 216 a full-width row gets - a difference no character count can express.
+int32_t RsText_LabelWouldOverflow(const char* label);
+
 // Hands one string to the NEXT textbox opened with RS_TEXT_DIRECT (an option's reply, an item
 // pickup). A one-slot pointer, and safe as one because it is a PARAMETER, not shared state: it is
 // set on the line above the Message_StartTextbox / Message_ContinueTextbox call, with nothing

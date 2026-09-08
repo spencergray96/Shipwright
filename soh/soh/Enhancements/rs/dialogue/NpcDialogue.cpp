@@ -152,6 +152,14 @@ bool CheckOption(char* buf, size_t len, const RsNpcDef* def, int32_t rule, int32
         // away from the lines they select, which renders plausibly and picks the wrong option.
         return Problem(buf, len, "rule[%d].opt[%d]: a label must be a single line", rule, index);
     }
+    // ...and one line that FITS. Labels were never measured at any option count - the gap surfaced
+    // in #59's review. An option row is indented 32px, so its budget is 184 pixels, and a label
+    // over it runs off the right edge of the box: still selectable, simply unreadable. That is the
+    // same failure P3 shipped vertically, and it is why this asks the renderer's pixel table
+    // rather than counting characters.
+    if (RsText_LabelWouldOverflow(option.label)) {
+        return Problem(buf, len, "rule[%d].opt[%d]: the label is too wide for an option row (184 pixels)", rule, index);
+    }
     if (option.reply != nullptr && !ProseIsClean(option.reply)) {
         return Problem(buf, len, "rule[%d].opt[%d]: reply carries percent, hash, quote, caret or a newline", rule,
                        index);
@@ -255,16 +263,25 @@ bool ValidateRule(char* buf, size_t len, const RsNpcDef* def, int32_t r) {
                            r, rule.optionCount);
         }
     }
-    if (rule.optionCount == RS_DIALOGUE_MAX_OPTIONS) {
+    if (rule.optionCount >= 3) {
         // CustomMessage::AutoFormatString is CTRL_TWO_CHOICE-aware and lays the choice out itself,
-        // but it does NOT know CTRL_THREE_CHOICE - so a three-way rule is hand-laid-out through
-        // Format() and its body has to fit one line on its own. The cap is a deliberately
-        // conservative stand-in for the real budget, which is 216 PIXELS in a variable-width font
-        // (NextLineLength, custom-message/CustomMessageManager.cpp). Too strict can only refuse a
-        // definition; too lax would run text off the box, which renders plausibly and silently.
-        if (CountLines(rule.text) != 1 || Length(rule.text) > 24) {
-            return Problem(buf, len, "rule[%d]: a %d-option body must be one line of at most 24 characters", r,
-                           RS_DIALOGUE_MAX_OPTIONS);
+        // but it knows neither CTRL_THREE_CHOICE nor CTRL_FOUR_CHOICE - so those rules are
+        // hand-laid-out through Format() and the body has to fit one row on its own, because the
+        // remaining rows are already spent on options.
+        //
+        // This USED to be `Length(rule.text) > 24`, whose own comment called itself a stand-in for
+        // the real budget of 216 PIXELS in a variable-width font. A character count is wrong in
+        // both directions, and the expensive direction bit first: it refused "What can I help you
+        // with, Link?" - 30 characters and comfortably inside 216px - which is the sentence #59 was
+        // filed to make possible. It now asks the renderer, like the two-option check below.
+        if (CountLines(rule.text) != 1) {
+            return Problem(buf, len, "rule[%d]: a %d-option body must be a single line", r, rule.optionCount);
+        }
+        if (RsText_BodyWouldWrap(&rule)) {
+            return Problem(buf, len,
+                           "rule[%d]: the body is too wide to sit on one row above a %d-option choice - it would "
+                           "wrap onto a row an option is already using",
+                           r, rule.optionCount);
         }
     }
     for (int32_t i = 0; i < rule.optionCount; i++) {

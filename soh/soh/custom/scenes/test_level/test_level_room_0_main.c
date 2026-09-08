@@ -41,6 +41,11 @@ ActorEntry test_level_room_0_header00_actorList[] = {
     { ACTOR_RS_NPC, { -400, 20, 200 }, { 0, 0x4000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_THREE) },
     { ACTOR_RS_NPC, { 400, 20, 200 },  { 0, -0x4000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_TWIN) },
 
+    // A question plus FOUR options, in the taller box (sturdy-bassoon#59). Placed 400 units from
+    // 193 and 800 from the twin: outside the 110-unit talk range of either, so the four-way box and
+    // the three-way box can be screenshotted side by side without ever being in range at once.
+    { ACTOR_RS_NPC, { -400, 20, 600 }, { 0, 0x4000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_FOUR) },
+
     // Step 0 of the giver's quest. Its sibling (step 1) is in terrain_f2p_step2, so finishing the
     // quest requires both scenes — which is what makes "advancing in one scene is reflected in the
     // other" a thing the run has to do rather than a thing it can fake.

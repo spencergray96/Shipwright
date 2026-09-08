@@ -994,6 +994,10 @@ std::string Message_TTS_Decode(uint8_t* sourceBuf, uint16_t startOfset, uint16_t
                     break;
                 case MESSAGE_THREE_CHOICE:
                 case MESSAGE_TWO_CHOICE:
+                // SOH [sturdy-bassoon#59] Without this the four-way marker falls to `default` and
+                // isListingChoices stays 0, so every option newline is spoken as a space and the
+                // whole menu is read out as one run-on sentence.
+                case MESSAGE_FOUR_CHOICE:
                     output += '\n';
                     isListingChoices = 1;
                     break;
@@ -1059,7 +1063,9 @@ void RegisterOnDialogMessageHook() {
                 uint16_t startOffset = 0;
                 while (startOffset < msgCtx->decodedTextLen) {
                     if (msgCtx->msgBufDecoded[startOffset] == MESSAGE_TWO_CHOICE ||
-                        msgCtx->msgBufDecoded[startOffset] == MESSAGE_THREE_CHOICE) {
+                        msgCtx->msgBufDecoded[startOffset] == MESSAGE_THREE_CHOICE ||
+                        // SOH [sturdy-bassoon#59]
+                        msgCtx->msgBufDecoded[startOffset] == MESSAGE_FOUR_CHOICE) {
                         startOffset++;
                         break;
                     }

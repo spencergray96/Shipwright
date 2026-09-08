@@ -51,6 +51,10 @@ typedef enum NpcId {
                            // shape is not binary (D11, sturdy-bassoon#59).
     NPC_DEBUG_TWIN = 194,  // a DIFFERENT character on the same actor type and the same model as
                            // 192 - the other axis of D21, proven by it being unaffected by 192.
+    NPC_DEBUG_FOUR = 195,  // one rule carrying a QUESTION plus FOUR options, in the five-row box
+                           // (sturdy-bassoon#59). 193 proves the shape is not binary; this one
+                           // proves it is not capped at what vanilla's control codes offer, and
+                           // is the shape a quest menu actually wants: a prompt and a Nevermind.
 } NpcId;
 
 #define NPC_ID_IS_VALID(id) ((id) >= 0 && (id) < NPC_MAX)
@@ -67,5 +71,7 @@ RS_STATIC_ASSERT(NPC_DEBUG_THREE >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_THREE < NPC_
                  "NPC_DEBUG_THREE must sit in the debug band");
 RS_STATIC_ASSERT(NPC_DEBUG_TWIN >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_TWIN < NPC_MAX,
                  "NPC_DEBUG_TWIN must sit in the debug band");
+RS_STATIC_ASSERT(NPC_DEBUG_FOUR >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_FOUR < NPC_MAX,
+                 "NPC_DEBUG_FOUR must sit in the debug band");
 
 #endif // SOH_RS_NPC_IDS_H

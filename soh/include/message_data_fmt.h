@@ -23,6 +23,13 @@
 
 #define CTRL_NEWLINE                 01
 #define CTRL_END                     02
+// #region SOH [sturdy-bassoon#59] a FOUR-way choice, which vanilla has no control code for.
+// 03 is not an arbitrary pick: it is the ONLY unused value left in the whole 00-1F control range
+// (00 is unusable, and 1D is CTRL_FISH_INFO), because everything >= 0x20 is a printable glyph.
+// Spending it is a one-way door - see the issue. It sits in numeric order rather than beside
+// TWO/THREE_CHOICE so this table stays sorted and merges cleanly against upstream.
+#define CTRL_FOUR_CHOICE             03
+// #endregion
 #define CTRL_BOX_BREAK               04
 #define CTRL_COLOR                   05
 #define CTRL_SHIFT                   06
@@ -103,6 +110,7 @@
 #define UNSKIPPABLE             STR(CTRL_UNSKIPPABLE)
 #define TWO_CHOICE              STR(CTRL_TWO_CHOICE)
 #define THREE_CHOICE            STR(CTRL_THREE_CHOICE)
+#define FOUR_CHOICE             STR(CTRL_FOUR_CHOICE) // SOH [sturdy-bassoon#59]
 #define FISH_INFO               STR(CTRL_FISH_INFO)
 #define HIGHSCORE(x)            STR(CTRL_HIGHSCORE)            ARG(x) // 1
 #define TIME                    STR(CTRL_TIME)
@@ -170,6 +178,7 @@
 #define MESSAGE_UNSKIPPABLE             HEX(CTRL_UNSKIPPABLE)
 #define MESSAGE_TWO_CHOICE              HEX(CTRL_TWO_CHOICE)
 #define MESSAGE_THREE_CHOICE            HEX(CTRL_THREE_CHOICE)
+#define MESSAGE_FOUR_CHOICE             HEX(CTRL_FOUR_CHOICE) // SOH [sturdy-bassoon#59]
 #define MESSAGE_FISH_INFO               HEX(CTRL_FISH_INFO)
 #define MESSAGE_HIGHSCORE               HEX(CTRL_HIGHSCORE)
 #define MESSAGE_TIME                    HEX(CTRL_TIME)

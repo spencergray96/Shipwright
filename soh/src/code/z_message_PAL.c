@@ -1314,7 +1314,9 @@ void Message_DrawText(PlayState* play, Gfx** gfxP) {
         switch (character) {
             case MESSAGE_NEWLINE:
                 msgCtx->textPosX = R_TEXT_INIT_XPOS;
-                if (msgCtx->choiceNum == 1 || msgCtx->choiceNum == 3) {
+                // SOH [sturdy-bassoon#59] choiceNum 4 indents like 3: every row after the body is
+                // an option row. (2 is the odd one out because a two-way spends row 1 on a blank.)
+                if (msgCtx->choiceNum == 1 || msgCtx->choiceNum == 3 || msgCtx->choiceNum == 4) {
                     msgCtx->textPosX += 32;
                 }
                 if (msgCtx->choiceNum == 2 && msgCtx->textPosY != R_TEXT_INIT_YPOS) {
@@ -1513,6 +1515,17 @@ void Message_DrawText(PlayState* play, Gfx** gfxP) {
                     Font_LoadMessageBoxIcon(font, TEXTBOX_ICON_ARROW);
                 }
                 break;
+            // #region SOH [sturdy-bassoon#59] the four-way choice, English only - see the decoder.
+            case MESSAGE_FOUR_CHOICE:
+                msgCtx->textboxEndType = TEXTBOX_ENDTYPE_4_CHOICE;
+                if (msgCtx->msgMode == MSGMODE_TEXT_DISPLAYING) {
+                    msgCtx->choiceTextId = msgCtx->textId;
+                    msgCtx->stateTimer = 4;
+                    msgCtx->choiceIndex = 0;
+                    Font_LoadMessageBoxIcon(font, TEXTBOX_ICON_ARROW);
+                }
+                break;
+            // #endregion
             case MESSAGE_END:
                 if (msgCtx->msgMode == MSGMODE_TEXT_DISPLAYING) {
                     msgCtx->msgMode = MSGMODE_TEXT_DONE;
@@ -2670,7 +2683,18 @@ void Message_Decode(PlayState* play) {
                 msgCtx->choiceNum = 2;
             } else if (temp_s2 == MESSAGE_THREE_CHOICE) {
                 msgCtx->choiceNum = 3;
+                // #region SOH [sturdy-bassoon#59] The four-way is ENGLISH ONLY, deliberately. The
+                // JPN decoder matches 16-bit Shift-JIS values (MESSAGE_TWO_CHOICE_JPN is 0x81BC),
+                // so a single 0x03 byte means nothing there. It costs nothing to skip: every rs
+                // message is a custom message, and Message_OpenText sets sDisplayNextMessageAsEnglish
+                // whenever loadFromMessageTable is false, which routes it through this decoder, this
+                // drawer and the English cursor-row branch even on a Japanese save.
+            } else if (temp_s2 == MESSAGE_FOUR_CHOICE) {
+                msgCtx->choiceNum = 4;
+                // #endregion
             } else if (temp_s2 != ' ') {
+                // A control byte that reaches here indexes at (byte - 0x20), i.e. negative. That is
+                // why the arm above has to exist and not merely be nice to have.
                 Font_LoadChar(font, temp_s2 - ' ', charTexIdx);
                 charTexIdx += FONT_CHAR_TEX_SIZE;
             }
@@ -3051,7 +3075,11 @@ u8 Message_GetState(MessageContext* msgCtx) {
         if (msgCtx->textboxEndType == TEXTBOX_ENDTYPE_HAS_NEXT) {
             state = TEXT_STATE_DONE_HAS_NEXT;
         } else if (msgCtx->textboxEndType == TEXTBOX_ENDTYPE_2_CHOICE ||
-                   msgCtx->textboxEndType == TEXTBOX_ENDTYPE_3_CHOICE) {
+                   msgCtx->textboxEndType == TEXTBOX_ENDTYPE_3_CHOICE ||
+                   // SOH [sturdy-bassoon#59] Without this arm a four-way box draws correctly, moves
+                   // its cursor correctly, and then reports TEXT_STATE_DONE - so every actor that
+                   // gates on TEXT_STATE_CHOICE (all of them) closes on A and dispatches nothing.
+                   msgCtx->textboxEndType == TEXTBOX_ENDTYPE_4_CHOICE) {
             state = TEXT_STATE_CHOICE;
         } else if (msgCtx->textboxEndType == TEXTBOX_ENDTYPE_EVENT ||
                    msgCtx->textboxEndType == TEXTBOX_ENDTYPE_PERSISTENT) {
@@ -4180,6 +4208,11 @@ void Message_DrawMain(PlayState* play, Gfx** p) {
                         Message_HandleChoiceSelection(play, 2);
                         Message_DrawTextboxIcon(play, &gfx, msgCtx->textPosX, msgCtx->textPosY);
                         break;
+                    // SOH [sturdy-bassoon#59] The argument is the MAX INDEX, not the count.
+                    case TEXTBOX_ENDTYPE_4_CHOICE:
+                        Message_HandleChoiceSelection(play, 3);
+                        Message_DrawTextboxIcon(play, &gfx, msgCtx->textPosX, msgCtx->textPosY);
+                        break;
                     case TEXTBOX_ENDTYPE_PERSISTENT:
                         if (msgCtx->textId >= 0x6D && msgCtx->textId < 0x73) {
                             msgCtx->stateTimer++;
@@ -4508,16 +4541,44 @@ void Message_Update(PlayState* play) {
                     }
                 }
 
+                // #region SOH [sturdy-bassoon#59] Keep the box inside the letterbox-safe band.
+                //
+                // The three Y positions above are tuned for a 64px box: the LOWER one is 142, and
+                // 142+64 = 206 clears the bottom letterbox bar - which starts at 240-32 = 208 - by
+                // exactly two units. A taller box at the same position does not, and the overflow
+                // is drawn UNDER the bar, so the last option row is simply not there. Screenshot
+                // only; every marker still says the box rendered.
+                //
+                // This is a strict no-op for every vanilla box (206 <= 208, and the upper position
+                // 38 >= 32), so it changes nothing that exists today. It has to run BEFORE the end
+                // icon and the choice rows below, which are all offsets from Y_TARGET.
+                if (R_TEXTBOX_Y_TARGET + R_TEXTBOX_HEIGHT_TARGET > SCREEN_HEIGHT - 32) {
+                    R_TEXTBOX_Y_TARGET = (SCREEN_HEIGHT - 32) - R_TEXTBOX_HEIGHT_TARGET;
+                }
+                if (R_TEXTBOX_Y_TARGET < 32) {
+                    R_TEXTBOX_Y_TARGET = 32;
+                }
+                // #endregion
+
                 R_TEXTBOX_X_TARGET = sTextboxXPositions[var];
                 R_TEXTBOX_END_YPOS = sTextboxEndIconYOffset[var] + R_TEXTBOX_Y_TARGET;
                 if (gSaveContext.language == LANGUAGE_JPN && !sTextIsCredits && !sDisplayNextMessageAsEnglish) {
                     R_TEXT_CHOICE_YPOS(0) = R_TEXTBOX_Y_TARGET + 7;
                     R_TEXT_CHOICE_YPOS(1) = R_TEXTBOX_Y_TARGET + 25;
                     R_TEXT_CHOICE_YPOS(2) = R_TEXTBOX_Y_TARGET + 43;
+                    // SOH [sturdy-bassoon#59] slot 3, one JPN row (18px) further down. Unreachable
+                    // today - the four-way is English only - and written for symmetry so the two
+                    // branches cannot drift into having different numbers of slots.
+                    R_TEXT_CHOICE_YPOS(3) = R_TEXTBOX_Y_TARGET + 61;
                 } else {
                     R_TEXT_CHOICE_YPOS(0) = R_TEXTBOX_Y_TARGET + 20;
                     R_TEXT_CHOICE_YPOS(1) = R_TEXTBOX_Y_TARGET + 32;
                     R_TEXT_CHOICE_YPOS(2) = R_TEXTBOX_Y_TARGET + 44;
+                    // SOH [sturdy-bassoon#59] slot 3, one English row further down. These offsets
+                    // track R_TEXT_LINE_SPACING, which Message_OpenText sets to 12 for English (NOT
+                    // the 16 z_construct initialises it to), so a row is 12px and the fifth text
+                    // row lands at +56. That is why this is +56 and not something tuned by eye.
+                    R_TEXT_CHOICE_YPOS(3) = R_TEXTBOX_Y_TARGET + 56;
                 }
                 osSyncPrintf("message->msg_disp_type=%x\n", msgCtx->textBoxProperties & 0xF0);
                 if (msgCtx->textBoxType == TEXTBOX_TYPE_NONE_BOTTOM ||

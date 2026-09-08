@@ -665,6 +665,10 @@ typedef struct {
 #define TEXTBOX_ENDTYPE_PERSISTENT  0x40
 #define TEXTBOX_ENDTYPE_EVENT       0x50
 #define TEXTBOX_ENDTYPE_FADING      0x60
+// #region SOH [sturdy-bassoon#59] the four-way choice. 0x00-0x60 are taken, textboxEndType is a u8
+// and every read of it in the tree is an == / != against one of these, so 0x70 is free.
+#define TEXTBOX_ENDTYPE_4_CHOICE    0x70
+// #endregion
 
 typedef struct {
     /* 0x0000 */ View   view;

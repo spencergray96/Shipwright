@@ -53,6 +53,10 @@ typedef enum WorldFlagId {
     WORLD_FLAG_DEBUG_TWIN = 3845,       // NPC_DEBUG_TWIN's own one-shot. Its whole point is that no
                                         // other character can move it: 194 shares 192's actor type and
                                         // model and is still a different character (D21).
+    WORLD_FLAG_DEBUG_FOUR = 3846,       // set by the FOURTH option of NPC_DEBUG_FOUR's only rule, for
+                                        // the same reason 3844 exists for the third: an option that
+                                        // renders is not the same claim as an option that DISPATCHES,
+                                        // and the last row is the one a layout bug loses (#59).
 } WorldFlagId;
 
 #define WORLD_FLAG_IS_DEBUG(flag) ((flag) >= WORLD_FLAG_DEBUG_FIRST)
@@ -73,6 +77,8 @@ RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_GIVER_GATE >= WORLD_FLAG_DEBUG_FIRST && WORLD_
                  "WORLD_FLAG_DEBUG_GIVER_GATE must sit in the debug band");
 RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_THREE >= WORLD_FLAG_DEBUG_FIRST && WORLD_FLAG_DEBUG_THREE < WORLD_FLAG_MAX,
                  "WORLD_FLAG_DEBUG_THREE must sit in the debug band");
+RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_FOUR >= WORLD_FLAG_DEBUG_FIRST && WORLD_FLAG_DEBUG_FOUR < WORLD_FLAG_MAX,
+                 "WORLD_FLAG_DEBUG_FOUR must sit in the debug band");
 RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_TWIN >= WORLD_FLAG_DEBUG_FIRST && WORLD_FLAG_DEBUG_TWIN < WORLD_FLAG_MAX,
                  "WORLD_FLAG_DEBUG_TWIN must sit in the debug band");
 

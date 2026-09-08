@@ -388,9 +388,11 @@ void CustomMessage::CleanString(std::string& str) const {
     }
 }
 
-static size_t NextLineLength(const std::string* textStr, const size_t lastNewline, bool hasIcon = false) {
-    const size_t maxLinePixelWidth = hasIcon ? 200 : 216;
-
+// SOH [sturdy-bassoon#59] `maxLinePixelWidth` was computed here from a `hasIcon` bool. It is now a
+// parameter so a caller can ask about a row with a different budget - a choice option row is
+// indented 32px and gets 184, not 216. Every existing caller passes what the bool used to mean.
+static size_t NextLineLength(const std::string* textStr, const size_t lastNewline,
+                             const size_t maxLinePixelWidth) {
     size_t totalPixelWidth = 0;
     size_t currentPos = lastNewline;
 
@@ -534,7 +536,7 @@ void CustomMessage::AutoFormatString(std::string& str) const {
     // insert newlines either manually or when encountering a '&'
     size_t lastNewline = 0;
     const bool hasIcon = str.find('\x13') != std::string::npos;
-    size_t lineLength = NextLineLength(&str, lastNewline, hasIcon);
+    size_t lineLength = NextLineLength(&str, lastNewline, hasIcon ? 200 : 216);
     size_t lineCount = 1;
     size_t yesNo = str.find('\x1B', lastNewline);
     while (lastNewline + lineLength < str.length() || yesNo != std::string::npos) {
@@ -624,7 +626,7 @@ void CustomMessage::AutoFormatString(std::string& str) const {
                 }
                 lineCount = 1;
             }
-            lineLength = NextLineLength(&str, lastNewline, hasIcon);
+            lineLength = NextLineLength(&str, lastNewline, hasIcon ? 200 : 216);
         }
         yesNo = str.find('\x1B', lastNewline);
     }
@@ -806,6 +808,22 @@ std::string CustomMessage::TWO_WAY_CHOICE() {
 std::string CustomMessage::THREE_WAY_CHOICE() {
     return "\x1C"s;
 }
+
+// #region SOH [sturdy-bassoon#59]
+std::string CustomMessage::FOUR_WAY_CHOICE() {
+    return "\x03"s;
+}
+
+// Does `text` fit on one rendered row of `maxPixels`? The point of exposing this is that a caller
+// validating a textbox can ask about the ACTUAL pixel budget of the row the text lands on, instead
+// of a character count standing in for it. Choice option rows are indented 32px and so have a
+// smaller budget than the 216 AutoFormatString uses for a full-width row - which is exactly the
+// kind of difference a character cap cannot express. Shares NextLineLength with the formatter, so
+// the answer here and the layout there cannot drift.
+bool CustomMessage::LineFitsInPixels(const std::string& text, size_t maxPixels) {
+    return NextLineLength(&text, 0, maxPixels) >= text.length();
+}
+// #endregion
 
 bool CustomMessageManager::InsertCustomMessage(const std::string& tableID, uint16_t textID, CustomMessage messages) {
     auto foundMessageTable = messageTables.find(tableID);

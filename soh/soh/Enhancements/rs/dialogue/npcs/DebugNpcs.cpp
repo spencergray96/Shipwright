@@ -16,6 +16,11 @@
 //   NPC_DEBUG_TWIN  (194)  the same actor type and the same model as 192, and a different
 //                          character (D21's other axis). Its one-shot is its own world flag, which
 //                          nothing 192 does can touch.
+//   NPC_DEBUG_FOUR  (195)  added for #59: a QUESTION plus FOUR options, in the five-row box. 193
+//                          shows the shape is not binary; this one shows it is not capped at what
+//                          vanilla's control codes offer, and that a body too long for the old
+//                          24-character cap renders fine when the budget is measured in pixels.
+//                          Its fourth option sets a flag, for 193's reason applied to the last row.
 //
 // Prose here is NOT journal markup. Journal text carries `#tag:text#` (D23); dialogue text goes to
 // CustomMessageManager (D17), where '#' is a colour span, '%' starts a control code and '^' is a
@@ -87,7 +92,7 @@ const RsDialogueOption sThreeOptions[] = {
     { "Blue", RS_DLG_ACTION_SET_WORLD_FLAG, WORLD_FLAG_DEBUG_THREE, "Blue it is. I will remember." },
 };
 
-// A three-option body is hand-laid-out and capped to one short line at registration, because
+// A three-option body is hand-laid-out and MEASURED to one row at registration, because
 // CustomMessage::AutoFormatString knows CTRL_TWO_CHOICE and does not know CTRL_THREE_CHOICE.
 const RsDialogueRule sThreeRules[] = {
     { nullptr, 0, "Pick a colour.", sThreeOptions, 3, RS_DLG_NO_MISSING },
@@ -95,6 +100,28 @@ const RsDialogueRule sThreeRules[] = {
 
 const RsNpcDef sThree = {
     NPC_DEBUG_THREE, QUEST_TIER_DEBUG, "debug_three", "Debug: the three-way", sThreeRules, 1,
+};
+
+// --- NPC_DEBUG_FOUR (195) -----------------------------------------------------------------------
+
+const RsDialogueOption sFourOptions[] = {
+    { "The lost cucco", RS_DLG_ACTION_NONE, 0, "Nobody has seen it." },
+    { "The broken bridge", RS_DLG_ACTION_NONE, 0, "It has been broken for years." },
+    { "The missing letter", RS_DLG_ACTION_NONE, 0, "Ask at the post house." },
+    // The LAST row is the one a layout bug loses, so it is the one that has to DO something - the
+    // same argument that put a flag on 193's third option.
+    { "Nevermind", RS_DLG_ACTION_SET_WORLD_FLAG, WORLD_FLAG_DEBUG_FOUR, "Suit yourself." },
+};
+
+// The shape #59 was actually filed for: a QUESTION, then four answers, in a five-row box. The body
+// is 31 characters - over the old 24-character cap, comfortably inside the 216 pixels that cap was
+// standing in for, and now measured rather than counted.
+const RsDialogueRule sFourRules[] = {
+    { nullptr, 0, "What can I help you with, Link?", sFourOptions, 4, RS_DLG_NO_MISSING },
+};
+
+const RsNpcDef sFour = {
+    NPC_DEBUG_FOUR, QUEST_TIER_DEBUG, "debug_four", "Debug: the four-way", sFourRules, 1,
 };
 
 // --- NPC_DEBUG_TWIN (194) -----------------------------------------------------------------------
@@ -156,7 +183,20 @@ const RsDialogueRule sBadTextQuote[] = { { nullptr, 0, "a \"quoted\" word", null
 const RsDialogueRule sBadTextEmpty[] = { { nullptr, 0, "", nullptr, 0, RS_DLG_NO_MISSING } };
 const RsDialogueRule sBadOptionsNull[] = { { nullptr, 0, "text", nullptr, 2, RS_DLG_NO_MISSING } };
 const RsDialogueRule sBadOneOption[] = { { nullptr, 0, "text", sOkOptions, 1, RS_DLG_NO_MISSING } };
-const RsDialogueRule sBadFourOptions[] = { { nullptr, 0, "text", sOkOptions, 4, RS_DLG_NO_MISSING } };
+// One option past what the renderer draws. This entry USED to be `sOkOptions, 4` back when the cap
+// was three - an option COUNT of 4 over a 2-element array, safe only because the count check
+// refused it before anything indexed it. Raising the cap to 4 would have turned that into a real
+// out-of-bounds read inside the validator whose entire job is to refuse bad definitions, so the
+// array is now genuinely as long as the count claims. Replaced IN PLACE, never reordered: the
+// acceptance drivers pin these by index.
+const RsDialogueOption sFiveOpts[] = {
+    { "A", RS_DLG_ACTION_NONE, 0, nullptr }, { "B", RS_DLG_ACTION_NONE, 0, nullptr },
+    { "C", RS_DLG_ACTION_NONE, 0, nullptr }, { "D", RS_DLG_ACTION_NONE, 0, nullptr },
+    { "E", RS_DLG_ACTION_NONE, 0, nullptr },
+};
+const RsDialogueRule sBadFiveOptions[] = {
+    { nullptr, 0, "text", sFiveOpts, RS_DIALOGUE_MAX_OPTIONS + 1, RS_DLG_NO_MISSING },
+};
 
 const RsDialogueOption sThreeOk[] = {
     { "A", RS_DLG_ACTION_NONE, 0, nullptr },
@@ -233,6 +273,15 @@ const RsDialogueRule sBadTwoOptionLong[] = {
 // The gate here is Always() - it EVALUATES true. The check is structural (whenCount == 0), not
 // semantic, because "this rule happens to be true right now" is not the same guarantee as "this
 // rule is true in every state", and only the second one makes the fallthrough safe.
+// A label wider than an option row (#59). Single line, clean prose, well under any character count
+// anyone would have guessed at - and 24 W's is 288 pixels against a 184-pixel budget. The whole
+// argument for measuring instead of counting, in one fixture.
+const RsDialogueOption sOptLabelWide[] = {
+    { "WWWWWWWWWWWWWWWWWWWWWWWW", RS_DLG_ACTION_NONE, 0, nullptr },
+    { "No", RS_DLG_ACTION_NONE, 0, nullptr },
+};
+const RsDialogueRule sBadLabelWide[] = { { nullptr, 0, "text", sOptLabelWide, 2, RS_DLG_NO_MISSING } };
+
 const QuestPredicate sAlwaysGate[] = { QP_ALWAYS() };
 const RsDialogueRule sBadLastConditional[] = { { sAlwaysGate, 1, "a conditional last rule", nullptr, 0, RS_DLG_NO_MISSING } };
 
@@ -265,7 +314,7 @@ BAD_NPC_DEF(sDefTextQuote, sBadTextQuote, 1);
 BAD_NPC_DEF(sDefTextEmpty, sBadTextEmpty, 1);
 BAD_NPC_DEF(sDefOptionsNull, sBadOptionsNull, 1);
 BAD_NPC_DEF(sDefOneOption, sBadOneOption, 1);
-BAD_NPC_DEF(sDefFourOptions, sBadFourOptions, 1);
+BAD_NPC_DEF(sDefFiveOptions, sBadFiveOptions, 1);
 BAD_NPC_DEF(sDefThreeLong, sBadThreeLong, 1);
 BAD_NPC_DEF(sDefThreeMultiline, sBadThreeMultiline, 1);
 BAD_NPC_DEF(sDefLabelNull, sBadLabelNull, 1);
@@ -277,6 +326,7 @@ BAD_NPC_DEF(sDefActionQuest, sBadActionQuest, 1);
 BAD_NPC_DEF(sDefActionFlagRange, sBadActionFlagRange, 1);
 BAD_NPC_DEF(sDefActionFlagBand, sBadActionFlagBand, 1);
 BAD_NPC_DEF(sDefLastConditional, sBadLastConditional, 1);
+BAD_NPC_DEF(sDefLabelTooWide, sBadLabelWide, 1);
 BAD_NPC_DEF(sDefMissingRange, sBadMissingRange, 1);
 BAD_NPC_DEF(sDefMissingUngated, sBadMissingUngated, 1);
 BAD_NPC_DEF(sDefMissingThree, sBadMissingThree, 1);
@@ -313,7 +363,7 @@ const BadEntry sBadDefs[] = {
     { "text_empty", &sDefTextEmpty },
     { "options_null_nonzero_count", &sDefOptionsNull },
     { "one_option", &sDefOneOption },
-    { "four_options", &sDefFourOptions },
+    { "five_options", &sDefFiveOptions },
     { "three_option_body_too_long", &sDefThreeLong },
     { "three_option_body_multiline", &sDefThreeMultiline },
     { "label_null", &sDefLabelNull },
@@ -330,12 +380,17 @@ const BadEntry sBadDefs[] = {
     { "missing_of_ungated", &sDefMissingUngated },
     { "missing_of_with_options", &sDefMissingThree },
     { "two_option_body_paginates", &sDefTwoOptionLong },
+    // #59. Only ONE new entry: the body-too-long case already has a fixture
+    // (`three_option_body_too_long`), which now exercises the renderer measurement that replaced the
+    // character cap rather than the cap itself - a better test of the same slot, not a new one.
+    { "label_too_wide", &sDefLabelTooWide },
 };
 
 // RsNpc_Register is idempotent for the same pointer, which is what makes a ShipInit "*" re-run safe.
 void RegisterDebugNpcs() {
     RsNpc_Register(&sGiver);
     RsNpc_Register(&sThree);
+    RsNpc_Register(&sFour);
     RsNpc_Register(&sTwin);
 }
 

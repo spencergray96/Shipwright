@@ -24,6 +24,9 @@ extern "C" {
 #include "variables.h"
 #include "macros.h"
 
+// For the box-geometry guard below. Declared here the same way NpcConsole.cpp does it.
+extern PlayState* gPlayState;
+
 void RsNpc_Init(Actor* thisx, PlayState* play);
 void RsNpc_Destroy(Actor* thisx, PlayState* play);
 void RsNpc_Update(Actor* thisx, PlayState* play);
@@ -57,23 +60,43 @@ char sDirectCopy[128];
 
 // --- message building ---------------------------------------------------------------------------
 
+// --- the box's row budget ------------------------------------------------------------------------
+//
+// A textbox row is R_TEXT_LINE_SPACING, which Message_OpenText sets to 12 for English (NOT the 16
+// z_construct initialises it to - that value never survives a textbox opening). Vanilla's 64px box
+// is therefore four rows with 8px under the last one. A four-option rule needs FIVE rows - a body
+// row plus one per option - so it gets a taller box.
+//
+// The texture step is `R_TEXTBOX_TEXHEIGHT << 1` in 5.10 fixed point, so 512 is exactly one texel
+// per pixel over the 64-texel-tall background. A SMALLER value advances more slowly, i.e. stretches:
+// 512 * 64/80 = 410. Message_GrowTextbox does this same division every frame of the open animation,
+// which is why a stretched box is a known quantity rather than a gamble.
+constexpr int16_t RS_TEXTBOX_ROWS_HEIGHT = 80;      // five rows: 8 + 4*12 + 12 = 68, rounded up
+constexpr int16_t RS_TEXTBOX_ROWS_TEXHEIGHT = 410;  // 512 * 64 / 80
+constexpr int16_t RS_TEXTBOX_VANILLA_HEIGHT = 64;
+constexpr int16_t RS_TEXTBOX_VANILLA_TEXHEIGHT = 512;
+
 // AutoFormat is CTRL_TWO_CHOICE-aware: CustomMessage::AutoFormatString finds '\x1B' and lays the
 // choice out on the right rows itself, paginating with '^' when the body is long. It does NOT know
-// CTRL_THREE_CHOICE, which is why a three-option rule is hand-laid-out with Format() and its body
-// is capped to one short line at registration (NpcDialogue.cpp).
+// CTRL_THREE_CHOICE or our CTRL_FOUR_CHOICE, which is why a three- or four-option rule is
+// hand-laid-out with Format() and its body is measured against one row at registration
+// (NpcDialogue.cpp).
 // The rule's whole textbox source: a body, plus the choice block when it has options. Split out of
 // BuildRuleMessage so the REGISTRATION-TIME pagination check below asks the exact question the
 // renderer will answer, rather than a character count standing in for it.
 std::string BuildRuleText(const RsDialogueRule& rule, const std::string& body) {
     std::string text = body;
     if (rule.optionCount >= 2) {
-        // A two-way choice sits on the last two rows of the box and a three-way on the last three,
-        // so the body needs one blank row before the first and none before the second. Getting this
-        // wrong pushes the last option off the bottom of the box, where it is still selectable and
-        // simply cannot be read - so it is a rendering bug that looks like a content bug. The two
-        // in-tree three-way messages (QoL/BetterSaveMenu.cpp) use exactly this spacing.
-        text += (rule.optionCount == 3) ? "&" : "&&";
-        text += (rule.optionCount == 3) ? CustomMessage::THREE_WAY_CHOICE() : CustomMessage::TWO_WAY_CHOICE();
+        // A two-way choice sits on the last two rows of a four-row box, so its body needs one BLANK
+        // row before it; a three-way fills the last three rows and a four-way (in a five-row box)
+        // the last four, so neither wants the blank. Getting this wrong pushes the last option off
+        // the bottom of the box, where it is still selectable and simply cannot be read - a
+        // rendering bug that looks like a content bug. The two in-tree three-way messages
+        // (QoL/BetterSaveMenu.cpp) use exactly this spacing.
+        text += (rule.optionCount == 2) ? "&&" : "&";
+        text += (rule.optionCount == 4)   ? CustomMessage::FOUR_WAY_CHOICE()
+                : (rule.optionCount == 3) ? CustomMessage::THREE_WAY_CHOICE()
+                                          : CustomMessage::TWO_WAY_CHOICE();
         text += "%g";
         for (int32_t i = 0; i < rule.optionCount; i++) {
             if (i > 0) {
@@ -98,12 +121,32 @@ CustomMessage BuildRuleMessage(const RsDialogueRule& rule) {
     // press, since TEXT_STATE_CHOICE is only reached once msgMode is MSGMODE_TEXT_DONE. Instant
     // text makes the conversation deterministic to drive unattended.
     CustomMessage msg(std::string("\x08") + text);
-    if (rule.optionCount == 3) {
+    if (rule.optionCount >= 3) {
         msg.Format();
     } else {
         msg.AutoFormat();
     }
     return msg;
+}
+
+// The box geometry this message wants. Called for EVERY textbox the game opens, ours or not, so a
+// taller box can never outlive the conversation that asked for it.
+//
+// Both pairs are written, and the live pair is the one that matters. On the normal path
+// Message_GrowTextbox overwrites HEIGHT/TEXHEIGHT from the targets on frame 0, so setting the live
+// pair is a harmless no-op - but an option's REPLY goes through Message_ContinueTextbox, which sets
+// MSGMODE_TEXT_CONTINUING and never calls Message_GrowTextbox at all. Setting only the targets there
+// would leave the reply rendering inside the four-option box's taller frame.
+void RsText_ApplyBoxGeometry(bool tall) {
+    R_TEXTBOX_HEIGHT_TARGET = tall ? RS_TEXTBOX_ROWS_HEIGHT : RS_TEXTBOX_VANILLA_HEIGHT;
+    R_TEXTBOX_TEXHEIGHT_TARGET = tall ? RS_TEXTBOX_ROWS_TEXHEIGHT : RS_TEXTBOX_VANILLA_TEXHEIGHT;
+    // Not while the open animation is mid-flight: the mid-text language switch re-enters
+    // Message_OpenText from the draw path, and clobbering the live pair there would show one frame
+    // of a full-size box in the middle of it growing.
+    if (gPlayState == nullptr || gPlayState->msgCtx.msgMode != MSGMODE_TEXT_BOX_GROWING) {
+        R_TEXTBOX_HEIGHT = tall ? RS_TEXTBOX_ROWS_HEIGHT : RS_TEXTBOX_VANILLA_HEIGHT;
+        R_TEXTBOX_TEXHEIGHT = tall ? RS_TEXTBOX_ROWS_TEXHEIGHT : RS_TEXTBOX_VANILLA_TEXHEIGHT;
+    }
 }
 
 CustomMessage BuildPlainMessage(const char* text) {
@@ -116,6 +159,13 @@ CustomMessage BuildPlainMessage(const char* text) {
 // and filter buckets. Everything outside our band is left alone.
 void RsText_OnOpenText(uint16_t* textId, bool* loadFromMessageTable) {
     const uint16_t id = *textId;
+
+    // FIRST, unconditionally, for every textbox in the game and before any early return: put the box
+    // back to vanilla. The four-option box is the only thing that ever makes it taller, and this is
+    // what guarantees the taller frame cannot outlive that one message - including onto the reply
+    // box, onto the next NPC, or onto a vanilla conversation. Only a rule proven to have four
+    // options turns it back on, at the bottom of this function.
+    RsText_ApplyBoxGeometry(false);
 
     if (id == RS_TEXT_DIRECT) {
         // Never a literal-prose fallback: an empty slot means an actor opened this id without
@@ -149,7 +199,13 @@ void RsText_OnOpenText(uint16_t* textId, bool* loadFromMessageTable) {
         return;
     }
 
-    CustomMessage msg = BuildRuleMessage(def->rules[ruleIndex]);
+    const RsDialogueRule& rule = def->rules[ruleIndex];
+    // The one place the box grows. Registration has already proven this rule renders inside it.
+    if (rule.optionCount == 4) {
+        RsText_ApplyBoxGeometry(true);
+    }
+
+    CustomMessage msg = BuildRuleMessage(rule);
     msg.LoadIntoFont();
     *loadFromMessageTable = false;
 }
@@ -279,8 +335,8 @@ extern "C" int32_t RsText_ChoiceWouldPaginate(const RsDialogueRule* rule) {
     // 32 characters of one string fits and 33 of another does not. Formatting the actual message
     // and looking for the '^' AutoFormatString would have inserted is the exact question.
     if (rule == nullptr || rule->optionCount != 2 || rule->text == nullptr) {
-        return 0; // a statement paginates harmlessly; a three-option box goes through Format(),
-                  // which never paginates and is covered by its own one-line cap instead
+        return 0; // a statement paginates harmlessly; a three- or four-option box goes through
+                  // Format(), which never paginates, and is covered by RsText_BodyWouldWrap instead
     }
     // This FORMATS the rule, so it reads every label. The validator only calls it after each label
     // has been proven non-NULL, and this is the second lock on that door: the definitions most
@@ -301,4 +357,46 @@ extern "C" int32_t RsText_ChoiceWouldPaginate(const RsDialogueRule* rule) {
     // survive the pass that decides where the breaks go. Searching the source convention instead of
     // the compiled one is a check that always passes - which is what the first version of this did.
     return msg.GetEnglish(MF_RAW).find(CustomMessage::WAIT_FOR_INPUT()) != std::string::npos ? 1 : 0;
+}
+
+// Does the BODY of a hand-laid-out choice (three or four options) need more than one row?
+//
+// This replaces a 24-character cap whose own comment admitted it stood in for a 216-PIXEL budget in
+// a variable-width font. The cap was the last guess of its kind in the dialogue layer, and it was
+// wrong in the expensive direction as well as the cheap one: it refused "What can I help you with,
+// Link?" - 30 characters, comfortably inside 216px - which is the exact sentence #59 was filed to
+// make possible.
+//
+// Asked of the renderer, like its two-option sibling: AutoFormat the body ALONE and see whether the
+// formatter put a break in it. Measuring the body alone is faithful because AutoFormatString's first
+// NextLineLength starts at offset 0 with the same 216px budget the real message's first row gets,
+// and the body IS that row - a three- or four-way indents every row EXCEPT the body's
+// (z_message_PAL.c, choiceNum indent hack), so the body has the full width.
+extern "C" int32_t RsText_BodyWouldWrap(const RsDialogueRule* rule) {
+    if (rule == nullptr || rule->text == nullptr) {
+        return 0;
+    }
+    CustomMessage msg(std::string("\x08") + rule->text);
+    msg.AutoFormat();
+    const std::string formatted = msg.GetEnglish(MF_RAW);
+    return (formatted.find(CustomMessage::NEWLINE()) != std::string::npos ||
+            formatted.find(CustomMessage::WAIT_FOR_INPUT()) != std::string::npos)
+               ? 1
+               : 0;
+}
+
+// Does an option LABEL run off the right edge of its row?
+//
+// Nothing measured these before, at any option count - a gap that only showed up when #59's review
+// went looking. It matters more now: four options is four more chances, and a label that overflows
+// does it silently, off the edge of the box, exactly like the third option P3 pushed off the bottom.
+//
+// The budget is 184, not 216: an option row is indented 32px (the choiceNum hack in
+// Message_DrawText). Asked of the renderer's own pixel table, not of a character count - which is
+// the whole point, since 24 characters of "Wwwwww" and of "iiiiii" are not the same row.
+extern "C" int32_t RsText_LabelWouldOverflow(const char* label) {
+    if (label == nullptr) {
+        return 0; // a NULL label is CheckOption's refusal to make, and it runs first
+    }
+    return CustomMessage::LineFitsInPixels(std::string(label), 216 - 32) ? 0 : 1;
 }
