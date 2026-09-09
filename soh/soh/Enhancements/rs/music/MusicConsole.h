@@ -22,17 +22,28 @@
 // (It is not a substitute for one - whether it sounds right is still a human call.)
 //
 // `args[0]` is the subcommand:
-//   status                the live director state - RsMusic_Describe()
+//   status                the live director state, in four grouped lines - director, zone and
+//                         track, tunables, counters. Grouped rather than one line because the
+//                         ImGui console does not wrap and one 200-character line means dragging
+//                         the window out to full width to read it. Every LINE is still
+//                         single-line key=value, which is what the marker channel needs;
+//                         "greppable" and "one line in total" were never the same requirement
 //   where                 Link's position in BOTH frames plus the zone that wins there. The
 //                         "check a rect against where he actually is" tool
-//   zones                 one line per table entry: priority, rects, tracks
+//   zones                 one line per table entry: priority, scene binding, rects, tracks
 //   scenes                the per-scene opt-in list and each scene's RS coordinate anchor
+//   firstvisit            every zone with a one-shot opener: its world flag and whether that
+//                         flag is spent yet. The assertable form of "the opener was NOT consumed
+//                         by clipping the boundary, and WAS consumed on activation"
 //   on | off              flip the master CVar (persisted)
 //   dwell <seconds>       set the dwell, fade-out, fade-in CVars. Seconds, floating point.
 //   fadeout <seconds>     A fade is an 8-bit field in units of 1/30 s, so anything past 8.5 s
 //   fadein <seconds>      clamps - the reported unit count is what the engine will actually get
-//   reset                 zero the transition counter, so a run can assert "and then NOTHING
-//                         happened" from a known baseline
+//   baseline              bookmark the transition count, so a run can assert "and then NOTHING
+//                         happened" against it. It does NOT zero the counter and there is no way
+//                         to: an unresettable counter makes "the count did not move" a stronger
+//                         claim. It was called `reset` through P0, which described neither what
+//                         it did nor what it was for, and cost a human real confusion
 //
 // Returns 0 when the operation succeeded (or for read-only subcommands), 1 otherwise - so `rc=` on
 // the agent loop's cmd marker is the pass/fail bit.

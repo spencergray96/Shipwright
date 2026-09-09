@@ -58,8 +58,19 @@
  * fighting it: in AfterSceneCommands it sets sequenceCtx.seqId = NA_BGM_NO_MUSIC and
  * natureAmbienceId = NATURE_ID_NONE, and with both set Environment_PlaySceneSequence returns early
  * without touching the player at all. It gives player 0 back the moment anything else takes it -
- * cutscene, mini-boss, minigame - and re-asserts only when that goes quiet or the zone changes.
- * A director that competed would leave the music wrong forever after one cutscene.
+ * cutscene, mini-boss, minigame - and RE-ASSERTS ONLY WHEN PLAYER 0 GOES QUIET. A director that
+ * competed would leave the music wrong forever after one cutscene.
+ *
+ * (#90 section 13 originally read "when it goes quiet OR the zone changes". The second half was
+ * deleted on 2026-09-09: taken literally it lets a cutscene which walks Link across a boundary have
+ * its own music cut, and it buys nothing, because the release path recomputes the winning zone from
+ * scratch anyway. See the comment at the yield check in ZoneDirector.cpp.)
+ *
+ * THE FIRST-VISIT TRACK is a one-shot opener, consumed on zone ACTIVATION - the moment the switch is
+ * actually taken, after the dwell - and never on boundary contact. There is no forced completion:
+ * walk in, hear thirty seconds of it, walk out, and it is spent. The flag lives in the project's own
+ * world-flag store (worldstate/WorldFlags.h, #54); there is deliberately no new SaveManager section
+ * and no new save format.
  *
  * COST WHILE OFF. One CVar read per frame and nothing else; no scene is modified, and the vanilla
  * loader keeps setting the music it always set.
@@ -83,9 +94,33 @@ extern "C" {
  */
 void RsMusic_NotifyWarped(const char* reason);
 
-/* One-line description of the live state, for a console command or a marker:
- * `zone=<name> track=0x<hex> state=<name> ...`. Never NULL. */
+/* The `rsX`/`rsY` a scene with no surface anchor reports - an interior or an underground area,
+ * which has no position in the world's surface frame at all. Console surfaces render it as `none`
+ * rather than as a number, because a number there would be believed. */
+#define RS_NO_TILE (-2147483647 - 1)
+
+/* Writes `<x>,<y>`, or `none` if either is RS_NO_TILE. One function so every surface that prints a
+ * tile pair - the marker channel, `status`, `where` - agrees about what "nowhere" looks like. */
+void RsMusic_FormatTiles(char* buf, uint32_t size, int32_t rsX, int32_t rsY);
+
+/* One-line description of the live state: `zone=<name> track=0x<hex> state=<name> ...`. Never NULL.
+ *
+ * STAYS ONE LINE. It is the form for a place where one line is correct - a perf marker, or the echo
+ * after `rsmusic on`. The human-readable `rsmusic status` uses RsMusic_DescribeLine instead, because
+ * the ImGui console does not wrap and one 200-character line means dragging the window out to full
+ * width to read it (#90, human tuning pass 2026-09-09). */
 const char* RsMusic_Describe(void);
+
+/*
+ * The same state as RsMusic_Describe, split into grouped lines - director, zone and track, the
+ * tunables, the counters. Writes line `index` into `buf` and returns 1; returns 0 once `index` is
+ * past the last line, so a caller loops until it gets 0.
+ *
+ * EVERY LINE IS STILL SINGLE-LINE key=value with no spaces inside a value. That is what the marker
+ * channel requires, and it is not the same requirement as "one line in total" - `rsmusic zones`
+ * already emits a line per entry. Splitting is for the human; greppability is for the agent loop.
+ */
+int32_t RsMusic_DescribeLine(int32_t index, char* buf, uint32_t size);
 
 /*
  * Pops the oldest unread event, if any, into `buf` (a printf-ready fragment: what changed, why,
@@ -101,9 +136,26 @@ int32_t RsMusic_TakeEvent(char* buf, uint32_t size);
  * `sceneId` is written. */
 int32_t RsMusic_Probe(int16_t* sceneId, int32_t* rsX, int32_t* rsY, int32_t* zoneIndex);
 
-/* How many switches this session has actually taken. The assertable form of "cross a boundary and
- * come back inside the dwell window, and NOTHING happens". */
+/*
+ * How many switches this session has actually taken. The assertable form of "cross a boundary and
+ * come back inside the dwell window, and NOTHING happens".
+ *
+ * MONOTONIC, AND THERE IS DELIBERATELY NO WAY TO ZERO IT. A counter nothing can reset makes "the
+ * count did not move" a strictly stronger claim than one that can.
+ */
 int32_t RsMusic_TransitionCount(void);
+
+/*
+ * The bookmark half of that assertion: `RsMusic_MarkBaseline` remembers the current count and
+ * returns it, `RsMusic_Baseline` reads the bookmark back (0 = never marked, i.e. session start).
+ * A run marks a baseline, walks, and checks that `transitions - baseline` is what it expects.
+ *
+ * Note what this is NOT: it does not touch the counter. The console subcommand that calls it was
+ * called `reset` through P0 and reset nothing, which cost a human real confusion - it is `baseline`
+ * now (#90, human tuning pass 2026-09-09). The tamper-proof property is unchanged.
+ */
+int32_t RsMusic_MarkBaseline(void);
+int32_t RsMusic_Baseline(void);
 
 #ifdef __cplusplus
 }

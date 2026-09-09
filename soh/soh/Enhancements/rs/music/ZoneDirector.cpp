@@ -1,5 +1,5 @@
 /*
- * The zone director (sturdy-bassoon#90 P0). See ZoneDirector.h for what this is, why the dwell
+ * The zone director (sturdy-bassoon#90). See ZoneDirector.h for what this is, why the dwell
  * timer exists, why there is no crossfade, and why there is no resume-at-position path.
  *
  * The whole thing is the OnPlayerUpdate handler below plus the AfterSceneCommands handler that
@@ -19,6 +19,7 @@
 #include <libultraship/bridge/consolevariablebridge.h>
 
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
+#include "soh/Enhancements/worldstate/WorldFlags.h"
 #include "soh/ShipInit.hpp"
 #include "soh/cvar_prefixes.h"
 
@@ -117,16 +118,23 @@ int32_t sCandidateZone = NO_ZONE; // the zone the dwell timer is counting toward
 int32_t sDwellTicks = 0;
 int32_t sGapTicks = 0;   // remaining ticks of deliberate quiet in STATE_FADING
 int32_t sGraceTicks = 0; // remaining ticks before the yield check trusts func_800FA0B4
-int32_t sPendingZone = NO_ZONE;
+// The track chosen for the switch in flight. Chosen ONCE, in BeginSwitch, because choosing it is
+// not a pure function any more - a first-visit pick spends a world flag - so calling the picker
+// again to fill in a log line would spend it twice and hand STATE_FADING a different track from the
+// one that was announced.
+uint16_t sPendingSeqId = NA_BGM_DISABLED;
+bool sPendingFirstVisit = false;
 uint16_t sPlayingSeqId = NA_BGM_DISABLED;
+bool sPlayingFirstVisit = false;
 int32_t sTransitions = 0;
+int32_t sBaseline = 0;    // see RsMusic_MarkBaseline; never touches sTransitions
 int32_t sArmedScene = -1; // the opted-in scene the state above belongs to
 
 // "Position was set, not walked": suppress the dwell for exactly one switch.
 bool sWarpPending = false;
 const char* sWarpReason = "warp";
 
-char sDescription[288] = "rsmusic off";
+char sDescription[384] = "rsmusic off";
 
 char sEvents[EVENT_SLOTS][EVENT_LEN];
 int32_t sEventRead = 0;
@@ -185,6 +193,17 @@ void RecordEvent(const char* fmt, ...) {
  * one tile.
  */
 void WorldToRs(const RsMusicScene* scene, float worldX, float worldZ, int32_t* rsX, int32_t* rsY) {
+    // A scene with no surface anchor has no position in this frame at all, and carries
+    // unitsPerTile = 0 - so there is nothing to divide by and no answer that would mean anything.
+    // Without this the division yields an infinity and the cast to int32 is undefined behaviour
+    // that happened, on the 2026-09-09 P1 run, to print rs=-2147483648,-2147483648. Harmless,
+    // because rect matching is skipped in such a scene either way, and still worth not doing.
+    // Callers render RS_NO_TILE as `none` rather than as a coordinate somebody might believe.
+    if ((scene->flags & RS_SCENE_FLAG_NO_SURFACE_ANCHOR) != 0 || scene->unitsPerTile <= 0) {
+        *rsX = RS_NO_TILE;
+        *rsY = RS_NO_TILE;
+        return;
+    }
     const float perTile = (float)scene->unitsPerTile;
     *rsX = (int32_t)scene->rsOriginX + (int32_t)floorf(worldX / perTile);
     *rsY = (int32_t)scene->rsOriginY - (int32_t)floorf(worldZ / perTile);
@@ -198,25 +217,60 @@ bool RectContains(const RsZoneRect& r, int32_t rsX, int32_t rsY, float worldY) {
 }
 
 /*
- * The winning zone for a point: highest priority among the zones that contain it. Total coverage
- * is guaranteed by the fallback entry, which contains everything, so this only returns NO_ZONE if
- * somebody removed the fallback from the table.
+ * Does this zone claim the point Link is standing on, in the scene he is standing in?
+ *
+ * Four shapes, in the order they are decided:
+ *
+ *   1. THE FALLBACK matches everywhere, in every opted-in scene, at any priority. It is what makes
+ *      coverage total, so the director never has to answer "what plays here" with "nothing".
+ *   2. A ZONE BOUND TO ANOTHER SCENE never matches. Checked before the rects, which is the whole
+ *      point of the binding.
+ *   3. A ZONE BOUND TO THIS SCENE WITH NO RECTS matches the whole scene (#90 section 4) - what an
+ *      underground or interior area wants, since those are separate scenes anyway and should not be
+ *      forced to share the surface queue.
+ *   4. ANYTHING ELSE matches on its rects - but ONLY in a scene that has a surface anchor. A scene
+ *      flagged RS_SCENE_FLAG_NO_SURFACE_ANCHOR has no meaningful position in the world frame, so
+ *      `rsX`/`rsY` there are arithmetic on a zero origin rather than a location; letting a rect see
+ *      them would let a surface zone win inside an interior for no visible reason.
+ */
+bool ZoneClaims(const RsMusicZone* z, int16_t sceneNum, bool hasSurfaceAnchor, int32_t rsX, int32_t rsY,
+                float worldY) {
+    if ((z->flags & RS_ZONE_FLAG_FALLBACK) != 0) {
+        return true;
+    }
+    if (z->sceneId != RS_ZONE_SCENE_ANY && z->sceneId != sceneNum) {
+        return false;
+    }
+    if (z->rectCount == 0) {
+        return z->sceneId == sceneNum;
+    }
+    if (!hasSurfaceAnchor) {
+        return false;
+    }
+    for (uint8_t r = 0; r < z->rectCount; r++) {
+        if (RectContains(z->rects[r], rsX, rsY, worldY)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/*
+ * The winning zone for a point: highest priority among the zones that claim it. Total coverage is
+ * guaranteed by the fallback entry, so this only returns NO_ZONE if somebody removed the fallback
+ * from the table - which the generator refuses to emit.
  *
  * Ties go to the earlier entry, which makes the answer a pure function of the table rather than of
  * iteration order elsewhere. The table is a handful of entries and this runs once a frame; a
  * spatial index would be premature at any size we are going to author by hand.
  */
-int32_t ResolveZone(int32_t rsX, int32_t rsY, float worldY) {
+int32_t ResolveZone(int16_t sceneNum, bool hasSurfaceAnchor, int32_t rsX, int32_t rsY, float worldY) {
     int32_t best = NO_ZONE;
     int32_t bestPriority = 0;
     const int32_t count = RsMusicZones_Count();
     for (int32_t i = 0; i < count; i++) {
         const RsMusicZone* z = RsMusicZones_At(i);
-        bool hit = (z->flags & RS_ZONE_FLAG_FALLBACK) != 0;
-        for (uint8_t r = 0; !hit && r < z->rectCount; r++) {
-            hit = RectContains(z->rects[r], rsX, rsY, worldY);
-        }
-        if (!hit) {
+        if (!ZoneClaims(z, sceneNum, hasSurfaceAnchor, rsX, rsY, worldY)) {
             continue;
         }
         if (best == NO_ZONE || z->priority > bestPriority) {
@@ -227,21 +281,45 @@ int32_t ResolveZone(int32_t rsX, int32_t rsY, float worldY) {
     return best;
 }
 
+bool HasSurfaceAnchor(const RsMusicScene* scene) {
+    return (scene->flags & RS_SCENE_FLAG_NO_SURFACE_ANCHOR) == 0;
+}
+
 const char* ZoneName(int32_t index) {
     const RsMusicZone* z = RsMusicZones_At(index);
     return z != nullptr ? z->name : "none";
 }
 
 /*
- * Which track of the zone to play. P0 always takes the first: multi-track zones are P2, and that
- * is where the shuffle bag (shuffle the list, play through it, reshuffle on empty, and swap the
- * first entry of a fresh bag when it repeats the track that just ended) goes. Deliberately a
- * function rather than an inline `tracks[0]` so P2 changes one body.
+ * Which track of the zone to play, and THE ONE PLACE A FIRST-VISIT FLAG IS SPENT.
+ *
+ * CALL IT EXACTLY ONCE PER SWITCH. It is not a pure function: the first-visit branch writes a
+ * world flag, so calling it twice - to fill in a log line, say - would burn the opener on a switch
+ * that only ever played it once. BeginSwitch calls it and everything downstream reads sPendingSeqId.
+ *
+ * WHEN THE FLAG IS SPENT is the design point (#90 section 10): on ACTIVATION, which is this call,
+ * inside BeginSwitch, after the dwell has already expired. Not on boundary contact - clipping the
+ * corner of a zone never reaches here, because clipping never produces a switch. And there is no
+ * forced completion: the flag is gone the moment the opener starts, so walking straight back out
+ * spends it. Enter, hear thirty seconds, leave, return - you get the normal track, which is exactly
+ * what "first visit" should mean.
+ *
+ * Otherwise it takes the first track. Multi-track zones are P2, and that is where the shuffle bag
+ * (shuffle the list, play through it, reshuffle on empty, and swap the first entry of a fresh bag
+ * when it repeats the track that just ended) goes; the first-visit pick becomes the bag's SEED
+ * there rather than a special case beside it. lengthSec and conditions stay unread until then.
  */
-uint16_t PickTrack(int32_t zoneIndex) {
+uint16_t SelectTrack(int32_t zoneIndex, bool* firstVisit) {
+    *firstVisit = false;
     const RsMusicZone* z = RsMusicZones_At(zoneIndex);
     if (z == nullptr || z->trackCount == 0) {
         return NA_BGM_DISABLED; // an empty track list is authored silence, not an error
+    }
+    if (z->firstVisitTrack != nullptr && z->firstVisitFlag != RS_ZONE_NO_FIRST_VISIT &&
+        !Flags_GetWorldFlag(z->firstVisitFlag)) {
+        Flags_SetWorldFlag(z->firstVisitFlag);
+        *firstVisit = true;
+        return z->firstVisitTrack->seqId;
     }
     return z->tracks[0].seqId;
 }
@@ -249,6 +327,7 @@ uint16_t PickTrack(int32_t zoneIndex) {
 // --- driving player 0 ---------------------------------------------------------------------------
 
 void StartTrack(uint16_t seqId, int32_t fadeInUnits) {
+    sPlayingFirstVisit = sPendingFirstVisit;
     if (seqId == NA_BGM_DISABLED) {
         sState = STATE_SILENT;
         sPlayingSeqId = NA_BGM_DISABLED;
@@ -288,10 +367,13 @@ void BeginSwitch(int32_t zoneIndex, const char* reason, int32_t rsX, int32_t rsY
 
     const int32_t from = sActiveZone;
     sTransitions++;
-    sPendingZone = zoneIndex;
     sActiveZone = zoneIndex;
     sCandidateZone = NO_ZONE;
     sDwellTicks = 0;
+
+    // Choose once, here. See SelectTrack: the first-visit branch spends a world flag, so the track
+    // has to be decided at the moment of activation and then carried, not re-derived.
+    sPendingSeqId = SelectTrack(zoneIndex, &sPendingFirstVisit);
 
     if (wasSounding) {
         // Op 1, "disable seq player", with a fade. A duration of 0 here is an immediate disable
@@ -302,25 +384,41 @@ void BeginSwitch(int32_t zoneIndex, const char* reason, int32_t rsX, int32_t rsY
         sState = STATE_FADING;
     } else {
         sGapTicks = 0;
-        StartTrack(PickTrack(zoneIndex), fadeInUnits);
+        StartTrack(sPendingSeqId, fadeInUnits);
     }
 
-    RecordEvent("transition from=%s to=%s track=0x%X reason=%s fade_out=%d fade_in=%d gap=%d "
-                "rs=%d,%d pos=%.0f,%.0f,%.0f n=%d frame=%u",
-                from == NO_ZONE ? "none" : ZoneName(from), ZoneName(zoneIndex), PickTrack(zoneIndex), reason,
-                fadeOutUnits, fadeInUnits, sGapTicks, rsX, rsY, pos.x, pos.y, pos.z, sTransitions,
-                gPlayState != nullptr ? gPlayState->state.frames : 0u);
+    char tiles[32];
+    RsMusic_FormatTiles(tiles, sizeof(tiles), rsX, rsY);
+    RecordEvent("transition from=%s to=%s track=0x%X first_visit=%d reason=%s fade_out=%d fade_in=%d gap=%d "
+                "rs=%s pos=%.0f,%.0f,%.0f n=%d frame=%u",
+                from == NO_ZONE ? "none" : ZoneName(from), ZoneName(zoneIndex), sPendingSeqId,
+                sPendingFirstVisit ? 1 : 0, reason, fadeOutUnits, fadeInUnits, sGapTicks, tiles, pos.x, pos.y,
+                pos.z, sTransitions, gPlayState != nullptr ? gPlayState->state.frames : 0u);
+
+    // Logged after the transition it belongs to, so the channel reads in the order things happened.
+    // This line fires on exactly the tick the flag is spent, and never for a boundary Link merely
+    // clipped - clipping produces no switch, so it never reaches BeginSwitch at all. That is the
+    // assertion the agent loop makes about the first-visit rule; `rsmusic firstvisit` is the other
+    // half, reading the flag back.
+    if (sPendingFirstVisit) {
+        const RsMusicZone* z = RsMusicZones_At(zoneIndex);
+        RecordEvent("first_visit zone=%s flag=%d track=0x%X reason=%s frame=%u", ZoneName(zoneIndex),
+                    (int32_t)z->firstVisitFlag, sPendingSeqId, reason,
+                    gPlayState != nullptr ? gPlayState->state.frames : 0u);
+    }
 }
 
 void ResetState() {
     sState = STATE_IDLE;
     sActiveZone = NO_ZONE;
     sCandidateZone = NO_ZONE;
-    sPendingZone = NO_ZONE;
     sDwellTicks = 0;
     sGapTicks = 0;
     sGraceTicks = 0;
+    sPendingSeqId = NA_BGM_DISABLED;
+    sPendingFirstVisit = false;
     sPlayingSeqId = NA_BGM_DISABLED;
+    sPlayingFirstVisit = false;
 }
 
 // --- the per-frame handler ----------------------------------------------------------------------
@@ -360,16 +458,17 @@ void OnPlayerUpdateMusic() {
     int32_t rsX = 0;
     int32_t rsY = 0;
     WorldToRs(scene, pos.x, pos.z, &rsX, &rsY);
-    const int32_t winner = ResolveZone(rsX, rsY, pos.y);
+    const int32_t winner = ResolveZone(play->sceneNum, HasSurfaceAnchor(scene), rsX, rsY, pos.y);
     if (winner == NO_ZONE) {
         return; // no fallback in the table - nothing sensible to do, and nothing worth breaking
     }
 
-    // 1. Finish a switch that is sitting in its quiet gap.
+    // 1. Finish a switch that is sitting in its quiet gap. It starts sPendingSeqId, the track chosen
+    //    back in BeginSwitch - not a fresh pick, which would spend a second first-visit flag and
+    //    could play something other than what the transition line announced.
     if (sState == STATE_FADING) {
         if (--sGapTicks <= 0) {
-            StartTrack(PickTrack(sPendingZone),
-                       FadeUnits(CVarGetFloat(CVAR_RS_MUSIC_FADE_IN, RS_MUSIC_FADE_IN_DEFAULT)));
+            StartTrack(sPendingSeqId, FadeUnits(CVarGetFloat(CVAR_RS_MUSIC_FADE_IN, RS_MUSIC_FADE_IN_DEFAULT)));
         }
         return; // no zone decisions while a switch is mid-flight
     }
@@ -427,21 +526,40 @@ void OnPlayerUpdateMusic() {
         } else {
             sCandidateZone = NO_ZONE;
             sDwellTicks = 0;
-            RecordEvent("warp_same_zone zone=%s reason=%s rs=%d,%d frame=%u", ZoneName(winner), reason, rsX, rsY,
+            char tiles[32];
+            RsMusic_FormatTiles(tiles, sizeof(tiles), rsX, rsY);
+            RecordEvent("warp_same_zone zone=%s reason=%s rs=%s frame=%u", ZoneName(winner), reason, tiles,
                         play->state.frames);
         }
         return;
     }
 
-    // 4. While yielded, wait for player 0 to go quiet. The dwell machinery below still runs, so a
-    //    zone change during an override is taken as soon as it earns its dwell - that is the
-    //    "re-assert when it goes quiet OR the zone changes" rule, with the dwell attached so a
-    //    cutscene that pans Link across a boundary for half a second does not cut its own music.
-    if (sState == STATE_YIELDED && live == NA_BGM_DISABLED) {
-        // Restart from the top rather than resuming - see ZoneDirector.h on why the asymmetry with
-        // combat ducking is deliberate.
-        sState = STATE_IDLE;
-        BeginSwitch(winner, "override_release", rsX, rsY, pos);
+    // 4. While yielded, wait for player 0 to go quiet. THAT IS THE ONLY THING THAT ENDS A YIELD.
+    //
+    //    #90 section 13 originally said "re-assert when it goes quiet OR the zone changes", and P0
+    //    implemented the second half with the dwell attached to it. The clause was deleted on
+    //    2026-09-09 and this is where it used to be. Two reasons:
+    //
+    //      - Taken literally it lets a cutscene which walks Link across a boundary have its own
+    //        music cut out from under it. P0's dwell narrowed that window without closing it: a
+    //        cutscene that parks him in a new zone for longer than the dwell still loses its music.
+    //      - It bought nothing. The release path below calls BeginSwitch with a FRESHLY COMPUTED
+    //        winner, so the correct zone plays the moment the override ends whether or not the
+    //        clause exists. Its only effect was to let the director interrupt an override that had
+    //        not finished.
+    //
+    //    So while yielded the dwell is held at zero rather than left counting toward a switch that
+    //    must not happen, and this returns before the dwell block further down.
+    if (sState == STATE_YIELDED) {
+        if (live == NA_BGM_DISABLED) {
+            // Restart from the top rather than resuming - see ZoneDirector.h on why the asymmetry
+            // with combat ducking is deliberate.
+            sState = STATE_IDLE;
+            BeginSwitch(winner, "override_release", rsX, rsY, pos);
+        } else {
+            sCandidateZone = NO_ZONE;
+            sDwellTicks = 0;
+        }
         return;
     }
 
@@ -467,9 +585,6 @@ void OnPlayerUpdateMusic() {
         return;
     }
     if (++sDwellTicks >= SecondsToTicks(CVarGetFloat(CVAR_RS_MUSIC_DWELL, RS_MUSIC_DWELL_DEFAULT))) {
-        if (sState == STATE_YIELDED) {
-            sState = STATE_IDLE; // take player 0 back; the zone genuinely changed under the override
-        }
         BeginSwitch(winner, "dwell", rsX, rsY, pos);
     }
 }
@@ -520,8 +635,33 @@ extern "C" void RsMusic_NotifyWarped(const char* reason) {
     sWarpReason = (reason != nullptr) ? reason : "warp";
 }
 
+extern "C" void RsMusic_FormatTiles(char* buf, uint32_t size, int32_t rsX, int32_t rsY) {
+    if (buf == nullptr || size == 0) {
+        return;
+    }
+    if (rsX == RS_NO_TILE || rsY == RS_NO_TILE) {
+        std::snprintf(buf, size, "none");
+        return;
+    }
+    std::snprintf(buf, size, "%d,%d", rsX, rsY);
+}
+
 extern "C" int32_t RsMusic_TransitionCount(void) {
     return sTransitions;
+}
+
+// Records a bookmark and returns it. It does NOT touch sTransitions, and there is deliberately no
+// way to: an unresettable counter makes "the count did not move" a strictly stronger assertion than
+// a resettable one. The subcommand that calls this was named `reset` through P0 and reset nothing,
+// which read as a broken feature to the first human who tried it; the behaviour was right and the
+// name was wrong (#90, human tuning pass 2026-09-09).
+extern "C" int32_t RsMusic_MarkBaseline(void) {
+    sBaseline = sTransitions;
+    return sBaseline;
+}
+
+extern "C" int32_t RsMusic_Baseline(void) {
+    return sBaseline;
 }
 
 extern "C" int32_t RsMusic_Probe(int16_t* sceneId, int32_t* rsX, int32_t* rsY, int32_t* zoneIndex) {
@@ -546,14 +686,15 @@ extern "C" int32_t RsMusic_Probe(int16_t* sceneId, int32_t* rsX, int32_t* rsY, i
         *rsY = y;
     }
     if (zoneIndex != nullptr) {
-        *zoneIndex = ResolveZone(x, y, player->actor.world.pos.y);
+        *zoneIndex = ResolveZone(gPlayState->sceneNum, HasSurfaceAnchor(scene), x, y, player->actor.world.pos.y);
     }
     return 1;
 }
 
 extern "C" const char* RsMusic_Describe(void) {
     if (!Enabled()) {
-        std::snprintf(sDescription, sizeof(sDescription), "rsmusic on=0 transitions=%d", sTransitions);
+        std::snprintf(sDescription, sizeof(sDescription), "rsmusic on=0 transitions=%d baseline=%d", sTransitions,
+                      sBaseline);
         return sDescription;
     }
     int16_t sceneId = -1;
@@ -562,15 +703,69 @@ extern "C" const char* RsMusic_Describe(void) {
     int32_t winner = NO_ZONE;
     const int32_t inZone = RsMusic_Probe(&sceneId, &rsX, &rsY, &winner);
     const int32_t dwellTarget = SecondsToTicks(CVarGetFloat(CVAR_RS_MUSIC_DWELL, RS_MUSIC_DWELL_DEFAULT));
+    char tiles[32];
+    RsMusic_FormatTiles(tiles, sizeof(tiles), rsX, rsY);
     std::snprintf(sDescription, sizeof(sDescription),
-                  "rsmusic on=1 scene=0x%X opted_in=%d state=%s zone=%s track=0x%X winner=%s "
-                  "candidate=%s dwell=%d/%d rs=%d,%d fade_out=%d fade_in=%d transitions=%d",
+                  "rsmusic on=1 scene=0x%X opted_in=%d state=%s zone=%s track=0x%X first_visit=%d winner=%s "
+                  "candidate=%s dwell=%d/%d rs=%s fade_out=%d fade_in=%d transitions=%d baseline=%d",
                   sceneId, inZone, StateName(sState), sActiveZone == NO_ZONE ? "none" : ZoneName(sActiveZone),
-                  sPlayingSeqId, winner == NO_ZONE ? "none" : ZoneName(winner),
-                  sCandidateZone == NO_ZONE ? "none" : ZoneName(sCandidateZone), sDwellTicks, dwellTarget, rsX, rsY,
+                  sPlayingSeqId, sPlayingFirstVisit ? 1 : 0, winner == NO_ZONE ? "none" : ZoneName(winner),
+                  sCandidateZone == NO_ZONE ? "none" : ZoneName(sCandidateZone), sDwellTicks, dwellTarget, tiles,
                   FadeUnits(CVarGetFloat(CVAR_RS_MUSIC_FADE_OUT, RS_MUSIC_FADE_OUT_DEFAULT)),
-                  FadeUnits(CVarGetFloat(CVAR_RS_MUSIC_FADE_IN, RS_MUSIC_FADE_IN_DEFAULT)), sTransitions);
+                  FadeUnits(CVarGetFloat(CVAR_RS_MUSIC_FADE_IN, RS_MUSIC_FADE_IN_DEFAULT)), sTransitions, sBaseline);
     return sDescription;
+}
+
+/*
+ * The same state as RsMusic_Describe, in grouped lines: director, zone and track, tunables,
+ * counters. Rendered here rather than in MusicConsole.cpp because this is where the state is, and
+ * because both console sinks have to say the same thing.
+ *
+ * Every line stays single-line key=value. Splitting is for the human reading an ImGui console that
+ * does not wrap; greppability is for the agent loop, and the two are not in tension.
+ */
+extern "C" int32_t RsMusic_DescribeLine(int32_t index, char* buf, uint32_t size) {
+    if (buf == nullptr || size == 0) {
+        return 0;
+    }
+    int16_t sceneId = -1;
+    int32_t rsX = 0;
+    int32_t rsY = 0;
+    int32_t winner = NO_ZONE;
+    const int32_t inZone = RsMusic_Probe(&sceneId, &rsX, &rsY, &winner);
+    const bool on = Enabled();
+
+    switch (index) {
+        case 0:
+            std::snprintf(buf, size, "status.director on=%d state=%s scene=0x%X opted_in=%d", on ? 1 : 0,
+                          StateName(sState), sceneId, inZone);
+            return 1;
+        case 1:
+        {
+            char tiles[32];
+            RsMusic_FormatTiles(tiles, sizeof(tiles), rsX, rsY);
+            std::snprintf(buf, size, "status.zone active=%s track=0x%X first_visit=%d winner=%s candidate=%s rs=%s",
+                          sActiveZone == NO_ZONE ? "none" : ZoneName(sActiveZone), sPlayingSeqId,
+                          sPlayingFirstVisit ? 1 : 0, winner == NO_ZONE ? "none" : ZoneName(winner),
+                          sCandidateZone == NO_ZONE ? "none" : ZoneName(sCandidateZone), tiles);
+            return 1;
+        }
+        case 2:
+            std::snprintf(buf, size, "status.tuning dwell=%d/%d fade_out=%d fade_in=%d gap=%d grace=%d", sDwellTicks,
+                          SecondsToTicks(CVarGetFloat(CVAR_RS_MUSIC_DWELL, RS_MUSIC_DWELL_DEFAULT)),
+                          FadeUnits(CVarGetFloat(CVAR_RS_MUSIC_FADE_OUT, RS_MUSIC_FADE_OUT_DEFAULT)),
+                          FadeUnits(CVarGetFloat(CVAR_RS_MUSIC_FADE_IN, RS_MUSIC_FADE_IN_DEFAULT)), sGapTicks,
+                          sGraceTicks);
+            return 1;
+        case 3:
+            // since= is the number a run actually asserts on. transitions= is monotonic and cannot be
+            // zeroed; baseline= is the bookmark `rsmusic baseline` took.
+            std::snprintf(buf, size, "status.counters transitions=%d baseline=%d since=%d dropped=%d", sTransitions,
+                          sBaseline, sTransitions - sBaseline, sEventsDropped);
+            return 1;
+        default:
+            return 0;
+    }
 }
 
 extern "C" int32_t RsMusic_TakeEvent(char* buf, uint32_t size) {

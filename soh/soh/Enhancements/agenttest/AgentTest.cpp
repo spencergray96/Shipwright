@@ -66,20 +66,24 @@
  *   roomdist <event>                     the distance-based room trigger requested or finished a room
  *                                        change (sturdy-bassoon#6 Exp 4), with the two centre distances
  *                                        that decided it
- *   rs_music <event>                     the zone music director did something (sturdy-bassoon#90 P0).
+ *   rs_music <event>                     the zone music director did something (sturdy-bassoon#90).
  *                                        The one that matters is
- *                                        `transition from=<zone> to=<zone> track=0x<hex> reason=<why>
- *                                        fade_out=<units> fade_in=<units> gap=<ticks> rs=<x>,<y>
- *                                        pos=<x>,<y>,<z> n=<count> frame=<n>` - reason is dwell |
- *                                        activate | reassert | scene_load | teleport |
- *                                        override_release, fades are in 1/30 s units (the engine's own
- *                                        8-bit field), rs= is RS absolute surface tiles and pos= OoT
- *                                        world units, so a rect can be checked against where Link
- *                                        actually was. Also `yield`/`track_gone`/`disabled`. THE AGENT
- *                                        LOOP CANNOT HEAR ANYTHING - this channel is the only way a
- *                                        music phase closes without a human at the keyboard, and
- *                                        `warp_same_zone` is a teleport that landed in the zone Link
- *                                        was already in - deliberately NOT a switch.
+ *                                        `transition from=<zone> to=<zone> track=0x<hex>
+ *                                        first_visit=<0|1> reason=<why> fade_out=<units>
+ *                                        fade_in=<units> gap=<ticks> rs=<x>,<y> pos=<x>,<y>,<z>
+ *                                        n=<count> frame=<n>` - reason is dwell | activate |
+ *                                        reassert | scene_load | teleport | override_release, fades
+ *                                        are in 1/30 s units (the engine's own 8-bit field), rs= is
+ *                                        RS absolute surface tiles and pos= OoT world units, so a
+ *                                        rect can be checked against where Link actually was. Also
+ *                                        `yield`/`track_gone`/`disabled`, and `first_visit zone=<z>
+ *                                        flag=<n> track=0x<hex> reason=<why>` on the one tick a
+ *                                        zone's one-shot opener is spent - which happens on
+ *                                        ACTIVATION and so never fires for a boundary Link merely
+ *                                        clipped. THE AGENT LOOP CANNOT HEAR ANYTHING - this channel
+ *                                        is the only way a music phase closes without a human at the
+ *                                        keyboard, and `warp_same_zone` is a teleport that landed in
+ *                                        the zone Link was already in - deliberately NOT a switch.
  *                                        counting `transition` lines is how the negative is asserted:
  *                                        cross a boundary and come back inside the dwell window, and
  *                                        there must be ZERO of them
@@ -200,7 +204,7 @@
  *                                          candidate must be before the change is taken. While armed the
  *                                          En_Holl planes stand down, so the two triggers are measured one
  *                                          at a time
- *   agenttest music [status|where|zones|scenes|on|off|dwell <s>|fadeout <s>|fadein <s>|reset]
+ *   agenttest music [status|where|zones|scenes|firstvisit|on|off|dwell <s>|fadeout <s>|fadein <s>|baseline]
  *                                          the zone music director's console surface (sturdy-bassoon#90).
  *                                          `where` is the one to reach for first: it prints Link's
  *                                          position in OoT world units AND in RS absolute surface tiles,
@@ -208,7 +212,14 @@
  *                                          checked against where he actually is. dwell/fadeout/fadein
  *                                          write the CVars (there is no `set` command in this build) and
  *                                          echo what the engine will really get - a fade is an 8-bit
- *                                          field in units of 1/30 s, so it clamps at 8.5 seconds
+ *                                          field in units of 1/30 s, so it clamps at 8.5 seconds.
+ *                                          `baseline` bookmarks the transition count and `status`
+ *                                          reports transitions=/baseline=/since=; it does NOT zero the
+ *                                          counter, which is what makes "the count did not move" a
+ *                                          strong assertion (it was called `reset` through P0 and never
+ *                                          reset anything). `firstvisit` reports each one-shot opener's
+ *                                          world flag and whether it has been spent - clear one with
+ *                                          `agenttest worldflag <n> 0` to re-test
  *   agenttest mark <text>                  write a marker, for bracketing checkpoints in the log
  *
  * Command-file consumption pauses while an injection is in progress, so queued lines run in order.
@@ -1730,7 +1741,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "journal <id|all> [runs]|parse <text...>|badcheck|overlay [on|off|all|<id>]|"
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
-              "music [status|where|zones|scenes|on|off|dwell <s>|fadeout <s>|fadein <s>|reset] | "
+              "music [status|where|zones|scenes|firstvisit|on|off|dwell <s>|fadeout <s>|fadein <s>|baseline] | "
             "save <fileNum> | loadsave <fileNum> | mark <text>";
     }
     return 1;
@@ -1760,7 +1771,7 @@ void RegisterAgentTest() {
               "journal <id|all> [runs]|parse <text...>|badcheck|overlay [on|off|all|<id>]|"
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
-              "music [status|where|zones|scenes|on|off|dwell <s>|fadeout <s>|fadein <s>|reset] | "
+              "music [status|where|zones|scenes|firstvisit|on|off|dwell <s>|fadeout <s>|fadein <s>|baseline] | "
               "save <fileNum> | loadsave <fileNum> | mark <text>. walk/press inject controller 1 for N frames and end "
               "with an input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });

@@ -57,6 +57,17 @@ typedef enum WorldFlagId {
                                         // the same reason 3844 exists for the third: an option that
                                         // renders is not the same claim as an option that DISPATCHES,
                                         // and the last row is the one a layout bug loses (#59).
+    WORLD_FLAG_MUSIC_FIRST_VISIT_SETTLEMENT = 3847,
+    // The `settlement` music zone's first-visit one-shot (#90 P1, section 10). Named in
+    // sturdy-bassoon/tools/music/zones.json; the generator emits this enumerator into
+    // MusicZoneTable.cpp and never invents a number.
+    //
+    // DEBUG BAND ON PURPOSE, and this is the one music flag that will not survive: the zone it
+    // belongs to is POC content over a stretch of terrain that is a density stand-in rather than
+    // geography, so it goes when those rects go. A first-visit flag for a REAL zone belongs in the
+    // production band - it is durable player progress ("I have been to Varrock"), exactly the kind
+    // of thing this band is not for. Being in the debug band also means `quest debugwipe` clears
+    // it, which happens to be how a run re-tests the first visit without editing a save.
 } WorldFlagId;
 
 #define WORLD_FLAG_IS_DEBUG(flag) ((flag) >= WORLD_FLAG_DEBUG_FIRST)
@@ -81,5 +92,8 @@ RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_FOUR >= WORLD_FLAG_DEBUG_FIRST && WORLD_FLAG_D
                  "WORLD_FLAG_DEBUG_FOUR must sit in the debug band");
 RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_TWIN >= WORLD_FLAG_DEBUG_FIRST && WORLD_FLAG_DEBUG_TWIN < WORLD_FLAG_MAX,
                  "WORLD_FLAG_DEBUG_TWIN must sit in the debug band");
+RS_STATIC_ASSERT(WORLD_FLAG_MUSIC_FIRST_VISIT_SETTLEMENT >= WORLD_FLAG_DEBUG_FIRST &&
+                     WORLD_FLAG_MUSIC_FIRST_VISIT_SETTLEMENT < WORLD_FLAG_MAX,
+                 "WORLD_FLAG_MUSIC_FIRST_VISIT_SETTLEMENT must sit in the debug band");
 
 #endif // SOH_RS_WORLD_FLAG_IDS_H
