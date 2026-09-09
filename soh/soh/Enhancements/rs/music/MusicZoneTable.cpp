@@ -74,9 +74,15 @@ const RsZoneRect kNorthMarchRects[] = {
  * An accident worth knowing about rather than relying on: vanilla combat music only ducks a track
  * whose sSeqFlags entry has bit 0 set (Audio_SetSequenceMode, code_800EC960.c). KOKIRI (0x11) and
  * GERUDO_VALLEY (0x11) have it; KAKARIKO_KID (0x10) and LONLON (0x00) do not. So this fixture
- * demonstrates both behaviours without anyone choosing that, and no imported RS track will duck
- * at all - Audio_GetSeqFlags returns 0 for every id past the vanilla range. See AUDIO_SYSTEM.md
- * section 5 for the per-actor VB_DETECT_BGM_ENEMY lever that is the deliberate control.
+ * demonstrates both behaviours without anyone choosing that.
+ *
+ * It stays an accident after #91, which is the part to design away: the gate reads
+ * gActiveSeqs[0].seqId, and Audio_StartSequence stores the u8 id REQUESTED there
+ * (code_800F9280.c:65) rather than the resolved custom id it hands the audio thread (:61). So a
+ * custom RS track played through the seqToPlay back door ducks or does not duck according to the
+ * vanilla placeholder id passed with it. Make that an explicit field on RsZoneTrack rather than a
+ * side effect. AUDIO_SYSTEM.md section 5 has the detail and the per-actor VB_DETECT_BGM_ENEMY
+ * lever that is the deliberate per-encounter control.
  */
 const RsZoneTrack kSettlementTracks[] = {
     { NA_BGM_KAKARIKO_KID, RS_ZONE_COND_ANY, 0 },
