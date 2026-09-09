@@ -66,6 +66,26 @@
  *   roomdist <event>                     the distance-based room trigger requested or finished a room
  *                                        change (sturdy-bassoon#6 Exp 4), with the two centre distances
  *                                        that decided it
+ *   rs_music <event>                     the zone music director did something (sturdy-bassoon#90 P0).
+ *                                        The one that matters is
+ *                                        `transition from=<zone> to=<zone> track=0x<hex> reason=<why>
+ *                                        fade_out=<units> fade_in=<units> gap=<ticks> rs=<x>,<y>
+ *                                        pos=<x>,<y>,<z> n=<count> frame=<n>` - reason is dwell |
+ *                                        activate | reassert | scene_load | teleport |
+ *                                        override_release, fades are in 1/30 s units (the engine's own
+ *                                        8-bit field), rs= is RS absolute surface tiles and pos= OoT
+ *                                        world units, so a rect can be checked against where Link
+ *                                        actually was. Also `yield`/`track_gone`/`disabled`. THE AGENT
+ *                                        LOOP CANNOT HEAR ANYTHING - this channel is the only way a
+ *                                        music phase closes without a human at the keyboard, and
+ *                                        `warp_same_zone` is a teleport that landed in the zone Link
+ *                                        was already in - deliberately NOT a switch.
+ *                                        counting `transition` lines is how the negative is asserted:
+ *                                        cross a boundary and come back inside the dwell window, and
+ *                                        there must be ZERO of them
+ *   rs_music <line>                      one line of MusicConsole_Run output per marker, from
+ *                                        `agenttest music ...`. Same renderer as the human `rsmusic`
+ *                                        console command, so the two cannot drift
  *   state scene=0x<hex> room=<n> entrance=0x<hex> pos=<x>,<y>,<z> yaw=<n> age=<adult|child> time=0x<hex>
  *         night=<0|1> rupees=<n> rupees_pending=<n> frame=<n> cam_at=<x>,<y>,<z> cam_eye=<x>,<y>,<z>
  *         cam_setting=<n> cam_mode=<n> cam_dist=<f> name="<scene name>"
@@ -180,6 +200,15 @@
  *                                          candidate must be before the change is taken. While armed the
  *                                          En_Holl planes stand down, so the two triggers are measured one
  *                                          at a time
+ *   agenttest music [status|where|zones|scenes|on|off|dwell <s>|fadeout <s>|fadein <s>|reset]
+ *                                          the zone music director's console surface (sturdy-bassoon#90).
+ *                                          `where` is the one to reach for first: it prints Link's
+ *                                          position in OoT world units AND in RS absolute surface tiles,
+ *                                          plus which zone wins there, which is how a zone rect gets
+ *                                          checked against where he actually is. dwell/fadeout/fadein
+ *                                          write the CVars (there is no `set` command in this build) and
+ *                                          echo what the engine will really get - a fade is an 8-bit
+ *                                          field in units of 1/30 s, so it clamps at 8.5 seconds
  *   agenttest mark <text>                  write a marker, for bracketing checkpoints in the log
  *
  * Command-file consumption pauses while an injection is in progress, so queued lines run in order.
@@ -217,6 +246,8 @@
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/actortiers/ActorTiers.h"
 #include "soh/Enhancements/roomdist/RoomDist.h"
+#include "soh/Enhancements/rs/music/MusicConsole.h"
+#include "soh/Enhancements/rs/music/ZoneDirector.h"
 #include "soh/Enhancements/worldstate/WorldFlags.h"
 #include "soh/Enhancements/rs/quest/QuestStore.h"
 #include "soh/Enhancements/rs/quest/QuestPredicate.h"
@@ -741,6 +772,17 @@ void OnGameFrameUpdateAgentTest() {
             WriteMarker(std::string("roomdist ") + event);
         }
     }
+    // Zone music director events (sturdy-bassoon#90 P0), drained the same way and for the same
+    // reason. This is not decoration: the agent loop screenshots and reads FPS and cannot hear a
+    // thing, so without this channel every phase of the music work needs a human at the keyboard
+    // to close. The director keeps a small ring rather than one slot because a switch can emit a
+    // yield and a transition on the same tick.
+    {
+        char event[256];
+        while (RsMusic_TakeEvent(event, sizeof(event))) {
+            WriteMarker(std::string("rs_music ") + event);
+        }
+    }
     const int16_t room = gPlayState->roomCtx.curRoom.num;
     if (room != sLastRoom) {
         if (sLastRoom >= 0) {
@@ -1075,6 +1117,11 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             player->yaw = static_cast<int16_t>(yaw);
         }
         player->linearVelocity = 0.0f;
+        // Tell the zone music director this was a teleport rather than a walk (sturdy-bassoon#90
+        // s7). It switches immediately instead of waiting out the dwell timer, which is the whole
+        // point of the signal being explicit: inferring it from a large position delta would
+        // misfire on fast travel and on cutscene camera moves.
+        RsMusic_NotifyWarped("teleport");
         return EmitState(output);
     }
     if (args.size() >= 3 && args[1] == "walk") {
@@ -1612,6 +1659,31 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         }
         return rc;
     }
+    // The zone music director's surface (sturdy-bassoon#90 P0). Same parser and renderer as the
+    // human `rsmusic` console command - MusicConsole_Run - so the two cannot drift; the only
+    // difference is the sink: every line becomes its own `rs_music <line>` marker.
+    if (args.size() >= 2 && args[1] == "music") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        std::vector<std::string> lines;
+        const int32_t rc = MusicConsole_Run(sub, lines);
+        for (const std::string& line : lines) {
+            WriteMarker("rs_music " + line); // written verbatim - it is not a format string
+            if (output) {
+                if (!output->empty()) {
+                    *output += " | ";
+                }
+                // Doubled for the same reason as the `quest` sink above: ConsoleWindow hands a
+                // handler's `output` to vsnprintf as the FORMAT string when the command is typed.
+                for (char c : line) {
+                    *output += c;
+                    if (c == '%') {
+                        *output += '%';
+                    }
+                }
+            }
+        }
+        return rc;
+    }
     // The NPC dialogue surface (sturdy-bassoon#58 P3 / D18). Same arrangement as `quest` above:
     // one implementation (RsNpcConsole_Run) behind two sinks, so the human command and the agent
     // markers cannot drift. Read-only - nothing here writes quest or world state; picking a
@@ -1658,6 +1730,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "journal <id|all> [runs]|parse <text...>|badcheck|overlay [on|off|all|<id>]|"
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
+              "music [status|where|zones|scenes|on|off|dwell <s>|fadeout <s>|fadein <s>|reset] | "
             "save <fileNum> | loadsave <fileNum> | mark <text>";
     }
     return 1;
@@ -1687,6 +1760,7 @@ void RegisterAgentTest() {
               "journal <id|all> [runs]|parse <text...>|badcheck|overlay [on|off|all|<id>]|"
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
+              "music [status|where|zones|scenes|on|off|dwell <s>|fadeout <s>|fadein <s>|reset] | "
               "save <fileNum> | loadsave <fileNum> | mark <text>. walk/press inject controller 1 for N frames and end "
               "with an input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });
