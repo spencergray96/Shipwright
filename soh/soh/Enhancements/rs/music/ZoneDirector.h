@@ -20,6 +20,8 @@
  *      the candidate changes the timer resets. When the timer expires with the candidate
  *      unchanged, the switch happens.
  *   4. A switch is stop-with-a-fade, a beat of quiet, then start-with-a-fade.
+ *   5. Within the active zone, when the playing track ends, the next one out of that zone's
+ *      SHUFFLE BAG starts the same way.
  *
  * WHY THE DWELL TIMER EXISTS, because this is the first thing a future refactor deletes: it is not
  * debounce for its own sake. Running *along* a zone border must not switch the music, and clipping
@@ -71,6 +73,40 @@
  * walk in, hear thirty seconds of it, walk out, and it is spent. The flag lives in the project's own
  * world-flag store (worldstate/WorldFlags.h, #54); there is deliberately no new SaveManager section
  * and no new save format.
+ *
+ * THE SHUFFLE BAG (#90 P2) is how a multi-track zone decides what to play next: shuffle the zone's
+ * track list, play through it, reshuffle when it empties. NOT pure random - pure random repeats
+ * often enough to be noticeable, and "the music repeats" is the complaint this whole feature exists
+ * to fix. On a reshuffle, if the first entry would repeat the track that just finished, it is
+ * swapped with another; that one line is the entire point of preferring a bag to a die, and it is
+ * the first thing a later "simplification" deletes, so the reason is written beside it in the .cpp.
+ * The first-visit opener counts as the just-played track for that guard, so the bag's first draw
+ * after the opener cannot repeat it.
+ *
+ * Bag state is PER ZONE, IN MEMORY, and PERSISTS ACROSS LEAVING AND RE-ENTERING A ZONE within a
+ * session - including across a scene load, which is why ResetState() deliberately does not touch it.
+ * Without that, a zone you dip in and out of would replay its opener forever. It is discarded on
+ * reload because it is not save data and must not become any: it is a preference about what to hear
+ * next, not a fact about the world.
+ *
+ * ONE END-OF-TRACK HANDLER, TWO TRIGGERS. A track ending is one event, not two behaviours:
+ *
+ *   - the DURATION for the playing track (RsZoneTrack::lengthSec) expires, or
+ *   - player 0 goes quiet on its own,
+ *
+ * whichever comes first, and the `advance` marker names which one fired. The duration table stays
+ * THE mechanism (#90 section 9); the engine's end-of-track signal is used where it happens to be
+ * available and is never depended on - vanilla BGM appears never to end, and that is recorded as
+ * INFERRED rather than byte-verified. Having one handler is what makes the fade question have one
+ * answer: if the trigger was "went quiet" there is nothing left to fade out of, and if it was the
+ * timer, the handler asks func_800FA0B4 whether player 0 is still sounding and fades if it is.
+ *
+ * A TRACK THAT NEVER STARTS IS NOT A TRACK THAT ENDED. A bad sequence id leaves player 0 quiet
+ * immediately, and a naive "quiet means advance" would walk the whole bag at frame rate. The
+ * director will not treat quiet as an ending unless it has actually SEEN that track sounding on
+ * player 0 at least once; until then quiet is `track_gone`, the P0 diagnostic that names the id, and
+ * the bag does not move. (The start-grace window is not that test on its own: for the first tick or
+ * two after a play command, quiet is what a perfectly good track looks like too.)
  *
  * COST WHILE OFF. One CVar read per frame and nothing else; no scene is modified, and the vanilla
  * loader keeps setting the music it always set.
@@ -146,9 +182,33 @@ int32_t RsMusic_Probe(int16_t* sceneId, int32_t* rsX, int32_t* rsY, int32_t* zon
 int32_t RsMusic_TransitionCount(void);
 
 /*
+ * How many times the queue has advanced WITHIN a zone this session - the shuffle bag moving on,
+ * not the zone changing.
+ *
+ * COUNTED SEPARATELY FROM TRANSITIONS ON PURPOSE, and this is load-bearing rather than tidy. The
+ * negative assertion every run of this feature makes is "cross a boundary, come back inside the
+ * dwell, and `transitions` did not move". Folding an in-zone advance into that counter would make
+ * it tick up on its own while a multi-track zone plays, and the strongest assertion the feature has
+ * would start reporting noise. Also monotonic, and `baseline` bookmarks it too.
+ */
+int32_t RsMusic_AdvanceCount(void);
+
+/*
+ * One line per zone describing its shuffle bag: the shuffled order, how far through it the zone is,
+ * and the track that just played out of it. Writes line `index` and returns 1; returns 0 once
+ * `index` is past the last zone, so a caller loops until it gets 0.
+ *
+ * The `advance` marker already makes a full bag cycle reconstructable from the log alone, which is
+ * the requirement - this is for reading the bag's state at a moment without waiting for it to move.
+ */
+int32_t RsMusic_BagLine(int32_t index, char* buf, uint32_t size);
+
+/*
  * The bookmark half of that assertion: `RsMusic_MarkBaseline` remembers the current count and
  * returns it, `RsMusic_Baseline` reads the bookmark back (0 = never marked, i.e. session start).
  * A run marks a baseline, walks, and checks that `transitions - baseline` is what it expects.
+ * (It bookmarks the advance count at the same moment, so `status.counters` can report both
+ * differences from one mark.)
  *
  * Note what this is NOT: it does not touch the counter. The console subcommand that calls it was
  * called `reset` through P0 and reset nothing, which cost a human real confusion - it is `baseline`

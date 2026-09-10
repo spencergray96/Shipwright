@@ -76,7 +76,27 @@
  *                                        are in 1/30 s units (the engine's own 8-bit field), rs= is
  *                                        RS absolute surface tiles and pos= OoT world units, so a
  *                                        rect can be checked against where Link actually was. Also
- *                                        `yield`/`track_gone`/`disabled`, and `first_visit zone=<z>
+ *                                        `advance zone=<z> from=0x<hex> track=0x<hex>
+ *                                        trigger=<duration|quiet> bag=<n>/<size> len=<sec> ...` every
+ *                                        time a multi-track zone's queue moves on WITHOUT the zone
+ *                                        changing (sturdy-bassoon#90 P2) - `trigger` names which of
+ *                                        the two triggers for the one end-of-track handler fired, and
+ *                                        `bag=` is the draw within the current shuffle bag, so a whole
+ *                                        cycle reconstructs from the log with no polling. Advances are
+ *                                        counted apart from transitions on purpose, so the negative
+ *                                        assertion below is not polluted by a zone simply playing.
+ *                                        Also `yield`/`track_gone`/`clock_reset`/`disabled`, and
+ *                                        `first_visit zone=<z>
+ *                                        flag=<n> track=0x<hex> reason=<why>` on the one tick a
+ *                                        zone's one-shot opener is spent - which happens on
+ *                                        ACTIVATION and so never fires for a boundary Link merely
+ *                                        clipped. THE AGENT LOOP CANNOT HEAR ANYTHING - this channel
+ *                                        is the only way a music phase closes without a human at the
+ *                                        keyboard, and `warp_same_zone` is a teleport that landed in
+ *                                        the zone Link was already in - deliberately NOT a switch.
+ *                                        counting `transition` lines is how the negative is asserted:
+ *                                        cross a boundary and come back inside the dwell window, and
+ *                                        there must be ZERO of them
  *                                        flag=<n> track=0x<hex> reason=<why>` on the one tick a
  *                                        zone's one-shot opener is spent - which happens on
  *                                        ACTIVATION and so never fires for a boundary Link merely
@@ -204,7 +224,7 @@
  *                                          candidate must be before the change is taken. While armed the
  *                                          En_Holl planes stand down, so the two triggers are measured one
  *                                          at a time
- *   agenttest music [status|where|zones|scenes|firstvisit|on|off|dwell <s>|fadeout <s>|fadein <s>|baseline]
+ *   agenttest music [status|where|zones|scenes|bags|firstvisit|on|off|dwell <s>|fadeout <s>|fadein <s>|baseline]
  *                                          the zone music director's console surface (sturdy-bassoon#90).
  *                                          `where` is the one to reach for first: it prints Link's
  *                                          position in OoT world units AND in RS absolute surface tiles,
@@ -219,7 +239,13 @@
  *                                          strong assertion (it was called `reset` through P0 and never
  *                                          reset anything). `firstvisit` reports each one-shot opener's
  *                                          world flag and whether it has been spent - clear one with
- *                                          `agenttest worldflag <n> 0` to re-test
+ *                                          `agenttest worldflag <n> 0` to re-test. `bags` prints each
+ *                                          zone's shuffle bag - the shuffled order, how far through it
+ *                                          the zone is, what it played last - for reading a bag at a
+ *                                          moment; a whole bag CYCLE is reconstructable from the
+ *                                          `advance` markers alone, which is what a run asserts on,
+ *                                          because polling costs a round trip per sample and a cycle
+ *                                          runs for minutes
  *   agenttest mark <text>                  write a marker, for bracketing checkpoints in the log
  *
  * Command-file consumption pauses while an injection is in progress, so queued lines run in order.
@@ -1741,7 +1767,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "journal <id|all> [runs]|parse <text...>|badcheck|overlay [on|off|all|<id>]|"
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
-              "music [status|where|zones|scenes|firstvisit|on|off|dwell <s>|fadeout <s>|fadein <s>|baseline] | "
+              "music [status|where|zones|scenes|bags|firstvisit|on|off|dwell <s>|fadeout <s>|fadein <s>|baseline] | "
             "save <fileNum> | loadsave <fileNum> | mark <text>";
     }
     return 1;
@@ -1771,7 +1797,7 @@ void RegisterAgentTest() {
               "journal <id|all> [runs]|parse <text...>|badcheck|overlay [on|off|all|<id>]|"
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
-              "music [status|where|zones|scenes|firstvisit|on|off|dwell <s>|fadeout <s>|fadein <s>|baseline] | "
+              "music [status|where|zones|scenes|bags|firstvisit|on|off|dwell <s>|fadeout <s>|fadein <s>|baseline] | "
               "save <fileNum> | loadsave <fileNum> | mark <text>. walk/press inject controller 1 for N frames and end "
               "with an input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });

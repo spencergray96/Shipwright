@@ -90,10 +90,10 @@ int32_t MusicConsole_Run(const std::vector<std::string>& args, std::vector<std::
     const std::string sub = args.empty() ? std::string("status") : args[0];
 
     if (sub == "status") {
-        // Four grouped lines rather than one, because the ImGui console does not wrap and P0's
-        // single line had to be read by dragging the window out to full width. RsMusic_Describe()
-        // still exists and is still one line - that is the right shape for a marker or the echo
-        // after `on`, and the wrong shape for a human.
+        // Grouped lines rather than one, because the ImGui console does not wrap and P0's single
+        // line had to be read by dragging the window out to full width. RsMusic_Describe() still
+        // exists and is still one line - that is the right shape for a marker or the echo after
+        // `on`, and the wrong shape for a human.
         char line[256];
         for (int32_t i = 0; RsMusic_DescribeLine(i, line, sizeof(line)); i++) {
             lines.emplace_back(line);
@@ -178,6 +178,24 @@ int32_t MusicConsole_Run(const std::vector<std::string>& args, std::vector<std::
                  (uint32_t)(uint16_t)s->sceneId, (s->flags & RS_SCENE_FLAG_NO_SURFACE_ANCHOR) ? 0 : 1,
                  (int32_t)s->rsOriginX, (int32_t)s->rsOriginY, (int32_t)s->unitsPerTile);
         }
+        return 0;
+    }
+
+    if (sub == "bags") {
+        // Every zone's shuffle bag: the shuffled order, how far through it we are, and what it
+        // played last. The `advance` marker already makes a full cycle reconstructable from the log
+        // alone - which is the requirement, because polling costs a harness round trip per sample
+        // and a cycle is minutes long. This is for reading the bag at a moment without waiting for
+        // it to move, and for seeing the refill's back-to-back guard in the order itself.
+        char line[256];
+        int32_t emitted = 0;
+        for (int32_t i = 0; RsMusic_BagLine(i, line, sizeof(line)); i++) {
+            lines.emplace_back(line);
+            emitted++;
+        }
+        // Last, so the count witnesses that the loop ran rather than heading a list that may be
+        // empty for an uninteresting reason - the same shape `firstvisit` uses.
+        Addf(lines, "bags count=%d", emitted);
         return 0;
     }
 
@@ -289,14 +307,15 @@ void RegisterMusicConsole() {
     console->AddCommand(
         "rsmusic",
         { MusicCommandHandler,
-          "Zone-based overworld music (sturdy-bassoon#90): status | where | zones | scenes | firstvisit | "
-          "on | off | dwell <sec> | fadeout <sec> | fadein <sec> | baseline. `where` prints Link's "
+          "Zone-based overworld music (sturdy-bassoon#90): status | where | zones | scenes | bags | "
+          "firstvisit | on | off | dwell <sec> | fadeout <sec> | fadein <sec> | baseline. `where` prints Link's "
           "position in both OoT world units and RS absolute tiles plus the zone that wins there - "
           "that is how you check a rect against where he actually is. Fades are an 8-bit field in "
           "units of 1/30 s, so they clamp at 8.5 seconds and the reported unit count is what the "
           "engine really gets. `baseline` bookmarks the transition count so `status` can report the "
           "difference; it does NOT zero the counter, on purpose.",
-          { { "status|where|zones|scenes|firstvisit|on|off|dwell|fadeout|fadein|baseline", Ship::ArgumentType::TEXT },
+          { { "status|where|zones|scenes|bags|firstvisit|on|off|dwell|fadeout|fadein|baseline",
+              Ship::ArgumentType::TEXT },
             { "seconds", Ship::ArgumentType::TEXT, true } } });
 }
 

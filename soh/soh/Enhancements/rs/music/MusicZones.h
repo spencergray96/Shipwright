@@ -68,6 +68,23 @@ extern "C" {
 /* `firstVisitFlag` on a zone with no first-visit track. Not 0: 0 is a real WorldFlagId. */
 #define RS_ZONE_NO_FIRST_VISIT (-1)
 
+/*
+ * The ceiling on the table, because the director's shuffle bags (#90 P2) are fixed-size statics.
+ *
+ * THE GENERATOR READS THESE TWO NUMBERS OUT OF THIS HEADER and refuses a table that exceeds
+ * either. That is the only reason they are safe to raise: change them here, rebuild, and the
+ * generator's limit moves with the code's, so a table can never grow past the array that holds its
+ * state and start reading somebody else's.
+ *
+ * They are not engine limits - nothing in OoT knows this feature exists. They are the size of the
+ * per-zone bag state (about 24 bytes a zone, so the ceiling costs ~1.5 KB of BSS, which is
+ * nothing). If a real world needs more zones than this, raise the number. If the count ever gets
+ * large enough for a flat array to be silly, the alternative is a bag keyed by zone name in a
+ * small map - which costs an allocation the director deliberately does not make today.
+ */
+#define RS_MUSIC_MAX_ZONES 64
+#define RS_MUSIC_MAX_TRACKS_PER_ZONE 16
+
 /* An axis-aligned rectangle in RS absolute surface tiles, INCLUSIVE on all four edges.
  * (x0,y0) is the south-west corner and (x1,y1) the north-east one, because y grows north. */
 typedef struct RsZoneRect {
@@ -79,8 +96,28 @@ typedef struct RsZoneRect {
 typedef struct RsZoneTrack {
     uint16_t seqId;      /* NA_BGM_* today; a custom sequence number after #91 */
     uint16_t conditions; /* RS_ZONE_COND_* - not read yet */
-    uint16_t lengthSec;  /* 0 = "plays until stopped". Not read yet: #90 P2's queue advances on this
-                          * table rather than on end-of-track detection; see AUDIO_SYSTEM.md. */
+
+    /*
+     * How long this track plays before the queue advances, in seconds. Read since #90 P2.
+     *
+     * 0 STILL MEANS "PLAYS UNTIL STOPPED", so a zone whose tracks are all 0 never advances - which
+     * is what every zone did through P1 and remains a legitimate authored choice, not a hole.
+     *
+     * IT IS A DURATION TABLE, NOT A MEASURED LENGTH. #90 section 9 chose it over end-of-track
+     * detection deliberately. For a looping vanilla NA_BGM_* id this number is a POLICY - "let
+     * this play for a minute, then move on" - because the sequence data loops and would not end on
+     * its own. For an imported RS track (#91) it will be the track's real length, which the
+     * importer already has to know: a Looped="false" sequence requires a Length in seconds.
+     *
+     * The director does also use the engine's end-of-track signal, where it happens to be
+     * available: player 0 going quiet advances the queue too. That is opportunistic, never the
+     * mechanism. See ZoneDirector.h, "one end-of-track handler, two triggers".
+     *
+     * ALL-OR-NOTHING WITHIN A ZONE. The generator refuses a zone that mixes 0 with non-zero,
+     * because such a queue advances until it draws the 0 and then silently stops advancing for the
+     * rest of the session - a dead end that looks exactly like the feature not being finished.
+     */
+    uint16_t lengthSec;
 } RsZoneTrack;
 
 typedef struct RsMusicZone {
@@ -122,8 +159,9 @@ typedef struct RsMusicZone {
      * with no forced completion. Enter, hear thirty seconds of the intended opener, leave, come
      * back: you get the normal track, because the flag is already gone.
      *
-     * A single entry rather than an array because it is a seed, not a list: in P2 it seeds the
-     * shuffle bag instead of a random pick.
+     * A single entry rather than an array because it is a seed, not a list. Since #90 P2 that is
+     * literal: playing the opener records it as the zone bag's just-played track, so the bag's
+     * very first draw cannot repeat it.
      */
     const RsZoneTrack* firstVisitTrack;
 } RsMusicZone;

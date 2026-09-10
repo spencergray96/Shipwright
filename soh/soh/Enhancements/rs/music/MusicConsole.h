@@ -22,8 +22,8 @@
 // (It is not a substitute for one - whether it sounds right is still a human call.)
 //
 // `args[0]` is the subcommand:
-//   status                the live director state, in four grouped lines - director, zone and
-//                         track, tunables, counters. Grouped rather than one line because the
+//   status                the live director state, in grouped lines - director, zone, the track
+//                         and its queue position, tunables, counters. Grouped rather than one because the
 //                         ImGui console does not wrap and one 200-character line means dragging
 //                         the window out to full width to read it. Every LINE is still
 //                         single-line key=value, which is what the marker channel needs;
@@ -32,6 +32,11 @@
 //                         "check a rect against where he actually is" tool
 //   zones                 one line per table entry: priority, scene binding, rects, tracks
 //   scenes                the per-scene opt-in list and each scene's RS coordinate anchor
+//   bags                  every zone's shuffle bag: the shuffled order, how far through it the
+//                         zone is, and what it played last. The `advance` marker already makes a
+//                         whole bag cycle reconstructable from the log without polling, which is
+//                         what a run asserts on; this is for reading a bag at a moment, and for
+//                         seeing the refill's back-to-back guard in the order itself
 //   firstvisit            every zone with a one-shot opener: its world flag and whether that
 //                         flag is spent yet. The assertable form of "the opener was NOT consumed
 //                         by clipping the boundary, and WAS consumed on activation"

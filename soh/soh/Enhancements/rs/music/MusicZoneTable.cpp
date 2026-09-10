@@ -51,7 +51,8 @@ namespace {
  * TWO THINGS LIVE IN THIS FILE AND THEY HAVE OPPOSITE LIFETIMES.
  *
  * The FORMAT is permanent: rects in RS absolute tiles, priorities, the fallback, the optional
- * scene binding, the first-visit flag, the per-scene opt-in. Build on it.
+ * scene binding, the first-visit flag, the per-scene opt-in, the track list and its durations.
+ * Build on it.
  *
  * The CONTENT below is a throwaway POC and is meant to be DELETED, not migrated. See
  * content_status.
@@ -70,6 +71,10 @@ namespace {
  * So RECTS ARE NAMED AFTER THE FIXTURE, NEVER AFTER A RUNESCAPE PLACE. P0 set that precedent
  * deliberately (settlement / west_fields / north_march / wilderness rather than lumbridge) so
  * that nothing downstream inherits a false premise about where it is.
+ *
+ * The TRACK LISTS AND DURATIONS added in P2 are POC on the same terms. They are vanilla OoT
+ * sequences chosen to be told apart in a log, and their durations are a policy rather than a
+ * measurement - see track_durations. Every one of them is replaced when #91 lands real audio.
  *
  * What makes throwing this away cheap is the coordinate frame: a rect authored against today's
  * fixture lives in the same frame as a rect authored against real Falador later. Replacing POC
@@ -129,14 +134,50 @@ namespace {
  * 5. Y bands (`yMinUnits` / `yMaxUnits`, OoT world units) are for 'which floor of a building'.
  * Vertical space above ground inherits the ground zone, so leave them out unless you mean
  * it. Underground is separate scenes and binds by `sceneId` instead.
+ *
+ * 6. WITHIN A ZONE, EITHER EVERY TRACK CARRIES A `lengthSec` OR NONE OF THEM DOES. The
+ * first-visit track counts as one of the zone's tracks for this. 0 means 'plays until
+ * stopped', so a mixed list advances happily until it draws the 0 and then stops advancing
+ * for the rest of the session - a dead end that looks exactly like the feature being
+ * unfinished. The generator refuses the mix.
+ *
+ * 7. IF A ZONE HAS A FIRST-VISIT OPENER AND THE OPENER IS ALSO IN THE NORMAL TRACK LIST, the
+ * shuffle bag will not follow the opener with itself - playing the opener counts as the
+ * zone's just-played track for the back-to-back guard. That is a property worth relying on:
+ * it means the intended opener can be an ordinary member of the rotation afterwards without
+ * the first visit sounding like a stutter. `settlement` below is authored that way on
+ * purpose, because it is the only arrangement in which the guard is observable.
  */
 
 /*
- * `lengthSec` and `conditions` are in the format and are NOT read by the runtime today.
- * `lengthSec` is what #90 P2's queue will advance on (a duration table, not end-of-track
- * detection - see AUDIO_SYSTEM.md section 7). `conditions` is the day/night and weather axis,
- * kept as a field so adding that axis later costs nothing. Emitting them now is deliberate;
- * reading them is not this phase's job.
+ * `lengthSec` IS A DURATION TABLE, NOT A MEASURED LENGTH, and #90 section 9 chose it over
+ * end-of-track detection deliberately. Read since P2.
+ *
+ * For a looping vanilla NA_BGM_* id the number is a POLICY - 'let this play for about this
+ * long, then move on' - because the sequence data loops and would not end on its own. (That
+ * vanilla BGM never ends is recorded as INFERRED rather than byte-verified, in AUDIO_SYSTEM.md
+ * section 7; nothing here depends on resolving it, which is the point of a duration table.)
+ *
+ * For an imported RS track (#91) it will be the track's real length, which the importer already
+ * has to know: a Looped="false" sequence requires a Length in seconds. So #91 should EMIT
+ * durations rather than making somebody stopwatch them.
+ *
+ * 0 keeps its old meaning, 'plays until stopped', and a zone whose tracks are all 0 never
+ * advances at all. That is what every zone did through P1 and it stays valid - `north_march`
+ * below is authored that way on purpose so the behaviour has a live example rather than only a
+ * sentence.
+ *
+ * The director also advances when sequence player 0 goes quiet on its own, whichever comes
+ * first. That is opportunistic and never the mechanism: see 'one end-of-track handler, two
+ * triggers' in ZoneDirector.h.
+ */
+
+/*
+ * `conditions` is in the format and is NOT read by the runtime. It is the day/night and weather
+ * axis (#90 non-goals), kept as a field so adding that axis later costs nothing. Emitting it now
+ * is deliberate; reading it is not this phase's job.
+ *
+ * (`lengthSec` used to be listed here. It is read as of P2 - see track_durations.)
  */
 
 /*
@@ -154,7 +195,8 @@ const RsZoneTrack kTracks_test_map_interior[] = {
  * POC. A rect strictly inside `settlement`, which is strictly inside `west_fields` - three priority levels
  * nested without a single donut-shaped union. It corresponds to no authored feature; it exists so priority
  * resolution is exercised by something that really is enclosed, which P0's table never had (its
- * `settlement` won on its own rect with nothing around it).
+ * `settlement` won on its own rect with nothing around it). Single track, no duration: a one-track zone
+ * that plays until you leave it, which is the P1 shape and still the right one for a small interior.
  */
 const RsZoneRect kRects_settlement_core[] = {
     { 3024, 3404, 3043, 3429, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
@@ -165,8 +207,10 @@ const RsZoneTrack kTracks_settlement_core[] = {
 
 /*
  * POC. The composited settlement, drawn to its WALL rather than to the grid-tool project's footprint -
- * authoring rule 1. Its first-visit track is the one-shot opener: heard once, on the first activation of
- * this zone, then never again.
+ * authoring rule 1. Multi-track since P2, and authored to make the opener interaction observable:
+ * NA_BGM_MARKET is BOTH the one-shot opener and an ordinary member of the rotation, so the shuffle bag's
+ * very first draw after the opener is the one place the back-to-back guard can be caught doing its job. If
+ * it ever draws 0x1D straight after the first-visit 0x1D, the guard is broken.
  *
  * Derivation:
  * `Lumbridge Settlement X3` is 62x79 tiles placed at terrain tile (56,64), and the composite rotates it 180
@@ -180,31 +224,45 @@ const RsZoneRect kRects_settlement[] = {
     { 3006, 3382, 3061, 3451, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_settlement[] = {
-    { NA_BGM_KAKARIKO_KID, RS_ZONE_COND_ANY, 0 },
+    { NA_BGM_KAKARIKO_KID, RS_ZONE_COND_ANY, 55 },
+    { NA_BGM_MARKET, RS_ZONE_COND_ANY, 45 },
+    { NA_BGM_SHOP, RS_ZONE_COND_ANY, 35 },
 };
-const RsZoneTrack kFirstVisit_settlement[] = { { NA_BGM_MARKET, RS_ZONE_COND_ANY, 0 } };
+const RsZoneTrack kFirstVisit_settlement[] = { { NA_BGM_MARKET, RS_ZONE_COND_ANY, 45 } };
 
 /*
- * POC. The open ground the settlement stands in. Widened from P0's x 2944..2999 to cover the whole block,
- * so that the ground between the old footprint edge and the actual wall now sounds like the fields - which
- * is the audible form of authoring rule 1 and the one thing a teleport can demonstrate about it.
+ * POC. The open ground the settlement stands in, and the zone Link spawns in - which is why it carries the
+ * longest track list: it is where a full bag cycle can be watched without moving. Four tracks, all with
+ * durations, so one cycle plus the refill draw that follows it runs a little under four minutes. Widened
+ * from P0's x 2944..2999 to cover the whole block, so that the ground between the old footprint edge and
+ * the actual wall now sounds like the fields - the audible form of authoring rule 1 and the one thing a
+ * teleport can demonstrate about it.
  */
 const RsZoneRect kRects_west_fields[] = {
     { 2944, 3376, 3062, 3455, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_west_fields[] = {
-    { NA_BGM_KOKIRI, RS_ZONE_COND_ANY, 0 },
+    { NA_BGM_KOKIRI, RS_ZONE_COND_ANY, 45 },
+    { NA_BGM_SARIA_THEME, RS_ZONE_COND_ANY, 40 },
+    { NA_BGM_FIELD_MORNING, RS_ZONE_COND_ANY, 35 },
+    { NA_BGM_WINDMILL, RS_ZONE_COND_ANY, 50 },
 };
 
 /*
  * POC. Same x band as `west_fields`, different y band - kept from P0 because it is the check that proves
- * the north/south axis, which is the one that flips.
+ * the north/south axis, which is the one that flips. Since P2 it is also the LIVE EXAMPLE OF lengthSec 0:
+ * three tracks and not one duration between them, so it picks a track on activation and then never
+ * advances, however long you stand in it. That is P1's behaviour and it is still valid; it has a zone
+ * rather than only a sentence so a run can assert the negative against something that would obviously move
+ * if the rule were wrong.
  */
 const RsZoneRect kRects_north_march[] = {
     { 2944, 3456, 3062, 3519, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_north_march[] = {
     { NA_BGM_GERUDO_VALLEY, RS_ZONE_COND_ANY, 0 },
+    { NA_BGM_ZORA_DOMAIN, RS_ZONE_COND_ANY, 0 },
+    { NA_BGM_GORON_CITY, RS_ZONE_COND_ANY, 0 },
 };
 
 /*
@@ -253,7 +311,7 @@ const RsMusicZone kZones[] = {
         .firstVisitFlag = WORLD_FLAG_MUSIC_FIRST_VISIT_SETTLEMENT,
         .flags = 0,
         .rectCount = 1,
-        .trackCount = 1,
+        .trackCount = 3,
         .rects = kRects_settlement,
         .tracks = kTracks_settlement,
         .firstVisitTrack = kFirstVisit_settlement,
@@ -265,7 +323,7 @@ const RsMusicZone kZones[] = {
         .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
         .flags = 0,
         .rectCount = 1,
-        .trackCount = 1,
+        .trackCount = 4,
         .rects = kRects_west_fields,
         .tracks = kTracks_west_fields,
         .firstVisitTrack = NULL,
@@ -277,7 +335,7 @@ const RsMusicZone kZones[] = {
         .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
         .flags = 0,
         .rectCount = 1,
-        .trackCount = 1,
+        .trackCount = 3,
         .rects = kRects_north_march,
         .tracks = kTracks_north_march,
         .firstVisitTrack = NULL,
