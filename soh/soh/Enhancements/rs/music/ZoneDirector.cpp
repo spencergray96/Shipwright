@@ -53,9 +53,13 @@ extern PlayState* gPlayState;
 #define CVAR_RS_MUSIC_FADE_OUT CVAR_ENHANCEMENT("RsMusicFadeOutSec")
 #define CVAR_RS_MUSIC_FADE_IN CVAR_ENHANCEMENT("RsMusicFadeInSec")
 
-// Starting points to tune from (#90 section 6). Not measured, not sacred.
+// VALIDATED BY EAR, not starting points any more. #90 section 6 proposed 2.0/1.5/1.5; a human
+// listening pass on 2026-09-09 kept the dwell and the fade-in, and a second pass on 2026-09-10
+// raised the fade-out to 3.0 - at 1.5 s "it sounds like the songs fade to zero volume pretty
+// fast". This is why the two fades are separate knobs: the asymmetry is the tuned result, not an
+// oversight. Change these only from another listening pass, never from reading the code.
 #define RS_MUSIC_DWELL_DEFAULT 2.0f
-#define RS_MUSIC_FADE_OUT_DEFAULT 1.5f
+#define RS_MUSIC_FADE_OUT_DEFAULT 3.0f
 #define RS_MUSIC_FADE_IN_DEFAULT 1.5f
 
 namespace {
