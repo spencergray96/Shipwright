@@ -68,6 +68,12 @@ typedef enum WorldFlagId {
     // production band - it is durable player progress ("I have been to Varrock"), exactly the kind
     // of thing this band is not for. Being in the debug band also means `quest debugwipe` clears
     // it, which happens to be how a run re-tests the first visit without editing a save.
+    WORLD_FLAG_DEBUG_TREE_MILLER = 3848,
+    // The DYNAMIC REVEAL (sturdy-bassoon#96 P2). NPC_DEBUG_TREE's screen B has a fourth option
+    // whose `when` reads this flag, and the option that sets it is one of the other three. That is
+    // the WHOLE reveal mechanism - an ordinary world flag and an ordinary predicate, no new
+    // machinery - and it is why the unlock is PERMANENT: nothing in the system expires a flag.
+    // Expiring dialogue knowledge is out of scope for #96 by decision, not by oversight.
 } WorldFlagId;
 
 #define WORLD_FLAG_IS_DEBUG(flag) ((flag) >= WORLD_FLAG_DEBUG_FIRST)
@@ -95,5 +101,8 @@ RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_TWIN >= WORLD_FLAG_DEBUG_FIRST && WORLD_FLAG_D
 RS_STATIC_ASSERT(WORLD_FLAG_MUSIC_FIRST_VISIT_SETTLEMENT >= WORLD_FLAG_DEBUG_FIRST &&
                      WORLD_FLAG_MUSIC_FIRST_VISIT_SETTLEMENT < WORLD_FLAG_MAX,
                  "WORLD_FLAG_MUSIC_FIRST_VISIT_SETTLEMENT must sit in the debug band");
+RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_TREE_MILLER >= WORLD_FLAG_DEBUG_FIRST &&
+                     WORLD_FLAG_DEBUG_TREE_MILLER < WORLD_FLAG_MAX,
+                 "WORLD_FLAG_DEBUG_TREE_MILLER must sit in the debug band");
 
 #endif // SOH_RS_WORLD_FLAG_IDS_H

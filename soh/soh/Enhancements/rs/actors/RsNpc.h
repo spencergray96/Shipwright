@@ -23,6 +23,13 @@ typedef void (*RsNpcActionFunc)(struct RsNpc*, PlayState*);
 //
 // `ruleIndex` looks like a counter-example and is not: it is a CACHE of RsNpc_ResolveRule, rewritten
 // from the stores every frame in the idle state, never read across a transition.
+//
+// DIALOGUE TREES DID NOT ADD A FIELD (sturdy-bassoon#96), and that is deliberate. "Which node of
+// the conversation am I on" would have been the first real exception to the paragraph above; it is
+// not needed, because the OPEN TEXTBOX'S ID already says - a node box's id carries the node exactly
+// as the entry box's carries the rule, and a reply that leads somewhere opens on an id naming its
+// destination. The actor decodes both from `play->msgCtx.textId`. The consequence is the right one:
+// walking away mid-tree and re-talking restarts at entry resolution, which is what OoT does.
 typedef struct RsNpc {
     /* 0x0000 */ Actor actor;
     /* 0x014C */ ColliderCylinder collider;

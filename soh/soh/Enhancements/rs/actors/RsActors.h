@@ -13,17 +13,26 @@ struct RsDialogueRule;
 extern "C" {
 #endif
 
-// 1 when this rule's textbox would put its CHOICE on a second page. The dialogue validator calls it
-// at registration and refuses the definition, because a paginated choice changes what a
-// conversation does - the first A press turns the page instead of picking an option - while looking
-// completely correct. It lives here, with the renderer, so the check is the renderer's own
-// formatting run rather than a character count guessing at a 216-pixel budget.
-int32_t RsText_ChoiceWouldPaginate(const struct RsDialogueRule* rule);
+// 1 when this screen's textbox would put its CHOICE on a second page at `visibleCount` options. The
+// dialogue validator calls it at registration and refuses the definition, because a paginated
+// choice changes what a conversation does - the first A press turns the page instead of picking an
+// option - while looking completely correct. It lives here, with the renderer, so the check is the
+// renderer's own formatting run rather than a character count guessing at a 216-pixel budget.
+//
+// `visibleCount` is a parameter rather than `screen->optionCount` because gating (sturdy-bassoon#96
+// P2) makes the rendered count a RUNTIME fact: a four-option screen with two gated options presents
+// 2, 3 or 4, and 2 is the only one of those that goes through the AutoFormat path this measures.
+// Registration sweeps every count the screen can reach.
+int32_t RsText_ChoiceWouldPaginate(const struct RsDialogueRule* screen, int32_t visibleCount);
 
 // 1 when the BODY of a hand-laid-out choice (three or four options) needs a second row, which the
 // hand layout has no room for - the option rows are already spoken for. Replaced a 24-character cap
 // that stood in for a 216-pixel budget; same reason as above, same technique.
-int32_t RsText_BodyWouldWrap(const struct RsDialogueRule* rule);
+//
+// It measures the body ALONE, so `visibleCount` only selects whether the question is asked at all -
+// but it is taken as a parameter for the same reason its sibling does, so a caller sweeping counts
+// reads the same at both call sites.
+int32_t RsText_BodyWouldWrap(const struct RsDialogueRule* screen, int32_t visibleCount);
 
 // 1 when an option label is wider than its row. An option row is indented 32px, so the budget is
 // 184, not the 216 a full-width row gets - a difference no character count can express.

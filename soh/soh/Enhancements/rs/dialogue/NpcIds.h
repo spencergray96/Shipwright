@@ -58,6 +58,14 @@ typedef enum NpcId {
     NPC_DEBUG_FLOOR = 196, // the floor-convention fixture (sturdy-bassoon#94): a body, an option
                            // label and a reply that all carry `{floor:N}`, so one `npc dump` under
                            // each convention proves the substitution reaches all three.
+    NPC_DEBUG_TREE = 197,  // the dialogue-TREE fixture (sturdy-bassoon#96): an entry rule whose
+                           // reply leads into a two-screen tree that loops back on itself, and one
+                           // option that only exists after another has been taken. Every claim #96
+                           // makes, in one conversation.
+    NPC_DEBUG_PAGE = 198,  // the AUTHORED-PAGING fixture (#96 P3): a screen whose last option is
+                           // "More..." leading to a second page whose first is "Back". Paging is
+                           // content, not an engine feature - this is the proof it needs no
+                           // engine support, and the demonstration of what it costs an author.
 } NpcId;
 
 #define NPC_ID_IS_VALID(id) ((id) >= 0 && (id) < NPC_MAX)
@@ -78,5 +86,9 @@ RS_STATIC_ASSERT(NPC_DEBUG_FOUR >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_FOUR < NPC_MA
                  "NPC_DEBUG_FOUR must sit in the debug band");
 RS_STATIC_ASSERT(NPC_DEBUG_FLOOR >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_FLOOR < NPC_MAX,
                  "NPC_DEBUG_FLOOR must sit in the debug band");
+RS_STATIC_ASSERT(NPC_DEBUG_TREE >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_TREE < NPC_MAX,
+                 "NPC_DEBUG_TREE must sit in the debug band");
+RS_STATIC_ASSERT(NPC_DEBUG_PAGE >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_PAGE < NPC_MAX,
+                 "NPC_DEBUG_PAGE must sit in the debug band");
 
 #endif // SOH_RS_NPC_IDS_H

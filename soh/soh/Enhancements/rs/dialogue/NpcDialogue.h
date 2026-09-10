@@ -55,12 +55,58 @@ int32_t RsNpc_ResolveRule(int32_t npcId);
 // 1 when every predicate in rule `ruleIndex` is true. Out-of-range answers 0 quietly.
 int32_t RsNpc_RuleMatches(int32_t npcId, int32_t ruleIndex);
 
+// --- screens and navigation (sturdy-bassoon#96) -------------------------------------------------
+//
+// A SCREEN is a body plus up to four options. A rule and a node are the same struct; what differs
+// is how you arrive at one - a rule by MATCHING, a node by FOLLOWING an option's `next`. These
+// three calls are what let the renderer, the actor and the console all speak about "the screen
+// that is open" without any of them knowing which kind it is.
+
+// Which screen a text id names. Returns the RsScreenKind and writes the npc id and the rule/node
+// index; RS_SCREEN_NONE for an id outside our bands (and then the out params are untouched).
+// A pure decode: it does NOT check that the npc is registered or that the index exists.
+int32_t RsNpc_DecodeScreen(uint16_t textId, int32_t* npcId, int32_t* index);
+
+// The screen itself, or NULL for an unregistered npc, an unknown kind, or an index the definition
+// does not have. Never asserts - this is read while a textbox is opening and from a console.
+const RsDialogueRule* RsNpc_Screen(int32_t npcId, int32_t kind, int32_t index);
+
+// 1 when every predicate in the option's `when` list is true, so the option is OFFERED right now.
+// An ungated option (whenCount 0) is always 1. A NULL option answers 0.
+int32_t RsNpc_OptionVisible(const RsDialogueOption* option);
+
+// The DECLARED indices of the options a screen is offering right now, in order, written into `out`
+// (which must hold at least RS_DIALOGUE_MAX_OPTIONS). Returns how many.
+//
+// This is the ONE mapping between what the player sees and what the definition says, and every
+// surface goes through it: the renderer lays out exactly these labels, `msgCtx.choiceIndex` is an
+// index INTO THIS LIST rather than into the definition, and the actor maps it back here before it
+// runs an action. Two places computing it independently is how a gated menu picks the wrong option.
+int32_t RsNpc_VisibleOptions(const RsDialogueRule* screen, int32_t* out, int32_t max);
+
+// How many of a screen's options are UNGATED, i.e. the smallest visible count it can ever present.
+// Registration requires 2 on any screen with options; see NpcDialogue.cpp for why that is the
+// invariant rather than "no gate combination yields exactly one".
+int32_t RsNpc_UngatedOptionCount(const RsDialogueRule* screen);
+
 const char* RsNpc_ResultName(int32_t result);
 const char* RsNpc_ActionName(int32_t kind); // "none", "start_quest", "complete_quest", "set_world_flag"
+// "rule" or "node" for an RsScreenKind. One spelling, because it reaches three sinks that must
+// agree: a registration refusal names the array an author has to go and look in, `npc tree` keys
+// its `screen[…]`/`edge[…]` lines on it, and the actor's choice marker reports which kind of screen
+// the pick came from.
+const char* RsNpc_ScreenKindName(int32_t kind);
+
+// 1 when node `nodeIndex` is reachable from some entry rule by following `next` edges. Registration
+// refuses a definition with an unreachable node, so this is 1 for every node of a REGISTERED def -
+// which is the point: `npc tree` prints it, so the graph walk is asserted from a console rather
+// than inferred from whether a screen ever showed up in play.
+int32_t RsNpc_NodeReachable(int32_t npcId, int32_t nodeIndex);
 
 // One line, no newline, always NUL-terminated for len > 0:
-//   id=192 name=debug_giver tier=debug rules=5 rule=3 options=2 display="Debug: the giver"
+//   id=192 name=debug_giver tier=debug rules=5 rule=3 options=2 display="Debug: the giver" visible=2 nodes=0
 // An unregistered id still renders: id=1 name=- registered=0 rules=0 rule=-1
+// Fields added by a later phase are APPENDED, never inserted, so earlier acceptance regexes hold.
 void RsNpc_Describe(int32_t npcId, char* buf, size_t len);
 
 // Runs an option's action through the CHECKED quest API. Returns the QuestResult

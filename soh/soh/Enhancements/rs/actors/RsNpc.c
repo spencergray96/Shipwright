@@ -132,13 +132,31 @@ static void RsNpc_Wait(RsNpc* this, PlayState* play) {
     Actor_OfferTalk(&this->actor, play, RS_NPC_TALK_RANGE);
 }
 
+/* Follow an option's `next` edge, or close (sturdy-bassoon#96 P1). One helper because the same
+ * three-way decision is made twice: once when the option is picked, and again when its reply box is
+ * dismissed. */
+static void RsNpc_GoToNode(RsNpc* this, PlayState* play, s32 node) {
+    char line[128];
+
+    snprintf(line, sizeof(line), "rs_dialogue npc=%d event=node rule=%d node=%d", this->npcId, this->ruleIndex,
+             (int)node);
+    RsAgent_Marker(line);
+    Message_ContinueTextbox(play, RS_TEXT_NODE_ID(this->npcId, node));
+}
+
 static void RsNpc_Talk(RsNpc* this, PlayState* play) {
-    const RsNpcDef* def;
-    const RsDialogueRule* rule;
+    const RsDialogueRule* screen;
     const RsDialogueOption* option;
-    char line[160];
+    char line[224];
     u8 state = Message_GetState(&play->msgCtx);
+    u16 openId = play->msgCtx.textId;
+    s32 slots[RS_DIALOGUE_MAX_OPTIONS];
+    s32 visibleCount;
+    s32 screenKind;
+    s32 screenNpc = -1;
+    s32 screenIndex = -1;
     s32 choice;
+    s32 declared;
     s32 result;
 
     // Anything that closes the box from outside the conversation - a scene transition, damage,
@@ -154,28 +172,57 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
         if (!Message_ShouldAdvance(play)) {
             return;
         }
-        def = RsNpc_GetDef(this->npcId);
-        if (def == NULL || this->ruleIndex < 0 || this->ruleIndex >= def->ruleCount) {
+        /* WHICH SCREEN IS OPEN comes from the LIVE text id, not from a field on this actor
+         * (sturdy-bassoon#96). The entry box's id carries the rule that matched and a node box's
+         * carries the node, so the whole of "where am I in this conversation" is already on screen
+         * and the actor has nothing to remember - which is what keeps RsNpc.h's promise that
+         * nothing in this struct needs to survive a scene transition. Walk away mid-tree and
+         * re-talk, and entry resolution runs again, for free. */
+        screenKind = RsNpc_DecodeScreen(openId, &screenNpc, &screenIndex);
+        if (screenKind == RS_SCREEN_NONE || screenNpc != this->npcId) {
+            return; /* somebody else's box, or a reply box: not ours to pick from */
+        }
+        screen = RsNpc_Screen(this->npcId, screenKind, screenIndex);
+        if (screen == NULL) {
             this->actionFunc = RsNpc_Wait;
             return;
         }
-        rule = &def->rules[this->ruleIndex];
+        /* `choiceIndex` counts the rows the player can SEE, so it indexes the visible list, not the
+         * definition. Mapping it back through the same list the renderer laid out is the whole of
+         * gating's correctness (sturdy-bassoon#96 P2): get this wrong and a menu with a hidden
+         * option silently runs the action next to the one that was picked. */
+        visibleCount = RsNpc_VisibleOptions(screen, slots, RS_DIALOGUE_MAX_OPTIONS);
         choice = play->msgCtx.choiceIndex;
-        if (choice < 0 || choice >= rule->optionCount) {
+        if (choice < 0 || choice >= visibleCount) {
             return;
         }
-        option = &rule->options[choice];
+        declared = slots[choice];
+        option = &screen->options[declared];
+        /* ACTION -> REPLY -> NEXT. The action fires wherever navigation goes afterwards. */
         result = RsNpc_RunAction(option);
-        snprintf(line, sizeof(line), "rs_dialogue npc=%d event=choice rule=%d index=%d action=%s a=%d result=%s",
+        /* Fields are APPENDED, never inserted: `rule= index= action= a= result=` stay in the order
+         * every earlier phase's acceptance regex expects. On an entry rule with no gated options,
+         * `screen_index` equals `rule` and `option` equals `index`, so those runs keep matching
+         * verbatim - the new fields only start to differ where the new features are in play. */
+        snprintf(line, sizeof(line),
+                 "rs_dialogue npc=%d event=choice rule=%d index=%d action=%s a=%d result=%s screen=%s screen_index=%d "
+                 "option=%d visible=%d next=%d",
                  this->npcId, this->ruleIndex, (int)choice, RsNpc_ActionName(option->kind), option->a,
-                 Quest_ResultName(result));
+                 Quest_ResultName(result), RsNpc_ScreenKindName(screenKind), (int)screenIndex,
+                 (int)declared, (int)visibleCount, (int)option->next);
         RsAgent_Marker(line);
         if (option->reply != NULL) {
             /* SetDirectCopy, not SetDirect: a reply may carry a `{floor:N}` token
              * (sturdy-bassoon#94), and the moment it does, the string the box reads is COMPOSED
              * rather than the definition's own - so it needs storage that outlives this actor. */
             RsText_SetDirectCopy(option->reply);
-            Message_ContinueTextbox(play, RS_TEXT_DIRECT);
+            /* An option carrying BOTH a reply and a `next` opens the reply on an id that NAMES the
+             * pending node, so the destination rides on the open box rather than in a field here
+             * (NpcDialogueDef.h). A reply with nowhere to go afterwards keeps the plain id. */
+            Message_ContinueTextbox(play, option->next != RS_DLG_NO_NEXT ? RS_TEXT_REPLY_TO_NODE(option->next)
+                                                                        : RS_TEXT_DIRECT);
+        } else if (option->next != RS_DLG_NO_NEXT) {
+            RsNpc_GoToNode(this, play, option->next);
         } else {
             Message_CloseTextbox(play);
             this->actionFunc = RsNpc_Wait;
@@ -184,6 +231,12 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
     }
 
     if (state == TEXT_STATE_DONE && Message_ShouldAdvance(play)) {
+        /* The other half of the reply-then-navigate pair: the box that just finished says where to
+         * go next, in its own id. */
+        if (openId >= RS_TEXT_REPLY_TO_NODE_BASE && openId <= RS_TEXT_REPLY_TO_NODE_END) {
+            RsNpc_GoToNode(this, play, RS_TEXT_REPLY_TO_NODE_GET(openId));
+            return;
+        }
         RsNpc_Mark(this, "close");
         this->actionFunc = RsNpc_Wait;
     }

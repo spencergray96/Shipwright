@@ -64,6 +64,24 @@ bool ParseNpcId(const std::vector<std::string>& args, size_t index, int32_t* npc
     return true;
 }
 
+// One option line. `prefix` is "opt" for a rule's options and "node_opt" for a node's, so the two
+// arrays never collide in a grep and every pre-#96 assertion on `opt[R.I]=` still matches only
+// rule options.
+//
+// The fields after `reply=` are APPENDED for the same reason every other phase appended: earlier
+// acceptance regexes keep holding verbatim. `next=` is where the option navigates
+// (RS_DLG_NO_NEXT prints as -1, which is "close"); `when=` is how many predicates gate it and
+// `visible=` is what those predicates say RIGHT NOW - which is what makes the dynamic reveal
+// assertable from a console instead of from six screenshots.
+std::string OptionLine(const char* prefix, int32_t screenIndex, int32_t optionIndex, const RsDialogueOption& option) {
+    return std::string(prefix) + "[" + std::to_string(screenIndex) + "." + std::to_string(optionIndex) +
+           "]=" + RsNpc_ActionName(option.kind) + " a=" + std::to_string(option.a) + " label=\"" +
+           RsNpc_ComposeOptionLabel(option) + "\" reply=\"" +
+           (option.reply != nullptr ? RsNpc_ComposeOptionReply(option) : std::string("-")) +
+           "\" next=" + std::to_string(option.next) + " when=" + std::to_string(option.whenCount) +
+           " visible=" + std::to_string(RsNpc_OptionVisible(&option));
+}
+
 void Dump(int32_t npcId, std::vector<std::string>& lines) {
     const RsNpcDef* def = RsNpc_GetDef(npcId);
     const int32_t first = RsNpc_ResolveRule(npcId);
@@ -92,16 +110,94 @@ void Dump(int32_t npcId, std::vector<std::string>& lines) {
                             " value=" + std::to_string(QuestPredicate_Eval(&rule.when[i])));
         }
         for (int32_t i = 0; i < rule.optionCount; i++) {
-            const RsDialogueOption& option = rule.options[i];
             // COMPOSED, like `text=` above and for the same reason (D18): a label or a reply
             // carrying `{floor:N}` (#94) prints the words the player would read under the live
             // convention, so `region set us` then `npc dump` asserts the substitution directly.
-            lines.push_back("opt[" + std::to_string(r) + "." + std::to_string(i) +
-                            "]=" + RsNpc_ActionName(option.kind) + " a=" + std::to_string(option.a) + " label=\"" +
-                            RsNpc_ComposeOptionLabel(option) + "\" reply=\"" +
-                            (option.reply != nullptr ? RsNpc_ComposeOptionReply(option) : std::string("-")) + "\"");
+            lines.push_back(OptionLine("opt", r, i, rule.options[i]));
         }
     }
+    // The NODE array (#96), after every rule, so a dump reads in the order a conversation happens.
+    // A node has no `match=`/`first=` - it is never matched - and no `when`, which registration
+    // refuses on one; what it has instead is `reachable=`, the graph walk's verdict.
+    for (int32_t n = 0; n < def->nodeCount; n++) {
+        const RsDialogueNode& node = def->nodes[n];
+        int32_t slots[RS_DIALOGUE_MAX_OPTIONS];
+        const int32_t visible = RsNpc_VisibleOptions(&node, slots, RS_DIALOGUE_MAX_OPTIONS);
+        lines.push_back("node[" + std::to_string(n) + "]=" + std::to_string(node.optionCount) + "options ungated=" +
+                        std::to_string(RsNpc_UngatedOptionCount(&node)) + " visible=" + std::to_string(visible) +
+                        " reachable=" + std::to_string(RsNpc_NodeReachable(npcId, n)) + " text=\"" +
+                        RsNpc_ComposeRuleText(node) + "\"");
+        for (int32_t i = 0; i < node.optionCount; i++) {
+            lines.push_back(OptionLine("node_opt", n, i, node.options[i]));
+        }
+    }
+}
+
+// --- `npc tree` (#96 P3) ------------------------------------------------------------------------
+//
+// The GRAPH, printed. `npc dump` shows every screen's contents; this shows how they connect, which
+// is the thing loop-back and the dynamic reveal actually consist of - and printing it is what makes
+// them assertable from a console rather than from six screenshots. Same bargain `npc dump` struck
+// for first-match-wins.
+//
+// One `edge` line per option, whether or not it navigates: an option that closes is an edge to
+// `close`, and saying so beats leaving the reader to infer it from an absence. `visible=` is live,
+// so `npc tree` before and after the flag that reveals an option differ in exactly one field.
+int32_t Tree(int32_t npcId, std::vector<std::string>& lines) {
+    const RsNpcDef* def = RsNpc_GetDef(npcId);
+    int32_t reachable = 0;
+    int32_t edges = 0;
+    for (int32_t n = 0; n < def->nodeCount; n++) {
+        reachable += RsNpc_NodeReachable(npcId, n);
+    }
+    lines.push_back("op=tree id=" + std::to_string(npcId) + " name=" + def->name +
+                    " rules=" + std::to_string(def->ruleCount) + " nodes=" + std::to_string(def->nodeCount) +
+                    " reachable=" + std::to_string(reachable));
+
+    const int32_t first = RsNpc_ResolveRule(npcId);
+    for (int32_t r = 0; r < def->ruleCount; r++) {
+        const RsDialogueRule& rule = def->rules[r];
+        int32_t slots[RS_DIALOGUE_MAX_OPTIONS];
+        const int32_t visible = RsNpc_VisibleOptions(&rule, slots, RS_DIALOGUE_MAX_OPTIONS);
+        lines.push_back("screen[rule." + std::to_string(r) + "]=" + std::to_string(rule.optionCount) +
+                        "options ungated=" + std::to_string(RsNpc_UngatedOptionCount(&rule)) +
+                        " visible=" + std::to_string(visible) +
+                        " match=" + std::to_string(RsNpc_RuleMatches(npcId, r)) +
+                        " first=" + std::to_string(r == first ? 1 : 0));
+        for (int32_t i = 0; i < rule.optionCount; i++) {
+            const RsDialogueOption& option = rule.options[i];
+            lines.push_back("edge[rule." + std::to_string(r) + "." + std::to_string(i) + "]=" +
+                            (option.next == RS_DLG_NO_NEXT ? std::string("close")
+                                                           : "node." + std::to_string(option.next)) +
+                            " visible=" + std::to_string(RsNpc_OptionVisible(&option)) + " label=\"" +
+                            RsNpc_ComposeOptionLabel(option) + "\"");
+            edges++;
+        }
+    }
+    for (int32_t n = 0; n < def->nodeCount; n++) {
+        const RsDialogueNode& node = def->nodes[n];
+        int32_t slots[RS_DIALOGUE_MAX_OPTIONS];
+        const int32_t visible = RsNpc_VisibleOptions(&node, slots, RS_DIALOGUE_MAX_OPTIONS);
+        lines.push_back("screen[node." + std::to_string(n) + "]=" + std::to_string(node.optionCount) +
+                        "options ungated=" + std::to_string(RsNpc_UngatedOptionCount(&node)) +
+                        " visible=" + std::to_string(visible) +
+                        " reachable=" + std::to_string(RsNpc_NodeReachable(npcId, n)));
+        for (int32_t i = 0; i < node.optionCount; i++) {
+            const RsDialogueOption& option = node.options[i];
+            lines.push_back("edge[node." + std::to_string(n) + "." + std::to_string(i) + "]=" +
+                            (option.next == RS_DLG_NO_NEXT ? std::string("close")
+                                                           : "node." + std::to_string(option.next)) +
+                            " visible=" + std::to_string(RsNpc_OptionVisible(&option)) + " label=\"" +
+                            RsNpc_ComposeOptionLabel(option) + "\"");
+            edges++;
+        }
+    }
+    lines.push_back("op=tree id=" + std::to_string(npcId) + " edges=" + std::to_string(edges) +
+                    " nodes=" + std::to_string(def->nodeCount) + " reachable=" + std::to_string(reachable) +
+                    " unreachable=" + std::to_string(def->nodeCount - reachable));
+    // Nonzero only if a stranded node somehow registered, which the registration walk makes
+    // impossible - so a nonzero rc here is a claim that the gate is broken, not that the NPC is.
+    return reachable == def->nodeCount ? 0 : 1;
 }
 
 // Every live RS actor instance in the loaded scene. This is what shows that two PLACEMENTS of one
@@ -177,7 +273,7 @@ int32_t BadCheck(std::vector<std::string>& lines) {
     return clean == 0 ? 0 : 1;
 }
 
-const char* kUsage = "usage: npc list | dump <id> | resolve <id> | actors | badcheck";
+const char* kUsage = "usage: npc list | dump <id> | tree <id> | resolve <id> | actors | badcheck";
 
 } // namespace
 
@@ -211,6 +307,12 @@ int32_t RsNpcConsole_Run(const std::vector<std::string>& args, std::vector<std::
         }
         Dump(npcId, lines);
         return 0;
+    }
+    if (sub == "tree") {
+        if (!ParseNpcId(args, 1, &npcId, lines)) {
+            return 1;
+        }
+        return Tree(npcId, lines);
     }
     if (sub == "resolve") {
         if (!ParseNpcId(args, 1, &npcId, lines)) {
@@ -265,13 +367,15 @@ void RegisterNpcConsole() {
         return;
     }
     console->AddCommand("npc", { NpcCommandHandler,
-                                 "NPC dialogue (sturdy-bassoon#58 P3): list | dump <id> | resolve <id> | actors | "
-                                 "badcheck. dump prints every rule with each predicate's live value, which rule "
-                                 "MATCHES and which one SPEAKS (first match wins), and - for a rule carrying a "
-                                 "missing-steps clause - the list it would append right now; resolve prints the "
-                                 "speaking rule's composed body alone; actors lists the live RS actor instances in "
-                                 "the loaded scene; badcheck proves registration refuses malformed definitions.",
-                                 { { "list|dump|resolve|actors|badcheck", Ship::ArgumentType::TEXT },
+                                 "NPC dialogue (sturdy-bassoon#58 P3, #96): list | dump <id> | tree <id> | "
+                                 "resolve <id> | actors | badcheck. dump prints every rule with each predicate's "
+                                 "live value, which rule MATCHES and which one SPEAKS (first match wins), every "
+                                 "option's `next` and whether its own gate makes it visible right now, and the "
+                                 "NODE array a dialogue tree navigates through; tree prints the graph - every "
+                                 "screen, every edge and each node's reachability; resolve prints the speaking "
+                                 "rule's composed body alone; actors lists the live RS actor instances in the "
+                                 "loaded scene; badcheck proves registration refuses malformed definitions.",
+                                 { { "list|dump|tree|resolve|actors|badcheck", Ship::ArgumentType::TEXT },
                                    { "npc id", Ship::ArgumentType::TEXT, true } } });
 }
 

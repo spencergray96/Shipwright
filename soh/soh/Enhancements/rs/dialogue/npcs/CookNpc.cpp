@@ -66,16 +66,21 @@ const QuestPredicate sOfferWhen[] = {
     QP_QUEST_PREREQS_MET(QUEST_COOKS_ASSISTANT),
 };
 
+// Every row also states `next` (sturdy-bassoon#96), for the reason it states `missingOf`: a brace
+// list that stops early value-initialises the field to 0, and 0 is NODE 0 - a real screen on any
+// character that has a tree. RS_DLG_NO_NEXT is "this option ends the conversation", which is what
+// all four of the Cook's do; he is a flat rule table and has no nodes at all.
 const RsDialogueOption sHandOverOptions[] = {
     { "Here you are", RS_DLG_ACTION_COMPLETE_QUEST, QUEST_COOKS_ASSISTANT,
-      "Wonderful! Take these rupees - and use my range whenever you like." },
-    { "Not just yet", RS_DLG_ACTION_NONE, 0, "Do not keep the Duke waiting." },
+      "Wonderful! Take these rupees - and use my range whenever you like.", RS_DLG_NO_NEXT },
+    { "Not just yet", RS_DLG_ACTION_NONE, 0, "Do not keep the Duke waiting.", RS_DLG_NO_NEXT },
 };
 const RsDialogueOption sOfferOptions[] = {
     { "I will help", RS_DLG_ACTION_START_QUEST, QUEST_COOKS_ASSISTANT,
       "Bless you! I need an egg, a bucket of milk and a pot of flour, and the Duke sits down to eat "
-      "before long." },
-    { "Sorry, I am busy", RS_DLG_ACTION_NONE, 0, "Oh dear. Oh dear, oh dear." },
+      "before long.",
+      RS_DLG_NO_NEXT },
+    { "Sorry, I am busy", RS_DLG_ACTION_NONE, 0, "Oh dear. Oh dear, oh dear.", RS_DLG_NO_NEXT },
 };
 
 // Every row states `missingOf`, including the five that do not use one: a brace list that stopped

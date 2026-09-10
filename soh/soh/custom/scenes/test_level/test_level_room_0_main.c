@@ -52,6 +52,14 @@ ActorEntry test_level_room_0_header00_actorList[] = {
     // outside the 110-unit talk range of either.
     { ACTOR_RS_NPC, { 400, 20, 600 }, { 0, -0x4000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_FLOOR) },
 
+    // The dialogue-TREE fixtures (sturdy-bassoon#96). 197 is the tree proper - navigation,
+    // loop-back and the option that only appears once another has been taken; 198 is authored
+    // paging, "More..." and "Back". Placed at z=-600, between the givers at z=-200 and the Cook at
+    // z=-1000, and 800 units apart from each other: outside the 110-unit talk range of anything, so
+    // a run can screenshot one conversation without a second NPC ever offering to talk.
+    { ACTOR_RS_NPC, { -400, 20, -600 }, { 0, 0x4000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_TREE) },
+    { ACTOR_RS_NPC, { 400, 20, -600 }, { 0, -0x4000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_PAGE) },
+
     // Step 0 of the giver's quest. Its sibling (step 1) is in terrain_f2p_step2, so finishing the
     // quest requires both scenes — which is what makes "advancing in one scene is reflected in the
     // other" a thing the run has to do rather than a thing it can fake.

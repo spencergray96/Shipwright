@@ -97,46 +97,58 @@ constexpr int16_t RS_TEXTBOX_VANILLA_TEXHEIGHT = 512;
 // parameter rather than a read of the live setting because the registration-time checks below
 // measure the rule under EVERY convention - a box that fits in UK and paginates in US is a bug no
 // marker sees, and the caller that renders simply passes the live value.
-std::string BuildRuleText(const RsDialogueRule& rule, const std::string& body, int32_t convention) {
+// `slots` / `visibleCount` are the DECLARED indices of the options actually being offered
+// (sturdy-bassoon#96 P2), from RsNpc_VisibleOptions. They are passed in rather than recomputed
+// because the mapping between a rendered row and a definition option has to be the same list the
+// actor maps `msgCtx.choiceIndex` back through - two places computing it independently is how a
+// gated menu picks the wrong option.
+std::string BuildScreenText(const RsDialogueRule& screen, const std::string& body, int32_t convention,
+                            const int32_t* slots, int32_t visibleCount) {
     std::string text = body;
-    if (rule.optionCount >= 2) {
+    if (visibleCount >= 2) {
         // A two-way choice sits on the last two rows of a four-row box, so its body needs one BLANK
         // row before it; a three-way fills the last three rows and a four-way (in a five-row box)
         // the last four, so neither wants the blank. Getting this wrong pushes the last option off
         // the bottom of the box, where it is still selectable and simply cannot be read - a
         // rendering bug that looks like a content bug. The two in-tree three-way messages
         // (QoL/BetterSaveMenu.cpp) use exactly this spacing.
-        text += (rule.optionCount == 2) ? "&&" : "&";
-        text += (rule.optionCount == 4)   ? CustomMessage::FOUR_WAY_CHOICE()
-                : (rule.optionCount == 3) ? CustomMessage::THREE_WAY_CHOICE()
-                                          : CustomMessage::TWO_WAY_CHOICE();
+        text += (visibleCount == 2) ? "&&" : "&";
+        text += (visibleCount == 4)   ? CustomMessage::FOUR_WAY_CHOICE()
+                : (visibleCount == 3) ? CustomMessage::THREE_WAY_CHOICE()
+                                      : CustomMessage::TWO_WAY_CHOICE();
         text += "%g";
-        for (int32_t i = 0; i < rule.optionCount; i++) {
+        for (int32_t i = 0; i < visibleCount; i++) {
             if (i > 0) {
                 text += "&";
             }
-            text += RsFloorText_ExpandUnder(rule.options[i].label, convention);
+            text += RsFloorText_ExpandUnder(screen.options[slots[i]].label, convention);
         }
         text += "%w";
     }
+    // A visible count of ONE draws no choice block at all, so the screen degrades to a statement
+    // rather than to a cursor sitting on a row that does not exist. Registration makes that
+    // unreachable (the two-ungated rule, NpcDialogue.cpp) - this is the second lock on the same
+    // door, because the failure it guards against is invisible in a screenshot: the box looks
+    // right and the conversation does something else.
     return text;
 }
 
-CustomMessage BuildRuleMessage(const RsDialogueRule& rule) {
-    // The composed body (D26): the rule's own text, plus its missing-steps clause when it carries
+CustomMessage BuildScreenMessage(const RsDialogueRule& screen, const int32_t* slots, int32_t visibleCount) {
+    // The composed body (D26): the screen's own text, plus its missing-steps clause when it carries
     // one. Composed HERE rather than stored anywhere, from the global stores, at open time - which
     // is what keeps the entry textbox stateless and therefore safe with two NPCs in talk range.
     // The console prints this same function's output, so the two surfaces cannot drift.
     // RsNpc_ComposeRuleText has already expanded the BODY under the live convention; the labels are
-    // expanded by BuildRuleText, which is handed the same one.
-    const std::string text = BuildRuleText(rule, RsNpc_ComposeRuleText(rule), RsPrefs_GetFloorConvention());
+    // expanded by BuildScreenText, which is handed the same one.
+    const std::string text =
+        BuildScreenText(screen, RsNpc_ComposeRuleText(screen), RsPrefs_GetFloorConvention(), slots, visibleCount);
     // QUICKTEXT_ENABLE (control code 08). Two reasons, and the second is the load-bearing one:
     // a quest-giver's line is information, not drama, and - because the agent test loop advances a
     // textbox with a fixed-duration button injection - text that is still typing swallows the
     // press, since TEXT_STATE_CHOICE is only reached once msgMode is MSGMODE_TEXT_DONE. Instant
     // text makes the conversation deterministic to drive unattended.
     CustomMessage msg(std::string("\x08") + text);
-    if (rule.optionCount >= 3) {
+    if (visibleCount >= 3) {
         msg.Format();
     } else {
         msg.AutoFormat();
@@ -182,7 +194,10 @@ void RsText_OnOpenText(uint16_t* textId, bool* loadFromMessageTable) {
     // options turns it back on, at the bottom of this function.
     RsText_ApplyBoxGeometry(false);
 
-    if (id == RS_TEXT_DIRECT) {
+    // The direct-text slot, and the reply boxes that CONTINUE to a node when they are dismissed
+    // (#96 P1). Both render identically - the difference is entirely in what the actor does when
+    // the box closes, which it reads back off this same id.
+    if (id == RS_TEXT_DIRECT || (id >= RS_TEXT_REPLY_TO_NODE_BASE && id <= RS_TEXT_REPLY_TO_NODE_END)) {
         // Never a literal-prose fallback: an empty slot means an actor opened this id without
         // setting the text, which is a bug that must be visible rather than a blank box.
         CustomMessage msg = BuildPlainMessage(sDirectText != nullptr ? sDirectText : "<no direct text set>");
@@ -190,12 +205,13 @@ void RsText_OnOpenText(uint16_t* textId, bool* loadFromMessageTable) {
         *loadFromMessageTable = false;
         return;
     }
-    if (id < RS_TEXT_NPC_BASE || id > RS_TEXT_NPC_END) {
+
+    int32_t npcId = 0;
+    int32_t index = 0;
+    const int32_t kind = RsNpc_DecodeScreen(id, &npcId, &index);
+    if (kind == RS_SCREEN_NONE) {
         return;
     }
-
-    const int32_t npcId = RS_TEXT_NPC_GET_ID(id);
-    const int32_t ruleIndex = RS_TEXT_NPC_GET_RULE(id);
     const RsNpcDef* def = RsNpc_GetDef(npcId);
 
     // A diagnostic, never silence and never a plausible-looking wrong line. Init already shouted
@@ -206,21 +222,37 @@ void RsText_OnOpenText(uint16_t* textId, bool* loadFromMessageTable) {
         *loadFromMessageTable = false;
         return;
     }
-    if (ruleIndex < 0 || ruleIndex >= def->ruleCount) {
-        CustomMessage msg = BuildPlainMessage(
-            ("<npc " + std::to_string(npcId) + " has no rule " + std::to_string(ruleIndex) + ">").c_str());
+    const RsDialogueRule* screen = RsNpc_Screen(npcId, kind, index);
+    if (screen == nullptr) {
+        CustomMessage msg =
+            BuildPlainMessage(("<npc " + std::to_string(npcId) + " has no " + RsNpc_ScreenKindName(kind) + " " +
+                               std::to_string(index) + ">")
+                                  .c_str());
         msg.LoadIntoFont();
         *loadFromMessageTable = false;
         return;
     }
 
-    const RsDialogueRule& rule = def->rules[ruleIndex];
-    // The one place the box grows. Registration has already proven this rule renders inside it.
-    if (rule.optionCount == 4) {
+    // The options actually on offer right now (#96 P2). The renderer lays out exactly these, and
+    // the actor maps the cursor row back through the same list.
+    int32_t slots[RS_DIALOGUE_MAX_OPTIONS];
+    const int32_t visibleCount = RsNpc_VisibleOptions(screen, slots, RS_DIALOGUE_MAX_OPTIONS);
+
+    // The one place the box grows, and it keys off the VISIBLE count, not the declared one: a
+    // four-option screen showing three needs the four-row box, and a three-option screen can never
+    // need the five-row one. Registration has already proven this screen renders inside whichever
+    // it gets.
+    //
+    // Navigating from a three-option node to a four-option one sizes correctly because
+    // Message_ContinueTextbox calls Message_OpenText, so this hook fires on a continued box too,
+    // and RsText_ApplyBoxGeometry writes the LIVE height pair rather than only the targets -
+    // precisely because ContinueTextbox never calls Message_GrowTextbox. It snaps rather than
+    // animates, which mid-conversation is arguably better. Do not regress it.
+    if (visibleCount == 4) {
         RsText_ApplyBoxGeometry(true);
     }
 
-    CustomMessage msg = BuildRuleMessage(rule);
+    CustomMessage msg = BuildScreenMessage(*screen, slots, visibleCount);
     msg.LoadIntoFont();
     *loadFromMessageTable = false;
 }
@@ -343,7 +375,7 @@ extern "C" void RsAgent_Marker(const char* line) {
     AgentTest_WriteMarker(line);
 }
 
-extern "C" int32_t RsText_ChoiceWouldPaginate(const RsDialogueRule* rule) {
+extern "C" int32_t RsText_ChoiceWouldPaginate(const RsDialogueRule* screen, int32_t visibleCount) {
     // Asked at REGISTRATION, and it asks the renderer rather than guessing. A two-option body that
     // wraps to two lines pushes AutoFormatString past four lines, and its answer to that is
     // `"^&&\x1B"` - a page break BEFORE the choice. The box then renders perfectly and behaves
@@ -353,21 +385,29 @@ extern "C" int32_t RsText_ChoiceWouldPaginate(const RsDialogueRule* rule) {
     // A character cap would be a guess: the real budget is 216 PIXELS in a variable-width font, so
     // 32 characters of one string fits and 33 of another does not. Formatting the actual message
     // and looking for the '^' AutoFormatString would have inserted is the exact question.
-    if (rule == nullptr || rule->optionCount != 2 || rule->text == nullptr) {
+    if (screen == nullptr || visibleCount != 2 || screen->text == nullptr) {
         return 0; // a statement paginates harmlessly; a three- or four-option box goes through
                   // Format(), which never paginates, and is covered by RsText_BodyWouldWrap instead
     }
-    // This FORMATS the rule, so it reads every label. The validator only calls it after each label
-    // has been proven non-NULL, and this is the second lock on that door: the definitions most
-    // likely to reach a validator are the malformed ones, and a crash while deciding that a
+    // This FORMATS the screen, so it reads every label. The validator only calls it after each
+    // label has been proven non-NULL, and this is the second lock on that door: the definitions
+    // most likely to reach a validator are the malformed ones, and a crash while deciding that a
     // definition is bad looks exactly like a hang.
-    if (rule->options == nullptr) {
+    if (screen->options == nullptr || screen->optionCount < visibleCount) {
         return 0;
     }
-    for (int32_t i = 0; i < rule->optionCount; i++) {
-        if (rule->options[i].label == nullptr) {
+    for (int32_t i = 0; i < screen->optionCount; i++) {
+        if (screen->options[i].label == nullptr) {
             return 0;
         }
+    }
+    // The FIRST `visibleCount` options stand in for whichever ones gating leaves showing. That is
+    // faithful, not a shortcut: every label has already been proven to fit its 184-pixel row, so
+    // the choice block is exactly `visibleCount` rows whichever options are in it, and what this
+    // measurement is really asking about is the BODY.
+    int32_t slots[RS_DIALOGUE_MAX_OPTIONS];
+    for (int32_t i = 0; i < visibleCount; i++) {
+        slots[i] = i;
     }
     // EVERY convention, not the live one (#94). The measurement is against real pixel widths, and
     // "ground floor" and "first floor" are not the same width - so a body that fits beside a choice
@@ -375,8 +415,8 @@ extern "C" int32_t RsText_ChoiceWouldPaginate(const RsDialogueRule* rule) {
     // turns the page instead of picking. Nothing at runtime would report it. The registration gate
     // is the only place that can see both, so it looks at both and refuses the widest.
     for (int32_t convention = 0; convention < RS_FLOOR_CONVENTION_COUNT; convention++) {
-        const std::string body = RsFloorText_ExpandUnder(rule->text, convention);
-        CustomMessage msg(std::string("\x08") + BuildRuleText(*rule, body, convention));
+        const std::string body = RsFloorText_ExpandUnder(screen->text, convention);
+        CustomMessage msg(std::string("\x08") + BuildScreenText(*screen, body, convention, slots, visibleCount));
         msg.AutoFormat();
         // Look for the BOX BREAK, not for a '^'. AutoFormatString's last act is to replace every '^'
         // it inserted with WAIT_FOR_INPUT's control byte, so the character the author writes does
@@ -403,13 +443,13 @@ extern "C" int32_t RsText_ChoiceWouldPaginate(const RsDialogueRule* rule) {
 // NextLineLength starts at offset 0 with the same 216px budget the real message's first row gets,
 // and the body IS that row - a three- or four-way indents every row EXCEPT the body's
 // (z_message_PAL.c, choiceNum indent hack), so the body has the full width.
-extern "C" int32_t RsText_BodyWouldWrap(const RsDialogueRule* rule) {
-    if (rule == nullptr || rule->text == nullptr) {
-        return 0;
+extern "C" int32_t RsText_BodyWouldWrap(const RsDialogueRule* screen, int32_t visibleCount) {
+    if (screen == nullptr || screen->text == nullptr || visibleCount < 3) {
+        return 0; // only the hand-laid-out counts spend the rows this asks about
     }
     // Under every convention, for the reason RsText_ChoiceWouldPaginate gives (#94).
     for (int32_t convention = 0; convention < RS_FLOOR_CONVENTION_COUNT; convention++) {
-        CustomMessage msg(std::string("\x08") + RsFloorText_ExpandUnder(rule->text, convention));
+        CustomMessage msg(std::string("\x08") + RsFloorText_ExpandUnder(screen->text, convention));
         msg.AutoFormat();
         const std::string formatted = msg.GetEnglish(MF_RAW);
         if (formatted.find(CustomMessage::NEWLINE()) != std::string::npos ||
