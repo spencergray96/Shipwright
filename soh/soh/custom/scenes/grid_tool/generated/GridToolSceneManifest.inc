@@ -26,4 +26,6 @@
     { SCENE_CASTLE_CAM_SLAB, CustomCastleCamSlabScene_TrySpawn, CustomCastleCamSlabScene_InitRoom }, // project c39f76fc-6263-446f-b84b-7601cc1b3d9f name castle_cam_slab
     { SCENE_CASTLE_CAM_CEILING, CustomCastleCamCeilingScene_TrySpawn, CustomCastleCamCeilingScene_InitRoom }, // project 46b3f624-ff9d-4a3e-ae2d-9c5031cf5fe1 name castle_cam_ceiling
     { SCENE_CASTLE_CAM_BOTH, CustomCastleCamBothScene_TrySpawn, CustomCastleCamBothScene_InitRoom }, // project e4eba7bf-e016-470d-9d98-19856d0cae17 name castle_cam_both
+    { SCENE_TERRAIN_F2P_SEAM_BAD, CustomTerrainF2pSeamBadScene_TrySpawn, CustomTerrainF2pSeamBadScene_InitRoom }, // terrain-bake terrain_f2p_seam_bad
+    { SCENE_TERRAIN_F2P_SEAM_GOOD, CustomTerrainF2pSeamGoodScene_TrySpawn, CustomTerrainF2pSeamGoodScene_InitRoom }, // terrain-bake terrain_f2p_seam_good
 // END GRID TOOL EXPORTS

@@ -150,4 +150,6 @@
 /* 0x85 */ DEFINE_SCENE(castle_cam_slab_scene, none, SCENE_CASTLE_CAM_SLAB, SDC_DEFAULT, 0, 0) // project c39f76fc-6263-446f-b84b-7601cc1b3d9f name castle_cam_slab
 /* 0x86 */ DEFINE_SCENE(castle_cam_ceiling_scene, none, SCENE_CASTLE_CAM_CEILING, SDC_DEFAULT, 0, 0) // project 46b3f624-ff9d-4a3e-ae2d-9c5031cf5fe1 name castle_cam_ceiling
 /* 0x87 */ DEFINE_SCENE(castle_cam_both_scene, none, SCENE_CASTLE_CAM_BOTH, SDC_DEFAULT, 0, 0) // project e4eba7bf-e016-470d-9d98-19856d0cae17 name castle_cam_both
+/* 0x88 */ DEFINE_SCENE(terrain_f2p_seam_bad_scene, none, SCENE_TERRAIN_F2P_SEAM_BAD, SDC_DEFAULT, 0, 0) // terrain-bake terrain_f2p_seam_bad
+/* 0x89 */ DEFINE_SCENE(terrain_f2p_seam_good_scene, none, SCENE_TERRAIN_F2P_SEAM_GOOD, SDC_DEFAULT, 0, 0) // terrain-bake terrain_f2p_seam_good
 // END GRID TOOL EXPORTS
