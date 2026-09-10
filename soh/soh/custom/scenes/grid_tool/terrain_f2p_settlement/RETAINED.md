@@ -19,6 +19,9 @@ It tears along polygon seams — the artifact reported in
 hairline gaps and the specks crawl when the camera moves. The re-bake fixes that, and this scene is
 retained as a walkable specimen of the world *before* the fix rather than being overwritten by it.
 
+**Verified 2026-09-10**, by a human looking at both: `0x633` has the corrected visuals, `0x62C`
+still tears. Not inferred from the exporter change — seen.
+
 It stays in the music zone table alongside its replacement, at the same coordinate anchor, so the
 two can be compared back to back with the zone director running in both. Warp between `0x62C` and
 `0x633` and only the geometry changes.
