@@ -46,6 +46,12 @@ ActorEntry test_level_room_0_header00_actorList[] = {
     // the three-way box can be screenshotted side by side without ever being in range at once.
     { ACTOR_RS_NPC, { -400, 20, 600 }, { 0, 0x4000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_FOUR) },
 
+    // The floor-convention fixture (sturdy-bassoon#94). Placed so a screenshot can show the ONE
+    // thing a marker cannot: the textbox itself, with `{floor:N}` expanded in the body AND in the
+    // option labels the renderer lays out. 400 units from the four-way and 800 from 193, i.e.
+    // outside the 110-unit talk range of either.
+    { ACTOR_RS_NPC, { 400, 20, 600 }, { 0, -0x4000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_FLOOR) },
+
     // Step 0 of the giver's quest. Its sibling (step 1) is in terrain_f2p_step2, so finishing the
     // quest requires both scenes — which is what makes "advancing in one scene is reflected in the
     // other" a thing the run has to do rather than a thing it can fake.

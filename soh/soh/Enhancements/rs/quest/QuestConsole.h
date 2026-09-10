@@ -29,7 +29,11 @@
 //   journal <id|all> [runs]    the resolved journal entry (P2): header, then one line per rendered
 //                              line, spans as [item:Egg], struck rows in ~tildes~; `runs` adds one
 //                              run[i.r]=<style> emphasis=<name> line per run
-//   parse <text...>            the markup probe (P2): runs, or the error kind and byte offset
+//   parse <text...>            the markup probe (P2): runs, or the error kind and byte offset. It
+//                              also scans `{floor:N}` (#94) - a `token_*` error kind comes from
+//                              there - and the runs it prints are EXPANDED, so this shows what a
+//                              journal line reads as under the live convention. `region expand`
+//                              is the probe for the token grammar on its own, under both
 //   badcheck                   Quest_DefProblem over the malformed table (P2): proves the gate
 //   overlay [on|off|all|<id>]  the on-screen journal overlay switch (P5, QuestOverlay.h); reports
 //                              enabled=, track= and what the last frame drew

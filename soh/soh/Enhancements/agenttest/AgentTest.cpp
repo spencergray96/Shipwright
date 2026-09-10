@@ -246,6 +246,17 @@
  *                                          `advance` markers alone, which is what a run asserts on,
  *                                          because polling costs a round trip per sample and a cycle
  *                                          runs for minutes
+ *   agenttest region get|set <uk|us>|toggle|expand <text...>|overlay [on|off]
+ *                                          the save file's FLOOR CONVENTION (sturdy-bassoon#94), which
+ *                                          decides whether rs/ prose calls the storey at ground level
+ *                                          the ground floor (UK) or the first floor (US). `expand`
+ *                                          prints a sentence under BOTH conventions in one command -
+ *                                          the substitution grammar, directly. `get` reports whether
+ *                                          the live value came from a save file or is the default,
+ *                                          which is what makes a persistence leg assertable. Because
+ *                                          `npc dump`/`npc resolve` print the COMPOSED body, `region
+ *                                          set us` followed by one of those asserts what a player
+ *                                          would actually read
  *   agenttest mark <text>                  write a marker, for bracketing checkpoints in the log
  *
  * Command-file consumption pauses while an injection is in progress, so queued lines run in order.
@@ -291,6 +302,7 @@
 #include "soh/Enhancements/rs/quest/Quest.h"
 #include "soh/Enhancements/rs/quest/QuestConsole.h"
 #include "soh/Enhancements/rs/dialogue/NpcConsole.h"
+#include "soh/Enhancements/rs/prefs/RegionConsole.h"
 #include "AgentTest.h"
 #include "soh/ShipInit.hpp"
 // For SaveManager::Instance, which `save` and `loadsave` drive directly. The free
@@ -1747,6 +1759,33 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         }
         return rc;
     }
+    // The region setting's surface (sturdy-bassoon#94). Same arrangement as `quest` and `npc`
+    // above: one implementation (RsRegionConsole_Run) behind two sinks, so the human `region`
+    // command and the agent markers cannot drift. This is the leg that makes the substitution
+    // assertable - `agenttest region set us` then `agenttest npc resolve <npc>` prints the US
+    // label, because the console prints the COMPOSED body rather than the definition string.
+    if (args.size() >= 3 && args[1] == "region") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        std::vector<std::string> lines;
+        const int32_t rc = RsRegionConsole_Run(sub, lines);
+        for (const std::string& line : lines) {
+            WriteMarker("rs_region " + line); // written verbatim - it is not a format string
+            if (output) {
+                if (!output->empty()) {
+                    *output += " | ";
+                }
+                // Doubled for the same reason as the `quest` sink above, and here it is not
+                // hypothetical: `region expand` takes arbitrary typed text.
+                for (char c : line) {
+                    *output += c;
+                    if (c == '%') {
+                        *output += '%';
+                    }
+                }
+            }
+        }
+        return rc;
+    }
     if (args.size() >= 2 && args[1] == "mark") {
         std::string text;
         for (size_t i = 2; i < args.size(); i++) {
@@ -1767,6 +1806,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "journal <id|all> [runs]|parse <text...>|badcheck|overlay [on|off|all|<id>]|"
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
+              "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
               "music [status|where|zones|scenes|bags|firstvisit|on|off|dwell <s>|fadeout <s>|fadein <s>|baseline] | "
             "save <fileNum> | loadsave <fileNum> | mark <text>";
     }
@@ -1797,6 +1837,7 @@ void RegisterAgentTest() {
               "journal <id|all> [runs]|parse <text...>|badcheck|overlay [on|off|all|<id>]|"
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
+              "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
               "music [status|where|zones|scenes|bags|firstvisit|on|off|dwell <s>|fadeout <s>|fadein <s>|baseline] | "
               "save <fileNum> | loadsave <fileNum> | mark <text>. walk/press inject controller 1 for N frames and end "
               "with an input_done marker.",

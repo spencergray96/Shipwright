@@ -53,6 +53,12 @@ typedef enum QuestId {
     QUEST_DEBUG_GIVER = 51,   // dialogue fixture (quests/DebugGiverQuest.cpp): two any-order steps behind a
                               // togglable world-flag gate, so a quest-giver NPC can be shown refusing to
                               // offer it (D8) and then offering it, without touching 48/49/50
+    QUEST_DEBUG_FLOOR = 52,   // floor-convention fixture (quests/DebugFloorQuest.cpp,
+                              // sturdy-bassoon#94): every player-facing string it owns carries a
+                              // `{floor:N}` token, so `region set uk` / `region set us` changes what
+                              // `quest journal 52` prints. A NEW quest rather than a block appended to
+                              // 50, on the standing precedent - earlier phases' acceptance regexes,
+                              // including 50's own block count, keep holding verbatim
 } QuestId;
 
 #define QUEST_ID_IS_VALID(id) ((id) >= 0 && (id) < QUEST_MAX)
@@ -76,5 +82,7 @@ RS_STATIC_ASSERT(QUEST_DEBUG_JOURNAL >= QUEST_ID_DEBUG_FIRST && QUEST_DEBUG_JOUR
                  "QUEST_DEBUG_JOURNAL must sit in the debug band");
 RS_STATIC_ASSERT(QUEST_DEBUG_GIVER >= QUEST_ID_DEBUG_FIRST && QUEST_DEBUG_GIVER < QUEST_MAX,
                  "QUEST_DEBUG_GIVER must sit in the debug band");
+RS_STATIC_ASSERT(QUEST_DEBUG_FLOOR >= QUEST_ID_DEBUG_FIRST && QUEST_DEBUG_FLOOR < QUEST_MAX,
+                 "QUEST_DEBUG_FLOOR must sit in the debug band");
 
 #endif // SOH_RS_QUEST_IDS_H

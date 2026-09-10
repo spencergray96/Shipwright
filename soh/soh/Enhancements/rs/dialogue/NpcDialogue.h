@@ -85,7 +85,19 @@ int32_t RsNpc_RunAction(const RsDialogueOption* option);
 // actor hands over directly (an item's pickup line) is composed there from Quest_StepLabel.
 //
 // Reads the live stores, so two calls a frame apart can legitimately differ - that IS the point.
+//
+// It also EXPANDS `{floor:N}` against the save file's floor convention (sturdy-bassoon#94,
+// prefs/FloorText.h), over the whole composed body - so the clause's step labels are expanded too.
+// Composition, not storage: switching save slots changes what this returns with nothing telling it
+// to, which is the same property that makes two NPCs in talk range safe.
 std::string RsNpc_ComposeRuleText(const RsDialogueRule& rule);
+
+// The same expansion for the two strings a rule's OPTIONS carry. They exist so the console prints
+// what the player reads (D18) rather than the raw definition string: the textbox renderer expands
+// labels itself while laying the choice out, and a reply is expanded by RsText_SetDirectCopy on
+// the way to the box. "" for a NULL reply, which is how a rule says "close without one".
+std::string RsNpc_ComposeOptionLabel(const RsDialogueOption& option);
+std::string RsNpc_ComposeOptionReply(const RsDialogueOption& option);
 
 // Just the list part - "an egg and a pot of flour", or "" when nothing is missing or the rule
 // carries no clause. What `npc dump` prints as `missing="…"`, so a run can assert the composition

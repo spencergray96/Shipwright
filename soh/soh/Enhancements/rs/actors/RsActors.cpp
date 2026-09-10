@@ -13,6 +13,8 @@
 #include "soh/Enhancements/rs/dialogue/NpcDialogue.h"
 #include "soh/Enhancements/rs/dialogue/NpcDialogueDef.h"
 #include "soh/Enhancements/rs/dialogue/NpcIds.h"
+#include "soh/Enhancements/rs/prefs/FloorText.h"
+#include "soh/Enhancements/rs/prefs/RsPrefs.h"
 #include "soh/Enhancements/rs/quest/Quest.h"
 #include "soh/Enhancements/rs/quest/QuestDef.h"
 #include "soh/Enhancements/rs/quest/QuestStore.h"
@@ -55,8 +57,14 @@ namespace {
 // escape hatch for the one caller that needs a COMPOSED line (a quest item naming what it was):
 // the sentence is copied here, into storage that outlives every actor, because the actor that
 // built it is killed while its own textbox is still on screen.
+//
+// `sDirectCopy` was a char[128] that truncated silently. It is a std::string now (#94): a
+// `{floor:N}` token is shorter than the label it expands to, so the composed line is no longer the
+// length the author sees, and a sentence cut in half renders plausibly - the failure mode this
+// project treats as the enemy. `sDirectText` is re-pointed on the line after every assignment, so
+// a reallocation cannot leave it dangling.
 const char* sDirectText = nullptr;
-char sDirectCopy[128];
+std::string sDirectCopy;
 
 // --- message building ---------------------------------------------------------------------------
 
@@ -84,7 +92,12 @@ constexpr int16_t RS_TEXTBOX_VANILLA_TEXHEIGHT = 512;
 // The rule's whole textbox source: a body, plus the choice block when it has options. Split out of
 // BuildRuleMessage so the REGISTRATION-TIME pagination check below asks the exact question the
 // renderer will answer, rather than a character count standing in for it.
-std::string BuildRuleText(const RsDialogueRule& rule, const std::string& body) {
+//
+// `convention` is which floor convention the option LABELS are expanded under (#94). It is a
+// parameter rather than a read of the live setting because the registration-time checks below
+// measure the rule under EVERY convention - a box that fits in UK and paginates in US is a bug no
+// marker sees, and the caller that renders simply passes the live value.
+std::string BuildRuleText(const RsDialogueRule& rule, const std::string& body, int32_t convention) {
     std::string text = body;
     if (rule.optionCount >= 2) {
         // A two-way choice sits on the last two rows of a four-row box, so its body needs one BLANK
@@ -102,7 +115,7 @@ std::string BuildRuleText(const RsDialogueRule& rule, const std::string& body) {
             if (i > 0) {
                 text += "&";
             }
-            text += rule.options[i].label;
+            text += RsFloorText_ExpandUnder(rule.options[i].label, convention);
         }
         text += "%w";
     }
@@ -114,7 +127,9 @@ CustomMessage BuildRuleMessage(const RsDialogueRule& rule) {
     // one. Composed HERE rather than stored anywhere, from the global stores, at open time - which
     // is what keeps the entry textbox stateless and therefore safe with two NPCs in talk range.
     // The console prints this same function's output, so the two surfaces cannot drift.
-    const std::string text = BuildRuleText(rule, RsNpc_ComposeRuleText(rule));
+    // RsNpc_ComposeRuleText has already expanded the BODY under the live convention; the labels are
+    // expanded by BuildRuleText, which is handed the same one.
+    const std::string text = BuildRuleText(rule, RsNpc_ComposeRuleText(rule), RsPrefs_GetFloorConvention());
     // QUICKTEXT_ENABLE (control code 08). Two reasons, and the second is the load-bearing one:
     // a quest-giver's line is information, not drama, and - because the agent test loop advances a
     // textbox with a fixed-duration button injection - text that is still typing swallows the
@@ -316,8 +331,12 @@ extern "C" void RsText_SetDirectCopy(const char* text) {
         sDirectText = nullptr;
         return;
     }
-    std::snprintf(sDirectCopy, sizeof(sDirectCopy), "%s", text);
-    sDirectText = sDirectCopy;
+    // Expanded here, which is what makes this the ONE door a composed line goes through: an
+    // option's reply and an item's pickup sentence are both authored prose that may name a storey,
+    // and neither of their callers is C++ (#94). Expansion is also why the copy is not optional -
+    // the expanded string is built here and nothing else owns it.
+    sDirectCopy = RsFloorText_Compose(text);
+    sDirectText = sDirectCopy.c_str();
 }
 
 extern "C" void RsAgent_Marker(const char* line) {
@@ -350,13 +369,25 @@ extern "C" int32_t RsText_ChoiceWouldPaginate(const RsDialogueRule* rule) {
             return 0;
         }
     }
-    CustomMessage msg(std::string("\x08") + BuildRuleText(*rule, rule->text));
-    msg.AutoFormat();
-    // Look for the BOX BREAK, not for a '^'. AutoFormatString's last act is to replace every '^' it
-    // inserted with WAIT_FOR_INPUT's control byte, so the character the author writes does not
-    // survive the pass that decides where the breaks go. Searching the source convention instead of
-    // the compiled one is a check that always passes - which is what the first version of this did.
-    return msg.GetEnglish(MF_RAW).find(CustomMessage::WAIT_FOR_INPUT()) != std::string::npos ? 1 : 0;
+    // EVERY convention, not the live one (#94). The measurement is against real pixel widths, and
+    // "ground floor" and "first floor" are not the same width - so a body that fits beside a choice
+    // under UK can paginate under US, and the player whose file says US gets a first A press that
+    // turns the page instead of picking. Nothing at runtime would report it. The registration gate
+    // is the only place that can see both, so it looks at both and refuses the widest.
+    for (int32_t convention = 0; convention < RS_FLOOR_CONVENTION_COUNT; convention++) {
+        const std::string body = RsFloorText_ExpandUnder(rule->text, convention);
+        CustomMessage msg(std::string("\x08") + BuildRuleText(*rule, body, convention));
+        msg.AutoFormat();
+        // Look for the BOX BREAK, not for a '^'. AutoFormatString's last act is to replace every '^'
+        // it inserted with WAIT_FOR_INPUT's control byte, so the character the author writes does
+        // not survive the pass that decides where the breaks go. Searching the source convention
+        // instead of the compiled one is a check that always passes - which is what the first
+        // version of this did.
+        if (msg.GetEnglish(MF_RAW).find(CustomMessage::WAIT_FOR_INPUT()) != std::string::npos) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 // Does the BODY of a hand-laid-out choice (three or four options) need more than one row?
@@ -376,13 +407,17 @@ extern "C" int32_t RsText_BodyWouldWrap(const RsDialogueRule* rule) {
     if (rule == nullptr || rule->text == nullptr) {
         return 0;
     }
-    CustomMessage msg(std::string("\x08") + rule->text);
-    msg.AutoFormat();
-    const std::string formatted = msg.GetEnglish(MF_RAW);
-    return (formatted.find(CustomMessage::NEWLINE()) != std::string::npos ||
-            formatted.find(CustomMessage::WAIT_FOR_INPUT()) != std::string::npos)
-               ? 1
-               : 0;
+    // Under every convention, for the reason RsText_ChoiceWouldPaginate gives (#94).
+    for (int32_t convention = 0; convention < RS_FLOOR_CONVENTION_COUNT; convention++) {
+        CustomMessage msg(std::string("\x08") + RsFloorText_ExpandUnder(rule->text, convention));
+        msg.AutoFormat();
+        const std::string formatted = msg.GetEnglish(MF_RAW);
+        if (formatted.find(CustomMessage::NEWLINE()) != std::string::npos ||
+            formatted.find(CustomMessage::WAIT_FOR_INPUT()) != std::string::npos) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 // Does an option LABEL run off the right edge of its row?
@@ -398,5 +433,13 @@ extern "C" int32_t RsText_LabelWouldOverflow(const char* label) {
     if (label == nullptr) {
         return 0; // a NULL label is CheckOption's refusal to make, and it runs first
     }
-    return CustomMessage::LineFitsInPixels(std::string(label), 216 - 32) ? 0 : 1;
+    // Under every convention (#94): "second floor" is wider than "first floor", so a label that
+    // fits one way can run off the row the other way - and it does it silently, off the edge of the
+    // box, which is the failure this check was added for in the first place.
+    for (int32_t convention = 0; convention < RS_FLOOR_CONVENTION_COUNT; convention++) {
+        if (!CustomMessage::LineFitsInPixels(RsFloorText_ExpandUnder(label, convention), 216 - 32)) {
+            return 1;
+        }
+    }
+    return 0;
 }

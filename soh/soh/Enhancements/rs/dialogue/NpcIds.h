@@ -55,6 +55,9 @@ typedef enum NpcId {
                            // (sturdy-bassoon#59). 193 proves the shape is not binary; this one
                            // proves it is not capped at what vanilla's control codes offer, and
                            // is the shape a quest menu actually wants: a prompt and a Nevermind.
+    NPC_DEBUG_FLOOR = 196, // the floor-convention fixture (sturdy-bassoon#94): a body, an option
+                           // label and a reply that all carry `{floor:N}`, so one `npc dump` under
+                           // each convention proves the substitution reaches all three.
 } NpcId;
 
 #define NPC_ID_IS_VALID(id) ((id) >= 0 && (id) < NPC_MAX)
@@ -73,5 +76,7 @@ RS_STATIC_ASSERT(NPC_DEBUG_TWIN >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_TWIN < NPC_MA
                  "NPC_DEBUG_TWIN must sit in the debug band");
 RS_STATIC_ASSERT(NPC_DEBUG_FOUR >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_FOUR < NPC_MAX,
                  "NPC_DEBUG_FOUR must sit in the debug band");
+RS_STATIC_ASSERT(NPC_DEBUG_FLOOR >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_FLOOR < NPC_MAX,
+                 "NPC_DEBUG_FLOOR must sit in the debug band");
 
 #endif // SOH_RS_NPC_IDS_H

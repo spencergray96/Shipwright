@@ -9,6 +9,7 @@
 
 #include "QuestJournal.h"
 #include "WorldFlagIds.h"
+#include "soh/Enhancements/rs/prefs/FloorText.h"
 #include "soh/Enhancements/worldstate/WorldFlags.h"
 
 // Rupees_ChangeBy is C; the same include shape debugconsole.cpp and AgentTest.cpp use.
@@ -246,6 +247,14 @@ static bool ValidateDef(const QuestDef* def, char* buf, size_t len) {
                 return Problem(buf, len, "stepLabels[%d] is NULL, or carries percent, hash, quote, caret, ampersand "
                                          "or a control character",
                                i);
+            }
+            // A label is player-facing prose, so it may name a storey - and if it does, it does it
+            // with a token (#94). Checked here rather than in LabelIsClean because a token has an
+            // OFFSET and a kind to report, which a bool cannot carry.
+            const RsFloorTokenResult token = RsFloorText_Validate(def->stepLabels[i]);
+            if (token.error != RS_FLOOR_TOKEN_OK) {
+                return Problem(buf, len, "stepLabels[%d]: floor token %s at offset %d", i,
+                               RsFloorText_ErrorName(token.error), token.pos);
             }
         }
     }

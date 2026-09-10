@@ -93,9 +93,13 @@ void Dump(int32_t npcId, std::vector<std::string>& lines) {
         }
         for (int32_t i = 0; i < rule.optionCount; i++) {
             const RsDialogueOption& option = rule.options[i];
+            // COMPOSED, like `text=` above and for the same reason (D18): a label or a reply
+            // carrying `{floor:N}` (#94) prints the words the player would read under the live
+            // convention, so `region set us` then `npc dump` asserts the substitution directly.
             lines.push_back("opt[" + std::to_string(r) + "." + std::to_string(i) +
                             "]=" + RsNpc_ActionName(option.kind) + " a=" + std::to_string(option.a) + " label=\"" +
-                            option.label + "\" reply=\"" + (option.reply != nullptr ? option.reply : "-") + "\"");
+                            RsNpc_ComposeOptionLabel(option) + "\" reply=\"" +
+                            (option.reply != nullptr ? RsNpc_ComposeOptionReply(option) : std::string("-")) + "\"");
         }
     }
 }

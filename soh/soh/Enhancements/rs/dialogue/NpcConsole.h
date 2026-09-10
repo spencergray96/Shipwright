@@ -21,6 +21,10 @@
 //   dump <npcId>          the Describe line, then per rule: when[i]= with its live value,
 //                         match=, text=, opt[i.j]= - the D11 introspection prize made concrete
 //   resolve <npcId>       the first-match-wins answer alone, with the matched rule's text
+//
+// Every prose field these print is COMPOSED, which since #94 includes expanding `{floor:N}` against
+// the save file's floor convention - so `region set us` followed by `npc resolve <id>` asserts what
+// a player on an American file would actually read.
 //   actors                every live RS actor instance in the loaded scene, with the rule each
 //                         one currently resolves to - the two-placements proof
 //   badcheck              RsNpc_DefProblem over the malformed table; every entry must be refused

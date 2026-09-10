@@ -171,7 +171,10 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
                  Quest_ResultName(result));
         RsAgent_Marker(line);
         if (option->reply != NULL) {
-            RsText_SetDirect(option->reply);
+            /* SetDirectCopy, not SetDirect: a reply may carry a `{floor:N}` token
+             * (sturdy-bassoon#94), and the moment it does, the string the box reads is COMPOSED
+             * rather than the definition's own - so it needs storage that outlives this actor. */
+            RsText_SetDirectCopy(option->reply);
             Message_ContinueTextbox(play, RS_TEXT_DIRECT);
         } else {
             Message_CloseTextbox(play);

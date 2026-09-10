@@ -35,7 +35,9 @@
 // something other than `##`, which already means two adjacent spans.)
 //
 // Scanning is a single left-to-right pass and the FIRST error wins; `pos` is the byte offset the
-// scanner was standing on when it gave up.
+// scanner was standing on when it gave up. The `{floor:N}` token (sturdy-bassoon#94, FloorText.h)
+// is scanned in that SAME pass, inside spans as well as plain prose, so "first error wins" stays a
+// statement about position rather than about which rulebook happened to be consulted first.
 enum QuestMarkupError {
     QUEST_MARKUP_OK = 0,
     QUEST_MARKUP_UNCLOSED = 1,    // a '#' with no later '#'. This is also the stray-'#' case.
@@ -46,6 +48,14 @@ enum QuestMarkupError {
     QUEST_MARKUP_EMPTY_TEXT = 5,  // `#item:#` - an empty run is always a typo
     QUEST_MARKUP_BAD_CHAR = 6,    // '%', '"', or any of \n \r \t - see below
     QUEST_MARKUP_NULL_TEXT = 7,   // a NULL where display text was required
+    // The `{floor:N}` token (sturdy-bassoon#94, FloorText.h). APPENDED, never inserted: acceptance
+    // runs pin the numbers above. One enumerator per RsFloorTokenError, mapped in one place, so a
+    // journal caller keeps asking one type one question and the offset still points at the byte.
+    QUEST_MARKUP_TOKEN_UNCLOSED = 8,      // `{floor:1` - a '{' with no later '}'
+    QUEST_MARKUP_TOKEN_STRAY_CLOSE = 9,   // a '}' that closes nothing. The stray-brace case.
+    QUEST_MARKUP_TOKEN_MISSING_COLON = 10, // `{floor}`
+    QUEST_MARKUP_TOKEN_UNKNOWN = 11,       // `{storey:1}`, `{FLOOR:1}` - exact match, like the tags
+    QUEST_MARKUP_TOKEN_BAD_INDEX = 12,     // `{floor:}`, `{floor:x}`, `{floor:12}` - one digit, 0..9
     QUEST_MARKUP_ERROR_COUNT,
 };
 
@@ -72,6 +82,10 @@ QuestMarkupResult QuestMarkup_Validate(const char* text);
 // Validate-then-emit. On ANY error `out` is left EMPTY - there is no literal-prose fallback
 // anywhere in this file, which is what makes a malformed span impossible to miss. Adjacent plain
 // text is coalesced, and a run is never empty. Also silent.
+//
+// EVERY EMITTED RUN IS EXPANDED against the live floor convention (#94): a run's `text` is what a
+// reader sees, so `{floor:1}` never survives into one. Two calls a save-slot apart can therefore
+// legitimately differ, which is the same read-time-composition rule the dialogue layer follows.
 QuestMarkupResult QuestMarkup_Parse(const char* text, std::vector<QuestRun>* out);
 
 const char* QuestMarkup_ErrorName(QuestMarkupError error); // "unclosed", "unknown_tag", ...

@@ -21,6 +21,9 @@
 //                          vanilla's control codes offer, and that a body too long for the old
 //                          24-character cap renders fine when the budget is measured in pixels.
 //                          Its fourth option sets a flag, for 193's reason applied to the last row.
+//   NPC_DEBUG_FLOOR (196)  added for #94: every string a conversation can show carries a
+//                          `{floor:N}` token, and each of them reaches the screen by a different
+//                          road - so one `npc dump 196` under each convention proves all four.
 //
 // Prose here is NOT journal markup. Journal text carries `#tag:text#` (D23); dialogue text goes to
 // CustomMessageManager (D17), where '#' is a colour span, '%' starts a control code and '^' is a
@@ -140,6 +143,58 @@ const RsDialogueRule sTwinRules[] = {
 
 const RsNpcDef sTwin = {
     NPC_DEBUG_TWIN, QUEST_TIER_DEBUG, "debug_twin", "Debug: the twin", sTwinRules, 2,
+};
+
+// --- NPC_DEBUG_FLOOR (196) ----------------------------------------------------------------------
+//
+// The floor-convention fixture (sturdy-bassoon#94). Its whole job is that one `npc dump 196` under
+// each convention proves the substitution reaches every string a conversation can show, because
+// each of them travels a different road to the screen:
+//
+//   body    RsNpc_ComposeRuleText, printed by `npc dump` and `npc resolve` and fed to the box
+//   label   expanded by the renderer while it lays the choice out, and measured for WIDTH under
+//           EVERY convention at registration - the trap this NPC is the live check for
+//   reply   handed to the box through RsText_SetDirectCopy, which is the ONLY reason that call is
+//           SetDirectCopy and not SetDirect
+//   label   of a quest STEP, reached only through a missing-steps clause - see rule 0 below
+//
+// Two options rather than a statement, so the label and reply roads are both walked, and no option
+// writes anything - a fixture whose whole job is to be read twice must not change state between
+// the two readings.
+//
+// Rule 0 exists for the FOURTH road, which none of the three above reaches: a step LABEL. A quest's
+// stepLabels are expanded by RsNpc_MissingList, so the only way to see one composed is a rule
+// carrying a missing-steps clause (D26). Gated on quest 52 being in progress, because registration
+// refuses a `missingOf` that no predicate in its own rule gates on - and a statement, because
+// registration refuses a clause on a rule with options.
+
+const QuestPredicate sFloorCollectingWhen[] = {
+    QP_QUEST_STATUS_IS(QUEST_DEBUG_FLOOR, QUEST_STATUS_IN_PROGRESS),
+};
+
+const RsDialogueOption sFloorOptions[] = {
+    // A token in a LABEL, deliberately short: an option row's budget is 184 pixels, and the
+    // registration check now measures this label under both conventions.
+    { "Up to the {floor:1}", RS_DLG_ACTION_NONE, 0, "The stair is past the well." },
+    // ...and a token in a REPLY, on the option that does nothing, so reading it twice is free.
+    { "Nothing, thank you", RS_DLG_ACTION_NONE, 0, "I will be on the {floor:0} if you need me." },
+};
+
+const RsDialogueRule sFloorRules[] = {
+    // 0 - the missing-steps clause. Its own text carries no token; the tokens arrive from quest 52's
+    // stepLabels, appended after a '&'. That is the whole point: this rule proves a label written in
+    // a QUEST definition is expanded on the DIALOGUE surface.
+    { sFloorCollectingWhen, 1, "The steward is still short of:", nullptr, 0, QUEST_DEBUG_FLOOR },
+
+    // 1 - the fallthrough, and the unconditional last rule registration requires.
+    // `{Floor:0}` opens the sentence - the capitalised spelling, which is the reason there are two.
+    // Short on purpose: a TWO-option body gets one row of a four-row box, and the registration
+    // check now measures that row under BOTH conventions, where the UK label is a character longer.
+    { nullptr, 0, "{Floor:0}. Going up?", sFloorOptions, 2, RS_DLG_NO_MISSING },
+};
+
+const RsNpcDef sFloor = {
+    NPC_DEBUG_FLOOR, QUEST_TIER_DEBUG, "debug_floor", "Debug: the {floor:1} sweeper", sFloorRules, 2,
 };
 
 // --- the malformed table --------------------------------------------------------------------
@@ -282,6 +337,27 @@ const RsDialogueOption sOptLabelWide[] = {
 };
 const RsDialogueRule sBadLabelWide[] = { { nullptr, 0, "text", sOptLabelWide, 2, RS_DLG_NO_MISSING } };
 
+// The five ways a `{floor:N}` token can be wrong (sturdy-bassoon#94), one per RsFloorTokenError
+// that a definition can actually carry. Spread across the three strings that take tokens rather
+// than piled onto `text`, so the table also proves the gate is wired at each site and not only at
+// the first one it reaches.
+const RsDialogueRule sBadTokenUnclosed[] = { { nullptr, 0, "Up on the {floor:1", nullptr, 0, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadTokenStray[] = { { nullptr, 0, "Up on the floor:1}", nullptr, 0, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadTokenNoColon[] = { { nullptr, 0, "Up on the {floor}", nullptr, 0, RS_DLG_NO_MISSING } };
+// `{storey:1}` - a near miss. It has to be refused for the reason the journal's tag table gives:
+// a near miss that quietly rendered as literal prose is the failure this grammar exists to stop.
+const RsDialogueOption sOptTokenUnknown[] = {
+    { "Up to the {storey:1}", RS_DLG_ACTION_NONE, 0, nullptr },
+    { "No", RS_DLG_ACTION_NONE, 0, nullptr },
+};
+const RsDialogueRule sBadTokenUnknown[] = { { nullptr, 0, "text", sOptTokenUnknown, 2, RS_DLG_NO_MISSING } };
+// Two digits. The cap is one, and `{floor:12}` is the shape a would-be twelfth storey takes.
+const RsDialogueOption sOptTokenBadIndex[] = {
+    { "Yes", RS_DLG_ACTION_NONE, 0, "See you on the {floor:12}." },
+    { "No", RS_DLG_ACTION_NONE, 0, nullptr },
+};
+const RsDialogueRule sBadTokenBadIndex[] = { { nullptr, 0, "text", sOptTokenBadIndex, 2, RS_DLG_NO_MISSING } };
+
 const QuestPredicate sAlwaysGate[] = { QP_ALWAYS() };
 const RsDialogueRule sBadLastConditional[] = { { sAlwaysGate, 1, "a conditional last rule", nullptr, 0, RS_DLG_NO_MISSING } };
 
@@ -331,6 +407,14 @@ BAD_NPC_DEF(sDefMissingRange, sBadMissingRange, 1);
 BAD_NPC_DEF(sDefMissingUngated, sBadMissingUngated, 1);
 BAD_NPC_DEF(sDefMissingThree, sBadMissingThree, 1);
 BAD_NPC_DEF(sDefTwoOptionLong, sBadTwoOptionLong, 1);
+BAD_NPC_DEF(sDefTokenUnclosed, sBadTokenUnclosed, 1);
+BAD_NPC_DEF(sDefTokenStray, sBadTokenStray, 1);
+BAD_NPC_DEF(sDefTokenNoColon, sBadTokenNoColon, 1);
+BAD_NPC_DEF(sDefTokenUnknown, sBadTokenUnknown, 1);
+BAD_NPC_DEF(sDefTokenBadIndex, sBadTokenBadIndex, 1);
+// A token in the DISPLAY NAME, which is prose no rule owns.
+const RsNpcDef sBadDisplayToken = { NPC_DEBUG_GIVER, QUEST_TIER_DEBUG, "bad", "Debug: the {floor:} sweeper",
+                                    sOkRules, 1 };
 
 struct BadEntry {
     const char* label;
@@ -384,6 +468,14 @@ const BadEntry sBadDefs[] = {
     // (`three_option_body_too_long`), which now exercises the renderer measurement that replaced the
     // character cap rather than the cap itself - a better test of the same slot, not a new one.
     { "label_too_wide", &sDefLabelTooWide },
+    // #94, appended for the same reason every earlier group was: `bad[N]` indices above stay
+    // verbatim. One row per way a `{floor:N}` token can be malformed, plus the displayName site.
+    { "token_unclosed", &sDefTokenUnclosed },
+    { "token_stray_close", &sDefTokenStray },
+    { "token_missing_colon", &sDefTokenNoColon },
+    { "token_unknown", &sDefTokenUnknown },
+    { "token_bad_index", &sDefTokenBadIndex },
+    { "token_in_display_name", &sBadDisplayToken },
 };
 
 // RsNpc_Register is idempotent for the same pointer, which is what makes a ShipInit "*" re-run safe.
@@ -392,6 +484,7 @@ void RegisterDebugNpcs() {
     RsNpc_Register(&sThree);
     RsNpc_Register(&sFour);
     RsNpc_Register(&sTwin);
+    RsNpc_Register(&sFloor);
 }
 
 RegisterShipInitFunc debugNpcsInitFunc(RegisterDebugNpcs);

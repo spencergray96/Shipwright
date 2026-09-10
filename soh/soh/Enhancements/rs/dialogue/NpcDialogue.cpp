@@ -8,6 +8,7 @@
 #include <spdlog/spdlog.h>
 
 #include "soh/Enhancements/rs/actors/RsActors.h" // RsText_ChoiceWouldPaginate - the renderer answers
+#include "soh/Enhancements/rs/prefs/FloorText.h"
 #include "soh/Enhancements/rs/quest/Quest.h"
 #include "soh/Enhancements/rs/quest/QuestDef.h"
 #include "soh/Enhancements/rs/quest/QuestIds.h"
@@ -90,6 +91,22 @@ bool Problem(char* buf, size_t len, const char* fmt, ...) {
     return false;
 }
 
+// The `{floor:N}` gate (sturdy-bassoon#94, FloorText.h). Every string that reaches a player and
+// might name a storey goes through here after ProseIsClean: braces are ordinary characters to
+// ProseIsClean, so without this a mistyped token would sail through registration and render as
+// literal `{flor:1}` in a textbox - the silent-failure class this validator exists for.
+//
+// Reports the KIND and the byte OFFSET and never echoes the offending string, exactly as every
+// other message here does. `where` is a caller-built prefix so the message keeps naming the rule
+// and option it came from.
+bool CheckTokens(char* buf, size_t len, const char* where, const char* text) {
+    const RsFloorTokenResult token = RsFloorText_Validate(text);
+    if (token.error == RS_FLOOR_TOKEN_OK) {
+        return true;
+    }
+    return Problem(buf, len, "%s: floor token %s at offset %d", where, RsFloorText_ErrorName(token.error), token.pos);
+}
+
 // Operand range checks for one predicate, mirroring Quest.cpp's. Registered-ness is deliberately
 // NOT checked, for the reason stated there: nothing defines the order in which two translation
 // units' ShipInit functions run, so "is quest 51 registered yet" is not a question this gate can
@@ -147,6 +164,13 @@ bool CheckOption(char* buf, size_t len, const RsNpcDef* def, int32_t rule, int32
     if (Length(option.label) == 0) {
         return Problem(buf, len, "rule[%d].opt[%d]: label is empty", rule, index);
     }
+    // Before the width measurement below, which EXPANDS this label: a malformed token would be
+    // measured as its own diagnostic string, which is a nonsense width to refuse a definition over.
+    char where[48];
+    std::snprintf(where, sizeof(where), "rule[%d].opt[%d]: label", rule, index);
+    if (!CheckTokens(buf, len, where, option.label)) {
+        return false;
+    }
     if (CountLines(option.label) != 1) {
         // Each label is one line of the choice block; an '&' inside one would shift the cursor rows
         // away from the lines they select, which renders plausibly and picks the wrong option.
@@ -163,6 +187,12 @@ bool CheckOption(char* buf, size_t len, const RsNpcDef* def, int32_t rule, int32
     if (option.reply != nullptr && !ProseIsClean(option.reply)) {
         return Problem(buf, len, "rule[%d].opt[%d]: reply carries percent, hash, quote, caret or a newline", rule,
                        index);
+    }
+    if (option.reply != nullptr) {
+        std::snprintf(where, sizeof(where), "rule[%d].opt[%d]: reply", rule, index);
+        if (!CheckTokens(buf, len, where, option.reply)) {
+            return false;
+        }
     }
     switch (option.kind) {
         case RS_DLG_ACTION_NONE:
@@ -207,6 +237,12 @@ bool ValidateRule(char* buf, size_t len, const RsNpcDef* def, int32_t r) {
     }
     if (Length(rule.text) == 0) {
         return Problem(buf, len, "rule[%d]: text is empty", r);
+    }
+    // Before every width measurement below, for the reason CheckOption gives about labels.
+    char where[32];
+    std::snprintf(where, sizeof(where), "rule[%d]: text", r);
+    if (!CheckTokens(buf, len, where, rule.text)) {
+        return false;
     }
     if (rule.optionCount < 0 || (rule.optionCount > 0 && rule.options == nullptr)) {
         return Problem(buf, len, "rule[%d]: `options` is NULL with a nonzero count", r);
@@ -323,6 +359,9 @@ bool ValidateDef(const RsNpcDef* def, char* buf, size_t len) {
     }
     if (!ProseIsClean(def->displayName)) {
         return Problem(buf, len, "displayName is NULL, or carries percent, hash, quote, caret or a newline");
+    }
+    if (!CheckTokens(buf, len, "displayName", def->displayName)) {
+        return false;
     }
     if (def->ruleCount < 1 || def->ruleCount > RS_DIALOGUE_MAX_RULES) {
         return Problem(buf, len, "ruleCount %d outside [1, %d]", def->ruleCount, RS_DIALOGUE_MAX_RULES);
@@ -468,8 +507,10 @@ extern "C" void RsNpc_Describe(int32_t npcId, char* buf, size_t len) {
     }
     const int32_t rule = RsNpc_ResolveRule(npcId);
     const int32_t options = (rule >= 0) ? def->rules[rule].optionCount : 0;
+    // `display` is prose, so it is composed like every other prose field a surface prints (#94).
+    const std::string display = RsFloorText_Compose(def->displayName != nullptr ? def->displayName : "");
     std::snprintf(buf, len, "id=%d name=%s tier=%s rules=%d rule=%d options=%d display=\"%s\"", def->id, def->name,
-                  Quest_TierName(def->tier), def->ruleCount, rule, options, def->displayName);
+                  Quest_TierName(def->tier), def->ruleCount, rule, options, display.c_str());
 }
 
 // --- the missing-steps clause (D26) -------------------------------------------------------------
@@ -499,13 +540,20 @@ std::string RsNpc_MissingList(const RsDialogueRule& rule) {
             // and the console agree on the wording as well as on the contents.
             out += (i + 1 == missing.size()) ? " and " : ", ";
         }
-        out += missing[i];
+        // Expanded per label (#94). A step label is prose and may name a storey; doing it here
+        // rather than over the joined line is what keeps `npc dump`'s `missing="…"` field showing
+        // exactly what the clause appends to the body, with no second expansion anywhere.
+        out += RsFloorText_Compose(missing[i]);
     }
     return out;
 }
 
 std::string RsNpc_ComposeRuleText(const RsDialogueRule& rule) {
-    std::string text = rule.text != nullptr ? rule.text : "";
+    // The read-time half of the `{floor:N}` token (#94). The console prints this same function's
+    // output, so what a run asserts is exactly what the textbox shows. The clause's labels arrive
+    // already expanded from RsNpc_MissingList - each string is expanded exactly once, by whichever
+    // function owns it.
+    std::string text = RsFloorText_Compose(rule.text != nullptr ? rule.text : "");
     const std::string missing = RsNpc_MissingList(rule);
     if (!missing.empty()) {
         // '&' is the author's line break and what AutoFormatString breaks on, so the list starts
@@ -514,6 +562,14 @@ std::string RsNpc_ComposeRuleText(const RsDialogueRule& rule) {
         text += missing;
     }
     return text;
+}
+
+std::string RsNpc_ComposeOptionLabel(const RsDialogueOption& option) {
+    return RsFloorText_Compose(option.label != nullptr ? option.label : "");
+}
+
+std::string RsNpc_ComposeOptionReply(const RsDialogueOption& option) {
+    return RsFloorText_Compose(option.reply != nullptr ? option.reply : "");
 }
 
 extern "C" int32_t RsNpc_RunAction(const RsDialogueOption* option) {

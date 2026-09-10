@@ -143,6 +143,9 @@ const char* const sBadHints[] = { "Talk to #npc:the Cook" };
 const char* const sHashStepNames[] = { "a", "#b#", "c" };
 const char* const sNullLabels[] = { "an egg", nullptr, "a pot of flour" };
 const char* const sBreakLabels[] = { "an egg", "a bucket&of milk", "a pot of flour" };
+// A step LABEL carrying a malformed token (#94). Labels take the union of both surfaces' rulebooks
+// AND the token grammar, because a label is the one string that can land on either.
+const char* const sTokenLabels[] = { "an egg", "the key from the {floor:x}", "a pot of flour" };
 const QuestJournalItem sOutOfRangeStep[] = { { "#item:x#", 7 } }; // step 7 of a 3-step quest
 const QuestJournalItem sOkItem[] = { { "#item:x#", 0 } };
 const QuestPredicate sBadWhen[] = { { QUEST_PRED_ALL_STEPS_SET, 999, 0, 0 } }; // quest id out of range
@@ -173,8 +176,11 @@ const std::vector<BadDef>& BadDefs() {
     if (!defs.empty()) {
         return defs;
     }
-    blocks.reserve(32);
-    defs.reserve(32);
+    // Reserved well past what the table holds, and the headroom is the point: `blocks` may NEVER
+    // reallocate, because the QuestDefs below hold raw pointers into it. Appending a row must not
+    // be a thing anyone has to count first.
+    blocks.reserve(64);
+    defs.reserve(64);
 
     auto paragraph = [](const char* text) {
         QuestJournalBlock block = {};
@@ -269,6 +275,27 @@ const std::vector<BadDef>& BadDefs() {
         QuestDef def = BaseBad();
         def.stepLabels = sBreakLabels;
         defs.push_back({ "step_label_break", def });
+    }
+
+    // APPENDED, never inserted (sturdy-bassoon#94): one row per way a `{floor:N}` token can be
+    // malformed, inside a block's prose. The token is scanned in the SAME left-to-right pass as the
+    // markup - the journal's error enum grew five kinds rather than gaining a catch-all - so these
+    // report `token_unclosed`, `token_stray_close` and so on, distinct from the span kinds above.
+    addProse("token_unclosed", "The ledger is up on the {floor:1");
+    addProse("token_stray_close", "The ledger is up on the floor:1}"); // a '}' closing nothing
+    addProse("token_missing_colon", "The ledger is up on the {floor}");
+    addProse("token_unknown", "The ledger is up on the {storey:1}"); // a near miss, refused like a tag
+    addProse("token_bad_index", "The ledger is up on the {floor:12}"); // one digit, 0..9
+    // The same token, in the two display strings that are not blocks.
+    {
+        QuestDef def = BaseBad();
+        def.title = "Bad {floor:}";
+        defs.push_back({ "title_token", def });
+    }
+    {
+        QuestDef def = BaseBad();
+        def.stepLabels = sTokenLabels;
+        defs.push_back({ "step_label_token", def });
     }
     return defs;
 }

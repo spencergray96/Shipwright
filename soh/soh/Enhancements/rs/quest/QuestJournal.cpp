@@ -6,6 +6,7 @@
 #include "Quest.h"
 #include "QuestDef.h"
 #include "QuestStore.h"
+#include "soh/Enhancements/rs/prefs/FloorText.h"
 
 namespace {
 
@@ -55,6 +56,64 @@ QuestMarkupResult Fail(QuestMarkupError error, size_t pos) {
     return { error, static_cast<int32_t>(pos) };
 }
 
+// One RsFloorTokenError, in this file's vocabulary. The two enums are deliberately separate - a
+// journal caller asks one type one question - and this is the only place they meet.
+QuestMarkupError MarkupErrorForToken(RsFloorTokenError error) {
+    switch (error) {
+        case RS_FLOOR_TOKEN_UNCLOSED:
+            return QUEST_MARKUP_TOKEN_UNCLOSED;
+        case RS_FLOOR_TOKEN_STRAY_CLOSE:
+            return QUEST_MARKUP_TOKEN_STRAY_CLOSE;
+        case RS_FLOOR_TOKEN_MISSING_COLON:
+            return QUEST_MARKUP_TOKEN_MISSING_COLON;
+        case RS_FLOOR_TOKEN_UNKNOWN:
+            return QUEST_MARKUP_TOKEN_UNKNOWN;
+        case RS_FLOOR_TOKEN_BAD_INDEX:
+            return QUEST_MARKUP_TOKEN_BAD_INDEX;
+        case RS_FLOOR_TOKEN_NULL_TEXT:
+            return QUEST_MARKUP_NULL_TEXT;
+        default:
+            return QUEST_MARKUP_TOKEN_UNCLOSED; // unreachable: RS_FLOOR_TOKEN_OK never gets here
+    }
+}
+
+// The part of the scan that is the same in plain prose and inside a `#tag:text#` span: a refused
+// character, a stray '}', and a `{floor:N}` token. Sharing it is what keeps "first error wins" a
+// statement about POSITION - a token error inside a span and a bad character after it are compared
+// by offset, not by which rulebook ran first.
+//
+// Returns false with `*result` set on an error. Otherwise `*advance` is how many bytes this byte
+// consumed: the token's length for a well-formed token, and 0 for an ordinary byte the caller must
+// interpret itself (a '#', or plain text).
+bool ScanCommon(const char* text, size_t i, size_t* advance, QuestMarkupResult* result) {
+    *advance = 0;
+    if (IsBadChar(text[i])) {
+        *result = Fail(QUEST_MARKUP_BAD_CHAR, i);
+        return false;
+    }
+    if (text[i] == '}') {
+        *result = Fail(QUEST_MARKUP_TOKEN_STRAY_CLOSE, i);
+        return false;
+    }
+    if (text[i] == '{') {
+        RsFloorToken token = {};
+        const RsFloorTokenResult scan = RsFloorText_ScanToken(text, i, &token);
+        if (scan.error != RS_FLOOR_TOKEN_OK) {
+            *result = Fail(MarkupErrorForToken(scan.error), static_cast<size_t>(scan.pos));
+            return false;
+        }
+        *advance = token.length;
+    }
+    return true;
+}
+
+// One emitted run's text, with its `{floor:N}` tokens expanded against the live convention (#94).
+// The scan has already proven every token in this range well-formed, so Compose cannot produce a
+// diagnostic here - it is called for its expansion, not for its error handling.
+std::string RunText(const char* text, size_t begin, size_t count) {
+    return RsFloorText_Compose(std::string(text + begin, count));
+}
+
 // The single scan. `out` may be null (validate-only). Every error path returns before anything is
 // pushed, so a caller that ignores the result still cannot end up with half a parse.
 QuestMarkupResult Scan(const char* text, std::vector<QuestRun>* out) {
@@ -64,24 +123,34 @@ QuestMarkupResult Scan(const char* text, std::vector<QuestRun>* out) {
     const size_t len = std::strlen(text);
     size_t plainBegin = 0;
     size_t i = 0;
+    QuestMarkupResult problem = Ok();
+    size_t advance = 0;
     while (i < len) {
-        if (IsBadChar(text[i])) {
-            return Fail(QUEST_MARKUP_BAD_CHAR, i);
+        if (!ScanCommon(text, i, &advance, &problem)) {
+            return problem;
+        }
+        if (advance > 0) {
+            i += advance; // a well-formed token; it is part of whatever run it sits in
+            continue;
         }
         if (text[i] != '#') {
             i++;
             continue;
         }
-        // A span opens here. Find its close, refusing a bad character on the way so that BAD_CHAR
-        // is always reported at the offending byte rather than being masked by the span's own
-        // shape - the scan order is what makes "first error wins" a statement about POSITION.
+        // A span opens here. Find its close, refusing a bad character or a malformed token on the
+        // way so that both are always reported at the offending byte rather than being masked by
+        // the span's own shape - the scan order is what makes "first error wins" a statement about
+        // POSITION.
         const size_t open = i;
         size_t close = open + 1;
         while (close < len && text[close] != '#') {
-            if (IsBadChar(text[close])) {
-                return Fail(QUEST_MARKUP_BAD_CHAR, close);
+            if (!ScanCommon(text, close, &advance, &problem)) {
+                return problem;
             }
-            close++;
+            // A well-formed token can never contain a '#' (one inside the name is UNKNOWN, one
+            // inside the index is BAD_INDEX), so stepping over it cannot step over this span's
+            // close.
+            close += (advance > 0) ? advance : 1;
         }
         if (close >= len) {
             return Fail(QUEST_MARKUP_UNCLOSED, open);
@@ -107,15 +176,15 @@ QuestMarkupResult Scan(const char* text, std::vector<QuestRun>* out) {
         }
         if (out != nullptr) {
             if (open > plainBegin) {
-                out->push_back({ std::string(text + plainBegin, open - plainBegin), QUEST_RUN_PLAIN });
+                out->push_back({ RunText(text, plainBegin, open - plainBegin), QUEST_RUN_PLAIN });
             }
-            out->push_back({ std::string(text + colon + 1, close - colon - 1), style });
+            out->push_back({ RunText(text, colon + 1, close - colon - 1), style });
         }
         i = close + 1;
         plainBegin = i;
     }
     if (out != nullptr && len > plainBegin) {
-        out->push_back({ std::string(text + plainBegin, len - plainBegin), QUEST_RUN_PLAIN });
+        out->push_back({ RunText(text, plainBegin, len - plainBegin), QUEST_RUN_PLAIN });
     }
     return Ok();
 }
@@ -186,6 +255,18 @@ const char* QuestMarkup_ErrorName(QuestMarkupError error) {
             return "bad_char";
         case QUEST_MARKUP_NULL_TEXT:
             return "null_text";
+        // The token kinds (#94). Prefixed so a reader of `quest parse` output can tell at a glance
+        // which grammar refused - `unclosed` is a span, `token_unclosed` is a `{floor:N}`.
+        case QUEST_MARKUP_TOKEN_UNCLOSED:
+            return "token_unclosed";
+        case QUEST_MARKUP_TOKEN_STRAY_CLOSE:
+            return "token_stray_close";
+        case QUEST_MARKUP_TOKEN_MISSING_COLON:
+            return "token_missing_colon";
+        case QUEST_MARKUP_TOKEN_UNKNOWN:
+            return "token_unknown";
+        case QUEST_MARKUP_TOKEN_BAD_INDEX:
+            return "token_bad_index";
         default:
             return "<bad error>";
     }

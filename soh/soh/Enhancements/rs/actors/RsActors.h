@@ -38,13 +38,23 @@ int32_t RsText_LabelWouldOverflow(const char* label);
 // `text` must outlive the textbox, so it is always a definition string, never a local buffer.
 // That is not belt and braces: Message_OpenText is re-entered from the DRAW path on a mid-text
 // language switch, so the pointer is dereferenced again long after the call that set it.
+//
+// It also does NOT expand `{floor:N}` (sturdy-bassoon#94), so it is only for a string that cannot
+// carry one - in practice a fixed diagnostic. Authored prose goes through RsText_SetDirectCopy.
 void RsText_SetDirect(const char* text);
 
-// The same slot, but the string is COPIED into storage that outlives every actor. For the one
-// caller that has to compose its line rather than name one - a quest item saying what it was, built
-// from the quest's step label - because the actor holding the buffer is killed while its own
-// textbox is still on screen, and its instance memory goes straight back to the arena.
-// Truncates silently at 128 bytes; a pickup line that long is a content bug, not a runtime one.
+// The same slot, but the string is EXPANDED and COPIED into storage that outlives every actor.
+//
+// Two jobs, and they are the same job. The copy is for a caller that composes its line rather than
+// naming one - a quest item saying what it was, built from the quest's step label - because the
+// actor holding the buffer is killed while its own textbox is still on screen and its instance
+// memory goes straight back to the arena. The expansion is `{floor:N}` against the save file's
+// floor convention (sturdy-bassoon#94): the moment a string can carry a token it STOPS being a
+// definition string and becomes a composed one, so an option's reply moved here from
+// RsText_SetDirect. Getting that wrong presents as a dangling pointer, not as a text bug.
+//
+// No length cap: the storage is a std::string. It used to truncate at 128 bytes, which stopped
+// being defensible when a 9-byte token started expanding to a 12-byte label.
 void RsText_SetDirectCopy(const char* text);
 
 // Writes one agent-loop marker, or nothing at all outside agent mode. This is what makes an
