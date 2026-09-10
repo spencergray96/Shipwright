@@ -361,8 +361,10 @@ const RsMusicZone kZones[] = {
  */
 const RsMusicScene kScenes[] = {
    /*
-    * The composited grey-box terrain with `Lumbridge Settlement X3` on it (0x83, `entrance 0x62C`) - the
-    * only place there is currently ground to walk on.
+    * SUPERSEDED for testing by SCENE_TERRAIN_F2P_SETTLEMENT_SEALED below, and kept opted in on purpose.
+    * This bake (0x83, `entrance 0x62C`) predates the #95 T-junction fix and tears along seams; it is
+    * retained as the walkable 'before' half of that A/B, and keeping it in this table means the tearing can
+    * be compared with the music working in both.
     *
     * Derivation:
     * HAND-DERIVED; deriving this belongs to the world manifest (#92), not here. The scene's collision
@@ -375,6 +377,28 @@ const RsMusicScene kScenes[] = {
     */
     {
         .sceneId = SCENE_TERRAIN_F2P_SETTLEMENT,
+        .rsOriginX = 3136,
+        .rsOriginY = 3327,
+        .unitsPerTile = 40,
+        .flags = 0,
+    },
+   /*
+    * THE ONE TO TEST AUDIO IN (0x8A, `entrance 0x633`). Same bake as SCENE_TERRAIN_F2P_SETTLEMENT above -
+    * same field, same `Lumbridge Settlement X3@56,64` composite, same everything - re-emitted 2026-09-10
+    * through the C exporter with #95's T-junctions closed, so the seams no longer tear. Prefer it for
+    * anything a human has to look at while listening.
+    *
+    * Derivation:
+    * IDENTICAL to SCENE_TERRAIN_F2P_SETTLEMENT's, and that is checked rather than assumed. The anchor is a
+    * function of the bake window, and the re-emit reported the same collision bounds
+    * (-7680,-7680)..(7680,7680) and the same spawn ActorEntry (-6640,13,-2960) as the original - so the
+    * recentred origin did not move and the derivation above carries over unchanged. Closing T-junctions
+    * splits edges and adds vertices; it does not move the window. If a future re-bake changes `--chunks` or
+    * the field, this number stops being right for BOTH scenes at once: `rsmusic where` at the spawn must
+    * read rs=2970,3401.
+    */
+    {
+        .sceneId = SCENE_TERRAIN_F2P_SETTLEMENT_SEALED,
         .rsOriginX = 3136,
         .rsOriginY = 3327,
         .unitsPerTile = 40,

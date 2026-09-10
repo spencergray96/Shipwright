@@ -27,4 +27,5 @@
 #include "../castle_cam_both/CustomCastleCamBothScene.h" // project e4eba7bf-e016-470d-9d98-19856d0cae17 name castle_cam_both
 #include "../terrain_f2p_seam_bad/CustomTerrainF2pSeamBadScene.h" // terrain-bake terrain_f2p_seam_bad
 #include "../terrain_f2p_seam_good/CustomTerrainF2pSeamGoodScene.h" // terrain-bake terrain_f2p_seam_good
+#include "../terrain_f2p_settlement_sealed/CustomTerrainF2pSettlementSealedScene.h" // terrain-bake terrain_f2p_settlement_sealed
 // END GRID TOOL EXPORTS
