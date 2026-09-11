@@ -24,9 +24,13 @@
 extern "C" {
 #include <z64.h>
 #include "global.h"
+#include "functions.h"
 #include "macros.h"
 #include "variables.h"
 extern PlayState* gPlayState;
+// code_800EC960.c's own globals, declared in no header. Read, never written - see `players`.
+extern u8 sPrevSeqMode;
+extern u16 sPrevMainBgmSeqId;
 }
 
 #define CVAR_RS_MUSIC_ON CVAR_ENHANCEMENT("RsMusicZones")
@@ -220,6 +224,49 @@ int32_t MusicConsole_Run(const std::vector<std::string>& args, std::vector<std::
         return 0;
     }
 
+    if (sub == "players") {
+        /*
+         * What is on all four sequence players right now, read the way the engine reads them
+         * (sturdy-bassoon#90 P5). Read-only: polling it changes nothing.
+         *
+         * WHY THIS EXISTS. The director asks the audio engine exactly one question - "is player 0
+         * still ours?" - and a DUCK never changes that answer. Enemy music starts on player 3 and
+         * lowers player 0 through volume scale 3; an item fanfare plays on player 1 and zeroes player
+         * 0's scale 1. Neither touches player 0's sequence id, which is what makes it a duck, and is
+         * also why nothing the director logs can show that one happened. "A duck is not a yield" is a
+         * negative, and a negative needs its trigger proven - this is the witness.
+         *
+         *   id=          func_800FA0B4(p): NA_BGM_DISABLED (0xFFFF) when the player is not enabled
+         *   scales=      gActiveSeqs[p].volScales[0..3], the game side's multipliers, 127 = 1.0
+         *   vol_cur=     gActiveSeqs[p].volCur, what the game side last derived from those scales
+         *   fade_scale=  the audio thread's seqPlayer->fadeVolumeScale, which is where vol_cur lands
+         *                (command 0x41). Audio_StartSequence re-sends it to a NEW sequence when vol_cur
+         *                is not 1.0 - so a switch made under a duck shows here whether the duck survived
+         *   fade=        the audio thread's fadeVolume. NOT 1.0 at rest: it read 0.51-0.55 on tracks
+         *                long past their fade-in through the whole P5 run, so the sequence data sets
+         *                it. A fade ramps it; compare it across samples, never against 1.0
+         *
+         * The last line is the combat-music state machine. seq_mode= is sPrevSeqMode: bit 7 set means
+         * Audio_SetSequenceMode's enemy-capable branch last ran, low bits are SEQ_MODE_* (1 = enemy).
+         * prev_main= is sPrevMainBgmSeqId, the id func_800F5ACC stashed for a mini-boss to hand back;
+         * while it is anything but 0xFFFF, Audio_SetSequenceMode does nothing at all, so enemy music
+         * is off. save_seq= is gSaveContext.seqId.
+         *
+         * fade_scale= and fade= are audio-thread words read without a lock - the same unsynchronised
+         * read func_800FA0B4 makes of `enabled`. Expect a tick-boundary stale value now and then.
+         */
+        for (int32_t p = 0; p < 4; p++) {
+            const ActiveSequence* a = &gActiveSeqs[p];
+            const SequencePlayer* sp = &gAudioContext.seqPlayers[p];
+            Addf(lines, "players[%d] id=0x%X scales=%d,%d,%d,%d vol_cur=%.2f fade_scale=%.2f fade=%.2f", p,
+                 (uint32_t)func_800FA0B4((u8)p), (int32_t)a->volScales[0], (int32_t)a->volScales[1],
+                 (int32_t)a->volScales[2], (int32_t)a->volScales[3], a->volCur, sp->fadeVolumeScale, sp->fadeVolume);
+        }
+        Addf(lines, "players seq_mode=0x%X prev_main=0x%X save_seq=0x%X", (uint32_t)sPrevSeqMode,
+             (uint32_t)sPrevMainBgmSeqId, (uint32_t)gSaveContext.seqId);
+        return 0;
+    }
+
     if (sub == "on" || sub == "off") {
         const int32_t value = (sub == "on") ? 1 : 0;
         CVarSetInteger(CVAR_RS_MUSIC_ON, value);
@@ -308,13 +355,15 @@ void RegisterMusicConsole() {
         "rsmusic",
         { MusicCommandHandler,
           "Zone-based overworld music (sturdy-bassoon#90): status | where | zones | scenes | bags | "
-          "firstvisit | on | off | dwell <sec> | fadeout <sec> | fadein <sec> | baseline. `where` prints Link's "
+          "firstvisit | players | on | off | dwell <sec> | fadeout <sec> | fadein <sec> | baseline. `players` "
+          "reads all four sequence players, which is how a duck (enemy music, a fanfare) is seen at all. "
+          "`where` prints Link's "
           "position in both OoT world units and RS absolute tiles plus the zone that wins there - "
           "that is how you check a rect against where he actually is. Fades are an 8-bit field in "
           "units of 1/30 s, so they clamp at 8.5 seconds and the reported unit count is what the "
           "engine really gets. `baseline` bookmarks the transition count so `status` can report the "
           "difference; it does NOT zero the counter, on purpose.",
-          { { "status|where|zones|scenes|bags|firstvisit|on|off|dwell|fadeout|fadein|baseline",
+          { { "status|where|zones|scenes|bags|firstvisit|players|on|off|dwell|fadeout|fadein|baseline",
               Ship::ArgumentType::TEXT },
             { "seconds", Ship::ArgumentType::TEXT, true } } });
 }

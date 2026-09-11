@@ -221,7 +221,13 @@
  *                                          candidate must be before the change is taken. While armed the
  *                                          En_Holl planes stand down, so the two triggers are measured one
  *                                          at a time
- *   agenttest music [status|where|zones|scenes|bags|firstvisit|on|off|dwell <s>|fadeout <s>|fadein <s>|baseline]
+ *   agenttest kill <actor>                 Actor_Kill every live instance of one actor (ActorDB name or
+ *                                          number), never the player; emits "kill id=0x<id> n=<count>" and
+ *                                          returns rc=1 when n=0. Ends an encounter the loop cannot fight
+ *                                          (sturdy-bassoon#90 P5): Destroy runs on the next Actor_UpdateAll,
+ *                                          as after a death, so a mini-boss's music release fires
+ *   agenttest music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|
+ *                    fadein <s>|baseline]
  *                                          the zone music director's console surface (sturdy-bassoon#90).
  *                                          `where` is the one to reach for first: it prints Link's
  *                                          position in OoT world units AND in RS absolute surface tiles,
@@ -301,6 +307,7 @@
 #include "soh/Enhancements/rs/dialogue/NpcConsole.h"
 #include "soh/Enhancements/rs/prefs/RegionConsole.h"
 #include "AgentTest.h"
+#include "soh/ActorDB.h"
 #include "soh/ShipInit.hpp"
 // For SaveManager::Instance, which `save` and `loadsave` drive directly. The free
 // `Save_SaveFile`/`Save_LoadFile` wrappers are declared here with C++ linkage but defined
@@ -1118,7 +1125,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     }
     if (args.size() >= 2 &&
         (args[1] == "state" || args[1] == "goto" || args[1] == "walk" || args[1] == "press" || args[1] == "rooms" ||
-         args[1] == "time" || args[1] == "trace" || args[1] == "fog" || args[1] == "uncull") &&
+         args[1] == "time" || args[1] == "trace" || args[1] == "fog" || args[1] == "uncull" ||
+         args[1] == "kill") &&
         !InNormalPlay()) {
         if (output) {
             *output += "no scene loaded";
@@ -1150,6 +1158,42 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             *output += buf;
         }
         return 0;
+    }
+    // Kills every live instance of one actor, never the player (sturdy-bassoon#90 P5). The zone
+    // director's override tests have to END an encounter the loop cannot fight: walk/press cannot win
+    // a sword fight, and a mini-boss hands sequence player 0 back from its Destroy function
+    // (func_800F5B58). Actor_Kill is the vanilla removal path - the actor is deleted and its Destroy
+    // runs on the next Actor_UpdateAll, as after a death minus the death animation - so whatever a
+    // death would release is released. Takes an ActorDB name (En_Test) or a number, like SoH's own
+    // `spawn`. rc=1 when nothing matched, so a run meant to end an encounter cannot end nothing and
+    // read the quiet that follows as a pass.
+    if (args.size() >= 3 && args[1] == "kill") {
+        int32_t actorId = ActorDB::Instance->RetrieveId(args[2]);
+        if (actorId < 0 && !ParseInt(args[2], &actorId)) {
+            if (output) {
+                *output += "kill needs an ActorDB name (e.g. En_Test) or a numeric actor id";
+            }
+            return 1;
+        }
+        uint32_t n = 0;
+        for (size_t i = 0; i < ARRAY_COUNT(gPlayState->actorCtx.actorLists); i++) {
+            if (i == ACTORCAT_PLAYER) {
+                continue;
+            }
+            for (Actor* actor = gPlayState->actorCtx.actorLists[i].head; actor != nullptr; actor = actor->next) {
+                if (actor->id == actorId) {
+                    Actor_Kill(actor);
+                    n++;
+                }
+            }
+        }
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "kill id=0x%X n=%u", static_cast<unsigned>(actorId) & 0xFFFF, n);
+        WriteMarker(buf);
+        if (output) {
+            *output += buf;
+        }
+        return n > 0 ? 0 : 1;
     }
     if (args.size() >= 2 && args[1] == "state") {
         return EmitState(output);
@@ -1815,14 +1859,16 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | "
             "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | "
             "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
-            "roomdist [hysteresis]|off | uncull | sceneflag <sceneId> [value] | worldflag count|<n> [0|1] | "
+            "roomdist [hysteresis]|off | uncull | kill <actor> | sceneflag <sceneId> [value] | "
+            "worldflag count|<n> [0|1] | "
             "queststore count|<id> [status mask] | questpred <kind> <a> <b> <negate> | "
               "quest list|dump <id>|start <id>|setstep <id> <n>|clearstep <id> <n>|check <id> <n>|complete <id>|"
               "journal <id|all> [runs]|parse <text...>|badcheck|overlay [on|off|all|<id>]|"
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
-              "music [status|where|zones|scenes|bags|firstvisit|on|off|dwell <s>|fadeout <s>|fadein <s>|baseline] | "
+              "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|fadein <s>|"
+              "baseline] | "
             "save <fileNum> | loadsave <fileNum> | mark <text>";
     }
     return 1;
@@ -1846,14 +1892,16 @@ void RegisterAgentTest() {
               "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | "
               "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | "
               "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
-              "roomdist [hysteresis]|off | uncull | sceneflag <sceneId> [value] | worldflag count|<n> [0|1] | "
+              "roomdist [hysteresis]|off | uncull | kill <actor> | sceneflag <sceneId> [value] | "
+              "worldflag count|<n> [0|1] | "
               "queststore count|<id> [status mask] | questpred <kind> <a> <b> <negate> | "
               "quest list|dump <id>|start <id>|setstep <id> <n>|clearstep <id> <n>|check <id> <n>|complete <id>|"
               "journal <id|all> [runs]|parse <text...>|badcheck|overlay [on|off|all|<id>]|"
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
-              "music [status|where|zones|scenes|bags|firstvisit|on|off|dwell <s>|fadeout <s>|fadein <s>|baseline] | "
+              "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|"
+              "fadein <s>|baseline] | "
               "save <fileNum> | loadsave <fileNum> | mark <text>. walk/press inject controller 1 for N frames and end "
               "with an input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });

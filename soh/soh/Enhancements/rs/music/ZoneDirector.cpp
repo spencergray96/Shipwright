@@ -1042,6 +1042,27 @@ void OnPlayerUpdateMusic() {
         sWarpPending = false;
         const char* reason = sWarpReason;
         sWarpReason = "warp";
+        // A WARP WHILE YIELDED IS NOT A SWITCH. It was one: this block sits above the yield block
+        // and read YIELDED as "nothing asserted", so a teleport over a live override hard-cut it
+        // (gap=0, even into the same zone) and left the override's owner believing it still held
+        // player 0. When that mini-boss then ended, func_800F5B58 found our track, restored nothing
+        // and cleared nothing - and Audio_SetSequenceMode does nothing at all while
+        // sPrevMainBgmSeqId is set, so enemy music stayed dead until the next scene load. Found by
+        // the #90 P5 run (docs/test-runs/2026-09-11-zone-music-p5, scenario E).
+        //
+        // It is the section 13 deletion's own argument, one block up: the release recomputes the
+        // winner anyway, so switching here buys nothing but the ability to interrupt an override.
+        // The warp is consumed, not deferred, and it is logged so a run can show it was offered and
+        // refused - which a log with no warp in it would otherwise read identically to.
+        if (sState == STATE_YIELDED) {
+            sCandidateZone = NO_ZONE;
+            sDwellTicks = 0;
+            char tiles[32];
+            RsMusic_FormatTiles(tiles, sizeof(tiles), rsX, rsY);
+            RecordEvent("warp_yielded zone=%s winner=%s reason=%s rs=%s frame=%u", ZoneName(sActiveZone),
+                        ZoneName(winner), reason, tiles, play->state.frames);
+            return;
+        }
         // ...but a warp that lands in the zone you were already in is not a switch. What #90 s7
         // says is that a teleport skips the DWELL, not that it must restart the music: restarting
         // here would send the track back to the top every time you teleport home, or step through
@@ -1079,10 +1100,33 @@ void OnPlayerUpdateMusic() {
     //
     //    So while yielded the dwell is held at zero rather than left counting toward a switch that
     //    must not happen, and this returns before the dwell block further down.
+    //
+    //    TWO WAYS AN OVERRIDE HANDS PLAYER 0 BACK, and until the #90 P5 run only the first was known:
+    //
+    //      - QUIET. Cutscene music ends with a real stop (Audio_StopSequenceInCutscene).
+    //      - OUR OWN ID, RESTARTED. Every func_800F5ACC override - the mini-bosses and the timed
+    //        minigames - ends in func_800F5B58, which replays the id func_800F5ACC stashed when it
+    //        took the player. In an opted-in scene that id is OURS, so player 0 comes back already
+    //        sounding our track from the top and is never quiet. A director that waited for quiet
+    //        stayed yielded until the next scene load: no release, no dwell, no queue, and the
+    //        pre-fight track looping whatever zone Link walked into
+    //        (docs/test-runs/2026-09-11-zone-music-p5, D2).
+    //
+    //    sPlayingSeqId is kept across the yield for exactly this, and it cannot fire early: a yield
+    //    only starts when live != sPlayingSeqId, so seeing it again means the override gave the
+    //    player back. Both exits take the same release with a freshly computed winner, so a fight
+    //    that ends in a different zone from the one it began in plays the new zone.
     if (sState == STATE_YIELDED) {
-        if (live == NA_BGM_DISABLED) {
+        if (live == NA_BGM_DISABLED || live == sPlayingSeqId) {
+            // Which exit fired, so a run can tell the two apart - the transition line alone reads the
+            // same for both. Logged first, so the channel reads in the order things happened.
+            RecordEvent("release via=%s zone=%s winner=%s ours=0x%X frame=%u",
+                        live == NA_BGM_DISABLED ? "quiet" : "restored", ZoneName(sActiveZone), ZoneName(winner),
+                        sPlayingSeqId, play->state.frames);
             // Restart from the top rather than resuming - see ZoneDirector.h on why the asymmetry
-            // with combat ducking is deliberate.
+            // with combat ducking is deliberate. On the `restored` exit the fresh pick lands on top
+            // of vanilla's restart about a tick after it began; whether that is audible is a
+            // listening-pass question, and the lever is in the P5 run's README.
             sState = STATE_IDLE;
             BeginSwitch(winner, "override_release", rsX, rsY, pos);
         } else {
@@ -1354,7 +1398,10 @@ extern "C" int32_t RsMusic_DescribeLine(int32_t index, char* buf, uint32_t size)
             FormatBag(bag, sizeof(bag), sPlayingBagPos, sPlayingBagSize, sPlayingFirstVisit);
             const uint32_t rate = ScriptTicksPerSecond();
             int32_t elapsed = -1;
-            if (rate != 0 && sSounding) {
+            // Not while yielded: scriptCounter then belongs to whatever took player 0, and the P5
+            // run read elapsed=59 and elapsed=157 off a mini-boss's clock minus our baseline. -1
+            // rather than a number somebody believes.
+            if (rate != 0 && sSounding && sState != STATE_YIELDED) {
                 const uint32_t now = ScriptCounter();
                 elapsed = (now >= sTrackStartCounter) ? (int32_t)((now - sTrackStartCounter) / rate) : -1;
             }

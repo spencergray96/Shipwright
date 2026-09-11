@@ -60,8 +60,12 @@
  * fighting it: in AfterSceneCommands it sets sequenceCtx.seqId = NA_BGM_NO_MUSIC and
  * natureAmbienceId = NATURE_ID_NONE, and with both set Environment_PlaySceneSequence returns early
  * without touching the player at all. It gives player 0 back the moment anything else takes it -
- * cutscene, mini-boss, minigame - and RE-ASSERTS ONLY WHEN PLAYER 0 GOES QUIET. A director that
- * competed would leave the music wrong forever after one cutscene.
+ * cutscene, mini-boss, minigame - and RE-ASSERTS ONLY WHEN THE OVERRIDE HANDS IT BACK: player 0 goes
+ * quiet (a cutscene's stop), or comes back carrying OUR OWN id (func_800F5B58, which ends every
+ * mini-boss and timed minigame by replaying the id it stashed - ours). Nothing else ends a yield,
+ * not a zone change and not a warp. A director that competed would leave the music wrong forever
+ * after one cutscene; one that waited for quiet alone stayed yielded forever after one mini-boss,
+ * which is what the #90 P5 run found.
  *
  * (#90 section 13 originally read "when it goes quiet OR the zone changes". The second half was
  * deleted on 2026-09-09: taken literally it lets a cutscene which walks Link across a boundary have
