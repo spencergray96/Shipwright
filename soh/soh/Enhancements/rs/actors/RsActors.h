@@ -66,9 +66,9 @@ void RsText_SetDirect(const char* text);
 // being defensible when a 9-byte token started expanding to a 12-byte label.
 void RsText_SetDirectCopy(const char* text);
 
-// Writes one agent-loop marker, or nothing at all outside agent mode. This is what makes an
-// in-game conversation ASSERTABLE - a screenshot shows a textbox, a marker names the rule that
-// produced it and what picking an option actually returned.
+// Writes one agent-loop marker; outside agent mode the line goes to the engine log only
+// (sturdy-bassoon#97). This is what makes an in-game conversation ASSERTABLE - a screenshot shows a
+// textbox, a marker names the rule that produced it and what picking an option actually returned.
 void RsAgent_Marker(const char* line);
 
 #ifdef __cplusplus
