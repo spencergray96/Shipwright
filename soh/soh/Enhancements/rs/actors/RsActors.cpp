@@ -133,6 +133,22 @@ std::string BuildScreenText(const RsDialogueRule& screen, const std::string& bod
     return text;
 }
 
+// QUICKTEXT_ENABLE on EVERY page, not only the first (sturdy-bassoon#96). The control code is per
+// TEXTBOX PAGE: Message_DrawText honours it only at the start of the page being drawn, and each page
+// is decoded on its own - so the one byte at the front of a message makes page 1 instant and leaves
+// page 2 onwards typing out. That stayed invisible until a reply got long enough to paginate, which
+// #96's fixture does on purpose, and then it is two failures at once: a player reads information at
+// drama speed, and the agent loop's A press on a still-typing page finishes the page instead of
+// turning it, so a driven conversation silently falls one press behind and stays there.
+//
+// The byte is re-emitted after every page break AutoFormat inserted. CustomMessage::AutoFormat(ItemID)
+// repeats its item icon on every page with the same Replace, which is the precedent. Only the
+// AutoFormat path needs it: Format() - the three- and four-option layout - never paginates, and the
+// registration-time measurements build their own messages, so what they search for is unchanged.
+void QuickTextEveryPage(CustomMessage& msg) {
+    msg.Replace(CustomMessage::WAIT_FOR_INPUT(), CustomMessage::WAIT_FOR_INPUT() + std::string("\x08"));
+}
+
 CustomMessage BuildScreenMessage(const RsDialogueRule& screen, const int32_t* slots, int32_t visibleCount) {
     // The composed body (D26): the screen's own text, plus its missing-steps clause when it carries
     // one. Composed HERE rather than stored anywhere, from the global stores, at open time - which
@@ -152,6 +168,7 @@ CustomMessage BuildScreenMessage(const RsDialogueRule& screen, const int32_t* sl
         msg.Format();
     } else {
         msg.AutoFormat();
+        QuickTextEveryPage(msg); // a statement's body can paginate - a missing-steps list grows
     }
     return msg;
 }
@@ -179,6 +196,7 @@ void RsText_ApplyBoxGeometry(bool tall) {
 CustomMessage BuildPlainMessage(const char* text) {
     CustomMessage msg(std::string("\x08") + text);
     msg.AutoFormat();
+    QuickTextEveryPage(msg); // a reply or a pickup line can paginate
     return msg;
 }
 

@@ -349,9 +349,11 @@ const RsNpcDef sPage = {
 
 // --- NPC_DEBUG_QUEST_MENU (199) ------------------------------------------------------------------
 //
-// The tree follow-ups (#96), on QUEST_DEBUG_JOURNAL (50): three any-order steps and no step labels,
-// so the missing-steps clause prints the tokens `egg`, `flour` and `milk` - deterministic, and on a
-// quest nothing else is editing. The shape is the one a real quest-giver wants and the first cut of
+// The tree follow-ups (#96), on QUEST_DEBUG_SMOKE (48): three any-order steps and no step labels, so
+// the missing-steps clause prints the tokens `red`, `green` and `blue` - deterministic, and on a quest
+// with no prerequisites. Deliberately NOT quest 50, whose tokens are `egg`, `flour` and `milk`: this
+// NPC stands in the same level as the Cook, and a debug list that reads like his shopping list is
+// exactly the confusion sturdy-bassoon#88 cleaned out of quest 51. The shape is the one a real quest-giver wants and the first cut of
 // #96 could not express: ask about the job, hear what is left, come back to the menu.
 //
 //   rules 0-1   two entry STATEMENTS that continue - #96 sketched exactly this, and the first cut had
@@ -375,7 +377,7 @@ const RsNpcDef sPage = {
 // registration now checks that one is there: without it every screen here would loop forever.
 
 const QuestPredicate sMenuJobInProgressWhen[] = {
-    QP_QUEST_STATUS_IS(QUEST_DEBUG_JOURNAL, QUEST_STATUS_IN_PROGRESS),
+    QP_QUEST_STATUS_IS(QUEST_DEBUG_SMOKE, QUEST_STATUS_IN_PROGRESS),
 };
 
 const RsDialogueOption sMenuOptions[] = {
@@ -388,15 +390,15 @@ const RsDialogueNode sMenuNodes[] = {
     // 0 - the menu
     { nullptr, 0, "What do you need?", sMenuOptions, 3, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
     // 1 - the group's first member, only while the job is in progress: clause covered by its OWN gate
-    { sMenuJobInProgressWhen, 1, "The job? The cook still needs:", nullptr, 0, QUEST_DEBUG_JOURNAL, 0 },
+    { sMenuJobInProgressWhen, 1, "The job? Still to find:", nullptr, 0, QUEST_DEBUG_SMOKE, 0 },
     // 2 - the group's ungated end: every other status
     { nullptr, 0, "No job for you right now. Ask again later.", nullptr, 0, RS_DLG_NO_MISSING, 0 },
     // 3 - an ungated statement between the gated option and the list
     { nullptr, 0, "Let me think.", nullptr, 0, RS_DLG_NO_MISSING, 4 },
     // 4 - ungated: clause covered by the OPTION two hops back
-    { nullptr, 0, "Left to find:", nullptr, 0, QUEST_DEBUG_JOURNAL, 0 },
+    { nullptr, 0, "Left to find:", nullptr, 0, QUEST_DEBUG_SMOKE, 0 },
     // 5 - ungated: clause covered by the gated SOURCE screen, rule 0
-    { nullptr, 0, "Still on the list:", nullptr, 0, QUEST_DEBUG_JOURNAL, 0 },
+    { nullptr, 0, "Still on the list:", nullptr, 0, QUEST_DEBUG_SMOKE, 0 },
 };
 
 const RsDialogueRule sMenuRules[] = {

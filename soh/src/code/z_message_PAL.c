@@ -2894,6 +2894,62 @@ void Message_StartTextbox(PlayState* play, u16 textId, Actor* actor) {
     play->msgCtx.ocarinaMode = OCARINA_MODE_00;
 }
 
+// #region SOH [sturdy-bassoon#96] Keep a CONTINUED textbox inside the letterbox-safe band too.
+//
+// #59 clamps the box into [32, SCREEN_HEIGHT - 32] where a textbox STARTS (Message_Update,
+// MSGMODE_TEXT_START), because the three Y positions there are tuned for a 64px box and a taller
+// one overhangs the bottom letterbox bar. That block never runs for Message_ContinueTextbox - a
+// continued box keeps the start block's placement - which was fine while a box could only change
+// height at its start. A dialogue tree changes it mid-conversation: a statement or a two-way choice
+// continues into a four-way node, the OnOpenText hook grows the height to 80, and the box stays at
+// the 64px box's Y with its bottom 16px under the bar. The height was right and the POSITION was
+// not; screenshot only, every marker still says the choice rendered.
+//
+// So the start block records where it put the box before clamping, and a continued box re-clamps
+// that same base against its own height. Everything that is an offset from Y_TARGET - the live Y,
+// the end icon, the four choice rows - moves by the same delta, so the per-type offsets the start
+// block chose from its tables are kept rather than recomputed here.
+//
+// Strictly a no-op for every vanilla box: a vanilla continue does not change the height, so the
+// re-clamped target equals the current one and the delta is zero. And it only ever touches a box
+// the start block placed: if anything else has moved R_TEXTBOX_Y_TARGET since (sPlacedYTarget no
+// longer matches), it leaves the box alone.
+static s16 sTextboxBaseYTarget = 0;
+static s16 sPlacedYTarget = -1;
+
+static s16 Message_ClampTextboxY(s16 y) {
+    if (y + R_TEXTBOX_HEIGHT_TARGET > SCREEN_HEIGHT - 32) {
+        y = (SCREEN_HEIGHT - 32) - R_TEXTBOX_HEIGHT_TARGET;
+    }
+    if (y < 32) {
+        y = 32;
+    }
+    return y;
+}
+
+static void Message_ReclampContinuedTextbox(void) {
+    s16 target;
+    s16 delta;
+    s32 i;
+
+    if (sPlacedYTarget != R_TEXTBOX_Y_TARGET) {
+        return;
+    }
+    target = Message_ClampTextboxY(sTextboxBaseYTarget);
+    delta = target - R_TEXTBOX_Y_TARGET;
+    if (delta == 0) {
+        return;
+    }
+    R_TEXTBOX_Y_TARGET = target;
+    R_TEXTBOX_Y += delta;
+    R_TEXTBOX_END_YPOS += delta;
+    for (i = 0; i < 4; i++) {
+        R_TEXT_CHOICE_YPOS(i) += delta;
+    }
+    sPlacedYTarget = target;
+}
+// #endregion
+
 void Message_ContinueTextbox(PlayState* play, u16 textId) {
     MessageContext* msgCtx = &play->msgCtx;
 
@@ -2904,6 +2960,9 @@ void Message_ContinueTextbox(PlayState* play, u16 textId) {
 
     msgCtx->msgLength = 0;
     Message_OpenText(play, textId);
+    // SOH [sturdy-bassoon#96] After OpenText, because its OnOpenText hook is what sets this box's
+    // height - the clamp has to see the NEW height.
+    Message_ReclampContinuedTextbox();
     msgCtx->msgMode = MSGMODE_NONE;
     msgCtx->textboxColorAlphaCurrent = msgCtx->textboxColorAlphaTarget;
     msgCtx->msgMode = MSGMODE_TEXT_CONTINUING;
@@ -4552,12 +4611,13 @@ void Message_Update(PlayState* play) {
                 // This is a strict no-op for every vanilla box (206 <= 208, and the upper position
                 // 38 >= 32), so it changes nothing that exists today. It has to run BEFORE the end
                 // icon and the choice rows below, which are all offsets from Y_TARGET.
-                if (R_TEXTBOX_Y_TARGET + R_TEXTBOX_HEIGHT_TARGET > SCREEN_HEIGHT - 32) {
-                    R_TEXTBOX_Y_TARGET = (SCREEN_HEIGHT - 32) - R_TEXTBOX_HEIGHT_TARGET;
-                }
-                if (R_TEXTBOX_Y_TARGET < 32) {
-                    R_TEXTBOX_Y_TARGET = 32;
-                }
+                //
+                // SOH [sturdy-bassoon#96] The clamp is shared with Message_ContinueTextbox, which
+                // re-applies it when a continued box changes height; the unclamped base and the
+                // placed target are recorded here for it to start from.
+                sTextboxBaseYTarget = R_TEXTBOX_Y_TARGET;
+                R_TEXTBOX_Y_TARGET = Message_ClampTextboxY(R_TEXTBOX_Y_TARGET);
+                sPlacedYTarget = R_TEXTBOX_Y_TARGET;
                 // #endregion
 
                 R_TEXTBOX_X_TARGET = sTextboxXPositions[var];
