@@ -38,6 +38,16 @@ const char* const sStepNames[] = { "debug_widget", "debug_cog" };
 // documented token-shaped degradation, and the other half of the same #88 confusion.
 const char* const sStepLabels[] = { "a debug widget", "a debug cog" };
 
+// Pickup text (sturdy-bassoon#99), with the two halves of the fallback on purpose. The widget's item
+// stands in 0x614 beside the Cook's ingredients and says plainly that it is a fixture - the #88
+// confusion again, answered in the item's own voice. The cog's entry is NULL, so its item (in 0x629)
+// still says the template built from its label, which keeps a registered, placed NULL entry in the
+// tree for `quest pickup 51 1` to prove.
+const char* const sPickupTexts[] = {
+    "You found a debug widget.&This is a test fixture for&quest 51, not a real item.",
+    nullptr,
+};
+
 const QuestPredicate sRequirements[] = {
     QP_WORLD_FLAG_SET(WORLD_FLAG_DEBUG_GIVER_GATE),
 };
@@ -93,6 +103,7 @@ const QuestDef sGiver = {
     .stepCount = 2,
     .stepNames = sStepNames,
     .stepLabels = sStepLabels,
+    .stepPickupTexts = sPickupTexts,
     .requirements = sRequirements,
     .requirementCount = 1,
     .prereqFn = nullptr,

@@ -40,7 +40,8 @@
 //
 // C++ ONLY, no extern "C" shim. Every consumer is C++ (the two registration gates, the journal
 // parser, the textbox renderer, the consoles); the one thing a C actor hands over directly - an
-// option reply or an item pickup line - goes through RsText_SetDirectCopy, which expands for it.
+// option reply - goes through RsText_SetDirectCopy, which expands for it. An item's pickup line is
+// composed in C++ by Quest_ComposePickupText.
 
 enum RsFloorTokenError {
     RS_FLOOR_TOKEN_OK = 0,

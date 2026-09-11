@@ -54,9 +54,9 @@ namespace {
 // It is read LATER than it looks. Message_OpenText is re-entered from the draw path on a mid-text
 // language switch (z_message_PAL.c), so the pointer has to stay valid for as long as the box is
 // open - which is why RsActors.h says it must always be a definition string. `sDirectCopy` is the
-// escape hatch for the one caller that needs a COMPOSED line (a quest item naming what it was):
-// the sentence is copied here, into storage that outlives every actor, because the actor that
-// built it is killed while its own textbox is still on screen.
+// escape hatch for a caller whose line is COMPOSED rather than named (an option's reply, which may
+// carry a `{floor:N}` token): the expanded line is copied here, into storage that outlives every
+// actor.
 //
 // `sDirectCopy` was a char[128] that truncated silently. It is a std::string now (#94): a
 // `{floor:N}` token is shorter than the label it expands to, so the composed line is no longer the
@@ -224,6 +224,26 @@ void RsText_OnOpenText(uint16_t* textId, bool* loadFromMessageTable) {
         return;
     }
 
+    // A quest item's pickup line (#99), for BOTH pickup styles. Composed from the definition when the
+    // box opens, from nothing but the id - which is the whole reason it has an id band: in the get-item
+    // style this box is opened by PLAYER, from the GetItemEntry, about a second after the item actor
+    // accepted and killed itself. That is too long to trust the one-slot direct pointer still holds
+    // this item's line, and the held-item draw function reads the same id to find its texture.
+    if (RS_TEXT_IS_ITEM(id)) {
+        const int32_t questId = RS_TEXT_ITEM_GET_QUEST(id);
+        const int32_t step = RS_TEXT_ITEM_GET_STEP(id);
+        CustomMessage msg = BuildPlainMessage(Quest_ComposePickupText(questId, step).c_str());
+        msg.LoadIntoFont();
+        *loadFromMessageTable = false;
+        // Which of the two lines was shown, as a marker: a screenshot shows the words, and this is
+        // what proves they came from the definition rather than from the template beside it.
+        char line[112];
+        std::snprintf(line, sizeof(line), "rs_item quest=%d step=%d event=text source=%s", questId, step,
+                      Quest_PickupSourceName(questId, step));
+        AgentTest_WriteMarker(line);
+        return;
+    }
+
     int32_t npcId = 0;
     int32_t index = 0;
     const int32_t kind = RsNpc_DecodeScreen(id, &npcId, &index);
@@ -344,7 +364,7 @@ void RegisterRsActors() {
 
         ActorDBInit item = {
             "Rs_QuestItem",
-            "RS quest item (touch to collect)",
+            "RS quest item (touch or get-item)",
             ACTOR_RS_QUEST_ITEM,
             ACTORCAT_PROP,
             (u32)(ACTOR_FLAG_UPDATE_CULLING_DISABLED),
@@ -381,10 +401,10 @@ extern "C" void RsText_SetDirectCopy(const char* text) {
         sDirectText = nullptr;
         return;
     }
-    // Expanded here, which is what makes this the ONE door a composed line goes through: an
-    // option's reply and an item's pickup sentence are both authored prose that may name a storey,
-    // and neither of their callers is C++ (#94). Expansion is also why the copy is not optional -
-    // the expanded string is built here and nothing else owns it.
+    // Expanded here, which is what makes this the door a C caller's composed line goes through: an
+    // option's reply is authored prose that may name a storey, and its caller is not C++ (#94).
+    // Expansion is also why the copy is not optional - the expanded string is built here and nothing
+    // else owns it.
     sDirectCopy = RsFloorText_Compose(text);
     sDirectText = sDirectCopy.c_str();
 }

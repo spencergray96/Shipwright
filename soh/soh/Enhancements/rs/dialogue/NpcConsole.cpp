@@ -285,11 +285,12 @@ int32_t Actors(std::vector<std::string>& lines) {
                                                                                   : 0;
                 std::snprintf(buf, sizeof(buf),
                               "actor[%d]=rs_quest_item quest=%d step=%d params=0x%04X rsvd=%d set=%d room=%d "
-                              "pos=%d,%d,%d",
+                              "pos=%d,%d,%d style=%s",
                               found, questId, step, static_cast<unsigned>(actor->params) & 0xFFFF,
                               RS_ITEM_PARAMS_GET_RSVD(actor->params), stepSet, actor->room,
                               static_cast<int>(actor->world.pos.x), static_cast<int>(actor->world.pos.y),
-                              static_cast<int>(actor->world.pos.z));
+                              static_cast<int>(actor->world.pos.z),
+                              RsItemStyle_Name(RS_ITEM_PARAMS_GET_STYLE(actor->params)));
                 lines.push_back(buf);
                 found++;
             }

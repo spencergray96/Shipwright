@@ -98,8 +98,10 @@ int32_t Quest_CheckComplete(int32_t questId);
 
 // NOT_STARTED -> IN_PROGRESS if prerequisites are met.
 int32_t Quest_Start(int32_t questId);
-// Status is not gated (an item may be collected before the quest starts, as in RS); a COMPLETE
-// quest refuses with QUEST_ERR_WRONG_STATUS because its steps are frozen. On an `ordered` quest an
+// Status is not gated HERE - the store accepts a step on a quest that has not started - but the
+// world is: a quest item stays dormant until its quest is in progress (sturdy-bassoon#98,
+// RsQuestItem.h). A COMPLETE quest refuses with QUEST_ERR_WRONG_STATUS because its steps are
+// frozen. On an `ordered` quest an
 // out-of-order set/clear is QUEST_ERR_ORDER_VIOLATION: logged, debug-asserted, refused (D2).
 int32_t Quest_SetStep(int32_t questId, int32_t step);
 int32_t Quest_ClearStep(int32_t questId, int32_t step);
@@ -123,6 +125,16 @@ void Quest_DebugWipe(int32_t* questsWiped, int32_t* flagsCleared);
 // definition string, so it outlives any textbox built from it.
 const char* Quest_StepLabel(int32_t questId, int32_t step);
 
+// The AUTHORED pickup line for one step (QuestDef.stepPickupTexts, sturdy-bassoon#99), or NULL when
+// the quest supplies none for that step - which is the answer that makes its item say the template.
+// Quiet on every bad input, like Quest_StepLabel, and NULL for all of them. The raw definition
+// string, `{floor:N}` still unexpanded: anything a player reads goes through
+// Quest_ComposePickupText. C-callable so a console can say which of the two a step uses.
+const char* Quest_StepPickupText(int32_t questId, int32_t step);
+// "authored" when Quest_StepPickupText has a line for this step, "template" otherwise. The one word
+// the pickup text marker, `quest dump` and `quest pickup` all print, so the three cannot drift apart.
+const char* Quest_PickupSourceName(int32_t questId, int32_t step);
+
 const char* Quest_ResultName(int32_t result);   // "ok", "order_violation", ...
 const char* Quest_StatusName(int32_t status);   // "not_started", "in_progress", "complete"
 const char* Quest_TierName(int32_t tier);       // "prod", "debug"
@@ -135,6 +147,19 @@ void Quest_Describe(int32_t questId, char* buf, size_t len);
 
 #ifdef __cplusplus
 }
+
+#include <string>
+
+// The pickup line a PLAYER reads for one step (sturdy-bassoon#99): the authored text when the quest
+// has one for it, otherwise "You found <step label>.&The quest journal will&remember it.", and in
+// both cases with `{floor:N}` expanded under the live floor convention. One implementation, two
+// sinks - the textbox (the OnOpenText hook in RsActors.cpp, for both pickup styles) and
+// `quest pickup` - so the console cannot validate a line the player never sees (D18).
+//
+// Never asserts. An unregistered quest or a step past stepCount yields a visible `<no quest ...>`
+// diagnostic rather than a plausible sentence; no item actor can reach that, because one whose
+// params do not name a real step never opens this text.
+std::string Quest_ComposePickupText(int32_t questId, int32_t step);
 #endif
 
 #endif // SOH_RS_QUEST_H

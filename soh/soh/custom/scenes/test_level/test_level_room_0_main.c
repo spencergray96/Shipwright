@@ -86,9 +86,13 @@ ActorEntry test_level_room_0_header00_actorList[] = {
     // a ShouldActorInit hook (rs/actors/RsActors.cpp) refuses to build an item whose step is
     // already set — which is a READ, and so stays on the right side of the "flags are set on
     // collection, never on spawn" pitfall.
-    { ACTOR_RS_QUEST_ITEM, { -700, 20, 700 }, { 0, 0, 0 }, RS_ITEM_PARAMS(QUEST_COOKS_ASSISTANT, 0) },
-    { ACTOR_RS_QUEST_ITEM, { 0, 20, 900 },    { 0, 0, 0 }, RS_ITEM_PARAMS(QUEST_COOKS_ASSISTANT, 1) },
-    { ACTOR_RS_QUEST_ITEM, { 700, 20, 700 },  { 0, 0, 0 }, RS_ITEM_PARAMS(QUEST_COOKS_ASSISTANT, 2) },
+    //
+    // They use the GET-ITEM pickup style (sturdy-bassoon#99): Link holds each one up with the fanfare,
+    // and its params word reads 0x08xx rather than 0x00xx. The debug giver's item above stays TOUCH on
+    // purpose - fixtures stay fast to drive from the agent loop.
+    { ACTOR_RS_QUEST_ITEM, { -700, 20, 700 }, { 0, 0, 0 }, RS_ITEM_PARAMS_STYLED(QUEST_COOKS_ASSISTANT, 0, RS_ITEM_STYLE_GET_ITEM) },
+    { ACTOR_RS_QUEST_ITEM, { 0, 20, 900 },    { 0, 0, 0 }, RS_ITEM_PARAMS_STYLED(QUEST_COOKS_ASSISTANT, 1, RS_ITEM_STYLE_GET_ITEM) },
+    { ACTOR_RS_QUEST_ITEM, { 700, 20, 700 },  { 0, 0, 0 }, RS_ITEM_PARAMS_STYLED(QUEST_COOKS_ASSISTANT, 2, RS_ITEM_STYLE_GET_ITEM) },
 };
 
 // The count, derived HERE - the only translation unit where the array's size is known. The scene's

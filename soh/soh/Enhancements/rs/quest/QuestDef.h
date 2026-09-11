@@ -70,6 +70,21 @@ typedef struct QuestDef {
     // yet be a journal line; a label is prose that has to be safe on either.
     const char* const* stepLabels;
 
+    // What a quest ITEM says when it is picked up, per step (sturdy-bassoon#99) - "You got an egg!&It
+    // is still warm." Optional twice over: NULL for the whole quest, or NULL for one entry, and in
+    // either case that step's item says the template instead ("You found <step label>.&The quest
+    // journal will&remember it."). That per-entry fallback is deliberate: a quest can give its
+    // ceremonial items a voice and leave the rest alone, and a fixture can say plainly that it is a
+    // fixture.
+    //
+    // DIALOGUE PROSE, not a label and not journal markup: it is a whole textbox of its own, rendered
+    // through CustomMessageManager like an option's reply. So '&' is legal (the author's line break)
+    // and '#', '%', '"', '^' and control characters are refused, and an EMPTY string is refused
+    // because it is an empty box rather than a fallback. `{floor:N}` is expanded at read time.
+    // Read through Quest_StepPickupText / Quest_ComposePickupText (Quest.h); either pickup style
+    // (RsActorParams.h) says the same line.
+    const char* const* stepPickupTexts;
+
     // D8/D9: `requirements` are evaluated and blocking (Quest_Start refuses while any is false);
     // `hints` are display text shown before the quest starts and are never evaluated. Hints are
     // MARKUP too, so `#hint:...#` may appear inside one - the two senses of the word are different

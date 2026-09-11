@@ -52,13 +52,37 @@ RS_STATIC_ASSERT((RS_NPC_PARAMS_ID_MASK | RS_NPC_PARAMS_RSVD_MASK) <= 0x7FFF, "b
 #define RS_ITEM_PARAMS_STEP_MASK 0x001F  // bits 0-4: step
 #define RS_ITEM_PARAMS_QUEST_SHIFT 5     // bits 5-10: QuestId
 #define RS_ITEM_PARAMS_QUEST_MASK 0x003F
-#define RS_ITEM_PARAMS(questId, step)                                                                                  \
+#define RS_ITEM_PARAMS_STYLE_SHIFT 11    // bit 11: pickup style (sturdy-bassoon#99)
+#define RS_ITEM_PARAMS_STYLE_MASK 0x0001
+
+// HOW an item is collected, which is a property of the PLACEMENT and not of the quest - the same
+// (quest, step) could be a touch fixture in a debug scene and a ceremony in a production one.
+//
+// Zero is TOUCH, deliberately: that is what every placement authored before #99 already carries in
+// this bit, so taking the bit out of the reserved span reinterprets nothing. The #58 rule 1 above
+// holds because the bit was reserved-and-zero, not because nobody had used it.
+typedef enum RsItemStyle {
+    RS_ITEM_STYLE_TOUCH = 0,    // walk into it: a plain textbox, the step is set, it despawns
+    RS_ITEM_STYLE_GET_ITEM = 1, // the get-item cutscene: Link holds it up, fanfare, the same text
+} RsItemStyle;
+
+// A token for markers and console lines. Anything that is not the get-item style is touch, because
+// that is also how the actor reads a params word: only bit 11 set means ceremony.
+static inline const char* RsItemStyle_Name(int32_t style) {
+    return style == RS_ITEM_STYLE_GET_ITEM ? "get_item" : "touch";
+}
+
+#define RS_ITEM_PARAMS_STYLED(questId, step, style)                                                                    \
     ((int16_t)(((((questId) & RS_ITEM_PARAMS_QUEST_MASK) << RS_ITEM_PARAMS_QUEST_SHIFT)) |                              \
+               (((style) & RS_ITEM_PARAMS_STYLE_MASK) << RS_ITEM_PARAMS_STYLE_SHIFT) |                                  \
                ((step) & RS_ITEM_PARAMS_STEP_MASK)))
+#define RS_ITEM_PARAMS(questId, step) RS_ITEM_PARAMS_STYLED(questId, step, RS_ITEM_STYLE_TOUCH)
 #define RS_ITEM_PARAMS_GET_STEP(params) ((int32_t)((uint16_t)(params) & RS_ITEM_PARAMS_STEP_MASK))
 #define RS_ITEM_PARAMS_GET_QUEST(params)                                                                               \
     ((int32_t)(((uint16_t)(params) >> RS_ITEM_PARAMS_QUEST_SHIFT) & RS_ITEM_PARAMS_QUEST_MASK))
-#define RS_ITEM_PARAMS_RSVD_MASK 0x7800 // bits 11-14: reserved, must read zero today
+#define RS_ITEM_PARAMS_GET_STYLE(params)                                                                               \
+    ((int32_t)(((uint16_t)(params) >> RS_ITEM_PARAMS_STYLE_SHIFT) & RS_ITEM_PARAMS_STYLE_MASK))
+#define RS_ITEM_PARAMS_RSVD_MASK 0x7000 // bits 12-14: reserved, must read zero today
 #define RS_ITEM_PARAMS_GET_RSVD(params) ((int32_t)((uint16_t)(params) & RS_ITEM_PARAMS_RSVD_MASK))
 
 RS_STATIC_ASSERT(QUEST_MAX <= RS_ITEM_PARAMS_QUEST_MASK + 1, "a QuestId must fit in the params quest field");
@@ -67,5 +91,12 @@ RS_STATIC_ASSERT((RS_ITEM_PARAMS_QUEST_MASK << RS_ITEM_PARAMS_QUEST_SHIFT) <= 0x
                  "bit 15 stays zero: params is a signed s16");
 RS_STATIC_ASSERT(((RS_ITEM_PARAMS_QUEST_MASK << RS_ITEM_PARAMS_QUEST_SHIFT) & RS_ITEM_PARAMS_STEP_MASK) == 0,
                  "params fields must not overlap");
+RS_STATIC_ASSERT((((RS_ITEM_PARAMS_QUEST_MASK << RS_ITEM_PARAMS_QUEST_SHIFT) | RS_ITEM_PARAMS_STEP_MASK |
+                   RS_ITEM_PARAMS_RSVD_MASK) &
+                  (RS_ITEM_PARAMS_STYLE_MASK << RS_ITEM_PARAMS_STYLE_SHIFT)) == 0,
+                 "the style bit must not overlap another params field");
+RS_STATIC_ASSERT(((RS_ITEM_PARAMS_QUEST_MASK << RS_ITEM_PARAMS_QUEST_SHIFT) | RS_ITEM_PARAMS_STEP_MASK |
+                  (RS_ITEM_PARAMS_STYLE_MASK << RS_ITEM_PARAMS_STYLE_SHIFT) | RS_ITEM_PARAMS_RSVD_MASK) == 0x7FFF,
+                 "every item params bit but 15 is a field or reserved");
 
 #endif // SOH_RS_ACTOR_PARAMS_H

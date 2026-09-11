@@ -11,8 +11,11 @@
 //     from ONE dialogue rule carrying a missing-steps clause (D26), not from seven hand-written
 //     rules. See dialogue/npcs/CookNpc.cpp.
 //   - STEP LABELS beside step names. `stepNames` are the greppable tokens a console line and an
-//     agent marker use; `stepLabels` are what a character says out loud and what an item says when
-//     it is picked up. Keeping them apart is what stops a rename in the log rewriting a textbox.
+//     agent marker use; `stepLabels` are what a character says out loud. Keeping them apart is what
+//     stops a rename in the log rewriting a textbox.
+//   - PICKUP TEXT per step (#99), which is what an item says when Link picks it up. The three
+//     ingredients are placed with the GET-ITEM pickup style (RsActorParams.h) - Link holds each one
+//     up - and say their own line; a quest that authors none still gets a sentence from its labels.
 //   - NO REQUIREMENTS, which is not the same as no gate. The Cook's offer rule still asks
 //     `QuestPrereqsMet(0)` - the D8 idiom - so the day this quest grows a prerequisite, the rule
 //     table needs no edit at all. A quest-giver never carries its own copy of a quest's conditions.
@@ -50,6 +53,16 @@ const char* const sStepNames[] = { "egg", "milk", "flour" };
 // inside a sentence ("I still need an egg and a pot of flour"), which is why each carries its own
 // article.
 const char* const sStepLabels[] = { "an egg", "a bucket of milk", "a pot of flour" };
+
+// What each ingredient says when Link holds it up (#99). Dialogue prose, a whole box each: '&' is a
+// line break, and '#', '%', '"' and '^' are refused at registration. Leave a step out (NULL) and its
+// item says the template built from its label instead - "You found an egg." - which is what every
+// quest with no list here still does.
+const char* const sPickupTexts[] = {
+    "You got an egg!&It is still warm. Try not&to run with it.",
+    "You got a bucket of milk!&Fresh from the cow, and only&a little of it on your boots.",
+    "You got a pot of flour!&Most of it is in the pot.&The rest is on your tunic.",
+};
 
 const char* const sHints[] = {
     "The #npc:Cook# frets in his #place:kitchen# whenever a feast is coming.",
@@ -137,6 +150,7 @@ const QuestDef sCooksAssistant = {
     .stepCount = Count(sStepNames),
     .stepNames = sStepNames,
     .stepLabels = sStepLabels,
+    .stepPickupTexts = sPickupTexts,
     .requirements = nullptr,
     .requirementCount = 0,
     .prereqFn = nullptr,

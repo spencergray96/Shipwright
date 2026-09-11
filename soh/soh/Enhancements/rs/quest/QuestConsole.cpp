@@ -98,8 +98,10 @@ void Dump(int32_t questId, std::vector<std::string>& lines) {
     lines.push_back(Describe(questId));
     lines.push_back("title=\"" + RenderMarkup(def->title) + "\"");
     for (int32_t i = 0; i < def->stepCount; i++) {
+        // `pickup=` last on the row so every earlier `step[i]=name set=N` regex still matches (#99).
         lines.push_back("step[" + std::to_string(i) + "]=" + (def->stepNames ? def->stepNames[i] : "-") +
-                        " set=" + std::to_string(Quest_IsStepSet(questId, i)));
+                        " set=" + std::to_string(Quest_IsStepSet(questId, i)) +
+                        " pickup=" + Quest_PickupSourceName(questId, i));
     }
     for (int32_t i = 0; i < def->requirementCount; i++) {
         char desc[96];
@@ -279,7 +281,7 @@ int32_t ItemArt(std::vector<std::string>& lines) {
 const char* kUsage = "usage: quest list | dump <id> | start <id> | setstep <id> <step> | clearstep <id> <step> | "
                      "check <id> <step> | complete <id> | force <id> | reset <id> | debugwipe | "
                      "journal <id|all> [runs] | parse <text...> | badcheck | overlay [on|off|all|<id>] | "
-                     "itemart";
+                     "itemart | pickup <id> <step>";
 
 } // namespace
 
@@ -378,6 +380,19 @@ int32_t QuestConsole_Run(const std::vector<std::string>& args, std::vector<std::
         }
         return Report(sub, questId, -1, result, lines);
     }
+    if (sub == "pickup") {
+        // What an item for this step says when it is picked up (#99) - the same composition the
+        // textbox renders, `{floor:N}` expanded under the live convention, whichever pickup style
+        // the item is placed with. Reads nothing but the definition, so it can be asked of a step
+        // that is already set, or of a quest whose item stands in another scene.
+        if (!ParseQuestId(args, 1, &questId, lines) || !ParseStep(args, 2, questId, &step, lines)) {
+            return 1;
+        }
+        lines.push_back("op=pickup id=" + std::to_string(questId) + " step=" + std::to_string(step) +
+                        " source=" + Quest_PickupSourceName(questId, step) + " text=\"" +
+                        Quest_ComposePickupText(questId, step) + "\"");
+        return 0;
+    }
     if (sub == "setstep" || sub == "clearstep" || sub == "check") {
         if (!ParseQuestId(args, 1, &questId, lines) || !ParseStep(args, 2, questId, &step, lines)) {
             return 1;
@@ -444,14 +459,15 @@ void RegisterQuestConsole() {
                           "Quest system (sturdy-bassoon#58): list | dump <id> | start <id> | setstep <id> <step> | "
                           "clearstep <id> <step> | check <id> <step> | complete <id> | force <id> | reset <id> | "
                           "debugwipe | journal <id|all> [runs] | parse <text...> | badcheck | "
-                          "overlay [on|off|all|<id>] | itemart. debugwipe clears only "
+                          "overlay [on|off|all|<id>] | itemart | pickup <id> <step>. debugwipe clears only "
                           "the debug bands of quests and world flags; journal renders the resolved entry with "
                           "spans as [item:Egg]; parse is the markup probe; badcheck proves registration refuses "
                           "malformed definitions; overlay switches the on-screen journal overlay and reports what "
                           "it drew last frame; itemart lists which sprite each quest item wears and "
-                          "fails if one cannot be found in the asset archive.",
+                          "fails if one cannot be found in the asset archive; pickup prints what a step's item "
+                          "says when it is picked up.",
                           { { "list|dump|start|setstep|clearstep|check|complete|force|reset|debugwipe|journal|parse|"
-                              "badcheck|overlay|itemart",
+                              "badcheck|overlay|itemart|pickup",
                               Ship::ArgumentType::TEXT },
                             { "quest id / text", Ship::ArgumentType::TEXT, true },
                             { "step / runs", Ship::ArgumentType::TEXT, true } } });

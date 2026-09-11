@@ -38,8 +38,9 @@ int32_t RsText_BodyWouldWrap(const struct RsDialogueRule* screen, int32_t visibl
 // 184, not the 216 a full-width row gets - a difference no character count can express.
 int32_t RsText_LabelWouldOverflow(const char* label);
 
-// Hands one string to the NEXT textbox opened with RS_TEXT_DIRECT (an option's reply, an item
-// pickup). A one-slot pointer, and safe as one because it is a PARAMETER, not shared state: it is
+// Hands one string to the NEXT textbox opened with RS_TEXT_DIRECT (an option's reply, or the notice
+// from an item whose params this build cannot read). A one-slot pointer, and safe as one because it
+// is a PARAMETER, not shared state: it is
 // set on the line above the Message_StartTextbox / Message_ContinueTextbox call, with nothing
 // running in between. The ENTRY textbox does not use it at all - its text id carries the npc and
 // the rule (NpcDialogueDef.h), which is what makes two NPCs in talk range at once safe.
@@ -55,9 +56,8 @@ void RsText_SetDirect(const char* text);
 // The same slot, but the string is EXPANDED and COPIED into storage that outlives every actor.
 //
 // Two jobs, and they are the same job. The copy is for a caller that composes its line rather than
-// naming one - a quest item saying what it was, built from the quest's step label - because the
-// actor holding the buffer is killed while its own textbox is still on screen and its instance
-// memory goes straight back to the arena. The expansion is `{floor:N}` against the save file's
+// naming one, because the buffer it built the line in does not outlive the textbox. The expansion is
+// `{floor:N}` against the save file's
 // floor convention (sturdy-bassoon#94): the moment a string can carry a token it STOPS being a
 // definition string and becomes a composed one, so an option's reply moved here from
 // RsText_SetDirect. Getting that wrong presents as a dangling pointer, not as a text bug.

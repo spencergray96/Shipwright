@@ -200,8 +200,9 @@ typedef struct RsNpcDef {
 
 // --- text ids -----------------------------------------------------------------------------------
 //
-// The band is 0xA000..0xF01F, in four pieces: entry rules (0xA000..0xBFFF), the one direct-text id
-// (0xC000), nodes (0xD000..0xEFFF, #96) and the reply-then-navigate ids (0xF000..0xF01F, #96).
+// The band is 0xA000..0xF01F, in five pieces: entry rules (0xA000..0xBFFF), the one direct-text id
+// (0xC000), quest-item pickups (0xC800..0xCFFF, #99), nodes (0xD000..0xEFFF, #96) and the
+// reply-then-navigate ids (0xF000..0xF01F, #96).
 // SoH's own highest custom id is 0x9215
 // (Enhancements/custom-message/CustomMessageTypes.h), and nothing in Message_OpenText's
 // special-case ladder (z_message_PAL.c) touches this range - and `loadFromMessageTable = false`
@@ -219,11 +220,33 @@ typedef struct RsNpcDef {
 #define RS_TEXT_NPC_GET_RULE(textId) ((int32_t)(((textId)-RS_TEXT_NPC_BASE) & (RS_DIALOGUE_MAX_RULES - 1)))
 #define RS_TEXT_NPC_END (RS_TEXT_NPC_BASE + (NPC_MAX << RS_TEXT_RULE_SHIFT) - 1)
 
-// One id for text an actor hands over directly: an option's reply, and an item pickup. Unlike the
-// entry box this DOES read a one-slot pointer - but it is a parameter, not shared state: the
-// pointer is set on the line above the Message_StartTextbox / Message_ContinueTextbox call, in the
-// same statement sequence, with nothing running in between.
+// One id for text an actor hands over directly: an option's reply, and an item whose params this
+// build cannot honour. Unlike the entry box this DOES read a one-slot pointer - but it is a
+// parameter, not shared state: the pointer is set on the line above the Message_StartTextbox /
+// Message_ContinueTextbox call, in the same statement sequence, with nothing running in between.
 #define RS_TEXT_DIRECT 0xC000
+
+// --- the quest-item PICKUP band (sturdy-bassoon#99) ----------------------------------------------
+//
+//     0xC800 + (questId << 5) + step    64 quests x 32 steps  ->  0xC800..0xCFFF
+//
+// A pickup line does not use RS_TEXT_DIRECT, because of the get-item cutscene: the textbox is opened
+// by PLAYER (z_player.c, func_8084DFF4) about a second after the item
+// is accepted, from the GetItemEntry's own `textId` - so "set on the line above the call, with
+// nothing running in between" is no longer true of it. The id carries the (quest, step) instead,
+// exactly as the entry box's carries the NPC and the rule, and the OnOpenText hook composes the
+// line from the definition when the box opens. Both pickup styles use it, so there is one path.
+//
+// The same id is how the get-item DRAW function finds its texture (RsQuestItem.c): Player hands a
+// CustomDrawFunc its own copy of the GetItemEntry and nothing else, and `textId` is the one field
+// of it that already means "which of our items this is".
+#define RS_TEXT_ITEM_BASE 0xC800
+#define RS_TEXT_ITEM_SHIFT 5
+#define RS_TEXT_ITEM_ID(questId, step) ((uint16_t)(RS_TEXT_ITEM_BASE + ((questId) << RS_TEXT_ITEM_SHIFT) + (step)))
+#define RS_TEXT_ITEM_GET_QUEST(textId) ((int32_t)(((textId)-RS_TEXT_ITEM_BASE) >> RS_TEXT_ITEM_SHIFT))
+#define RS_TEXT_ITEM_GET_STEP(textId) ((int32_t)(((textId)-RS_TEXT_ITEM_BASE) & (QUEST_STEP_MAX - 1)))
+#define RS_TEXT_ITEM_END (RS_TEXT_ITEM_BASE + (QUEST_MAX << RS_TEXT_ITEM_SHIFT) - 1)
+#define RS_TEXT_IS_ITEM(textId) ((textId) >= RS_TEXT_ITEM_BASE && (textId) <= RS_TEXT_ITEM_END)
 
 // --- the NODE band (sturdy-bassoon#96 P1) -------------------------------------------------------
 //
@@ -278,6 +301,11 @@ RS_STATIC_ASSERT(RS_DIALOGUE_MAX_NODES == (1 << RS_TEXT_NODE_SHIFT),
 RS_STATIC_ASSERT(RS_TEXT_NPC_END < RS_TEXT_DIRECT,
                  "raising NPC_MAX must not push an NPC text id onto RS_TEXT_DIRECT");
 RS_STATIC_ASSERT(RS_TEXT_DIRECT < RS_TEXT_NODE_BASE, "the node band must start above RS_TEXT_DIRECT");
+RS_STATIC_ASSERT(QUEST_STEP_MAX == (1 << RS_TEXT_ITEM_SHIFT),
+                 "the item text id's step field width and QUEST_STEP_MAX are the same number");
+RS_STATIC_ASSERT(RS_TEXT_DIRECT < RS_TEXT_ITEM_BASE, "the item pickup band must start above RS_TEXT_DIRECT");
+RS_STATIC_ASSERT(RS_TEXT_ITEM_END < RS_TEXT_NODE_BASE,
+                 "raising QUEST_MAX must not push an item pickup text id onto the node band");
 RS_STATIC_ASSERT(RS_TEXT_NODE_END < RS_TEXT_REPLY_TO_NODE_BASE,
                  "raising NPC_MAX must not push a node text id onto the reply-to-node band");
 // 0xFFFF and 0xFFFD are message-table terminators (z_message_PAL.c) and must stay clear.

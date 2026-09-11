@@ -67,6 +67,22 @@ static bool LabelIsClean(const char* s) {
     return true;
 }
 
+// A step's PICKUP TEXT is a whole textbox (sturdy-bassoon#99), so it takes dialogue's rulebook rather
+// than a label's: '&' is the author's line break and is allowed, while '#', '%', '"', '^' and the
+// control characters are refused for the reasons NpcDialogue.cpp gives for replies. Unlike a label it
+// may not be EMPTY - a NULL entry is how a step asks for the template, and "" would be a blank box.
+static bool PickupTextIsClean(const char* s) {
+    if (s == nullptr || *s == '\0') {
+        return false;
+    }
+    for (const char* p = s; *p != '\0'; p++) {
+        if (*p == '%' || *p == '#' || *p == '"' || *p == '^' || *p == '\n' || *p == '\r' || *p == '\t') {
+            return false;
+        }
+    }
+    return true;
+}
+
 // Writes the reason into the CALLER'S buffer and returns false, so validation composes as
 // `if (!Problem(...)) return false;`. Caller-supplied, matching Quest_Describe and
 // QuestPredicate_Describe: a file-static buffer would be clobbered by a second call in the same
@@ -254,6 +270,25 @@ static bool ValidateDef(const QuestDef* def, char* buf, size_t len) {
             const RsFloorTokenResult token = RsFloorText_Validate(def->stepLabels[i]);
             if (token.error != RS_FLOOR_TOKEN_OK) {
                 return Problem(buf, len, "stepLabels[%d]: floor token %s at offset %d", i,
+                               RsFloorText_ErrorName(token.error), token.pos);
+            }
+        }
+    }
+    if (def->stepPickupTexts != nullptr) {
+        for (int32_t i = 0; i < def->stepCount; i++) {
+            const char* text = def->stepPickupTexts[i];
+            if (text == nullptr) {
+                continue; // this step says the template - the per-entry fallback is the feature (#99)
+            }
+            if (!PickupTextIsClean(text)) {
+                return Problem(buf, len,
+                               "stepPickupTexts[%d] is empty, or carries percent, hash, quote, caret or a control "
+                               "character",
+                               i);
+            }
+            const RsFloorTokenResult token = RsFloorText_Validate(text);
+            if (token.error != RS_FLOOR_TOKEN_OK) {
+                return Problem(buf, len, "stepPickupTexts[%d]: floor token %s at offset %d", i,
                                RsFloorText_ErrorName(token.error), token.pos);
             }
         }
@@ -735,6 +770,38 @@ extern "C" const char* Quest_StepLabel(int32_t questId, int32_t step) {
         return def->stepNames[step]; // a token, and it will look like one - see QuestDef.h
     }
     return "something";
+}
+
+extern "C" const char* Quest_StepPickupText(int32_t questId, int32_t step) {
+    const QuestDef* def = Quest_GetDef(questId); // NULL for invalid OR unregistered; never asserts
+    if (def == nullptr || step < 0 || step >= def->stepCount || def->stepPickupTexts == nullptr) {
+        return nullptr;
+    }
+    return def->stepPickupTexts[step];
+}
+
+extern "C" const char* Quest_PickupSourceName(int32_t questId, int32_t step) {
+    return Quest_StepPickupText(questId, step) != nullptr ? "authored" : "template";
+}
+
+// The sentence every item said before #99, kept as the fallback. Written around the step LABEL, so
+// the three items of one quest still say three different things with nothing authored.
+static const char* const kPickupTemplateHead = "You found ";
+static const char* const kPickupTemplateTail = ".&The quest journal will&remember it.";
+
+std::string Quest_ComposePickupText(int32_t questId, int32_t step) {
+    const QuestDef* def = Quest_GetDef(questId);
+    if (def == nullptr || step < 0 || step >= def->stepCount) {
+        return "<no quest " + std::to_string(questId) + " step " + std::to_string(step) + ">";
+    }
+    const char* authored = Quest_StepPickupText(questId, step);
+    if (authored != nullptr) {
+        return RsFloorText_Compose(authored);
+    }
+    // Expanded as a whole, not label-first: a label may carry a token too (#94), and composing the
+    // finished sentence is what RsText_SetDirectCopy did for this line before it moved here.
+    return RsFloorText_Compose(std::string(kPickupTemplateHead) + Quest_StepLabel(questId, step) +
+                               kPickupTemplateTail);
 }
 
 extern "C" const char* Quest_ResultName(int32_t result) {

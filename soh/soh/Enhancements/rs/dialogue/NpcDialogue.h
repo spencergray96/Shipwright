@@ -157,8 +157,8 @@ int32_t RsNpc_RunAction(const RsDialogueOption* option);
 // C++ only, and deliberately returning std::string rather than filling a caller's buffer. A body
 // plus up to QUEST_STEP_MAX labels has no useful fixed bound, and a truncating snprintf would cut a
 // sentence in half and render plausibly - the failure mode this project treats as the enemy. No C
-// actor needs this: the entry textbox is built by the C++ OnOpenText hook, and the one string a C
-// actor hands over directly (an item's pickup line) is composed there from Quest_StepLabel.
+// actor needs this: the entry textbox is built by the C++ OnOpenText hook, and so is a quest item's
+// pickup line (Quest_ComposePickupText).
 //
 // Reads the live stores, so two calls a frame apart can legitimately differ - that IS the point.
 //

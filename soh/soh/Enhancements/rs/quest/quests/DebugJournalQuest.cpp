@@ -146,6 +146,12 @@ const char* const sBreakLabels[] = { "an egg", "a bucket&of milk", "a pot of flo
 // A step LABEL carrying a malformed token (#94). Labels take the union of both surfaces' rulebooks
 // AND the token grammar, because a label is the one string that can land on either.
 const char* const sTokenLabels[] = { "an egg", "the key from the {floor:x}", "a pot of flour" };
+// Step PICKUP TEXT (#99), one per refusal. The leading NULL entries are part of each fixture: a NULL
+// is how a step asks for the template, so the validator must step over them and still find the bad
+// entry, and its message must name that entry's index rather than the first slot.
+const char* const sCaretPickupTexts[] = { nullptr, "You got some milk!^A second box", nullptr };
+const char* const sEmptyPickupTexts[] = { nullptr, nullptr, "" };
+const char* const sTokenPickupTexts[] = { nullptr, "It was up on the {Floor:}", nullptr };
 const QuestJournalItem sOutOfRangeStep[] = { { "#item:x#", 7 } }; // step 7 of a 3-step quest
 const QuestJournalItem sOkItem[] = { { "#item:x#", 0 } };
 const QuestPredicate sBadWhen[] = { { QUEST_PRED_ALL_STEPS_SET, 999, 0, 0 } }; // quest id out of range
@@ -296,6 +302,25 @@ const std::vector<BadDef>& BadDefs() {
         QuestDef def = BaseBad();
         def.stepLabels = sTokenLabels;
         defs.push_back({ "step_label_token", def });
+    }
+
+    // APPENDED, never inserted (sturdy-bassoon#99): step pickup text. It is dialogue prose, a whole
+    // box, so it takes DIALOGUE's rulebook rather than a label's - '&' is legal here where a label
+    // refuses it, and '^' is not, because a box break the author did not place still lands.
+    {
+        QuestDef def = BaseBad();
+        def.stepPickupTexts = sCaretPickupTexts;
+        defs.push_back({ "pickup_text_caret", def });
+    }
+    {
+        QuestDef def = BaseBad();
+        def.stepPickupTexts = sEmptyPickupTexts; // NULL asks for the template; "" is a blank box
+        defs.push_back({ "pickup_text_empty", def });
+    }
+    {
+        QuestDef def = BaseBad();
+        def.stepPickupTexts = sTokenPickupTexts;
+        defs.push_back({ "pickup_text_token", def });
     }
     return defs;
 }
