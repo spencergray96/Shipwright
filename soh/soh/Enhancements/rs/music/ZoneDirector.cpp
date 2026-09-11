@@ -32,6 +32,9 @@ extern "C" {
 #include "macros.h"
 #include "seqcmd.h"
 extern PlayState* gPlayState;
+// code_800EC960.c's mini-boss stash, declared in no header. Written in exactly one place - see
+// ReclaimFromOverride.
+extern u16 sPrevMainBgmSeqId;
 }
 
 // --- the four knobs ----------------------------------------------------------------------------
@@ -705,7 +708,12 @@ void BeginSwitch(int32_t zoneIndex, const char* reason, int32_t rsX, int32_t rsY
     const float fadeInSec = CVarGetFloat(CVAR_RS_MUSIC_FADE_IN, RS_MUSIC_FADE_IN_DEFAULT);
     const int32_t fadeOutUnits = FadeUnits(fadeOutSec);
     const int32_t fadeInUnits = FadeUnits(fadeInSec);
-    const bool wasSounding = (sState == STATE_PLAYING);
+    // Something is sounding on player 0 that this switch has to fade out of: our own track, or - on
+    // a warp out of a yield, the one place BeginSwitch is reached while YIELDED - the override's.
+    // Without the second half that warp hard-cut the override (gap=0) instead of fading it like any
+    // other switch.
+    const bool wasSounding = (sState == STATE_PLAYING) ||
+                             (sState == STATE_YIELDED && func_800FA0B4(SEQ_PLAYER_BGM_MAIN) != NA_BGM_DISABLED);
 
     const int32_t from = sActiveZone;
     sTransitions++;
@@ -864,6 +872,37 @@ void EndOfTrack(const char* trigger, int32_t rsX, int32_t rsY, const Vec3f& pos)
                 "rs=%s pos=%.0f,%.0f,%.0f n=%d frame=%u",
                 ZoneName(sActiveZone), previous, sPendingSeqId, trigger, bag, (int32_t)sPendingLengthSec,
                 fadeOutUnits, fadeInUnits, sGapTicks, tiles, pos.x, pos.y, pos.z, sAdvances,
+                gPlayState != nullptr ? gPlayState->state.frames : 0u);
+}
+
+/*
+ * Taking player 0 back from an override on a warp - and the one write the mod makes to vanilla's
+ * audio state.
+ *
+ * func_800F5ACC stashes what was on player 0 in sPrevMainBgmSeqId so that func_800F5B58 can hand it
+ * back when the fight ends, and while that stash is set Audio_SetSequenceMode does nothing at all:
+ * enemy music is off. If the director takes the player back first, nothing ever releases the stash.
+ * func_800F5B58 later finds our new track (no SEQ_FLAG_RESTORE), restores nothing and clears nothing,
+ * and enemy music stays dead until the next scene load - the #90 P5 run caught exactly that
+ * (docs/test-runs/2026-09-11-zone-music-p5, scenario E).
+ *
+ * So the stash is cleared here, but ONLY when it holds our own track, which is the stash this reclaim
+ * supersedes. Anything else in it belongs to somebody else and is left alone (`stash=kept`). With it
+ * cleared, the mini-boss's eventual func_800F5B58 is a no-op - its first test is a set stash - which
+ * is right: its fight music has already been faded out.
+ *
+ * Logged so a run can show which happened; the transition that follows carries reason=teleport.
+ */
+void ReclaimFromOverride(int32_t winner, const char* reason, int32_t rsX, int32_t rsY) {
+    const uint16_t theirs = func_800FA0B4(SEQ_PLAYER_BGM_MAIN);
+    const bool stashIsOurs = (sPlayingSeqId != NA_BGM_DISABLED && sPrevMainBgmSeqId == sPlayingSeqId);
+    if (stashIsOurs) {
+        sPrevMainBgmSeqId = NA_BGM_DISABLED;
+    }
+    char tiles[32];
+    RsMusic_FormatTiles(tiles, sizeof(tiles), rsX, rsY);
+    RecordEvent("warp_reclaim zone=%s winner=%s theirs=0x%X stash=%s reason=%s rs=%s frame=%u",
+                ZoneName(sActiveZone), ZoneName(winner), theirs, stashIsOurs ? "cleared" : "kept", reason, tiles,
                 gPlayState != nullptr ? gPlayState->state.frames : 0u);
 }
 
@@ -1042,26 +1081,19 @@ void OnPlayerUpdateMusic() {
         sWarpPending = false;
         const char* reason = sWarpReason;
         sWarpReason = "warp";
-        // A WARP WHILE YIELDED IS NOT A SWITCH. It was one: this block sits above the yield block
-        // and read YIELDED as "nothing asserted", so a teleport over a live override hard-cut it
-        // (gap=0, even into the same zone) and left the override's owner believing it still held
-        // player 0. When that mini-boss then ended, func_800F5B58 found our track, restored nothing
-        // and cleared nothing - and Audio_SetSequenceMode does nothing at all while
-        // sPrevMainBgmSeqId is set, so enemy music stayed dead until the next scene load. Found by
-        // the #90 P5 run (docs/test-runs/2026-09-11-zone-music-p5, scenario E).
+        // A WARP ENDS A YIELD: teleporting away from an encounter takes the music with you. The
+        // switch below runs as it would from anywhere (YIELDED is not PLAYING, so even a same-zone
+        // warp switches - the zone track was not playing), and ReclaimFromOverride first undoes the
+        // one piece of vanilla state that taking the player back would otherwise leave behind.
         //
-        // It is the section 13 deletion's own argument, one block up: the release recomputes the
-        // winner anyway, so switching here buys nothing but the ability to interrupt an override.
-        // The warp is consumed, not deferred, and it is logged so a run can show it was offered and
-        // refused - which a log with no warp in it would otherwise read identically to.
+        // Decided 2026-09-11, after the #90 P5 run had briefly made this a refusal. Teleports are
+        // planned player content, and a teleport that leaves the mini-boss music playing wherever
+        // you land reads as a bug. What the P5 run's scenario E actually caught was not the switch
+        // itself but two side effects of it, both fixed rather than avoided: a hard cut (now faded,
+        // see wasSounding in BeginSwitch) and a stale mini-boss stash that silenced enemy music for
+        // the rest of the scene (see ReclaimFromOverride).
         if (sState == STATE_YIELDED) {
-            sCandidateZone = NO_ZONE;
-            sDwellTicks = 0;
-            char tiles[32];
-            RsMusic_FormatTiles(tiles, sizeof(tiles), rsX, rsY);
-            RecordEvent("warp_yielded zone=%s winner=%s reason=%s rs=%s frame=%u", ZoneName(sActiveZone),
-                        ZoneName(winner), reason, tiles, play->state.frames);
-            return;
+            ReclaimFromOverride(winner, reason, rsX, rsY);
         }
         // ...but a warp that lands in the zone you were already in is not a switch. What #90 s7
         // says is that a teleport skips the DWELL, not that it must restart the music: restarting
@@ -1084,7 +1116,8 @@ void OnPlayerUpdateMusic() {
         return;
     }
 
-    // 4. While yielded, wait for player 0 to go quiet. THAT IS THE ONLY THING THAT ENDS A YIELD.
+    // 4. While yielded, wait for the override to hand player 0 back. Apart from a warp (step 3),
+    //    THAT IS THE ONLY THING THAT ENDS A YIELD - a zone change never does.
     //
     //    #90 section 13 originally said "re-assert when it goes quiet OR the zone changes", and P0
     //    implemented the second half with the dwell attached to it. The clause was deleted on

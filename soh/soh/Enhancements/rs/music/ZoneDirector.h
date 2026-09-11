@@ -62,8 +62,11 @@
  * without touching the player at all. It gives player 0 back the moment anything else takes it -
  * cutscene, mini-boss, minigame - and RE-ASSERTS ONLY WHEN THE OVERRIDE HANDS IT BACK: player 0 goes
  * quiet (a cutscene's stop), or comes back carrying OUR OWN id (func_800F5B58, which ends every
- * mini-boss and timed minigame by replaying the id it stashed - ours). Nothing else ends a yield,
- * not a zone change and not a warp. A director that competed would leave the music wrong forever
+ * mini-boss and timed minigame by replaying the id it stashed - ours). The only other thing that
+ * ends a yield is a WARP: teleporting away takes the music with you, faded like any switch, and the
+ * mini-boss stash is released so enemy music is not left gated off. A zone change never ends a
+ * yield - walking out of an arena mid-fight keeps the fight music. A director that competed would
+ * leave the music wrong forever
  * after one cutscene; one that waited for quiet alone stayed yielded forever after one mini-boss,
  * which is what the #90 P5 run found.
  *

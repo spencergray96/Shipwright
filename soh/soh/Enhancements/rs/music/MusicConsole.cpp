@@ -28,7 +28,8 @@ extern "C" {
 #include "macros.h"
 #include "variables.h"
 extern PlayState* gPlayState;
-// code_800EC960.c's own globals, declared in no header. Read, never written - see `players`.
+// code_800EC960.c's own globals, declared in no header. Read, never written, here - see `players`.
+// (ZoneDirector.cpp's ReclaimFromOverride is the one writer of sPrevMainBgmSeqId in the mod.)
 extern u8 sPrevSeqMode;
 extern u16 sPrevMainBgmSeqId;
 }
