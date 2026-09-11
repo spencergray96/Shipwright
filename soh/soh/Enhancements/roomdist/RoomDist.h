@@ -56,8 +56,8 @@ const char* RoomDist_Describe(void);
 /*
  * Pops the most recent trigger event, if any, into `buf` (a printf-ready fragment: what it did,
  * where Link was, and the two distances that decided it). Returns 1 if an event was written.
- * The agent-test hook polls this once per tick and puts it on the marker channel, so this file
- * needs no file I/O of its own.
+ * The agent-test hook drains this in every session and decides where each line goes (DrainEvents in
+ * AgentTest.cpp), so this file needs no file I/O of its own.
  */
 int32_t RoomDist_TakeEvent(char* buf, uint32_t size);
 

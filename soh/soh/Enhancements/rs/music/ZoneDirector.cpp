@@ -258,7 +258,7 @@ int32_t SecondsToTicks(float seconds) {
 void RecordEvent(const char* fmt, ...) {
     const int32_t next = (sEventWrite + 1) % EVENT_SLOTS;
     if (next == sEventRead) {
-        sEventsDropped++; // the harness drains this every tick, so it should stay at zero
+        sEventsDropped++; // AgentTest drains this in every session (#97), so it should stay at zero
         return;
     }
     va_list args;

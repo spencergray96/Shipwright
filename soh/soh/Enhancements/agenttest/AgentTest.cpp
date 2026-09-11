@@ -12,9 +12,16 @@
  *
  * Agent mode is decided once, on the first console-logo frame, from the environment variable
  * SOH_AGENT_TEST: "1" in the process environment -> the session is on until the process exits;
- * anything else -> every hook below early-returns on one bool and nothing is ever read or
- * written. The driver sets the variable in its own shell before launching soh.exe, which
- * inherits it; nothing persists on disk or in the config. A stale agent-commands.txt is inert.
+ * anything else -> the command file is never read and no hook writes a marker. The driver sets the
+ * variable in its own shell before launching soh.exe, which inherits it; nothing persists on disk or
+ * in the config. A stale agent-commands.txt is inert. (An `agenttest` command typed into the ImGui
+ * console still writes agent-log.txt in any session, as it always has.)
+ *
+ * One thing survives outside agent mode, on purpose (sturdy-bassoon#97): EVENTS. The roomdist and
+ * rs_music rings are still drained, and AgentTest_WriteMarker still takes gameplay code's lines
+ * (rs_dialogue, rs_item, rs_quest) - but all of it goes to the engine log alone, under the same
+ * "[agenttest] " prefix, so a human pass leaves a record of what the game did without growing a
+ * marker file nobody is reading. That is the whole list: every other marker below is agent-only.
  *
  * Markers (all prefixed "[agenttest] "):
  *   session pid=<n>                      first console-logo tick, SOH_AGENT_TEST seen
@@ -87,16 +94,6 @@
  *                                        assertion below is not polluted by a zone simply playing.
  *                                        Also `yield`/`track_gone`/`clock_reset`/`disabled`, and
  *                                        `first_visit zone=<z>
- *                                        flag=<n> track=0x<hex> reason=<why>` on the one tick a
- *                                        zone's one-shot opener is spent - which happens on
- *                                        ACTIVATION and so never fires for a boundary Link merely
- *                                        clipped. THE AGENT LOOP CANNOT HEAR ANYTHING - this channel
- *                                        is the only way a music phase closes without a human at the
- *                                        keyboard, and `warp_same_zone` is a teleport that landed in
- *                                        the zone Link was already in - deliberately NOT a switch.
- *                                        counting `transition` lines is how the negative is asserted:
- *                                        cross a boundary and come back inside the dwell window, and
- *                                        there must be ZERO of them
  *                                        flag=<n> track=0x<hex> reason=<why>` on the one tick a
  *                                        zone's one-shot opener is spent - which happens on
  *                                        ACTIVATION and so never fires for a boundary Link merely
@@ -421,8 +418,17 @@ std::string Timestamp() {
     return out;
 }
 
-void WriteMarker(const std::string& text) {
+// The engine log alone: the sink for an event outside agent mode (sturdy-bassoon#97), and the first
+// half of every marker, so one grep of logs/ reads either kind of session. No file of its own -
+// spdlog already holds the log open.
+void LogEvent(const std::string& text) {
     SPDLOG_INFO("[agenttest] {}", text);
+}
+
+// A marker: the engine log plus agent-log.txt, which is reopened on every call. Fine at agent-test
+// volume, and the reason events outside agent mode go through LogEvent instead.
+void WriteMarker(const std::string& text) {
+    LogEvent(text);
     std::ofstream out(MarkerPath(), std::ios::app);
     if (out) {
         out << "[" << Timestamp() << "] [agenttest] " << text << "\n";
@@ -778,6 +784,28 @@ void EmitTrace(const char* phase) {
     WriteMarker(buf);
 }
 
+// The event rings gameplay prototypes record into instead of doing file I/O of their own, which is
+// what keeps the marker channel this file's. They must be drained in EVERY session, not only in agent
+// mode: the zone director's ring holds seven unread events and discards everything after that, so
+// while this ran in agent mode only, a human session - the one where somebody is actually listening
+// - silently lost every event after the seventh (sturdy-bassoon#97). `sink` is WriteMarker in agent
+// mode and LogEvent otherwise.
+void DrainEvents(void (*sink)(const std::string&)) {
+    char event[256];
+    // Trigger events from the distance-based room prototype (sturdy-bassoon#6 Exp 4). At most one
+    // event per tick, and this runs every tick, so nothing queues.
+    if (RoomDist_TakeEvent(event, sizeof(event))) {
+        sink(std::string("roomdist ") + event);
+    }
+    // Zone music director events (sturdy-bassoon#90 P0). This is not decoration: the agent loop
+    // screenshots and reads FPS and cannot hear a thing, so without this channel every phase of the
+    // music work needs a human at the keyboard to close. The director keeps a small ring rather than
+    // one slot because a switch can emit a yield and a transition on the same tick.
+    while (RsMusic_TakeEvent(event, sizeof(event))) {
+        sink(std::string("rs_music ") + event);
+    }
+}
+
 void OnGameFrameUpdateAgentTest() {
     GameState* logoState = sLogoState;
     sLogoState = nullptr;
@@ -808,30 +836,17 @@ void OnGameFrameUpdateAgentTest() {
         return;
     }
 
-    if (!sAgentMode || !InNormalPlay() || !sReady) {
+    // Outside agent mode the event rings are drained on every tick, whatever the game state, into
+    // the engine log - and nothing else below runs. Agent mode keeps its old gate so its markers
+    // still follow `ready`; events recorded during a load wait in the ring, as they always have.
+    if (!sAgentMode) {
+        DrainEvents(LogEvent);
         return;
     }
-    // Trigger events from the distance-based room prototype (sturdy-bassoon#6 Exp 4). Polled here
-    // rather than written from RoomDist.cpp so the marker channel stays this file's, which is also
-    // why RoomDist needs no file I/O of its own. At most one event per tick, and this runs every
-    // tick, so nothing queues.
-    {
-        char event[256];
-        if (RoomDist_TakeEvent(event, sizeof(event))) {
-            WriteMarker(std::string("roomdist ") + event);
-        }
+    if (!InNormalPlay() || !sReady) {
+        return;
     }
-    // Zone music director events (sturdy-bassoon#90 P0), drained the same way and for the same
-    // reason. This is not decoration: the agent loop screenshots and reads FPS and cannot hear a
-    // thing, so without this channel every phase of the music work needs a human at the keyboard
-    // to close. The director keeps a small ring rather than one slot because a switch can emit a
-    // yield and a transition on the same tick.
-    {
-        char event[256];
-        while (RsMusic_TakeEvent(event, sizeof(event))) {
-            WriteMarker(std::string("rs_music ") + event);
-        }
-    }
+    DrainEvents(WriteMarker);
     const int16_t room = gPlayState->roomCtx.curRoom.num;
     if (room != sLastRoom) {
         if (sLastRoom >= 0) {
@@ -1849,13 +1864,20 @@ void RegisterAgentTest() {
 
 static RegisterShipInitFunc initFunc(RegisterAgentTest);
 
-// The marker channel, opened up to gameplay code (sturdy-bassoon#58 P3). Gated on sAgentMode for
-// the reason every other WriteMarker caller is: outside agent mode there is no agent-log.txt to
-// append to and no one reading it, and an ordinary session should not grow a marker stream it
-// never asked for. This is what lets an actor make an in-game conversation ASSERTABLE - a
-// screenshot shows a textbox, a marker names the rule that produced it.
+// The marker channel, opened up to gameplay code (sturdy-bassoon#58 P3). This is what lets an actor
+// make an in-game conversation ASSERTABLE - a screenshot shows a textbox, a marker names the rule
+// that produced it. Outside agent mode the line still goes to the engine log, and only there
+// (sturdy-bassoon#97): an ordinary session should not grow a marker file nobody reads, but the
+// sessions where a human judges a conversation are exactly the ones worth a record. Every caller is
+// an event, never a per-frame stream, which is what makes that affordable. A call made before the
+// console-logo tick decides sAgentMode (from a ShipInit function, say) reads as "not agent mode" and
+// reaches the engine log only - so ShipInit-time code still wants a pull-based report.
 extern "C" void AgentTest_WriteMarker(const char* text) {
-    if (!sAgentMode || text == nullptr) {
+    if (text == nullptr) {
+        return;
+    }
+    if (!sAgentMode) {
+        LogEvent(text);
         return;
     }
     WriteMarker(text);

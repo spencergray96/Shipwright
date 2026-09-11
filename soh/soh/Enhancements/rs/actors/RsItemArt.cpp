@@ -19,8 +19,9 @@
 // So every art path is resolved ONCE at boot, a miss is a loud log line, and the result is
 // READABLE AFTERWARDS through `quest itemart` on both console sinks. The report rather than a boot
 // marker is deliberate: agent mode is not decided until the first console-logo tick
-// (AgentTest.cpp), which is long after ShipInit, so a marker written here would be silently
-// dropped - the exact failure class this file exists to remove. A pull-based report is also the
+// (AgentTest.cpp), which is long after ShipInit, so a marker written here would never reach
+// agent-log.txt - only the engine log (sturdy-bassoon#97), where no run waits on it. That is the
+// exact failure class this file exists to remove. A pull-based report is also the
 // better shape, because it can be asserted at any point in a run instead of only at boot.
 
 #include "RsItemArt.h"

@@ -160,10 +160,11 @@ int32_t RsMusic_DescribeLine(int32_t index, char* buf, uint32_t size);
 
 /*
  * Pops the oldest unread event, if any, into `buf` (a printf-ready fragment: what changed, why,
- * and where Link was in both frames). Returns 1 if an event was written. The agent-test hook polls
- * this once per tick and puts it on the marker channel, which is why nothing here does file I/O.
- * The buffer holds a few events so a burst is not lost; `dropped=` is appended if it ever
- * overflows.
+ * and where Link was in both frames). Returns 1 if an event was written. The agent-test hook drains
+ * this in every session and decides where each line goes (DrainEvents in AgentTest.cpp), which is
+ * why nothing here does file I/O. The buffer holds a few events so a burst is not lost;
+ * " (events dropped)" is appended once it has ever overflowed, and `rsmusic status` counts the loss
+ * as `dropped=`.
  */
 int32_t RsMusic_TakeEvent(char* buf, uint32_t size);
 

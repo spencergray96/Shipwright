@@ -65,7 +65,8 @@ static ColliderCylinderInit sCylinderInit = {
 };
 
 // One line per conversation event, so a run can assert what the rule table did rather than
-// inferring it from a screenshot. Silent outside agent mode.
+// inferring it from a screenshot. Outside agent mode the line reaches the engine log only
+// (sturdy-bassoon#97).
 static void RsNpc_Mark(RsNpc* this, const char* event) {
     char line[128];
 
