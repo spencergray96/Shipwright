@@ -59,6 +59,10 @@ ActorEntry test_level_room_0_header00_actorList[] = {
     // a run can screenshot one conversation without a second NPC ever offering to talk.
     { ACTOR_RS_NPC, { -400, 20, -600 }, { 0, 0x4000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_TREE) },
     { ACTOR_RS_NPC, { 400, 20, -600 }, { 0, -0x4000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_PAGE) },
+    // The tree follow-ups (#96): an entry statement that leads on, a node group, and the
+    // missing-steps clause on a node. 400 units from 197 along -X and 800 from Link's spawn; the
+    // floor runs to +/-2000 on both axes, so it is well inside it.
+    { ACTOR_RS_NPC, { -800, 20, -600 }, { 0, 0x4000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_QUEST_MENU) },
 
     // Step 0 of the giver's quest. Its sibling (step 1) is in terrain_f2p_step2, so finishing the
     // quest requires both scenes — which is what makes "advancing in one scene is reflected in the

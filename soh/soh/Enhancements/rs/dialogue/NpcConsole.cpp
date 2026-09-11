@@ -82,6 +82,13 @@ std::string OptionLine(const char* prefix, int32_t screenIndex, int32_t optionIn
            " visible=" + std::to_string(RsNpc_OptionVisible(&option));
 }
 
+// `node.K` for where an edge naming node `n` lands right now, `-` if it lands nowhere (refused at
+// registration, so never for a registered NPC). One spelling for `npc dump` and `npc tree`.
+std::string ResolvesField(int32_t npcId, int32_t n) {
+    const int32_t resolves = RsNpc_ResolveNode(npcId, n);
+    return resolves >= 0 ? "node." + std::to_string(resolves) : std::string("-");
+}
+
 void Dump(int32_t npcId, std::vector<std::string>& lines) {
     const RsNpcDef* def = RsNpc_GetDef(npcId);
     const int32_t first = RsNpc_ResolveRule(npcId);
@@ -102,6 +109,8 @@ void Dump(int32_t npcId, std::vector<std::string>& lines) {
         if (rule.missingOf != RS_DLG_NO_MISSING) {
             line += " missing=\"" + RsNpc_MissingList(rule) + "\"";
         }
+        // Appended last (#96 follow-up): where a STATEMENT continues when dismissed, -1 for close.
+        line += " next=" + std::to_string(rule.next);
         lines.push_back(line);
         for (int32_t i = 0; i < rule.whenCount; i++) {
             char desc[96];
@@ -117,16 +126,36 @@ void Dump(int32_t npcId, std::vector<std::string>& lines) {
         }
     }
     // The NODE array (#96), after every rule, so a dump reads in the order a conversation happens.
-    // A node has no `match=`/`first=` - it is never matched - and no `when`, which registration
-    // refuses on one; what it has instead is `reachable=`, the graph walk's verdict.
+    // A node has no `first=` - it is never matched on entry - but since node groups it may carry a
+    // gate: `when=`/`match=` are its own, `resolves=` is where an edge naming this node lands right
+    // now, and `reachable=` is the graph walk's verdict. The clause and continue fields follow in
+    // the rule line's order (`missing_of=`, `missing=`, `next=`), so one regex shape reads both.
     for (int32_t n = 0; n < def->nodeCount; n++) {
         const RsDialogueNode& node = def->nodes[n];
         int32_t slots[RS_DIALOGUE_MAX_OPTIONS];
         const int32_t visible = RsNpc_VisibleOptions(&node, slots, RS_DIALOGUE_MAX_OPTIONS);
-        lines.push_back("node[" + std::to_string(n) + "]=" + std::to_string(node.optionCount) + "options ungated=" +
-                        std::to_string(RsNpc_UngatedOptionCount(&node)) + " visible=" + std::to_string(visible) +
-                        " reachable=" + std::to_string(RsNpc_NodeReachable(npcId, n)) + " text=\"" +
-                        RsNpc_ComposeRuleText(node) + "\"");
+        std::string line = "node[" + std::to_string(n) + "]=" + std::to_string(node.optionCount) +
+                           "options ungated=" + std::to_string(RsNpc_UngatedOptionCount(&node)) +
+                           " visible=" + std::to_string(visible) +
+                           " reachable=" + std::to_string(RsNpc_NodeReachable(npcId, n)) + " text=\"" +
+                           RsNpc_ComposeRuleText(node) + "\" when=" + std::to_string(node.whenCount) +
+                           " match=" + std::to_string(RsNpc_NodeMatches(npcId, n)) +
+                           " resolves=" + ResolvesField(npcId, n) + " missing_of=" + std::to_string(node.missingOf);
+        if (node.missingOf != RS_DLG_NO_MISSING) {
+            line += " missing=\"" + RsNpc_MissingList(node) + "\"";
+        }
+        line += " next=" + std::to_string(node.next);
+        if (node.missingOf != RS_DLG_NO_MISSING) {
+            // The arrival analysis's verdict on this clause - its own gate, or every path in.
+            line += " clause_gated=" + std::to_string(RsNpc_NodeClauseGated(npcId, n));
+        }
+        lines.push_back(line);
+        for (int32_t i = 0; i < node.whenCount; i++) {
+            char desc[96];
+            QuestPredicate_Describe(&node.when[i], desc, sizeof(desc));
+            lines.push_back("node_when[" + std::to_string(n) + "." + std::to_string(i) + "]=" + desc +
+                            " value=" + std::to_string(QuestPredicate_Eval(&node.when[i])));
+        }
         for (int32_t i = 0; i < node.optionCount; i++) {
             lines.push_back(OptionLine("node_opt", n, i, node.options[i]));
         }
@@ -154,6 +183,30 @@ int32_t Tree(int32_t npcId, std::vector<std::string>& lines) {
                     " rules=" + std::to_string(def->ruleCount) + " nodes=" + std::to_string(def->nodeCount) +
                     " reachable=" + std::to_string(reachable));
 
+    // An edge's target is its HEAD: `close`, or `node.N` for the node the edge names. Where it LANDS
+    // right now is a property of that node's group, and is printed once, as `resolves=` on the
+    // node's own screen line, rather than repeated on every edge that points there.
+    const auto target = [](int32_t next) {
+        return next == RS_DLG_NO_NEXT ? std::string("close") : "node." + std::to_string(next);
+    };
+    // One `edge[...]` line per option, plus a `edge[....next]` line for every STATEMENT: a statement
+    // always has exactly one way out - `close`, or the node it continues to - and saying so beats
+    // leaving the reader to infer it from an absence.
+    const auto optionEdges = [&](const char* kind, int32_t index, const RsDialogueRule& screen) {
+        const std::string where = std::string(kind) + "." + std::to_string(index);
+        for (int32_t i = 0; i < screen.optionCount; i++) {
+            const RsDialogueOption& option = screen.options[i];
+            lines.push_back("edge[" + where + "." + std::to_string(i) + "]=" + target(option.next) +
+                            " visible=" + std::to_string(RsNpc_OptionVisible(&option)) + " label=\"" +
+                            RsNpc_ComposeOptionLabel(option) + "\"");
+            edges++;
+        }
+        if (screen.optionCount == 0) {
+            lines.push_back("edge[" + where + ".next]=" + target(screen.next));
+            edges++;
+        }
+    };
+
     const int32_t first = RsNpc_ResolveRule(npcId);
     for (int32_t r = 0; r < def->ruleCount; r++) {
         const RsDialogueRule& rule = def->rules[r];
@@ -163,34 +216,27 @@ int32_t Tree(int32_t npcId, std::vector<std::string>& lines) {
                         "options ungated=" + std::to_string(RsNpc_UngatedOptionCount(&rule)) +
                         " visible=" + std::to_string(visible) +
                         " match=" + std::to_string(RsNpc_RuleMatches(npcId, r)) +
-                        " first=" + std::to_string(r == first ? 1 : 0));
-        for (int32_t i = 0; i < rule.optionCount; i++) {
-            const RsDialogueOption& option = rule.options[i];
-            lines.push_back("edge[rule." + std::to_string(r) + "." + std::to_string(i) + "]=" +
-                            (option.next == RS_DLG_NO_NEXT ? std::string("close")
-                                                           : "node." + std::to_string(option.next)) +
-                            " visible=" + std::to_string(RsNpc_OptionVisible(&option)) + " label=\"" +
-                            RsNpc_ComposeOptionLabel(option) + "\"");
-            edges++;
-        }
+                        " first=" + std::to_string(r == first ? 1 : 0) +
+                        " can_end=" + std::to_string(RsNpc_ScreenCanEnd(npcId, RS_SCREEN_RULE, r)));
+        optionEdges("rule", r, rule);
     }
     for (int32_t n = 0; n < def->nodeCount; n++) {
         const RsDialogueNode& node = def->nodes[n];
         int32_t slots[RS_DIALOGUE_MAX_OPTIONS];
         const int32_t visible = RsNpc_VisibleOptions(&node, slots, RS_DIALOGUE_MAX_OPTIONS);
+        // `match=` is this node's own gate; `resolves=` is where an edge naming this node lands now,
+        // which is this node when it matches and a later member of its group when it does not. Before
+        // and after a quest starts, the two lines for a group's first node differ in exactly those
+        // two fields - which is the node-group claim, assertable from a console.
         lines.push_back("screen[node." + std::to_string(n) + "]=" + std::to_string(node.optionCount) +
                         "options ungated=" + std::to_string(RsNpc_UngatedOptionCount(&node)) +
                         " visible=" + std::to_string(visible) +
-                        " reachable=" + std::to_string(RsNpc_NodeReachable(npcId, n)));
-        for (int32_t i = 0; i < node.optionCount; i++) {
-            const RsDialogueOption& option = node.options[i];
-            lines.push_back("edge[node." + std::to_string(n) + "." + std::to_string(i) + "]=" +
-                            (option.next == RS_DLG_NO_NEXT ? std::string("close")
-                                                           : "node." + std::to_string(option.next)) +
-                            " visible=" + std::to_string(RsNpc_OptionVisible(&option)) + " label=\"" +
-                            RsNpc_ComposeOptionLabel(option) + "\"");
-            edges++;
-        }
+                        " reachable=" + std::to_string(RsNpc_NodeReachable(npcId, n)) +
+                        " when=" + std::to_string(node.whenCount) +
+                        " match=" + std::to_string(RsNpc_NodeMatches(npcId, n)) +
+                        " resolves=" + ResolvesField(npcId, n) +
+                        " can_end=" + std::to_string(RsNpc_ScreenCanEnd(npcId, RS_SCREEN_NODE, n)));
+        optionEdges("node", n, node);
     }
     lines.push_back("op=tree id=" + std::to_string(npcId) + " edges=" + std::to_string(edges) +
                     " nodes=" + std::to_string(def->nodeCount) + " reachable=" + std::to_string(reachable) +

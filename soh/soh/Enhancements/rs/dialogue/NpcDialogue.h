@@ -89,6 +89,36 @@ int32_t RsNpc_VisibleOptions(const RsDialogueRule* screen, int32_t* out, int32_t
 // invariant rather than "no gate combination yields exactly one".
 int32_t RsNpc_UngatedOptionCount(const RsDialogueRule* screen);
 
+// --- node groups (sturdy-bassoon#96 follow-up) ---------------------------------------------------
+//
+// A node's own `when` makes it the first member of a GROUP: a run of adjacent nodes ending at the
+// first ungated one, resolved FIRST MATCH WINS exactly as the rule table is. An edge names the
+// group's first node; the conversation lands on the first member whose gate holds.
+
+// 1 when every predicate in node `nodeIndex`'s own `when` is true. An ungated node answers 1; an
+// out-of-range index answers 0 quietly.
+int32_t RsNpc_NodeMatches(int32_t npcId, int32_t nodeIndex);
+
+// The node an edge to `head` ACTUALLY lands on right now. -1 for an unregistered npc, an index out
+// of range, or a group that runs off the end of the array - which registration refuses, so for a
+// registered definition this always answers a real node. Never asserts, never writes.
+//
+// Resolved ON ARRIVAL, by the actor, after the picked option's action has fired - so an option
+// that sets a flag and then navigates lands on the node that flag selects.
+int32_t RsNpc_ResolveNode(int32_t npcId, int32_t head);
+
+// 1 when the conversation can END from this screen, following only ungated options and statement
+// continues. Registration refuses a screen that cannot, because a choice box cannot be dismissed
+// without picking and Link cannot walk away from an open textbox: a loop with no exit is a
+// soft-lock. Always 1 for a registered definition, and printed by `npc tree` so a run asserts it.
+int32_t RsNpc_ScreenCanEnd(int32_t npcId, int32_t kind, int32_t index);
+
+// 1 when node `nodeIndex`'s missing-steps clause is covered - its own gate names the clause's quest,
+// or every path from an entry rule into it passes a gate on that quest - and 1 for a node with no
+// clause. Registration refuses a node where this is 0, so it is always 1 for a registered NPC;
+// `npc dump` prints it as `clause_gated=` so a run asserts the analysis rather than inferring it.
+int32_t RsNpc_NodeClauseGated(int32_t npcId, int32_t nodeIndex);
+
 const char* RsNpc_ResultName(int32_t result);
 const char* RsNpc_ActionName(int32_t kind); // "none", "start_quest", "complete_quest", "set_world_flag"
 // "rule" or "node" for an RsScreenKind. One spelling, because it reaches three sinks that must

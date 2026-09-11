@@ -127,18 +127,38 @@ typedef struct RsDialogueRule {
     // which does not paginate, so an appended list would run off the bottom of the box - visible
     // only in a screenshot, which is exactly the bug class P3 shipped and caught by eye.
     int32_t missingOf; // -1 = no clause; otherwise a QuestId
+
+    // CONTINUE (sturdy-bassoon#96 follow-up). On a STATEMENT - a screen with no options - the node
+    // the conversation continues to when the player dismisses it, instead of closing. It is what
+    // lets "ask about the job -> hear what is still missing -> back to the menu" exist at all: the
+    // missing-steps clause is only allowed on a statement, and a statement used to be a dead end.
+    // It also lets an ENTRY rule be a statement that leads into a tree.
+    //
+    // Refused on a screen WITH options: a choice navigates through its options' own `next`, and a
+    // second exit on the screen would be dead data that looks live.
+    //
+    // THERE IS NO SAFE DEFAULT, for the reason RsDialogueOption.next gives: a value-initialised 0
+    // is node 0. Every rule row and node row in the tree states it.
+    int32_t next; // RS_DLG_NO_NEXT = close when dismissed; otherwise a node index (see "node groups")
 } RsDialogueRule;
 
-// A NODE is the same shape as a rule - a body plus up to four options - reached only by an
-// option's `next`, never by matching (sturdy-bassoon#96 P1). The alias exists so a definition site
-// reads as what it is; there is deliberately ONE struct and therefore one validator, one renderer
-// and one composer.
+// A NODE is the same shape as a rule - a body plus up to four options - reached only by an EDGE
+// (an option's `next`, or a statement's), never by entry matching (sturdy-bassoon#96). The alias
+// exists so a definition site reads as what it is; there is deliberately ONE struct and therefore
+// one validator, one renderer and one composer.
 //
-// Two of a rule's fields are DEAD on a node, and registration refuses them rather than letting
-// them sit there looking live:
-//   `when`/`whenCount`  a node is never matched, so a gate on it would never be evaluated
-//   `missingOf`         the clause's only safety check is "some predicate in this rule's own gate
-//                       names the same quest" (see below), and a node has no gate to check against
+// NODE GROUPS. A node's own `when` means what a rule's does, applied to a run of nodes instead of
+// the whole table: an edge names a node; if that node's gate fails, the conversation falls through
+// to the next node in the array, and so on, FIRST MATCH WINS, until an ungated node ends the group.
+// Registration requires that ungated end, for D8's reason - a group that could resolve to nothing
+// is a silent failure. An ungated node is a group of one, which is every node written before groups
+// existed. This is how one "ask about the job" edge says different things before and during a
+// quest, without spending an option per state on routing.
+//
+// A node's `missingOf` is checked against the PATHS into it, not only its own gate: it registers
+// when its own gate names the quest, or when every path from an entry rule into it passes a gate on
+// that quest (NpcDialogue.cpp). That is what lets an ungated "here is what is left" node sit behind
+// a gated option.
 typedef RsDialogueRule RsDialogueNode;
 
 typedef struct RsNpcDef {

@@ -30,6 +30,9 @@
 //   NPC_DEBUG_PAGE  (198)  added for #96 P3: authored paging - "More..." and "Back" are ordinary
 //                          options with a `next`, and the fixture's job is to show that paging
 //                          needs no engine feature and to make its two costs to an author visible.
+//   NPC_DEBUG_QUEST_MENU (199)  added for the #96 follow-ups: an entry statement that continues,
+//                          a node group, and the missing-steps clause on a node - "ask about the
+//                          job, hear what is left, back to the menu".
 //
 // Prose here is NOT journal markup. Journal text carries `#tag:text#` (D23); dialogue text goes to
 // CustomMessageManager (D17), where '#' is a colour span, '%' starts a control code and '^' is a
@@ -79,15 +82,16 @@ const RsDialogueOption sGiverOfferOptions[] = {
 };
 
 const RsDialogueRule sGiverRules[] = {
-    { sGiverDoneWhen, 1, "Thanks again for the ingredients.", nullptr, 0, RS_DLG_NO_MISSING },
-    { sGiverReadyWhen, 2, "You have everything I asked for!", sGiverHandOverOptions, 2, RS_DLG_NO_MISSING },
+    { sGiverDoneWhen, 1, "Thanks again for the ingredients.", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    { sGiverReadyWhen, 2, "You have everything I asked for!", sGiverHandOverOptions, 2, RS_DLG_NO_MISSING,
+      RS_DLG_NO_NEXT },
     // Rule 2's gate is true at rule 1's state too. That overlap is deliberate: it is what makes
     // first-match-wins an observable fact in `npc dump` (match=1 on both, first=1 on one).
-    { sGiverCollectingWhen, 1, "You are still missing something.", nullptr, 0, RS_DLG_NO_MISSING },
-    { sGiverOfferWhen, 2, "Fetch two things for me?", sGiverOfferOptions, 2, RS_DLG_NO_MISSING },
+    { sGiverCollectingWhen, 1, "You are still missing something.", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    { sGiverOfferWhen, 2, "Fetch two things for me?", sGiverOfferOptions, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
     // The generic fallthrough. Registration REQUIRES the last rule to be unconditional, so an NPC
     // whose gate is unmet can never resolve to nothing (D8).
-    { nullptr, 0, "Lovely weather for standing about.", nullptr, 0, RS_DLG_NO_MISSING },
+    { nullptr, 0, "Lovely weather for standing about.", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
 };
 
 const RsNpcDef sGiver = {
@@ -105,7 +109,7 @@ const RsDialogueOption sThreeOptions[] = {
 // A three-option body is hand-laid-out and MEASURED to one row at registration, because
 // CustomMessage::AutoFormatString knows CTRL_TWO_CHOICE and does not know CTRL_THREE_CHOICE.
 const RsDialogueRule sThreeRules[] = {
-    { nullptr, 0, "Pick a colour.", sThreeOptions, 3, RS_DLG_NO_MISSING },
+    { nullptr, 0, "Pick a colour.", sThreeOptions, 3, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
 };
 
 const RsNpcDef sThree = {
@@ -127,7 +131,7 @@ const RsDialogueOption sFourOptions[] = {
 // is 31 characters - over the old 24-character cap, comfortably inside the 216 pixels that cap was
 // standing in for, and now measured rather than counted.
 const RsDialogueRule sFourRules[] = {
-    { nullptr, 0, "What can I help you with, Link?", sFourOptions, 4, RS_DLG_NO_MISSING },
+    { nullptr, 0, "What can I help you with, Link?", sFourOptions, 4, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
 };
 
 const RsNpcDef sFour = {
@@ -145,8 +149,8 @@ const RsDialogueOption sTwinOptions[] = {
     { "Say nothing", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
 const RsDialogueRule sTwinRules[] = {
-    { sTwinMetWhen, 1, "We have met before.", nullptr, 0, RS_DLG_NO_MISSING },
-    { nullptr, 0, "Hello there, stranger.", sTwinOptions, 2, RS_DLG_NO_MISSING },
+    { sTwinMetWhen, 1, "We have met before.", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    { nullptr, 0, "Hello there, stranger.", sTwinOptions, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
 };
 
 const RsNpcDef sTwin = {
@@ -192,13 +196,13 @@ const RsDialogueRule sFloorRules[] = {
     // 0 - the missing-steps clause. Its own text carries no token; the tokens arrive from quest 52's
     // stepLabels, appended after a '&'. That is the whole point: this rule proves a label written in
     // a QUEST definition is expanded on the DIALOGUE surface.
-    { sFloorCollectingWhen, 1, "The steward is still short of:", nullptr, 0, QUEST_DEBUG_FLOOR },
+    { sFloorCollectingWhen, 1, "The steward is still short of:", nullptr, 0, QUEST_DEBUG_FLOOR, RS_DLG_NO_NEXT },
 
     // 1 - the fallthrough, and the unconditional last rule registration requires.
     // `{Floor:0}` opens the sentence - the capitalised spelling, which is the reason there are two.
     // Short on purpose: a TWO-option body gets one row of a four-row box, and the registration
     // check now measures that row under BOTH conventions, where the UK label is a character longer.
-    { nullptr, 0, "{Floor:0}. Going up?", sFloorOptions, 2, RS_DLG_NO_MISSING },
+    { nullptr, 0, "{Floor:0}. Going up?", sFloorOptions, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
 };
 
 const RsNpcDef sFloor = {
@@ -212,10 +216,10 @@ const RsNpcDef sFloor = {
 //
 //   entry rule           two options, both ungated - so the reply-then-navigate path and the
 //                        plain close path are both walked from the ENTRY box.
-//                        #96 sketches the entry as a statement leading into SCREEN A; it cannot be
-//                        one, because navigation lives on an OPTION and a statement has none. A
-//                        two-option entry is the smallest thing that can navigate at all, and it
-//                        buys the close path for free.
+//                        #96 sketched the entry as a statement leading into SCREEN A. That shape is
+//                        legal now - NPC_DEBUG_QUEST_MENU (199) is exactly it - but this entry stays
+//                        a choice, because the reply-then-navigate path is the one 197 exists to
+//                        walk.
 //   opt 0's reply        deliberately long enough to PAGINATE, which is the whole argument for
 //                        not having a separate "intermediate dialogue" node kind
 //   node 0 (SCREEN A)    four options, so arriving here GROWS the box on a CONTINUED textbox -
@@ -264,9 +268,9 @@ const RsDialogueOption sTreeScreenAOptions[] = {
 
 const RsDialogueNode sTreeNodes[] = {
     // 0 - SCREEN A
-    { nullptr, 0, "What would you like to know?", sTreeScreenAOptions, 4, RS_DLG_NO_MISSING },
+    { nullptr, 0, "What would you like to know?", sTreeScreenAOptions, 4, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
     // 1 - SCREEN B
-    { nullptr, 0, "What about the mill?", sTreeScreenBOptions, 4, RS_DLG_NO_MISSING },
+    { nullptr, 0, "What about the mill?", sTreeScreenBOptions, 4, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
 };
 
 const RsDialogueOption sTreeEntryOptions[] = {
@@ -282,7 +286,7 @@ const RsDialogueOption sTreeEntryOptions[] = {
 };
 
 const RsDialogueRule sTreeRules[] = {
-    { nullptr, 0, "Shall I tell you the tale?", sTreeEntryOptions, 2, RS_DLG_NO_MISSING },
+    { nullptr, 0, "Shall I tell you the tale?", sTreeEntryOptions, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
 };
 
 const RsNpcDef sTree = {
@@ -325,9 +329,9 @@ const RsDialogueOption sPagePageOneOptions[] = {
 
 const RsDialogueNode sPageNodes[] = {
     // 0 - page one
-    { nullptr, 0, "Where are you headed?", sPagePageOneOptions, 4, RS_DLG_NO_MISSING },
+    { nullptr, 0, "Where are you headed?", sPagePageOneOptions, 4, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
     // 1 - page two
-    { nullptr, 0, "Anywhere else?", sPagePageTwoOptions, 4, RS_DLG_NO_MISSING },
+    { nullptr, 0, "Anywhere else?", sPagePageTwoOptions, 4, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
 };
 
 const RsDialogueOption sPageEntryOptions[] = {
@@ -336,11 +340,75 @@ const RsDialogueOption sPageEntryOptions[] = {
 };
 
 const RsDialogueRule sPageRules[] = {
-    { nullptr, 0, "Looking for directions?", sPageEntryOptions, 2, RS_DLG_NO_MISSING },
+    { nullptr, 0, "Looking for directions?", sPageEntryOptions, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
 };
 
 const RsNpcDef sPage = {
     NPC_DEBUG_PAGE, QUEST_TIER_DEBUG, "debug_page", "Debug: the page turner", sPageRules, 1, sPageNodes, 2,
+};
+
+// --- NPC_DEBUG_QUEST_MENU (199) ------------------------------------------------------------------
+//
+// The tree follow-ups (#96), on QUEST_DEBUG_JOURNAL (50): three any-order steps and no step labels,
+// so the missing-steps clause prints the tokens `egg`, `flour` and `milk` - deterministic, and on a
+// quest nothing else is editing. The shape is the one a real quest-giver wants and the first cut of
+// #96 could not express: ask about the job, hear what is left, come back to the menu.
+//
+//   rules 0-1   two entry STATEMENTS that continue - #96 sketched exactly this, and the first cut had
+//               to refuse it. Rule 0 speaks only during the job, and continues straight to a list.
+//   node 0      the MENU. Three options, two ungated. "What is left?" is GATED on the job being in
+//               progress.
+//   nodes 1-2   a NODE GROUP behind "About the job": node 1 while the job is in progress, node 2 - the
+//               group's ungated end - otherwise. One edge, two things said, no option spent on routing.
+//
+// And the missing-steps clause on a node, covered each of the THREE ways the arrival analysis can
+// cover one - so every term of that analysis is exercised by a definition that REGISTERS, and not
+// only by the refusal table:
+//
+//   node 1      by its OWN gate
+//   node 4      by the gated OPTION two hops back ("What is left?" -> node 3 -> node 4), inherited
+//               across an ungated statement
+//   node 5      by the gated SOURCE screen, rule 0 - the realistic shape: a greeting that only speaks
+//               during the job, continuing straight into the list
+//
+// Every non-menu node continues back to the menu. "Goodbye" is the menu's one ungated way out, and
+// registration now checks that one is there: without it every screen here would loop forever.
+
+const QuestPredicate sMenuJobInProgressWhen[] = {
+    QP_QUEST_STATUS_IS(QUEST_DEBUG_JOURNAL, QUEST_STATUS_IN_PROGRESS),
+};
+
+const RsDialogueOption sMenuOptions[] = {
+    { "About the job", RS_DLG_ACTION_NONE, 0, nullptr, 1 },
+    { "What is left?", RS_DLG_ACTION_NONE, 0, nullptr, 3, sMenuJobInProgressWhen, 1 },
+    { "Goodbye", RS_DLG_ACTION_NONE, 0, "Safe travels.", RS_DLG_NO_NEXT },
+};
+
+const RsDialogueNode sMenuNodes[] = {
+    // 0 - the menu
+    { nullptr, 0, "What do you need?", sMenuOptions, 3, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    // 1 - the group's first member, only while the job is in progress: clause covered by its OWN gate
+    { sMenuJobInProgressWhen, 1, "The job? The cook still needs:", nullptr, 0, QUEST_DEBUG_JOURNAL, 0 },
+    // 2 - the group's ungated end: every other status
+    { nullptr, 0, "No job for you right now. Ask again later.", nullptr, 0, RS_DLG_NO_MISSING, 0 },
+    // 3 - an ungated statement between the gated option and the list
+    { nullptr, 0, "Let me think.", nullptr, 0, RS_DLG_NO_MISSING, 4 },
+    // 4 - ungated: clause covered by the OPTION two hops back
+    { nullptr, 0, "Left to find:", nullptr, 0, QUEST_DEBUG_JOURNAL, 0 },
+    // 5 - ungated: clause covered by the gated SOURCE screen, rule 0
+    { nullptr, 0, "Still on the list:", nullptr, 0, QUEST_DEBUG_JOURNAL, 0 },
+};
+
+const RsDialogueRule sMenuRules[] = {
+    // 0 - during the job: a greeting that continues straight to what is left
+    { sMenuJobInProgressWhen, 1, "Back again, then.", nullptr, 0, RS_DLG_NO_MISSING, 5 },
+    // 1 - the unconditional fallthrough D8 requires
+    { nullptr, 0, "Ah, a visitor.", nullptr, 0, RS_DLG_NO_MISSING, 0 },
+};
+
+const RsNpcDef sQuestMenu = {
+    NPC_DEBUG_QUEST_MENU, QUEST_TIER_DEBUG, "debug_quest_menu", "Debug: the quest menu", sMenuRules, 2,
+    sMenuNodes,           6,
 };
 
 // --- the malformed table --------------------------------------------------------------------
@@ -357,7 +425,7 @@ const RsDialogueOption sOkOptions[] = {
     { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
 const RsDialogueRule sOkRules[] = {
-    { nullptr, 0, "A clean rule.", nullptr, 0, RS_DLG_NO_MISSING },
+    { nullptr, 0, "A clean rule.", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
 };
 // The one table that does NOT state missingOf per row, because it cannot: it is zero-initialised
 // on purpose to be too long. Its rows never reach rule validation - ruleCount is refused first.
@@ -366,24 +434,36 @@ const RsDialogueRule sManyRules[RS_DIALOGUE_MAX_RULES + 1] = {};
 // Every one of these is a NAMED file-scope object. A table of pointers to temporaries would dangle
 // the moment its initialiser finished, and `badcheck` would be reading freed memory in order to
 // report that a definition is bad - a failure that would look exactly like success.
-const RsDialogueRule sBadWhenNull[] = { { nullptr, 1, "text", nullptr, 0, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadWhenNull[] = { { nullptr, 1, "text", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT } };
 const QuestPredicate sPredUnknownKind[] = { { (QuestPredicateKind)99, 0, 0, 0 } };
-const RsDialogueRule sBadPredKind[] = { { sPredUnknownKind, 1, "text", nullptr, 0, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadPredKind[] = {
+    { sPredUnknownKind, 1, "text", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
 const QuestPredicate sPredStatusRange[] = { QP_QUEST_STATUS_IS(999, QUEST_STATUS_COMPLETE) };
-const RsDialogueRule sBadPredStatus[] = { { sPredStatusRange, 1, "text", nullptr, 0, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadPredStatus[] = {
+    { sPredStatusRange, 1, "text", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
 const QuestPredicate sPredPrereqRange[] = { QP_QUEST_PREREQS_MET(999) };
-const RsDialogueRule sBadPredPrereq[] = { { sPredPrereqRange, 1, "text", nullptr, 0, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadPredPrereq[] = {
+    { sPredPrereqRange, 1, "text", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
 const QuestPredicate sPredFlagRange[] = { QP_WORLD_FLAG_SET(999999) };
-const RsDialogueRule sBadPredFlag[] = { { sPredFlagRange, 1, "text", nullptr, 0, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadPredFlag[] = { { sPredFlagRange, 1, "text", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT } };
 
-const RsDialogueRule sBadTextNull[] = { { nullptr, 0, nullptr, nullptr, 0, RS_DLG_NO_MISSING } };
-const RsDialogueRule sBadTextHash[] = { { nullptr, 0, "a #item:hash# span", nullptr, 0, RS_DLG_NO_MISSING } };
-const RsDialogueRule sBadTextPercent[] = { { nullptr, 0, "one hundred percent: 100%", nullptr, 0, RS_DLG_NO_MISSING } };
-const RsDialogueRule sBadTextCaret[] = { { nullptr, 0, "a box^break", nullptr, 0, RS_DLG_NO_MISSING } };
-const RsDialogueRule sBadTextQuote[] = { { nullptr, 0, "a \"quoted\" word", nullptr, 0, RS_DLG_NO_MISSING } };
-const RsDialogueRule sBadTextEmpty[] = { { nullptr, 0, "", nullptr, 0, RS_DLG_NO_MISSING } };
-const RsDialogueRule sBadOptionsNull[] = { { nullptr, 0, "text", nullptr, 2, RS_DLG_NO_MISSING } };
-const RsDialogueRule sBadOneOption[] = { { nullptr, 0, "text", sOkOptions, 1, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadTextNull[] = { { nullptr, 0, nullptr, nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT } };
+const RsDialogueRule sBadTextHash[] = {
+    { nullptr, 0, "a #item:hash# span", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadTextPercent[] = {
+    { nullptr, 0, "one hundred percent: 100%", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadTextCaret[] = { { nullptr, 0, "a box^break", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT } };
+const RsDialogueRule sBadTextQuote[] = {
+    { nullptr, 0, "a \"quoted\" word", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadTextEmpty[] = { { nullptr, 0, "", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT } };
+const RsDialogueRule sBadOptionsNull[] = { { nullptr, 0, "text", nullptr, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT } };
+const RsDialogueRule sBadOneOption[] = { { nullptr, 0, "text", sOkOptions, 1, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT } };
 // One option past what the renderer draws. This entry USED to be `sOkOptions, 4` back when the cap
 // was three - an option COUNT of 4 over a 2-element array, safe only because the count check
 // refused it before anything indexed it. Raising the cap to 4 would have turned that into a real
@@ -396,7 +476,7 @@ const RsDialogueOption sFiveOpts[] = {
     { "E", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
 const RsDialogueRule sBadFiveOptions[] = {
-    { nullptr, 0, "text", sFiveOpts, RS_DIALOGUE_MAX_OPTIONS + 1, RS_DLG_NO_MISSING },
+    { nullptr, 0, "text", sFiveOpts, RS_DIALOGUE_MAX_OPTIONS + 1, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
 };
 
 const RsDialogueOption sThreeOk[] = {
@@ -406,61 +486,77 @@ const RsDialogueOption sThreeOk[] = {
 };
 const RsDialogueRule sBadThreeLong[] = {
     { nullptr, 0, "This body is far too long to fit one line beside a three-way choice.", sThreeOk, 3,
-      RS_DLG_NO_MISSING },
+      RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
 };
-const RsDialogueRule sBadThreeMultiline[] = { { nullptr, 0, "Two&lines", sThreeOk, 3, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadThreeMultiline[] = {
+    { nullptr, 0, "Two&lines", sThreeOk, 3, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
 
 const RsDialogueOption sOptLabelNull[] = {
     { nullptr, RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
-const RsDialogueRule sBadLabelNull[] = { { nullptr, 0, "text", sOptLabelNull, 2, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadLabelNull[] = { { nullptr, 0, "text", sOptLabelNull, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT } };
 const RsDialogueOption sOptLabelEmpty[] = {
     { "", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
-const RsDialogueRule sBadLabelEmpty[] = { { nullptr, 0, "text", sOptLabelEmpty, 2, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadLabelEmpty[] = {
+    { nullptr, 0, "text", sOptLabelEmpty, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
 const RsDialogueOption sOptLabelLines[] = {
     { "Two&lines", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
-const RsDialogueRule sBadLabelLines[] = { { nullptr, 0, "text", sOptLabelLines, 2, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadLabelLines[] = {
+    { nullptr, 0, "text", sOptLabelLines, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
 const RsDialogueOption sOptReplyPercent[] = {
     { "Yes", RS_DLG_ACTION_NONE, 0, "a reply with 50% too much", RS_DLG_NO_NEXT },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
-const RsDialogueRule sBadReply[] = { { nullptr, 0, "text", sOptReplyPercent, 2, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadReply[] = { { nullptr, 0, "text", sOptReplyPercent, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT } };
 const RsDialogueOption sOptActionKind[] = {
     { "Yes", (RsDialogueActionKind)99, 0, nullptr, RS_DLG_NO_NEXT },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
-const RsDialogueRule sBadActionKind[] = { { nullptr, 0, "text", sOptActionKind, 2, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadActionKind[] = {
+    { nullptr, 0, "text", sOptActionKind, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
 const RsDialogueOption sOptActionQuest[] = {
     { "Yes", RS_DLG_ACTION_START_QUEST, 999, nullptr, RS_DLG_NO_NEXT },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
-const RsDialogueRule sBadActionQuest[] = { { nullptr, 0, "text", sOptActionQuest, 2, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadActionQuest[] = {
+    { nullptr, 0, "text", sOptActionQuest, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
 const RsDialogueOption sOptActionFlagRange[] = {
     { "Yes", RS_DLG_ACTION_SET_WORLD_FLAG, 999999, nullptr, RS_DLG_NO_NEXT },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
-const RsDialogueRule sBadActionFlagRange[] = { { nullptr, 0, "text", sOptActionFlagRange, 2, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadActionFlagRange[] = {
+    { nullptr, 0, "text", sOptActionFlagRange, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
 // A DEBUG-band NPC setting a PRODUCTION-band flag: `quest debugwipe` clears only the debug band, so
 // this would leave state a wipe cannot undo. Same rule Quest_Register applies to a world-flag reward.
 const RsDialogueOption sOptActionFlagBand[] = {
     { "Yes", RS_DLG_ACTION_SET_WORLD_FLAG, 0, nullptr, RS_DLG_NO_NEXT },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
-const RsDialogueRule sBadActionFlagBand[] = { { nullptr, 0, "text", sOptActionFlagBand, 2, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadActionFlagBand[] = {
+    { nullptr, 0, "text", sOptActionFlagBand, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
 
 // The three ways a missing-steps clause can be wrong (D26, P4). The third one is the interesting
 // one: a rule whose `missingOf` names a quest it does not gate on is usually not a typo'd quest id
 // at all - it is a row that stopped one field early, value-initialising the field to 0, which is a
 // real QuestId. This is the check that turns that silent copy-paste into a refused definition.
-const RsDialogueRule sBadMissingRange[] = { { nullptr, 0, "text", nullptr, 0, 999 } };
-const RsDialogueRule sBadMissingUngated[] = { { nullptr, 0, "text", nullptr, 0, QUEST_DEBUG_GIVER } };
+const RsDialogueRule sBadMissingRange[] = { { nullptr, 0, "text", nullptr, 0, 999, RS_DLG_NO_NEXT } };
+const RsDialogueRule sBadMissingUngated[] = { { nullptr, 0, "text", nullptr, 0, QUEST_DEBUG_GIVER, RS_DLG_NO_NEXT } };
 const QuestPredicate sMissingGate[] = { QP_QUEST_STATUS_IS(QUEST_DEBUG_GIVER, QUEST_STATUS_IN_PROGRESS) };
-const RsDialogueRule sBadMissingThree[] = { { sMissingGate, 1, "Pick one.", sThreeOk, 3, QUEST_DEBUG_GIVER } };
+const RsDialogueRule sBadMissingThree[] = {
+    { sMissingGate, 1, "Pick one.", sThreeOk, 3, QUEST_DEBUG_GIVER, RS_DLG_NO_NEXT },
+};
 
 // A two-option body long enough that AutoFormatString pushes the choice onto a second page. The
 // cost of getting this wrong is not cosmetic: the first A press turns the page instead of
@@ -468,7 +564,7 @@ const RsDialogueRule sBadMissingThree[] = { { sMissingGate, 1, "Pick one.", sThr
 // in P4, and only a screenshot found it - which is why the check now asks the renderer.
 const RsDialogueRule sBadTwoOptionLong[] = {
     { nullptr, 0, "Will you fetch what my cake needs, and be quick about it before the Duke arrives?",
-      sOkOptions, 2, RS_DLG_NO_MISSING },
+      sOkOptions, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
 };
 
 // The gate here is Always() - it EVALUATES true. The check is structural (whenCount == 0), not
@@ -481,31 +577,43 @@ const RsDialogueOption sOptLabelWide[] = {
     { "WWWWWWWWWWWWWWWWWWWWWWWW", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
-const RsDialogueRule sBadLabelWide[] = { { nullptr, 0, "text", sOptLabelWide, 2, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadLabelWide[] = { { nullptr, 0, "text", sOptLabelWide, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT } };
 
 // The five ways a `{floor:N}` token can be wrong (sturdy-bassoon#94), one per RsFloorTokenError
 // that a definition can actually carry. Spread across the three strings that take tokens rather
 // than piled onto `text`, so the table also proves the gate is wired at each site and not only at
 // the first one it reaches.
-const RsDialogueRule sBadTokenUnclosed[] = { { nullptr, 0, "Up on the {floor:1", nullptr, 0, RS_DLG_NO_MISSING } };
-const RsDialogueRule sBadTokenStray[] = { { nullptr, 0, "Up on the floor:1}", nullptr, 0, RS_DLG_NO_MISSING } };
-const RsDialogueRule sBadTokenNoColon[] = { { nullptr, 0, "Up on the {floor}", nullptr, 0, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadTokenUnclosed[] = {
+    { nullptr, 0, "Up on the {floor:1", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadTokenStray[] = {
+    { nullptr, 0, "Up on the floor:1}", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadTokenNoColon[] = {
+    { nullptr, 0, "Up on the {floor}", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
 // `{storey:1}` - a near miss. It has to be refused for the reason the journal's tag table gives:
 // a near miss that quietly rendered as literal prose is the failure this grammar exists to stop.
 const RsDialogueOption sOptTokenUnknown[] = {
     { "Up to the {storey:1}", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
-const RsDialogueRule sBadTokenUnknown[] = { { nullptr, 0, "text", sOptTokenUnknown, 2, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadTokenUnknown[] = {
+    { nullptr, 0, "text", sOptTokenUnknown, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
 // Two digits. The cap is one, and `{floor:12}` is the shape a would-be twelfth storey takes.
 const RsDialogueOption sOptTokenBadIndex[] = {
     { "Yes", RS_DLG_ACTION_NONE, 0, "See you on the {floor:12}.", RS_DLG_NO_NEXT },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
-const RsDialogueRule sBadTokenBadIndex[] = { { nullptr, 0, "text", sOptTokenBadIndex, 2, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadTokenBadIndex[] = {
+    { nullptr, 0, "text", sOptTokenBadIndex, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
 
 const QuestPredicate sAlwaysGate[] = { QP_ALWAYS() };
-const RsDialogueRule sBadLastConditional[] = { { sAlwaysGate, 1, "a conditional last rule", nullptr, 0, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadLastConditional[] = {
+    { sAlwaysGate, 1, "a conditional last rule", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
 
 // --- the dialogue-tree refusals (sturdy-bassoon#96) ----------------------------------------------
 //
@@ -520,7 +628,7 @@ const RsDialogueOption sOptNextNoNode[] = {
     { "Yes", RS_DLG_ACTION_NONE, 0, nullptr, 0 },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
-const RsDialogueRule sBadNextRange[] = { { nullptr, 0, "text", sOptNextNoNode, 2, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadNextRange[] = { { nullptr, 0, "text", sOptNextNoNode, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT } };
 
 // A node nothing names. The rules reach node 0; node 1 is written, populated and stranded - which
 // has no in-game symptom at all, because the symptom is a screen that never appears.
@@ -528,17 +636,19 @@ const RsDialogueOption sOptToNodeZero[] = {
     { "Yes", RS_DLG_ACTION_NONE, 0, nullptr, 0 },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
-const RsDialogueRule sUnreachableRules[] = { { nullptr, 0, "text", sOptToNodeZero, 2, RS_DLG_NO_MISSING } };
+const RsDialogueRule sUnreachableRules[] = {
+    { nullptr, 0, "text", sOptToNodeZero, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
 const RsDialogueNode sUnreachableNodes[] = {
-    { nullptr, 0, "the reachable one", nullptr, 0, RS_DLG_NO_MISSING },
-    { nullptr, 0, "nobody can get here", nullptr, 0, RS_DLG_NO_MISSING },
+    { nullptr, 0, "the reachable one", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    { nullptr, 0, "nobody can get here", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
 };
 
 // A node reachable ONLY from another unreachable node. The pair would pass a walk seeded from every
 // node, and is exactly why the real walk starts at rules only.
 const RsDialogueNode sOrphanPairNodes[] = {
-    { nullptr, 0, "the reachable one", nullptr, 0, RS_DLG_NO_MISSING },
-    { nullptr, 0, "orphan", sOptToNodeZero, 2, RS_DLG_NO_MISSING }, // -> node 0, but nothing -> here
+    { nullptr, 0, "the reachable one", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    { nullptr, 0, "orphan", sOptToNodeZero, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT }, // -> node 0, but nothing -> here
 };
 
 // THE TWO-UNGATED RULE. Two declared options, one of them gated: gating can take this screen down
@@ -549,7 +659,9 @@ const RsDialogueOption sOptOneUngated[] = {
     { "Always", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
     { "Sometimes", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT, sSomeGate, 1 },
 };
-const RsDialogueRule sBadOneUngated[] = { { nullptr, 0, "text", sOptOneUngated, 2, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadOneUngated[] = {
+    { nullptr, 0, "text", sOptOneUngated, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
 
 // An option's own gate, validated exactly as a rule's is: a NULL list with a nonzero count, and an
 // operand out of range. Two entries because they are two different messages at a NEW call site.
@@ -557,22 +669,28 @@ const RsDialogueOption sOptWhenNull[] = {
     { "Yes", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT, nullptr, 1 },
 };
-const RsDialogueRule sBadOptWhenNull[] = { { nullptr, 0, "text", sOptWhenNull, 2, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadOptWhenNull[] = { { nullptr, 0, "text", sOptWhenNull, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT } };
 const QuestPredicate sOptPredFlagRange[] = { QP_WORLD_FLAG_SET(999999) };
 const RsDialogueOption sOptWhenRange[] = {
     { "Yes", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
     { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
     { "Maybe", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT, sOptPredFlagRange, 1 },
 };
-const RsDialogueRule sBadOptWhenRange[] = { { nullptr, 0, "Pick one.", sOptWhenRange, 3, RS_DLG_NO_MISSING } };
+const RsDialogueRule sBadOptWhenRange[] = {
+    { nullptr, 0, "Pick one.", sOptWhenRange, 3, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
 
-// The two fields a NODE has no use for. Both would be dead data that looks live: a gate on a node
-// would never be evaluated, and a missing-steps clause has no gate to be checked against.
+// bad[50] and bad[51]. These two rows first pinned "a node carries no gate" and "a node carries no
+// clause". Node groups and path-checked clauses made both legal, so the DEFINITIONS are unchanged
+// and what each row exercises changed - so its label and the message it pins changed with it. The
+// INDEX is kept, so no later row moves:
+//   sGatedNodes      one gated node with nothing after it - a group with nowhere to fall through to
+//   sMissingOfNodes  a clause on a node whose only way in (sUnreachableRules) is ungated
 const RsDialogueNode sGatedNodes[] = {
-    { sAlwaysGate, 1, "a gated node", nullptr, 0, RS_DLG_NO_MISSING },
+    { sAlwaysGate, 1, "a gated node", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
 };
 const RsDialogueNode sMissingOfNodes[] = {
-    { nullptr, 0, "a node with a clause", nullptr, 0, QUEST_DEBUG_GIVER },
+    { nullptr, 0, "a node with a clause", nullptr, 0, QUEST_DEBUG_GIVER, RS_DLG_NO_NEXT },
 };
 
 // The WIDTH SWEEP (#96 P2). Four declared options, THREE of them ungated, so the screen presents 3
@@ -589,7 +707,7 @@ const RsDialogueOption sOptSweep[] = {
 };
 const RsDialogueRule sBadSweepWidth[] = {
     { nullptr, 0, "This body is far too long to fit one line beside a three-way choice.", sOptSweep, 4,
-      RS_DLG_NO_MISSING },
+      RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
 };
 
 // nodeCount out of range, and a nonzero count over a NULL array. The long node array is
@@ -597,8 +715,71 @@ const RsDialogueRule sBadSweepWidth[] = {
 // refused first.
 const RsDialogueNode sManyNodes[RS_DIALOGUE_MAX_NODES + 1] = {};
 
+// --- the tree follow-up refusals (#96) ------------------------------------------------------------
+
+// A continue on a CHOICE: two options AND a `next` on the screen itself. The screen would have two
+// kinds of exit, and the second would be dead data that looks live.
+const RsDialogueRule sBadNextWithOptions[] = { { nullptr, 0, "text", sOkOptions, 2, RS_DLG_NO_MISSING, 0 } };
+// A statement continuing to a node that does not exist - the row-that-stopped-early shape once more.
+const RsDialogueRule sBadStatementNextRange[] = { { nullptr, 0, "text", nullptr, 0, RS_DLG_NO_MISSING, 0 } };
+
+// A clause on a node with TWO ways in, one gated on the quest and one not. The arrival analysis keeps
+// only what EVERY path guarantees, so the ungated way wins and the clause is refused: a player who
+// came in through rule 1 would be told what they still need for a quest they may never have started.
+const QuestPredicate sBadGateGiverInProgress[] = {
+    QP_QUEST_STATUS_IS(QUEST_DEBUG_GIVER, QUEST_STATUS_IN_PROGRESS),
+};
+const RsDialogueRule sTwoWaysInRules[] = {
+    { sBadGateGiverInProgress, 1, "the gated way in", nullptr, 0, RS_DLG_NO_MISSING, 0 },
+    { nullptr, 0, "the ungated way in", nullptr, 0, RS_DLG_NO_MISSING, 0 },
+};
+const RsDialogueNode sTwoWaysInNodes[] = {
+    { nullptr, 0, "Still needed:", nullptr, 0, QUEST_DEBUG_GIVER, RS_DLG_NO_NEXT },
+};
+
+// THE SOFT-LOCK, in its three shapes. A choice box cannot be dismissed without picking and Link cannot
+// walk away from an open textbox, so a screen with no always-offered way out is a conversation the
+// player can leave only by resetting the game. The first shipped cut of #96 would have registered
+// the first of these.
+const RsDialogueRule sLoopEntryRules[] = { { nullptr, 0, "text", nullptr, 0, RS_DLG_NO_MISSING, 0 } };
+// 1. A menu whose every answer comes straight back to the menu - behind an entry that CAN be left, so
+//    the trap is the menu itself and the refusal names the NODE. The more realistic shape: a player
+//    walks into it happily and cannot walk out.
+const RsDialogueOption sOptEnterOrLeave[] = {
+    { "Enter", RS_DLG_ACTION_NONE, 0, nullptr, 0 },
+    { "Leave", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sLoopEntryWithExitRules[] = {
+    { nullptr, 0, "text", sOptEnterOrLeave, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+const RsDialogueOption sOptLoopHere[] = {
+    { "Again", RS_DLG_ACTION_NONE, 0, nullptr, 0 },
+    { "Once more", RS_DLG_ACTION_NONE, 0, nullptr, 0 },
+};
+const RsDialogueNode sMenuLoopNodes[] = {
+    { nullptr, 0, "Round we go.", sOptLoopHere, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+// 2. Two statements continuing into each other - no choice anywhere, and still no way out.
+const RsDialogueNode sStatementLoopNodes[] = {
+    { nullptr, 0, "Tick.", nullptr, 0, RS_DLG_NO_MISSING, 1 },
+    { nullptr, 0, "Tock.", nullptr, 0, RS_DLG_NO_MISSING, 0 },
+};
+// 3. A menu whose only exit is GATED. It ends fine on a save where the flag is set, and traps
+//    everyone else - which is why a gated exit does not count as a way out.
+const RsDialogueOption sOptGatedExit[] = {
+    { "Again", RS_DLG_ACTION_NONE, 0, nullptr, 0 },
+    { "Once more", RS_DLG_ACTION_NONE, 0, nullptr, 0 },
+    { "Leave", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT, sSomeGate, 1 },
+};
+const RsDialogueNode sGatedExitNodes[] = {
+    { nullptr, 0, "Round we go.", sOptGatedExit, 3, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+
 #define BAD_NPC_DEF(sym, rules, count)                                                                                 \
     const RsNpcDef sym = { NPC_DEBUG_GIVER, QUEST_TIER_DEBUG, "bad", "Bad", (rules), (count) }
+// The same, for a definition that carries a node array.
+#define BAD_TREE_DEF(sym, rules, ruleCount, nodes, nodeCount)                                                       \
+    const RsNpcDef sym = { NPC_DEBUG_GIVER, QUEST_TIER_DEBUG, "bad", "Bad", (rules), (ruleCount), (nodes), (nodeCount) }
 
 const RsNpcDef sBadIdRange = { NPC_MAX, QUEST_TIER_DEBUG, "bad", "Bad", sOkRules, 1 };
 const RsNpcDef sBadTier = { NPC_DEBUG_GIVER, QUEST_TIER_PROD, "bad", "Bad", sOkRules, 1 };
@@ -659,17 +840,18 @@ BAD_NPC_DEF(sDefOneUngated, sBadOneUngated, 1);
 BAD_NPC_DEF(sDefOptWhenNull, sBadOptWhenNull, 1);
 BAD_NPC_DEF(sDefOptWhenRange, sBadOptWhenRange, 1);
 BAD_NPC_DEF(sDefSweepWidth, sBadSweepWidth, 1);
-const RsNpcDef sDefNodeUnreachable = { NPC_DEBUG_GIVER, QUEST_TIER_DEBUG,  "bad", "Bad", sUnreachableRules, 1,
-                                       sUnreachableNodes, 2 };
-const RsNpcDef sDefNodeOrphanPair = { NPC_DEBUG_GIVER, QUEST_TIER_DEBUG, "bad", "Bad", sUnreachableRules, 1,
-                                      sOrphanPairNodes, 2 };
-const RsNpcDef sDefNodeConditional = { NPC_DEBUG_GIVER, QUEST_TIER_DEBUG, "bad", "Bad", sUnreachableRules, 1,
-                                       sGatedNodes, 1 };
-const RsNpcDef sDefNodeMissingOf = { NPC_DEBUG_GIVER, QUEST_TIER_DEBUG, "bad", "Bad", sUnreachableRules, 1,
-                                     sMissingOfNodes, 1 };
-const RsNpcDef sDefNodeCountHigh = { NPC_DEBUG_GIVER,   QUEST_TIER_DEBUG,          "bad", "Bad", sOkRules, 1,
-                                     sManyNodes,        RS_DIALOGUE_MAX_NODES + 1 };
-const RsNpcDef sDefNodesNull = { NPC_DEBUG_GIVER, QUEST_TIER_DEBUG, "bad", "Bad", sOkRules, 1, nullptr, 1 };
+BAD_TREE_DEF(sDefNodeUnreachable, sUnreachableRules, 1, sUnreachableNodes, 2);
+BAD_TREE_DEF(sDefNodeOrphanPair, sUnreachableRules, 1, sOrphanPairNodes, 2);
+BAD_TREE_DEF(sDefNodeGroupRunsOffEnd, sUnreachableRules, 1, sGatedNodes, 1);
+BAD_TREE_DEF(sDefNodeMissingOf, sUnreachableRules, 1, sMissingOfNodes, 1);
+BAD_TREE_DEF(sDefNodeCountHigh, sOkRules, 1, sManyNodes, RS_DIALOGUE_MAX_NODES + 1);
+BAD_TREE_DEF(sDefNodesNull, sOkRules, 1, nullptr, 1);
+BAD_NPC_DEF(sDefNextWithOptions, sBadNextWithOptions, 1);
+BAD_NPC_DEF(sDefStatementNextRange, sBadStatementNextRange, 1);
+BAD_TREE_DEF(sDefTwoWaysIn, sTwoWaysInRules, 2, sTwoWaysInNodes, 1);
+BAD_TREE_DEF(sDefMenuLoop, sLoopEntryWithExitRules, 1, sMenuLoopNodes, 1);
+BAD_TREE_DEF(sDefStatementLoop, sLoopEntryRules, 1, sStatementLoopNodes, 2);
+BAD_TREE_DEF(sDefGatedExit, sLoopEntryRules, 1, sGatedExitNodes, 1);
 
 struct BadEntry {
     const char* label;
@@ -732,11 +914,11 @@ const BadEntry sBadDefs[] = {
     { "token_bad_index", &sDefTokenBadIndex },
     { "token_in_display_name", &sBadDisplayToken },
     // #96, appended for the reason every earlier group was: `bad[N]` indices above stay verbatim.
-    // In validator order, so a run reading top to bottom sees the same sequence the gate does.
+    // Grouped by what they exercise, not in validator order - the checks moved as the tree grew.
     { "node_count_too_high", &sDefNodeCountHigh },
     { "nodes_null_nonzero_count", &sDefNodesNull },
-    { "node_conditional", &sDefNodeConditional },
-    { "node_missing_of", &sDefNodeMissingOf },
+    { "node_gated_group_runs_off_end", &sDefNodeGroupRunsOffEnd },
+    { "node_missing_of_ungated_path", &sDefNodeMissingOf },
     { "option_next_no_node", &sDefNextRange },
     { "option_when_null_nonzero_count", &sDefOptWhenNull },
     { "option_when_operand_range", &sDefOptWhenRange },
@@ -744,6 +926,13 @@ const BadEntry sBadDefs[] = {
     { "width_sweep_degraded_count", &sDefSweepWidth },
     { "node_unreachable", &sDefNodeUnreachable },
     { "node_reachable_only_from_orphan", &sDefNodeOrphanPair },
+    // The #96 follow-ups, appended: statement continues, clauses on nodes, and the soft-lock.
+    { "screen_next_with_options", &sDefNextWithOptions },
+    { "statement_next_no_node", &sDefStatementNextRange },
+    { "node_missing_of_one_ungated_way_in", &sDefTwoWaysIn },
+    { "cannot_end_menu_loop", &sDefMenuLoop },
+    { "cannot_end_statement_loop", &sDefStatementLoop },
+    { "cannot_end_only_exit_gated", &sDefGatedExit },
 };
 
 // RsNpc_Register is idempotent for the same pointer, which is what makes a ShipInit "*" re-run safe.
@@ -755,6 +944,7 @@ void RegisterDebugNpcs() {
     RsNpc_Register(&sFloor);
     RsNpc_Register(&sTree);
     RsNpc_Register(&sPage);
+    RsNpc_Register(&sQuestMenu);
 }
 
 RegisterShipInitFunc debugNpcsInitFunc(RegisterDebugNpcs);

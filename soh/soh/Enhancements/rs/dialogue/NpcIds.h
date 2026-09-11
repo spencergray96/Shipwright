@@ -66,6 +66,11 @@ typedef enum NpcId {
                            // "More..." leading to a second page whose first is "Back". Paging is
                            // content, not an engine feature - this is the proof it needs no
                            // engine support, and the demonstration of what it costs an author.
+    NPC_DEBUG_QUEST_MENU = 199, // the tree follow-ups (#96): entry STATEMENTS that continue, a
+                                // node GROUP that says different things before and during a quest,
+                                // and the missing-steps clause on a node covered each of the three
+                                // ways registration accepts one. "Ask about the job, hear what is
+                                // left, back to the menu".
 } NpcId;
 
 #define NPC_ID_IS_VALID(id) ((id) >= 0 && (id) < NPC_MAX)
@@ -90,5 +95,7 @@ RS_STATIC_ASSERT(NPC_DEBUG_TREE >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_TREE < NPC_MA
                  "NPC_DEBUG_TREE must sit in the debug band");
 RS_STATIC_ASSERT(NPC_DEBUG_PAGE >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_PAGE < NPC_MAX,
                  "NPC_DEBUG_PAGE must sit in the debug band");
+RS_STATIC_ASSERT(NPC_DEBUG_QUEST_MENU >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_QUEST_MENU < NPC_MAX,
+                 "NPC_DEBUG_QUEST_MENU must sit in the debug band");
 
 #endif // SOH_RS_NPC_IDS_H

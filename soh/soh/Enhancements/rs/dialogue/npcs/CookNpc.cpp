@@ -86,24 +86,25 @@ const RsDialogueOption sOfferOptions[] = {
 // Every row states `missingOf`, including the five that do not use one: a brace list that stopped
 // early would value-initialise it to 0, and 0 is this very quest (NpcDialogueDef.h).
 const RsDialogueRule sCookRules[] = {
-    { sUnlockedWhen, 2, "My range is yours whenever you need it, friend.", nullptr, 0, RS_DLG_NO_MISSING },
-    { sDoneWhen, 1, "Thank you again for the ingredients.", nullptr, 0, RS_DLG_NO_MISSING },
-    { sReadyWhen, 2, "You have everything I asked for!", sHandOverOptions, 2, RS_DLG_NO_MISSING },
+    { sUnlockedWhen, 2, "My range is yours whenever you need it, friend.", nullptr, 0, RS_DLG_NO_MISSING,
+      RS_DLG_NO_NEXT },
+    { sDoneWhen, 1, "Thank you again for the ingredients.", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    { sReadyWhen, 2, "You have everything I asked for!", sHandOverOptions, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
     // The seven-state rule. The body is the lead-in; the list is appended from the quest. Both are
     // kept short deliberately: a box holds four lines, and the longest list (all three ingredients
     // missing) is two of them.
-    { sCollectingWhen, 1, "Back already? I still need:", nullptr, 0, QUEST_COOKS_ASSISTANT },
+    { sCollectingWhen, 1, "Back already? I still need:", nullptr, 0, QUEST_COOKS_ASSISTANT, RS_DLG_NO_NEXT },
     // A two-option body has to stay inside ONE rendered line, and this one was originally longer:
     // "Will you fetch what my cake needs?" wrapped, which pushed the Yes/No onto a second page
     // where the first A press turned the page instead of choosing. Registration now refuses that
     // outright (RsText_ChoiceWouldPaginate), because it is a bug no marker can see - the run's
     // screenshot is what caught it. Flavour belongs in the reply, which gets a whole box.
-    { sOfferWhen, 2, "Will you help me cook?", sOfferOptions, 2, RS_DLG_NO_MISSING },
+    { sOfferWhen, 2, "Will you help me cook?", sOfferOptions, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
     // The generic fallthrough. Unreachable while the quest has no prerequisites - rules 0-4 cover
     // every status between them - and required all the same: registration refuses a table whose
     // last rule is conditional, because "true in every state" is a structural guarantee and
     // "true right now" is not (D8).
-    { nullptr, 0, "Mind the flour. It gets everywhere.", nullptr, 0, RS_DLG_NO_MISSING },
+    { nullptr, 0, "Mind the flour. It gets everywhere.", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
 };
 
 const RsNpcDef sCook = {

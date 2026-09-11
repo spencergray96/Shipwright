@@ -132,14 +132,24 @@ static void RsNpc_Wait(RsNpc* this, PlayState* play) {
     Actor_OfferTalk(&this->actor, play, RS_NPC_TALK_RANGE);
 }
 
-/* Follow an option's `next` edge, or close (sturdy-bassoon#96 P1). One helper because the same
- * three-way decision is made twice: once when the option is picked, and again when its reply box is
- * dismissed. */
-static void RsNpc_GoToNode(RsNpc* this, PlayState* play, s32 node) {
+/* Follow an edge to `head` (sturdy-bassoon#96). One helper because an edge is followed from three
+ * places: an option picked with no reply, an option's reply dismissed, and a statement dismissed.
+ *
+ * The node GROUP is resolved HERE, on arrival, and that timing is the point: it runs after the
+ * picked option's action has fired, so an option that sets a flag and then navigates lands on the
+ * node that flag selects. `node=` in the marker is where the conversation landed and `head=` is the
+ * edge that was followed; they differ exactly when a group fell through. */
+static void RsNpc_GoToNode(RsNpc* this, PlayState* play, s32 head) {
     char line[128];
+    s32 node = RsNpc_ResolveNode(this->npcId, head);
 
-    snprintf(line, sizeof(line), "rs_dialogue npc=%d event=node rule=%d node=%d", this->npcId, this->ruleIndex,
-             (int)node);
+    if (node < 0) {
+        /* Unreachable for a registered definition. Open the head anyway, so the renderer's
+         * diagnostic box says what is wrong instead of the conversation silently doing nothing. */
+        node = head;
+    }
+    snprintf(line, sizeof(line), "rs_dialogue npc=%d event=node rule=%d node=%d head=%d", this->npcId,
+             this->ruleIndex, (int)node, (int)head);
     RsAgent_Marker(line);
     Message_ContinueTextbox(play, RS_TEXT_NODE_ID(this->npcId, node));
 }
@@ -236,6 +246,19 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
         if (openId >= RS_TEXT_REPLY_TO_NODE_BASE && openId <= RS_TEXT_REPLY_TO_NODE_END) {
             RsNpc_GoToNode(this, play, RS_TEXT_REPLY_TO_NODE_GET(openId));
             return;
+        }
+        /* A STATEMENT that continues (sturdy-bassoon#96 follow-up): the screen itself names where
+         * to go when it is dismissed. Decoded from the live id like every other screen, so this is
+         * still no state on the actor. Only a screen with no options qualifies - registration
+         * refuses `next` on a choice, and a choice screen that degraded to a statement (fewer than
+         * two visible options) is unreachable for the same registration reason. */
+        screenKind = RsNpc_DecodeScreen(openId, &screenNpc, &screenIndex);
+        if (screenKind != RS_SCREEN_NONE && screenNpc == this->npcId) {
+            screen = RsNpc_Screen(this->npcId, screenKind, screenIndex);
+            if (screen != NULL && screen->optionCount == 0 && screen->next != RS_DLG_NO_NEXT) {
+                RsNpc_GoToNode(this, play, screen->next);
+                return;
+            }
         }
         RsNpc_Mark(this, "close");
         this->actionFunc = RsNpc_Wait;

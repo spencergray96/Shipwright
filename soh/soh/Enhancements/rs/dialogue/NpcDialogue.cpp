@@ -1,6 +1,8 @@
 #include "NpcDialogue.h"
 
+#include <algorithm>
 #include <array>
+#include <bitset>
 #include <cassert>
 #include <cstdarg>
 #include <cstdio>
@@ -190,41 +192,219 @@ struct ScreenRef {
     int32_t index;
 };
 
-// --- the reachability walk (#96 P1) -------------------------------------------------------------
+// --- graph helpers (#96) -------------------------------------------------------------------------
 //
-// Marks every node reachable from an ENTRY RULE by following `next` edges. ONE implementation,
-// because both callers must agree by construction: registration refuses a definition with a
-// stranded node, and `npc tree` prints `reachable=` so a run can ASSERT that gate from a console. A
-// second copy of the walk would assert itself rather than the gate, and the two could drift apart
-// without either one failing.
+// Every whole-definition question about a dialogue tree is a walk over the same graph, and each has
+// TWO callers that must agree by construction: registration refuses on the answer, and `npc tree` or
+// `npc dump` prints it so a run can ASSERT the gate from a console. A second copy of a walk would assert itself
+// rather than the gate, and the two could drift apart without either one failing - so each walk
+// exists exactly once, here.
 //
-// CYCLES ARE LEGAL - loop-back is the feature - so this is a visited set, not a depth limit. It
-// starts at rules ONLY: a node reachable solely from another unreachable node is still unreachable,
-// and a walk seeded from every node would call that pair fine.
-//
-// `reached` must have RS_DIALOGUE_MAX_NODES entries and is expected zeroed. Reads nothing but the
-// definition, so it is safe from a console and from the validator alike.
+// The graph. Entry rules and nodes are screens. A screen's exits are its options' `next`, or - for a
+// statement - its own `next`; RS_DLG_NO_NEXT is an exit that closes. An exit to a node lands on that
+// node's GROUP (NpcDialogueDef.h): the node and every node after it up to and including the first
+// ungated one. WHICH member it lands on is a runtime fact, so every walk here treats an exit as
+// reaching every member of the group.
+
+// Every predicate in a screen's own `when` holds (an ungated screen always does). The ONE evaluation
+// behind both a rule's entry match and a node group's resolution - they are the same question asked
+// of the same struct, and two copies of it are two chances for "matches" to mean different things.
+bool ScreenGateHolds(const RsDialogueRule& screen) {
+    for (int32_t i = 0; i < screen.whenCount; i++) {
+        if (!QuestPredicate_Eval(&screen.when[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// The quests a predicate list is gated on, as a set: the four quest-shaped words, negated or not -
+// the same reading the rule-level missing-steps check has always used, because the question is "does
+// this screen condition on the quest at all", which is what catches a forgotten sentinel. An operand
+// out of range is skipped rather than trusted.
+std::bitset<QUEST_MAX> QuestsGatedBy(const QuestPredicate* list, int32_t count) {
+    std::bitset<QUEST_MAX> quests;
+    for (int32_t i = 0; list != nullptr && i < count; i++) {
+        switch (list[i].kind) {
+            case QUEST_PRED_QUEST_STATUS_IS:
+            case QUEST_PRED_QUEST_STEP_SET:
+            case QUEST_PRED_ALL_STEPS_SET:
+            case QUEST_PRED_QUEST_PREREQS_MET:
+                if (QUEST_ID_IS_VALID(list[i].a)) {
+                    quests.set(static_cast<size_t>(list[i].a));
+                }
+                break;
+            default:
+                break;
+        }
+    }
+    return quests;
+}
+
+// The last member of the group an exit to `head` lands on: the first node at or after `head` with no
+// gate. def->nodeCount when the group runs off the end of the array, which registration refuses.
+int32_t GroupEnd(const RsNpcDef* def, int32_t head) {
+    for (int32_t n = head; n < def->nodeCount; n++) {
+        if (def->nodes[n].whenCount == 0) {
+            return n;
+        }
+    }
+    return def->nodeCount;
+}
+
+// Calls `visit(next, optionGates, ungated)` once per exit from `screen`: once per option, or once for
+// a statement's own `next`. `optionGates` is the gate on the option taken - empty for a statement -
+// and `ungated` says whether this exit is always offered. `next` may be RS_DLG_NO_NEXT.
+template <typename Visit> void ForEachExit(const RsDialogueRule& screen, Visit visit) {
+    if (screen.optionCount == 0) {
+        visit(screen.next, std::bitset<QUEST_MAX>(), true);
+        return;
+    }
+    for (int32_t i = 0; i < screen.optionCount; i++) {
+        const RsDialogueOption& option = screen.options[i];
+        visit(option.next, QuestsGatedBy(option.when, option.whenCount), option.whenCount == 0);
+    }
+}
+
+// REACHABILITY. Marks every node some exit lands on, walking out from the ENTRY RULES. Cycles are
+// legal - loop-back is the feature - so this is a visited set, not a depth limit. It starts at rules
+// ONLY: a node reachable solely from another unreachable node is still unreachable, and a walk
+// seeded from every node would call that pair fine. `reached` holds RS_DIALOGUE_MAX_NODES entries,
+// zeroed by the caller.
 void MarkReachableNodes(const RsNpcDef* def, bool* reached) {
     int32_t pending[RS_DIALOGUE_MAX_NODES];
     int32_t pendingCount = 0;
+    const auto land = [&](int32_t head, const std::bitset<QUEST_MAX>&, bool) {
+        if (head < 0 || head >= def->nodeCount) {
+            return;
+        }
+        const int32_t end = std::min(GroupEnd(def, head), def->nodeCount - 1);
+        for (int32_t m = head; m <= end; m++) {
+            if (!reached[m]) {
+                reached[m] = true;
+                pending[pendingCount++] = m; // each node is pushed at most once, so this cannot overflow
+            }
+        }
+    };
     for (int32_t r = 0; r < def->ruleCount; r++) {
-        const RsDialogueRule& rule = def->rules[r];
-        for (int32_t i = 0; i < rule.optionCount; i++) {
-            const int32_t next = rule.options[i].next;
-            if (next >= 0 && next < def->nodeCount && !reached[next]) {
-                reached[next] = true;
-                pending[pendingCount++] = next;
+        ForEachExit(def->rules[r], land);
+    }
+    while (pendingCount > 0) {
+        ForEachExit(def->nodes[pending[--pendingCount]], land);
+    }
+}
+
+// CAN THE CONVERSATION END (#96 follow-up). Which screens have a way out, following only UNGATED
+// exits. A gated exit does not count: it may never be offered, and a player in front of a choice box
+// whose every visible answer loops back has no way out at all - a choice cannot be dismissed without
+// picking, and Link cannot walk away from an open textbox. That is a soft-lock, and the first cut of
+// #96 could register one.
+//
+// A least fixpoint: nothing can end until shown otherwise. A screen can end once one of its ungated
+// exits closes, or lands on a group EVERY member of which can end - every member, because which one
+// it lands on is decided by the stores at runtime. `ruleEnds` / `nodeEnds` are zeroed by the caller.
+void ComputeCanEnd(const RsNpcDef* def, bool* ruleEnds, bool* nodeEnds) {
+    const auto groupEnds = [&](int32_t head) {
+        if (head < 0 || head >= def->nodeCount) {
+            return false;
+        }
+        const int32_t end = GroupEnd(def, head);
+        if (end >= def->nodeCount) {
+            return false;
+        }
+        for (int32_t m = head; m <= end; m++) {
+            if (!nodeEnds[m]) {
+                return false;
+            }
+        }
+        return true;
+    };
+    const auto screenEnds = [&](const RsDialogueRule& screen) {
+        bool ends = false;
+        ForEachExit(screen, [&](int32_t next, const std::bitset<QUEST_MAX>&, bool ungated) {
+            if (ungated && (next == RS_DLG_NO_NEXT || groupEnds(next))) {
+                ends = true;
+            }
+        });
+        return ends;
+    };
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (int32_t r = 0; r < def->ruleCount; r++) {
+            if (!ruleEnds[r] && screenEnds(def->rules[r])) {
+                ruleEnds[r] = true;
+                changed = true;
+            }
+        }
+        for (int32_t n = 0; n < def->nodeCount; n++) {
+            if (!nodeEnds[n] && screenEnds(def->nodes[n])) {
+                nodeEnds[n] = true;
+                changed = true;
             }
         }
     }
-    while (pendingCount > 0) {
-        const RsDialogueNode& node = def->nodes[pending[--pendingCount]];
-        for (int32_t i = 0; i < node.optionCount; i++) {
-            const int32_t next = node.options[i].next;
-            if (next >= 0 && next < def->nodeCount && !reached[next]) {
-                reached[next] = true;
-                pending[pendingCount++] = next;
+}
+
+// 1 when node `n`'s missing-steps clause is covered: its own gate names the clause's quest, or every
+// path in guarantees it (`arrival`, from ComputeArrivalGates). A node with no clause is trivially
+// covered. Shared by registration and `npc dump`'s `clause_gated=`, for the reason every walk here is.
+// Declared ahead of ComputeArrivalGates so the two read top-down as question, then analysis.
+bool NodeClauseGated(const RsNpcDef* def, const std::bitset<QUEST_MAX>* arrival, int32_t n) {
+    const RsDialogueNode& node = def->nodes[n];
+    if (node.missingOf == RS_DLG_NO_MISSING) {
+        return true;
+    }
+    if (!QUEST_ID_IS_VALID(node.missingOf)) {
+        return false;
+    }
+    const std::bitset<QUEST_MAX> gated = arrival[n] | QuestsGatedBy(node.when, node.whenCount);
+    return gated.test(static_cast<size_t>(node.missingOf));
+}
+
+// WHAT IS GUARANTEED ON ARRIVAL (#96 follow-up). For every node, the quests gated on along EVERY path
+// into it from an entry rule. This is what lets a missing-steps clause sit on a node: the clause's
+// invariant is "only ever shown to a player the screen is gated on that quest for", and on a node
+// that can be satisfied upstream - behind the option that leads there, or the rule the conversation
+// started from - as well as by the node's own gate.
+//
+// A must-analysis, so a GREATEST fixpoint: every node starts out believing everything, and each path
+// in takes away what that path does not guarantee. A path guarantees what its source screen was
+// guaranteed, plus that screen's own gate (the screen is open, so its gate held), plus the gate on the
+// option taken. Falling through a group is NOT knowledge: arriving at a later member means an earlier
+// member's gate failed, which guarantees nothing positive, so every member inherits exactly what an
+// exit to the group's head carries. Run only after reachability passes, so no stranded node is left
+// believing everything. `arrival` holds RS_DIALOGUE_MAX_NODES entries.
+void ComputeArrivalGates(const RsNpcDef* def, std::bitset<QUEST_MAX>* arrival) {
+    for (int32_t n = 0; n < def->nodeCount; n++) {
+        arrival[n].set();
+    }
+    bool changed = true;
+    const auto narrowFrom = [&](const std::bitset<QUEST_MAX> base) {
+        return [&, base](int32_t head, const std::bitset<QUEST_MAX>& optionGates, bool) {
+            if (head < 0 || head >= def->nodeCount) {
+                return;
             }
+            const std::bitset<QUEST_MAX> context = base | optionGates;
+            const int32_t end = std::min(GroupEnd(def, head), def->nodeCount - 1);
+            for (int32_t m = head; m <= end; m++) {
+                const std::bitset<QUEST_MAX> narrowed = arrival[m] & context;
+                if (narrowed != arrival[m]) {
+                    arrival[m] = narrowed;
+                    changed = true;
+                }
+            }
+        };
+    };
+    while (changed) {
+        changed = false;
+        for (int32_t r = 0; r < def->ruleCount; r++) {
+            const RsDialogueRule& rule = def->rules[r];
+            ForEachExit(rule, narrowFrom(QuestsGatedBy(rule.when, rule.whenCount)));
+        }
+        for (int32_t n = 0; n < def->nodeCount; n++) {
+            const RsDialogueNode& node = def->nodes[n];
+            ForEachExit(node, narrowFrom(arrival[n] | QuestsGatedBy(node.when, node.whenCount)));
         }
     }
 }
@@ -329,15 +509,9 @@ bool ValidateScreen(char* buf, size_t len, const RsNpcDef* def, const ScreenRef&
     const RsDialogueRule& screen = *ref.screen;
     char owner[24];
     std::snprintf(owner, sizeof(owner), "%s[%d]", word, screenIndex);
-    if (ref.kind == RS_SCREEN_NODE && screen.whenCount != 0) {
-        // A node is reached by FOLLOWING AN EDGE, never by matching, so a gate on one would never
-        // be evaluated. Dead data that looks live is the failure class this validator exists for:
-        // an author who writes a gate here would reasonably expect the screen to be skipped.
-        return Problem(buf, len,
-                       "node[%d]: a node may not be conditional - it carries no gate, because it is reached by "
-                       "navigation and never by matching",
-                       screenIndex);
-    }
+    // A node MAY carry a gate: it makes the node the first member of a group (NpcDialogueDef.h). The
+    // gate's operands are checked here like any other; that the group has an ungated end to fall
+    // through to is a whole-definition fact, checked in ValidateDef.
     {
         char list_where[32];
         std::snprintf(list_where, sizeof(list_where), "%s.when", owner);
@@ -372,41 +546,41 @@ bool ValidateScreen(char* buf, size_t len, const RsNpcDef* def, const ScreenRef&
         return Problem(buf, len, "%s[%d]: %d options; the renderer does at most %d (see sturdy-bassoon#59)", word,
                        screenIndex, screen.optionCount, RS_DIALOGUE_MAX_OPTIONS);
     }
-    if (ref.kind == RS_SCREEN_NODE && screen.missingOf != RS_DLG_NO_MISSING) {
-        // The clause's ONLY safety check is the one below: some predicate in this screen's own gate
-        // must name the same quest, which is what turns a forgotten RS_DLG_NO_MISSING (a
-        // value-initialised 0, i.e. a real QuestId) from a silent wrong sentence into a refusal.
-        // A node has no gate, so on a node that check cannot run and the clause would be
-        // unguarded. Refused outright rather than half-checked; if a node ever genuinely needs to
-        // list a quest's missing steps, the invariant needs rethinking first, not weakening.
-        return Problem(buf, len, "node[%d]: a missing-steps clause needs a gated rule, and a node carries no gate",
-                       screenIndex);
+    // --- continue (#96 follow-up) -----------------------------------------------------------------
+    //
+    // A STATEMENT may name a node to continue to when it is dismissed. A choice may not: it leaves
+    // through its options' own `next`, and a second exit on the screen would be dead data that looks
+    // live. Checked before the range, so a stray `next` on a choice gets the message that says why.
+    if (screen.next != RS_DLG_NO_NEXT) {
+        if (screen.optionCount != 0) {
+            return Problem(buf, len,
+                           "%s[%d]: `next` on a screen with options - a choice leaves through its options' own "
+                           "`next`; use RS_DLG_NO_NEXT here",
+                           word, screenIndex);
+        }
+        if (screen.next < 0 || screen.next >= def->nodeCount) {
+            return Problem(buf, len,
+                           "%s[%d]: next=%d names no node (this npc has %d; use RS_DLG_NO_NEXT to close)", word,
+                           screenIndex, screen.next, def->nodeCount);
+        }
     }
     if (screen.missingOf != RS_DLG_NO_MISSING) {
         if (!QUEST_ID_IS_VALID(screen.missingOf)) {
-            return Problem(buf, len, "rule[%d]: missingOf quest id %d out of range (use RS_DLG_NO_MISSING for none)",
-                           screenIndex, screen.missingOf);
+            return Problem(buf, len, "%s[%d]: missingOf quest id %d out of range (use RS_DLG_NO_MISSING for none)",
+                           word, screenIndex, screen.missingOf);
         }
         // The invariant that also catches a forgotten RS_DLG_NO_MISSING, since a value-initialised
         // 0 is a real QuestId (NpcDialogueDef.h). A clause listing what is missing from a quest the
-        // rule does not gate on would render "I still need everything" at a player who has never
+        // screen is not gated on would render "I still need everything" at a player who has never
         // been offered it. Registered-ness is not checked here for the usual reason: nothing
         // defines the order two translation units' ShipInit functions run in.
-        bool gated = false;
-        for (int32_t i = 0; i < screen.whenCount && !gated; i++) {
-            const QuestPredicate& p = screen.when[i];
-            switch (p.kind) {
-                case QUEST_PRED_QUEST_STATUS_IS:
-                case QUEST_PRED_QUEST_STEP_SET:
-                case QUEST_PRED_ALL_STEPS_SET:
-                case QUEST_PRED_QUEST_PREREQS_MET:
-                    gated = (p.a == screen.missingOf);
-                    break;
-                default:
-                    break;
-            }
-        }
-        if (!gated) {
+        //
+        // On a RULE the question is asked here, of the rule's own gate - a rule is entered by
+        // matching, so its gate is the whole of what is known on arrival. On a NODE it is asked of
+        // the node's own gate AND of every path into it, which is a whole-definition question: so
+        // ValidateDef asks it, after reachability, and this screen-local pass only range-checks.
+        if (ref.kind == RS_SCREEN_RULE &&
+            !QuestsGatedBy(screen.when, screen.whenCount).test(static_cast<size_t>(screen.missingOf))) {
             return Problem(buf, len, "%s[%d]: missingOf names quest %d but no predicate in this rule gates on it",
                            word, screenIndex, screen.missingOf);
         }
@@ -419,8 +593,8 @@ bool ValidateScreen(char* buf, size_t len, const RsNpcDef* def, const ScreenRef&
             // of picking an option: the box looks right and the conversation does something else.
             // Refusing the combination outright is the only check that holds for every future
             // state of the quest.
-            return Problem(buf, len, "%s[%d]: a missing-steps clause needs a statement; this rule has %d options",
-                           word, screenIndex, screen.optionCount);
+            return Problem(buf, len, "%s[%d]: a missing-steps clause needs a statement; this %s has %d options",
+                           word, screenIndex, word, screen.optionCount);
         }
     }
     if (screen.optionCount >= 3) {
@@ -566,24 +740,76 @@ bool ValidateDef(const RsNpcDef* def, char* buf, size_t len) {
     if (def->rules[def->ruleCount - 1].whenCount != 0) {
         return Problem(buf, len, "the last rule must be unconditional - it is the generic fallthrough (D8)");
     }
+    // --- node groups (#96 follow-up) -----------------------------------------------------------
+    //
+    // D8's rule applied to a run of nodes instead of the whole table: a group that could resolve to
+    // nothing is a silent failure. Reported at the gated node whose run has nowhere to fall through.
+    for (int32_t n = 0; n < def->nodeCount; n++) {
+        if (def->nodes[n].whenCount != 0 && GroupEnd(def, n) >= def->nodeCount) {
+            return Problem(buf, len,
+                           "node[%d]: a gated node needs an ungated node after it to fall through to - this "
+                           "group runs off the end of the array",
+                           n);
+        }
+    }
     // --- reachability (#96 P1) -------------------------------------------------------------------
     //
-    // A graph walk from every ENTRY RULE, following `next` edges. CYCLES ARE LEGAL - loop-back is
-    // the feature - so this is a visited set, not a depth limit.
-    //
-    // It is the check that earns its keep. `next` being in range is a typo check; this one catches
-    // the class that strands content nobody can ever see: a node written, populated with prose, and
-    // never named by anything. There is no in-game symptom to notice, because the symptom is a
-    // screen that simply never appears.
-    //
-    // Note it starts at RULES only. A node reachable solely from another unreachable node is still
-    // unreachable, and a walk seeded from every node would call that pair fine.
+    // The check that earns its keep. `next` being in range is a typo check; this one catches the
+    // class that strands content nobody can ever see: a node written, populated with prose, and never
+    // landed on by anything. There is no in-game symptom to notice, because the symptom is a screen
+    // that simply never appears. The walk itself, and why it starts at rules only, is
+    // MarkReachableNodes.
     if (def->nodeCount > 0) {
         bool reached[RS_DIALOGUE_MAX_NODES] = {};
         MarkReachableNodes(def, reached);
         for (int32_t n = 0; n < def->nodeCount; n++) {
             if (!reached[n]) {
-                return Problem(buf, len, "node[%d] is unreachable - no rule's option and no other node's names it", n);
+                return Problem(buf, len,
+                               "node[%d] is unreachable - no exit from an entry rule, or from a node reachable "
+                               "from one, lands on it",
+                               n);
+            }
+        }
+    }
+    // --- the conversation can end (#96 follow-up) --------------------------------------------------
+    //
+    // After reachability, so a stranded node is reported as stranded rather than as a trap.
+    {
+        bool ruleEnds[RS_DIALOGUE_MAX_RULES] = {};
+        bool nodeEnds[RS_DIALOGUE_MAX_NODES] = {};
+        ComputeCanEnd(def, ruleEnds, nodeEnds);
+        // Rules first, then nodes: the first screen found is the one reported.
+        for (int32_t pass = 0; pass < 2; pass++) {
+            const int32_t kind = (pass == 0) ? RS_SCREEN_RULE : RS_SCREEN_NODE;
+            const int32_t count = (pass == 0) ? def->ruleCount : def->nodeCount;
+            const bool* ends = (pass == 0) ? ruleEnds : nodeEnds;
+            for (int32_t i = 0; i < count; i++) {
+                if (!ends[i]) {
+                    return Problem(buf, len,
+                                   "%s[%d]: the conversation can never end from here - every ungated way out "
+                                   "loops back, and a choice box cannot be dismissed without picking",
+                                   RsNpc_ScreenKindName(kind), i);
+                }
+            }
+        }
+    }
+    // --- a missing-steps clause on a node (#96 follow-up) ---------------------------------------
+    //
+    // ValidateScreen asks a RULE's clause of the rule's own gate. A node's clause is asked here, of
+    // its own gate OR of every path into it, because only the whole graph knows the paths. Same
+    // invariant, same reason: a clause shown to a player the screen is not gated on that quest for
+    // reads "you still need everything" about a quest they were never offered - and it is still the
+    // check that turns a forgotten RS_DLG_NO_MISSING into a refusal.
+    if (def->nodeCount > 0) {
+        std::bitset<QUEST_MAX> arrival[RS_DIALOGUE_MAX_NODES];
+        ComputeArrivalGates(def, arrival);
+        for (int32_t n = 0; n < def->nodeCount; n++) {
+            const RsDialogueNode& node = def->nodes[n];
+            if (!NodeClauseGated(def, arrival, n)) {
+                return Problem(buf, len,
+                               "node[%d]: missingOf names quest %d, but some path into this node is not gated on "
+                               "it - gate the node, or every way in",
+                               n, node.missingOf);
             }
         }
     }
@@ -648,13 +874,7 @@ extern "C" int32_t RsNpc_RuleMatches(int32_t npcId, int32_t ruleIndex) {
     if (def == nullptr || ruleIndex < 0 || ruleIndex >= def->ruleCount) {
         return 0;
     }
-    const RsDialogueRule& rule = def->rules[ruleIndex];
-    for (int32_t i = 0; i < rule.whenCount; i++) {
-        if (!QuestPredicate_Eval(&rule.when[i])) {
-            return 0;
-        }
-    }
-    return 1;
+    return ScreenGateHolds(def->rules[ruleIndex]) ? 1 : 0;
 }
 
 // --- screens and navigation (#96) ---------------------------------------------------------------
@@ -737,6 +957,59 @@ extern "C" int32_t RsNpc_NodeReachable(int32_t npcId, int32_t nodeIndex) {
     bool reached[RS_DIALOGUE_MAX_NODES] = {};
     MarkReachableNodes(def, reached);
     return reached[nodeIndex] ? 1 : 0;
+}
+
+extern "C" int32_t RsNpc_NodeMatches(int32_t npcId, int32_t nodeIndex) {
+    const RsNpcDef* def = RsNpc_GetDef(npcId);
+    if (def == nullptr || nodeIndex < 0 || nodeIndex >= def->nodeCount) {
+        return 0;
+    }
+    return ScreenGateHolds(def->nodes[nodeIndex]) ? 1 : 0;
+}
+
+extern "C" int32_t RsNpc_ResolveNode(int32_t npcId, int32_t head) {
+    const RsNpcDef* def = RsNpc_GetDef(npcId);
+    if (def == nullptr || head < 0 || head >= def->nodeCount) {
+        return -1;
+    }
+    // First match wins, over the group - bounded by GroupEnd, the same boundary every walk uses, rather
+    // than by the accident that an ungated node always matches.
+    const int32_t end = GroupEnd(def, head);
+    for (int32_t n = head; n <= end && n < def->nodeCount; n++) {
+        if (ScreenGateHolds(def->nodes[n])) {
+            return n;
+        }
+    }
+    return -1; // a group that runs off the end: refused at registration
+}
+
+extern "C" int32_t RsNpc_NodeClauseGated(int32_t npcId, int32_t nodeIndex) {
+    const RsNpcDef* def = RsNpc_GetDef(npcId);
+    if (def == nullptr || nodeIndex < 0 || nodeIndex >= def->nodeCount) {
+        return 0;
+    }
+    // THE SAME analysis and the same question registration refuses on.
+    std::bitset<QUEST_MAX> arrival[RS_DIALOGUE_MAX_NODES];
+    ComputeArrivalGates(def, arrival);
+    return NodeClauseGated(def, arrival, nodeIndex) ? 1 : 0;
+}
+
+extern "C" int32_t RsNpc_ScreenCanEnd(int32_t npcId, int32_t kind, int32_t index) {
+    const RsNpcDef* def = RsNpc_GetDef(npcId);
+    if (def == nullptr || index < 0) {
+        return 0;
+    }
+    // THE SAME fixpoint registration refuses on, for the reason MarkReachableNodes is shared.
+    bool ruleEnds[RS_DIALOGUE_MAX_RULES] = {};
+    bool nodeEnds[RS_DIALOGUE_MAX_NODES] = {};
+    ComputeCanEnd(def, ruleEnds, nodeEnds);
+    if (kind == RS_SCREEN_RULE) {
+        return (index < def->ruleCount && ruleEnds[index]) ? 1 : 0;
+    }
+    if (kind == RS_SCREEN_NODE) {
+        return (index < def->nodeCount && nodeEnds[index]) ? 1 : 0;
+    }
+    return 0;
 }
 
 extern "C" int32_t RsNpc_ResolveRule(int32_t npcId) {
