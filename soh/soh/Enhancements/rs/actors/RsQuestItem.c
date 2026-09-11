@@ -15,6 +15,7 @@
 #include "global.h"
 #include "objects/gameplay_keep/gameplay_keep.h"
 #include "soh/Enhancements/rs/quest/Quest.h"
+#include "soh/Enhancements/rs/quest/QuestStore.h"
 #include "soh/Enhancements/rs/dialogue/NpcDialogueDef.h"
 
 #define RS_ITEM_FLAGS (ACTOR_FLAG_UPDATE_CULLING_DISABLED)
@@ -65,6 +66,7 @@ void RsQuestItem_Init(Actor* thisx, PlayState* play) {
     this->questId = RS_ITEM_PARAMS_GET_QUEST(thisx->params);
     this->step = RS_ITEM_PARAMS_GET_STEP(thisx->params);
     this->valid = 0;
+    this->awake = -1; // decided by the first Update, which is also what logs it
 
     def = Quest_GetDef(this->questId); // NULL for an invalid OR unregistered id; never asserts
     if (RS_ITEM_PARAMS_GET_RSVD(thisx->params) != 0) {
@@ -83,7 +85,10 @@ void RsQuestItem_Init(Actor* thisx, PlayState* play) {
 
     Collider_InitCylinder(play, &this->collider);
     Collider_SetCylinder(play, &this->collider, &this->actor, &sCylinderInit);
-    ActorShape_Init(&thisx->shape, 0.0f, ActorShadow_DrawCircle, 9.0f);
+    // No shadow yet: Actor_Draw paints shape.shadowDraw on its own, whatever RsQuestItem_Draw decides,
+    // so a dormant item would otherwise leave a shadow on the floor with nothing above it. Update
+    // installs ActorShadow_DrawCircle on the frame the item wakes (#98).
+    ActorShape_Init(&thisx->shape, 0.0f, NULL, 9.0f);
     Actor_SetScale(thisx, 0.02f);
 
     // A SPRITE HAS TO BE LIFTED OFF THE FLOOR; THE FALLBACK MODEL DOES NOT. Actor_Draw translates
@@ -158,6 +163,50 @@ static void RsQuestItem_Wait(RsQuestItem* this, PlayState* play) {
     this->actionFunc = RsQuestItem_Collected;
 }
 
+// --- dormant until the quest is in progress (sturdy-bassoon#98) ------------------------------------
+//
+// The owner's rule: this mod has no economy of ordinary items, so a quest item means nothing outside
+// its quest, and collecting one early only updated the journal of a quest nobody had offered. So an
+// item is OFFERED only while its quest is IN_PROGRESS. A step already set never gets here at all
+// (the ShouldActorInit hook in RsActors.cpp), and a COMPLETE quest has every step set - so in
+// practice "not offered" means NOT_STARTED, or a quest reset while Link stands in the scene.
+//
+// Per frame, not per spawn, and that is the whole point: the Cook stands in the same scene as his
+// ingredients, and an item decided at scene load would stay missing after the player accepts until
+// they left and came back. The item is never killed for this, only put to sleep, so every live
+// actor count the acceptance drivers assert is unchanged.
+//
+// A params word this build cannot honour stays awake, exactly as before: the item should be seen
+// and say so on touch, not silently never appear. That branch also never calls QuestStore_GetStatus,
+// which asserts on an invalid id - and an assert here hangs the agent loop.
+static s32 RsQuestItem_IsOffered(RsQuestItem* this) {
+    if (!this->valid) {
+        return 1;
+    }
+    return QuestStore_GetStatus(this->questId) == QUEST_STATUS_IN_PROGRESS;
+}
+
+// Logged on every change rather than once, so a run can prove the gate was CHALLENGED - dormant at
+// load, then awake with no reload - instead of only that an item was eventually collected.
+static void RsQuestItem_UpdateOffer(RsQuestItem* this) {
+    char line[128];
+    const s32 offered = RsQuestItem_IsOffered(this);
+
+    if (offered == this->awake) {
+        return;
+    }
+    this->awake = offered;
+    if (offered) {
+        this->actor.shape.shadowDraw = ActorShadow_DrawCircle;
+    } else {
+        this->actor.shape.shadowDraw = NULL;
+    }
+    snprintf(line, sizeof(line), "rs_item quest=%d step=%d event=%s status=%s", this->questId, this->step,
+             offered ? "awake" : "dormant",
+             this->valid ? Quest_StatusName(QuestStore_GetStatus(this->questId)) : "invalid_params");
+    RsAgent_Marker(line);
+}
+
 // Hidden and inert, but still alive: killing an actor that owns the OPEN textbox would leave
 // msgCtx->talkActor dangling. Wait for the box to go away, then go.
 static void RsQuestItem_Collected(RsQuestItem* this, PlayState* play) {
@@ -171,12 +220,22 @@ static void RsQuestItem_Collected(RsQuestItem* this, PlayState* play) {
 void RsQuestItem_Update(Actor* thisx, PlayState* play) {
     RsQuestItem* this = (RsQuestItem*)thisx;
 
-    this->actionFunc(this, play);
+    // Only while waiting: a collected item's textbox is already open, and a quest reset underneath
+    // it must not put it to sleep before it has despawned. `awake` is still 1 in that state, because
+    // nothing dormant can have been collected.
+    if (this->actionFunc == RsQuestItem_Wait) {
+        RsQuestItem_UpdateOffer(this);
+    }
+    if (this->awake == 1) {
+        this->actionFunc(this, play);
+    }
 
+    // Gravity and floor checks run even while dormant, so an item that wakes is already resting on
+    // the ground rather than dropping into place in front of the player.
     Actor_MoveXZGravity(thisx);
     Actor_UpdateBgCheckInfo(play, thisx, 5.0f, 20.0f, 0.0f, 0x1D);
 
-    if (this->actionFunc == RsQuestItem_Wait) {
+    if (this->actionFunc == RsQuestItem_Wait && this->awake == 1) {
         Collider_UpdateCylinder(thisx, &this->collider);
         CollisionCheck_SetOC(play, &play->colChkCtx, &this->collider.base);
     }
@@ -188,6 +247,9 @@ void RsQuestItem_Draw(Actor* thisx, PlayState* play) {
 
     if (this->actionFunc != RsQuestItem_Wait) {
         return; // collected: nothing to draw while the pickup textbox finishes
+    }
+    if (this->awake != 1) {
+        return; // dormant (#98), or the init frame before Update has decided
     }
 
     // NULL for any (quest, step) with no art of its own - every debug fixture, and any quest added

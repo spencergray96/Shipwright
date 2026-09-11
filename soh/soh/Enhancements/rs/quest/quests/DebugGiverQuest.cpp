@@ -25,7 +25,18 @@
 
 namespace {
 
-const char* const sStepNames[] = { "egg", "flour" };
+// DELIBERATELY UNLIKE ANY PRODUCTION STEP NAME. These collided with QUEST_COOKS_ASSISTANT's
+// "egg" and "flour" until sturdy-bassoon#88, which made a fixture item's pickup textbox read as
+// a Cook's Assistant ingredient during a guided play session - the two quests sit in the SAME
+// scene, so a shared token is a trap rather than a coincidence. A debug fixture's strings should
+// be unmistakable on sight; that is worth more here than flavour.
+const char* const sStepNames[] = { "debug_widget", "debug_cog" };
+
+// stepLabels beside stepNames (QuestDef.h): the names are greppable tokens for markers and console
+// lines, these are what a character says out loud and what the item's pickup textbox prints. 51 had
+// none, so Quest_StepLabel fell through to the token and the pickup read "You found egg." - the
+// documented token-shaped degradation, and the other half of the same #88 confusion.
+const char* const sStepLabels[] = { "a debug widget", "a debug cog" };
 
 const QuestPredicate sRequirements[] = {
     QP_WORLD_FLAG_SET(WORLD_FLAG_DEBUG_GIVER_GATE),
@@ -50,8 +61,8 @@ const QuestPredicate sCollectingWhen[] = {
     QP_QUEST_STATUS_IS(QUEST_DEBUG_GIVER, QUEST_STATUS_IN_PROGRESS),
 };
 const QuestJournalItem sChecklist[] = {
-    { "an #item:Egg#", 0 },
-    { "a bag of #item:Flour#", 1 },
+    { "a #item:Debug Widget#", 0 },
+    { "a #item:Debug Cog#", 1 },
 };
 
 const QuestJournalBlock sJournal[] = {
@@ -81,6 +92,7 @@ const QuestDef sGiver = {
     .ordered = 0,
     .stepCount = 2,
     .stepNames = sStepNames,
+    .stepLabels = sStepLabels,
     .requirements = sRequirements,
     .requirementCount = 1,
     .prereqFn = nullptr,

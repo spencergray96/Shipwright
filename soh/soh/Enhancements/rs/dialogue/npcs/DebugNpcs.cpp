@@ -77,7 +77,7 @@ const RsDialogueOption sGiverHandOverOptions[] = {
     { "Not just yet", RS_DLG_ACTION_NONE, 0, "I will be right here.", RS_DLG_NO_NEXT },
 };
 const RsDialogueOption sGiverOfferOptions[] = {
-    { "Yes", RS_DLG_ACTION_START_QUEST, QUEST_DEBUG_GIVER, "Splendid. An egg and a bag of flour.", RS_DLG_NO_NEXT },
+    { "Yes", RS_DLG_ACTION_START_QUEST, QUEST_DEBUG_GIVER, "Splendid. A debug widget and a cog.", RS_DLG_NO_NEXT },
     { "No", RS_DLG_ACTION_NONE, 0, "Another time, then.", RS_DLG_NO_NEXT },
 };
 
