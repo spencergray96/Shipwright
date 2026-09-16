@@ -29,4 +29,5 @@
     { SCENE_TERRAIN_F2P_SEAM_BAD, CustomTerrainF2pSeamBadScene_TrySpawn, CustomTerrainF2pSeamBadScene_InitRoom }, // terrain-bake terrain_f2p_seam_bad
     { SCENE_TERRAIN_F2P_SEAM_GOOD, CustomTerrainF2pSeamGoodScene_TrySpawn, CustomTerrainF2pSeamGoodScene_InitRoom }, // terrain-bake terrain_f2p_seam_good
     { SCENE_TERRAIN_F2P_SETTLEMENT_SEALED, CustomTerrainF2pSettlementSealedScene_TrySpawn, CustomTerrainF2pSettlementSealedScene_InitRoom }, // terrain-bake terrain_f2p_settlement_sealed
+    { SCENE_ARCH_CUT_BENCH_100, CustomArchCutBench100Scene_TrySpawn, CustomArchCutBench100Scene_InitRoom }, // project aa10692d-6739-455f-a1b3-52660d3136b0 name arch_cut_bench_100
 // END GRID TOOL EXPORTS
