@@ -29,4 +29,5 @@
 #include "../terrain_f2p_seam_good/CustomTerrainF2pSeamGoodScene.h" // terrain-bake terrain_f2p_seam_good
 #include "../terrain_f2p_settlement_sealed/CustomTerrainF2pSettlementSealedScene.h" // terrain-bake terrain_f2p_settlement_sealed
 #include "../arch_cut_bench_100/CustomArchCutBench100Scene.h" // project aa10692d-6739-455f-a1b3-52660d3136b0 name arch_cut_bench_100
+#include "../rs_props_p2_host/CustomRsPropsP2HostScene.h" // hand-merge rs_props_p2_host
 // END GRID TOOL EXPORTS

@@ -154,4 +154,5 @@
 /* 0x89 */ DEFINE_SCENE(terrain_f2p_seam_good_scene, none, SCENE_TERRAIN_F2P_SEAM_GOOD, SDC_DEFAULT, 0, 0) // terrain-bake terrain_f2p_seam_good
 /* 0x8A */ DEFINE_SCENE(terrain_f2p_settlement_sealed_scene, none, SCENE_TERRAIN_F2P_SETTLEMENT_SEALED, SDC_DEFAULT, 0, 0) // terrain-bake terrain_f2p_settlement_sealed
 /* 0x8B */ DEFINE_SCENE(arch_cut_bench_100_scene, none, SCENE_ARCH_CUT_BENCH_100, SDC_DEFAULT, 0, 0) // project aa10692d-6739-455f-a1b3-52660d3136b0 name arch_cut_bench_100
+/* 0x8C */ DEFINE_SCENE(rs_props_p2_host_scene, none, SCENE_RS_PROPS_P2_HOST, SDC_DEFAULT, 0, 0) // hand-merge rs_props_p2_host
 // END GRID TOOL EXPORTS
