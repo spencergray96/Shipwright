@@ -1,0 +1,3 @@
+<Sample Version="0" Codec="S16" Medium="Ram" bit26="0" CustomFormat="ogg" Size="11060874" Path="custom/samples/rs/flute-salad_l.ogg">
+    <ADPCMLoop Start="0" End="5530437" Count="0"/>
+</Sample>

@@ -1,0 +1,3 @@
+<Sample Version="0" Codec="S16" Medium="Ram" bit26="0" CustomFormat="ogg" Size="14750062" Path="custom/samples/rs/dream_l.ogg">
+    <ADPCMLoop Start="0" End="7375031" Count="0"/>
+</Sample>

@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="238">
+    <!-- CRC64("custom/fonts/rs/yesteryear") = 0xc711dbbcd5fea301, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="1"/>
+        <Font FontIdx="163"/>
+        <Font FontIdx="254"/>
+        <Font FontIdx="213"/>
+        <Font FontIdx="188"/>
+        <Font FontIdx="219"/>
+        <Font FontIdx="17"/>
+        <Font FontIdx="199"/>
+    </Fonts>
+</Sequence>

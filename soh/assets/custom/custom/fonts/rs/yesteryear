@@ -1,0 +1,18 @@
+<SoundFont Version="0" Medium="Ram" CachePolicy="Either" Data1="0" Data2="0" Data3="0">
+    <Instruments>
+        <Instrument IsValid="true" Loaded="0" NormalRangeLo="0" NormalRangeHi="127" ReleaseRate="10">
+            <Envelopes>
+                <Envelope Delay="1" Arg="32700"/>
+                <Envelope Delay="-1" Arg="0"/>
+            </Envelopes>
+            <NormalNotesSound Tuning="1.5" SampleRef="custom/samples/rs/yesteryear_l"/>
+        </Instrument>
+        <Instrument IsValid="true" Loaded="0" NormalRangeLo="0" NormalRangeHi="127" ReleaseRate="10">
+            <Envelopes>
+                <Envelope Delay="1" Arg="32700"/>
+                <Envelope Delay="-1" Arg="0"/>
+            </Envelopes>
+            <NormalNotesSound Tuning="1.5" SampleRef="custom/samples/rs/yesteryear_r"/>
+        </Instrument>
+    </Instruments>
+</SoundFont>

@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="217">
+    <!-- CRC64("custom/fonts/rs/harmony") = 0x2f1194d8ad7f5aaf, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="175"/>
+        <Font FontIdx="90"/>
+        <Font FontIdx="127"/>
+        <Font FontIdx="173"/>
+        <Font FontIdx="216"/>
+        <Font FontIdx="148"/>
+        <Font FontIdx="17"/>
+        <Font FontIdx="47"/>
+    </Fonts>
+</Sequence>

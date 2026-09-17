@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="154">
+    <!-- CRC64("custom/fonts/rs/dream") = 0x267aa62e957bed33, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="51"/>
+        <Font FontIdx="237"/>
+        <Font FontIdx="123"/>
+        <Font FontIdx="149"/>
+        <Font FontIdx="46"/>
+        <Font FontIdx="166"/>
+        <Font FontIdx="122"/>
+        <Font FontIdx="38"/>
+    </Fonts>
+</Sequence>

@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="324">
+    <!-- CRC64("custom/fonts/rs/book-of-spells") = 0x88e3f198a097ac59, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="89"/>
+        <Font FontIdx="172"/>
+        <Font FontIdx="151"/>
+        <Font FontIdx="160"/>
+        <Font FontIdx="152"/>
+        <Font FontIdx="241"/>
+        <Font FontIdx="227"/>
+        <Font FontIdx="136"/>
+    </Fonts>
+</Sequence>

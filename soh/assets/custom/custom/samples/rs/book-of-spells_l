@@ -1,0 +1,3 @@
+<Sample Version="0" Codec="S16" Medium="Ram" bit26="0" CustomFormat="ogg" Size="31071646" Path="custom/samples/rs/book-of-spells_l.ogg">
+    <ADPCMLoop Start="0" End="15535823" Count="0"/>
+</Sample>

@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="137">
+    <!-- CRC64("custom/fonts/rs/autumn-voyage") = 0x0433e6bdb70af5fa, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="250"/>
+        <Font FontIdx="245"/>
+        <Font FontIdx="10"/>
+        <Font FontIdx="183"/>
+        <Font FontIdx="189"/>
+        <Font FontIdx="230"/>
+        <Font FontIdx="51"/>
+        <Font FontIdx="4"/>
+    </Fonts>
+</Sequence>

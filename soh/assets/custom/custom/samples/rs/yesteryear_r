@@ -1,0 +1,3 @@
+<Sample Version="0" Codec="S16" Medium="Ram" bit26="0" CustomFormat="ogg" Size="22754814" Path="custom/samples/rs/yesteryear_r.ogg">
+    <ADPCMLoop Start="0" End="11377407" Count="0"/>
+</Sample>

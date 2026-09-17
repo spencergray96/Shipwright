@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="117">
+    <!-- CRC64("custom/fonts/rs/flute-salad") = 0x80c689d1158a1ebe, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="190"/>
+        <Font FontIdx="30"/>
+        <Font FontIdx="138"/>
+        <Font FontIdx="21"/>
+        <Font FontIdx="209"/>
+        <Font FontIdx="137"/>
+        <Font FontIdx="198"/>
+        <Font FontIdx="128"/>
+    </Fonts>
+</Sequence>
