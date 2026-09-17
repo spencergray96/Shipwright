@@ -574,6 +574,65 @@ s16 Camera_XZAngle(Vec3f* to, Vec3f* from) {
     return DEGF_TO_BINANG(RADF_TO_DEGF(Math_FAtan2F(from->x - to->x, from->z - to->z)));
 }
 
+/**
+ * Returns `floorY`, the floor the slope probe found under `probePos`, or BGCHECK_Y_MIN ("no floor
+ * ahead", which the caller already treats as level ground) when geometry stands between the
+ * player and that floor - so it is not a slope or a ledge in front of him.
+ *
+ * The probe line runs 1.2 player-heights above the ground, so it passes over any wall or slab
+ * edge that tops out just under that, and reads whatever floor lies beyond. A grid-tool storey
+ * tops out at 80 (+4 for a slab), just under adult Link's 81.6, so this happens everywhere:
+ * - Up: facing the keep from a wall-walk (wall top 164, origin 165.6), or walking toward a
+ *   full-height doorway with a storey above it (past that storey's 4-unit slab edge). The next
+ *   storey reads as an 80-unit hill, the camera pitches down and buries the eye.
+ * - Down: through that same doorway, over the building's far wall, to the ground outside. The
+ *   drop reads as a ledge and the camera lifts to look over it.
+ * (sturdy-bassoon#103.) One test each way, whatever is or is not built around the opening - a
+ * lintel, a crenellation, or nothing.
+ *
+ * Higher than the player is tall: kept only if a line from 1 unit above his feet to just above
+ * that floor is clear. From head height the line would clear a 4-unit slab edge whenever he
+ * stands within ~5 units of the probe distance from it; from the feet that band is under 1 unit.
+ * A straight ramp still passes - a line from its foot to a point just above its surface never
+ * dips under the surface. A stepped staircase that tall can be rejected (the line clips step
+ * corners), which only costs the slope pitch; the camera stays level.
+ *
+ * Lower than his feet: kept only if a level line at head height out to it is clear. A real ledge,
+ * or one behind a railing lower than his head, keeps the vanilla look-down; a drop behind a wall
+ * taller than him is not a ledge he is standing at.
+ *
+ * Everything from the feet to head height is untouched: steps, crates and low ledges keep the
+ * vanilla reaction.
+ */
+static f32 Camera_FloorAheadIfReachable(Camera* camera, Vec3f* probePos, f32 floorY) {
+    f32 groundY = camera->playerGroundY;
+    f32 height = Player_GetHeight(camera->player);
+    Vec3f from;
+    Vec3f to;
+    Vec3f hit;
+    CollisionPoly* poly;
+    s32 bgId;
+
+    if (floorY == BGCHECK_Y_MIN || (floorY >= groundY - 1.0f && floorY <= groundY + height)) {
+        return floorY;
+    }
+    from.x = camera->playerPosRot.pos.x;
+    from.z = camera->playerPosRot.pos.z;
+    to.x = probePos->x;
+    to.z = probePos->z;
+    if (floorY > groundY) {
+        from.y = groundY + 1.0f;
+        to.y = floorY + 1.0f;
+    } else {
+        from.y = to.y = groundY + height;
+    }
+    // Front faces only: the wall, slab edge or slab underside in the way faces the player.
+    if (BgCheck_CameraLineTest1(&camera->play->colCtx, &from, &to, &hit, &poly, 1, 1, 1, 1, &bgId)) {
+        return BGCHECK_Y_MIN;
+    }
+    return floorY;
+}
+
 static f32 D_8015CE50;
 static f32 D_8015CE54;
 static CamColChk D_8015CE58;
@@ -617,43 +676,6 @@ s16 func_80044ADC(Camera* camera, s16 yaw, s16 arg2) {
             playerPos.y = ceilChkY + temp_f2 - 1.0f;
         }
     }
-    // The same probe also sees *over* a wall whose top sits between the player's head and the probe
-    // origin: standing on a grid-tool wall-walk facing the keep, the origin (84 + 81.6) clears the
-    // keep wall's top at 164 by 1.6 units, the floor raycast ahead lands on the storey above, and
-    // the 80-unit "slope" buries the eye under the walk (sturdy-bassoon#103). A wall taller than
-    // the player's head is not a slope he can walk up, so shorten both probes to stop in front of
-    // it. Walls shorter than his head (steps, ledges, crates) are left to the vanilla probe.
-    {
-        Vec3f headPos = camera->playerPosRot.pos;
-        Vec3f aheadPos;
-        Vec3f wallHit;
-        CollisionPoly* wallPoly;
-        s32 wallBgId;
-        f32 wallDist;
-
-        headPos.y = camera->playerGroundY + playerHeight;
-        if (headPos.y > playerPos.y) {
-            headPos.y = playerPos.y;
-        }
-        aheadPos.x = headPos.x + (sp2C * sinYaw);
-        aheadPos.y = headPos.y;
-        aheadPos.z = headPos.z + (sp2C * cosYaw);
-        // Walls only, front faces only: a wall facing the player is one in his way.
-        if (BgCheck_CameraLineTest1(&camera->play->colCtx, &headPos, &aheadPos, &wallHit, &wallPoly, 1, 0, 0, 1,
-                                    &wallBgId)) {
-            // Stop 5 short of the face so the floor raycasts below land in front of it, not on its top.
-            wallDist = OLib_Vec3fDistXZ(&headPos, &wallHit) - 5.0f;
-            if (wallDist < 1.0f) {
-                wallDist = 1.0f;
-            }
-            if (sp2C > wallDist) {
-                sp2C = wallDist;
-            }
-            if (sp30 > wallDist) {
-                sp30 = wallDist;
-            }
-        }
-    }
     rotatedPos.x = playerPos.x + (sp30 * sinYaw);
     rotatedPos.y = playerPos.y;
     rotatedPos.z = playerPos.z + (sp30 * cosYaw);
@@ -672,10 +694,13 @@ s16 func_80044ADC(Camera* camera, s16 yaw, s16 arg2) {
         D_8015CE58.pos.z += D_8015CE58.norm.z * 5.0f;
         if (sp2C < sp30) {
             sp30 = sp2C;
-            D_8015CE50 = D_8015CE54 = Camera_GetFloorYLayer(camera, &floorNorm, &D_8015CE58.pos, &bgId);
+            D_8015CE50 = D_8015CE54 = Camera_FloorAheadIfReachable(
+                camera, &D_8015CE58.pos, Camera_GetFloorYLayer(camera, &floorNorm, &D_8015CE58.pos, &bgId));
         } else {
-            D_8015CE50 = Camera_GetFloorYLayer(camera, &floorNorm, &rotatedPos, &bgId);
-            D_8015CE54 = Camera_GetFloorYLayer(camera, &floorNorm, &D_8015CE58.pos, &bgId);
+            D_8015CE50 = Camera_FloorAheadIfReachable(camera, &rotatedPos,
+                                                      Camera_GetFloorYLayer(camera, &floorNorm, &rotatedPos, &bgId));
+            D_8015CE54 = Camera_FloorAheadIfReachable(
+                camera, &D_8015CE58.pos, Camera_GetFloorYLayer(camera, &floorNorm, &D_8015CE58.pos, &bgId));
         }
 
         if (D_8015CE50 == BGCHECK_Y_MIN) {
