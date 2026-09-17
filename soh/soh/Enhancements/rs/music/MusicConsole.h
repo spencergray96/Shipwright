@@ -49,6 +49,20 @@
 //                         to: an unresettable counter makes "the count did not move" a stronger
 //                         claim. It was called `reset` through P0, which described neither what
 //                         it did nor what it was for, and cost a human real confusion
+//   players               all four sequence players as the engine reads them (#90 P5), plus the
+//                         audio thread's own view of each (#91) - see the comment in the renderer
+//
+// TEST SURFACE for sturdy-bassoon#91, the RS track import. These bypass the director entirely and are
+// a probe, not a feature; #90 P3 wires tracks into the director and may retire them:
+//   tracks                every custom sequence and the number it got this boot. rc=1 when no RS
+//                         track is registered - which is what a stale soh.o2r looks like
+//   testplay <track> <placeholder> [fade_in_sec]
+//                         start a custom track on player 0 through seqToPlay/seqReplaced, sending
+//                         <placeholder> (a u8 id) through SEQCMD beside it. Reports the placeholder's
+//                         sSeqFlags, whether enemy music would duck the track, and what a mini-boss
+//                         restart of that placeholder would load
+//   teststop [fade_out_sec]
+//                         stop player 0
 //
 // Returns 0 when the operation succeeded (or for read-only subcommands), 1 otherwise - so `rc=` on
 // the agent loop's cmd marker is the pass/fail bit.

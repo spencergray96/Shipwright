@@ -227,7 +227,7 @@
  *                                          (sturdy-bassoon#90 P5): Destroy runs on the next Actor_UpdateAll,
  *                                          as after a death, so a mini-boss's music release fires
  *   agenttest music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|
- *                    fadein <s>|baseline]
+ *                    fadein <s>|baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]]
  *                                          the zone music director's console surface (sturdy-bassoon#90).
  *                                          `where` is the one to reach for first: it prints Link's
  *                                          position in OoT world units AND in RS absolute surface tiles,
@@ -248,7 +248,9 @@
  *                                          moment; a whole bag CYCLE is reconstructable from the
  *                                          `advance` markers alone, which is what a run asserts on,
  *                                          because polling costs a round trip per sample and a cycle
- *                                          runs for minutes
+ *                                          runs for minutes. `tracks`/`testplay`/`teststop` are the
+ *                                          imported-RS-track probe (sturdy-bassoon#91) and bypass the
+ *                                          director; MusicConsole.h documents them
  *   agenttest region get|set <uk|us>|toggle|expand <text...>|overlay [on|off]
  *                                          the save file's FLOOR CONVENTION (sturdy-bassoon#94), which
  *                                          decides whether rs/ prose calls the storey at ground level
@@ -1868,7 +1870,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|fadein <s>|"
-              "baseline] | "
+              "baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
             "save <fileNum> | loadsave <fileNum> | mark <text>";
     }
     return 1;
@@ -1901,7 +1903,7 @@ void RegisterAgentTest() {
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|"
-              "fadein <s>|baseline] | "
+              "fadein <s>|baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
               "save <fileNum> | loadsave <fileNum> | mark <text>. walk/press inject controller 1 for N frames and end "
               "with an input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });

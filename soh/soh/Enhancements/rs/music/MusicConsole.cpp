@@ -17,6 +17,7 @@
 #include <ship/Context.h>
 #include <ship/debug/Console.h>
 
+#include "soh/Enhancements/agenttest/AgentTest.h"
 #include "soh/Enhancements/worldstate/WorldFlags.h"
 #include "soh/ShipInit.hpp"
 #include "soh/cvar_prefixes.h"
@@ -27,11 +28,19 @@ extern "C" {
 #include "functions.h"
 #include "macros.h"
 #include "variables.h"
+#include "seqcmd.h"
 extern PlayState* gPlayState;
 // code_800EC960.c's own globals, declared in no header. Read, never written, here - see `players`.
 // (ZoneDirector.cpp's ReclaimFromOverride is the one writer of sPrevMainBgmSeqId in the mod.)
 extern u8 sPrevSeqMode;
 extern u16 sPrevMainBgmSeqId;
+// The table behind code_800EC960.c's static Audio_GetSeqFlags. Read by `testplay` to report whether
+// a placeholder id lets enemy music duck the track (sturdy-bassoon#91).
+extern u8 sSeqFlags[0x6F];
+// audio_load.c's registry: sequenceMap[n] is the archive path sequence number n was given at boot,
+// NULL for an unassigned number, sequenceMapSize + 0xF slots. z64audio.h declares only the size.
+extern char** sequenceMap;
+u16 AudioEditor_GetReplacementSeq(u16 seqId);
 }
 
 #define CVAR_RS_MUSIC_ON CVAR_ENHANCEMENT("RsMusicZones")
@@ -87,6 +96,79 @@ int32_t SetSeconds(const std::vector<std::string>& args, std::vector<std::string
         Addf(lines, "op=%s seconds=%.2f ticks=%d result=ok", label, seconds, (int32_t)(seconds * 20.0f + 0.5f));
     }
     return 0;
+}
+
+// --- TEST SURFACE for sturdy-bassoon#91: tracks / testplay / teststop ---------------------------
+//
+// #91 imports RS tracks and proves they play; wiring them into the zone director is #90 P3. These
+// subcommands start, stop and list custom tracks WITHOUT going through the director, so a track can
+// be heard and measured on its own. They are a probe, not a feature: the director reads none of it,
+// and P3 is expected to replace `testplay` with the director's own start.
+
+// Every custom sequence is listed from this virtual path (audio_load.c, ListFiles "custom/music/*").
+constexpr const char* CUSTOM_MUSIC_PREFIX = "custom/music/";
+// The mod's own tracks. See ASSET_PIPELINE.md, "RS music".
+constexpr const char* RS_TRACK_PREFIX = "custom/music/rs/";
+
+size_t SequenceSlots() {
+    // audio_load.c allocates sequenceMapSize + 0xF slots, and AudioLoad_SyncInitSeqPlayerInternal
+    // bounds-checks against the same figure.
+    return sequenceMap == nullptr ? 0 : sequenceMapSize + 0xF;
+}
+
+bool StartsWith(const char* s, const char* prefix) {
+    return std::strncmp(s, prefix, std::strlen(prefix)) == 0;
+}
+
+// A track named by path, resolved to the number it was given THIS boot. Numbers are handed out in
+// sorted path order across every mounted archive, so the path is the stable name and the number is
+// not. Accepts the full archive path, or the part after its last '/' when that is unique.
+int32_t ResolveCustomTrack(const std::string& name, const char** error) {
+    int32_t found = -1;
+    int32_t matches = 0;
+    const size_t slots = SequenceSlots();
+    for (size_t i = 0; i < slots; i++) {
+        const char* path = sequenceMap[i];
+        if (path == nullptr || !StartsWith(path, CUSTOM_MUSIC_PREFIX)) {
+            continue;
+        }
+        if (name == path) {
+            *error = nullptr;
+            return (int32_t)i;
+        }
+        const char* slash = std::strrchr(path, '/');
+        if (name == (slash != nullptr ? slash + 1 : path)) {
+            found = (int32_t)i;
+            matches++;
+        }
+    }
+    if (matches == 1) {
+        *error = nullptr;
+        return found;
+    }
+    *error = (matches == 0) ? "not_registered" : "ambiguous_name";
+    return -1;
+}
+
+bool ParseSeqByte(const std::string& s, uint32_t* out) {
+    char* end = nullptr;
+    const unsigned long v = std::strtoul(s.c_str(), &end, 0);
+    if (end == s.c_str() || *end != '\0' || v > 0xFF) {
+        return false;
+    }
+    *out = (uint32_t)v;
+    return true;
+}
+
+// The same arithmetic as ZoneDirector.cpp's ScriptTicksPerSecond, which carries the reasoning.
+// Repeated rather than exported because #91 leaves the director alone. 0 = the audio spec is not up.
+uint32_t AudioTicksPerSecond() {
+    const AudioBufferParameters* p = &gAudioContext.audioBufferParameters;
+    if (p->frequency == 0 || p->samplesPerFrameTarget <= 0 || p->updatesPerFrame <= 0) {
+        return 0;
+    }
+    return (uint32_t)(((uint64_t)p->frequency * (uint64_t)(uint32_t)p->updatesPerFrame) /
+                      (uint64_t)(uint32_t)p->samplesPerFrameTarget);
 }
 
 } // namespace
@@ -255,16 +337,135 @@ int32_t MusicConsole_Run(const std::vector<std::string>& args, std::vector<std::
          *
          * fade_scale= and fade= are audio-thread words read without a lock - the same unsynchronised
          * read func_800FA0B4 makes of `enabled`. Expect a tick-boundary stale value now and then.
+         *
+         * Added for sturdy-bassoon#91, the imported-track probe, and appended so existing parsers of
+         * the fields above are unaffected:
+         *
+         *   audio_seq=   the AUDIO THREAD's seqPlayer->seqId, the sequence actually loaded. id= is the
+         *                game side, and Audio_StartSequence stores the u8 id that was REQUESTED there -
+         *                so after a seqToPlay/seqReplaced start the two can differ: id= the placeholder,
+         *                audio_seq= the custom sequence. Not cleared when the player stops
+         *   counter=     seqPlayer->scriptCounter. Zeroed when a sequence loads, and it stops moving when
+         *   sec=         the player does: the increment sits below the `enabled` early return. sec= is
+         *                counter over tick_hz=. So one sample taken after a track has ended reads how
+         *                long it played, on the audio clock
+         *   replaced=    gAudioContext.seqReplaced[p], a back-door start not yet consumed.
+         *                Audio_StartSequence clears it when it takes it; a 1 that lingers is the trap
          */
+        const uint32_t tickHz = AudioTicksPerSecond();
         for (int32_t p = 0; p < 4; p++) {
             const ActiveSequence* a = &gActiveSeqs[p];
             const SequencePlayer* sp = &gAudioContext.seqPlayers[p];
-            Addf(lines, "players[%d] id=0x%X scales=%d,%d,%d,%d vol_cur=%.2f fade_scale=%.2f fade=%.2f", p,
-                 (uint32_t)func_800FA0B4((u8)p), (int32_t)a->volScales[0], (int32_t)a->volScales[1],
-                 (int32_t)a->volScales[2], (int32_t)a->volScales[3], a->volCur, sp->fadeVolumeScale, sp->fadeVolume);
+            Addf(lines,
+                 "players[%d] id=0x%X scales=%d,%d,%d,%d vol_cur=%.2f fade_scale=%.2f fade=%.2f audio_seq=0x%X "
+                 "counter=%u sec=%.2f replaced=%d",
+                 p, (uint32_t)func_800FA0B4((u8)p), (int32_t)a->volScales[0], (int32_t)a->volScales[1],
+                 (int32_t)a->volScales[2], (int32_t)a->volScales[3], a->volCur, sp->fadeVolumeScale, sp->fadeVolume,
+                 (uint32_t)sp->seqId, (uint32_t)sp->scriptCounter,
+                 tickHz != 0 ? (double)sp->scriptCounter / (double)tickHz : -1.0,
+                 (int32_t)gAudioContext.seqReplaced[p]);
         }
-        Addf(lines, "players seq_mode=0x%X prev_main=0x%X save_seq=0x%X", (uint32_t)sPrevSeqMode,
-             (uint32_t)sPrevMainBgmSeqId, (uint32_t)gSaveContext.seqId);
+        Addf(lines, "players seq_mode=0x%X prev_main=0x%X save_seq=0x%X tick_hz=%u", (uint32_t)sPrevSeqMode,
+             (uint32_t)sPrevMainBgmSeqId, (uint32_t)gSaveContext.seqId, tickHz);
+        return 0;
+    }
+
+    if (sub == "tracks") {
+        // TEST SURFACE (#91). Every custom sequence and the number it was given this boot, for two jobs:
+        // - The witness for "does adding a track renumber the others": compare two boots' lines.
+        // - The loud end of the soh.o2r copy trap. No RS track registered almost always means the
+        //   archive next to soh.exe is stale, so that is rc=1, not an empty list that reads as success.
+        int32_t count = 0;
+        int32_t rs = 0;
+        const size_t slots = SequenceSlots();
+        for (size_t i = 0; i < slots; i++) {
+            const char* path = sequenceMap[i];
+            if (path == nullptr || !StartsWith(path, CUSTOM_MUSIC_PREFIX)) {
+                continue;
+            }
+            const int32_t isRs = StartsWith(path, RS_TRACK_PREFIX) ? 1 : 0;
+            Addf(lines, "track seq=0x%X rs=%d path=\"%s\"", (uint32_t)i, isRs, path);
+            count++;
+            rs += isRs;
+        }
+        Addf(lines, "tracks count=%d rs=%d slots=%u", count, rs, (uint32_t)slots);
+        if (rs == 0) {
+            Addf(lines, "tracks result=error error=no_rs_tracks hint=soh.o2r_next_to_soh.exe_is_stale_or_missing");
+            return 1;
+        }
+        return 0;
+    }
+
+    if (sub == "testplay") {
+        // TEST SURFACE (#91): start a custom track on player 0 through the seqToPlay/seqReplaced back
+        // door, the route #90 P3 will take because SEQCMD ids are masked to 8 bits (AUDIO_SYSTEM.md §2).
+        //
+        //   testplay <track> <placeholder 0..0xFF> [fade_in_sec]
+        //
+        // The placeholder is the u8 id that rides through SEQCMD beside the real one, and it is not
+        // decoration. Audio_StartSequence stores IT in gActiveSeqs[0].seqId, so it is:
+        // - what func_800FA0B4 reports,
+        // - what the enemy-music gate reads flags from (ducks=),
+        // - what a mini-boss's func_800F5B58 restarts (restart_path=, resolved through the audio
+        //   editor's mapping exactly as Audio_StartSequence resolves it; "none" means that restart
+        //   loads nothing and player 0 goes quiet).
+        //
+        // In a scene the director owns it sees a sequence it did not ask for and YIELDS. That is its
+        // override path working, not a fault. To hear a track end on its own, test outside the table
+        // (director_scene=0) or `rsmusic off` and re-enter the scene.
+        if (args.size() < 3) {
+            Addf(lines, "op=testplay result=error error=usage (testplay <track> <placeholder 0..0xFF> [fade_in_sec])");
+            return 1;
+        }
+        const char* error = nullptr;
+        const int32_t seq = ResolveCustomTrack(args[1], &error);
+        if (seq < 0) {
+            Addf(lines, "op=testplay result=error error=%s track=%s", error, args[1].c_str());
+            return 1;
+        }
+        uint32_t placeholder = 0;
+        if (!ParseSeqByte(args[2], &placeholder)) {
+            Addf(lines, "op=testplay result=error error=bad_placeholder (expects 0..0xFF)");
+            return 1;
+        }
+        float fadeInSec = 0.0f;
+        if (args.size() >= 4 && !ParseSeconds(args[3], &fadeInSec)) {
+            Addf(lines, "op=testplay result=error error=bad_fade (expects 0..20 seconds)");
+            return 1;
+        }
+        const uint32_t flags = (placeholder < ARRAY_COUNT(sSeqFlags)) ? sSeqFlags[placeholder] : 0;
+        const u16 restartSeq = AudioEditor_GetReplacementSeq((u16)placeholder);
+        const char* restartPath = (restartSeq < SequenceSlots()) ? sequenceMap[restartSeq] : nullptr;
+        int32_t directorScene = 0;
+        if (gPlayState != nullptr && GET_PLAYER(gPlayState) != nullptr) {
+            int16_t sceneId = -1;
+            int32_t rsX = 0;
+            int32_t rsY = 0;
+            int32_t zone = -1;
+            directorScene = RsMusic_Probe(&sceneId, &rsX, &rsY, &zone) ? 1 : 0;
+        }
+
+        gAudioContext.seqToPlay[SEQ_PLAYER_BGM_MAIN] = (u16)seq;
+        gAudioContext.seqReplaced[SEQ_PLAYER_BGM_MAIN] = 1;
+        SEQCMD_PLAY_SEQUENCE(SEQ_PLAYER_BGM_MAIN, FadeUnits(fadeInSec), 0, placeholder);
+
+        Addf(lines,
+             "op=testplay result=ok seq=0x%X placeholder=0x%X flags=0x%X ducks=%d fade_in=%d director_scene=%d "
+             "restart_seq=0x%X restart_path=\"%s\" path=\"%s\"",
+             (uint32_t)seq, placeholder, flags, (flags & 0x1) ? 1 : 0, FadeUnits(fadeInSec), directorScene,
+             (uint32_t)restartSeq, restartPath != nullptr ? restartPath : "none", sequenceMap[seq]);
+        return 0;
+    }
+
+    if (sub == "teststop") {
+        // TEST SURFACE (#91): stop player 0, with an optional fade, to end a listening test early.
+        float fadeOutSec = 0.0f;
+        if (args.size() >= 2 && !ParseSeconds(args[1], &fadeOutSec)) {
+            Addf(lines, "op=teststop result=error error=bad_fade (expects 0..20 seconds)");
+            return 1;
+        }
+        SEQCMD_STOP_SEQUENCE(SEQ_PLAYER_BGM_MAIN, FadeUnits(fadeOutSec));
+        Addf(lines, "op=teststop result=ok fade_out=%d", FadeUnits(fadeOutSec));
         return 0;
     }
 
@@ -326,6 +527,14 @@ int32_t MusicCommandHandler(std::shared_ptr<Ship::Console> console, const std::v
     std::vector<std::string> sub(args.begin() + 1, args.end());
     std::vector<std::string> lines;
     const int32_t rc = MusicConsole_Run(sub, lines);
+    // #91's test subcommands also reach the engine log from a human session, so a listening pass can be
+    // read back afterwards the way #97 made director events readable. Only these: the read-only
+    // subcommands get polled, and a poll is not an event.
+    if (!sub.empty() && (sub[0] == "testplay" || sub[0] == "teststop" || sub[0] == "tracks")) {
+        for (const std::string& line : lines) {
+            AgentTest_WriteMarker(("rs_music " + line).c_str());
+        }
+    }
     if (output != nullptr) {
         for (size_t i = 0; i < lines.size(); i++) {
             if (i > 0) {
@@ -356,17 +565,23 @@ void RegisterMusicConsole() {
         "rsmusic",
         { MusicCommandHandler,
           "Zone-based overworld music (sturdy-bassoon#90): status | where | zones | scenes | bags | "
-          "firstvisit | players | on | off | dwell <sec> | fadeout <sec> | fadein <sec> | baseline. `players` "
+          "firstvisit | players | on | off | dwell <sec> | fadeout <sec> | fadein <sec> | baseline | tracks | "
+          "testplay <track> <placeholder> [fade_in_sec] | teststop [fade_out_sec]. `players` "
           "reads all four sequence players, which is how a duck (enemy music, a fanfare) is seen at all. "
+          "`tracks`, `testplay` and `teststop` are the imported-track probe (sturdy-bassoon#91): they "
+          "list custom sequences and start or stop one on player 0 WITHOUT the director. "
           "`where` prints Link's "
           "position in both OoT world units and RS absolute tiles plus the zone that wins there - "
           "that is how you check a rect against where he actually is. Fades are an 8-bit field in "
           "units of 1/30 s, so they clamp at 8.5 seconds and the reported unit count is what the "
           "engine really gets. `baseline` bookmarks the transition count so `status` can report the "
           "difference; it does NOT zero the counter, on purpose.",
-          { { "status|where|zones|scenes|bags|firstvisit|players|on|off|dwell|fadeout|fadein|baseline",
+          { { "status|where|zones|scenes|bags|firstvisit|players|on|off|dwell|fadeout|fadein|baseline|tracks|"
+              "testplay|teststop",
               Ship::ArgumentType::TEXT },
-            { "seconds", Ship::ArgumentType::TEXT, true } } });
+            { "seconds|track", Ship::ArgumentType::TEXT, true },
+            { "placeholder", Ship::ArgumentType::TEXT, true },
+            { "fade_in_sec", Ship::ArgumentType::TEXT, true } } });
 }
 
 RegisterShipInitFunc musicConsoleInitFunc(RegisterMusicConsole);
