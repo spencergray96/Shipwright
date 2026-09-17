@@ -178,6 +178,10 @@
  *                                          "press Z" with nothing targeted re-centres the camera behind Link.
  *   agenttest rooms                        one "transition idx= id= rooms=A,B pos= rotY=" marker per transition
  *                                          actor in the scene: where the room boundaries are
+ *   agenttest camclear                     one "camclear" marker: whether the active camera's near clip plane
+ *                                          crosses collision (near_hits of its 4 corners + centre, and which),
+ *                                          and the eye's clearance to the nearest poly in 26 directions within
+ *                                          32 units. The measurable form of "walls clip" (sturdy-bassoon#103)
  *   agenttest time <dawn|day|dusk|night|value>  set the time of day: dayTime and skyboxTime together, plus
  *                                          nightFlag by the engine's own threshold (night when > 0xC000 or
  *                                          < 0x4555). Presets dawn=0x4000, day=0x8000, dusk=0xC001, night=0;
@@ -324,6 +328,8 @@ extern "C" {
 #include "macros.h"
 extern PlayState* gPlayState;
 void Sram_InitDebugSave(void);
+// OTRGlobals.h declares this only for C (#ifndef __cplusplus); the definition is extern "C".
+float OTRGetAspectRatio(void);
 }
 
 #ifdef _WIN32
@@ -1127,6 +1133,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     }
     if (args.size() >= 2 &&
         (args[1] == "state" || args[1] == "goto" || args[1] == "walk" || args[1] == "press" || args[1] == "rooms" ||
+         args[1] == "camclear" ||
          args[1] == "time" || args[1] == "trace" || args[1] == "fog" || args[1] == "uncull" ||
          args[1] == "kill") &&
         !InNormalPlay()) {
@@ -1295,6 +1302,104 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         StartInput(frames, 0, 0, mask);
         if (output) {
             *output += "holding " + args[2] + " for " + std::to_string(frames) + " frames; wait for input_done";
+        }
+        return 0;
+    }
+    if (args.size() >= 2 && args[1] == "camclear") {
+        // Whether the active camera's near clip plane pokes through collision (sturdy-bassoon#103).
+        // The camera keeps its eye ~1 unit off whatever it collided with, but the near plane is a
+        // rectangle zNear in front of the eye, and its corners reach much further - so a wall or
+        // ceiling can be "not touched" by the eye yet cut by the near plane, which draws as a
+        // see-through wall. hits = how many of the eye->corner (and eye->centre) segments cross a
+        // poly; clear = distance to the nearest poly in any of 26 directions, and which one.
+        Camera* camera = GET_ACTIVE_CAM(gPlayState);
+        CollisionContext* colCtx = &gPlayState->colCtx;
+        const View& view = gPlayState->view;
+        Vec3f eye = camera->eye;
+        Vec3f fwd = { camera->at.x - eye.x, camera->at.y - eye.y, camera->at.z - eye.z };
+        f32 len = std::sqrt(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
+        if (len < 0.001f) {
+            if (output) {
+                *output += "camclear: eye and at coincide";
+            }
+            return 1;
+        }
+        fwd.x /= len;
+        fwd.y /= len;
+        fwd.z /= len;
+        // right = fwd x worldUp, up = right x fwd
+        Vec3f right = { -fwd.z, 0.0f, fwd.x };
+        f32 rlen = std::sqrt(right.x * right.x + right.z * right.z);
+        if (rlen < 0.001f) {
+            right = { 1.0f, 0.0f, 0.0f };
+        } else {
+            right.x /= rlen;
+            right.z /= rlen;
+        }
+        Vec3f up = { right.y * fwd.z - right.z * fwd.y, right.z * fwd.x - right.x * fwd.z,
+                     right.x * fwd.y - right.y * fwd.x };
+        f32 aspect = OTRGetAspectRatio();
+        f32 halfH = view.zNear * static_cast<f32>(std::tan(view.fovy * 0.5f * (M_PI / 180.0f)));
+        f32 halfW = halfH * aspect;
+        // Distance from the eye to the first poly on the segment eye->to, or -1 if nothing is hit.
+        auto hitDistance = [&](Vec3f to) -> f32 {
+            Vec3f hit;
+            CollisionPoly* poly = nullptr;
+            s32 bgId;
+            if (!BgCheck_AnyLineTest3(colCtx, &eye, &to, &hit, &poly, 1, 1, 1, 0, &bgId)) {
+                return -1.0f;
+            }
+            return std::sqrt(SQ(hit.x - eye.x) + SQ(hit.y - eye.y) + SQ(hit.z - eye.z));
+        };
+        static const f32 kCorners[5][2] = { { -1, 1 }, { 1, 1 }, { -1, -1 }, { 1, -1 }, { 0, 0 } };
+        static const char* kCornerNames[5] = { "tl", "tr", "bl", "br", "c" };
+        int hits = 0;
+        f32 hitMin = 1e9f;
+        std::string hitNames;
+        for (int i = 0; i < 5; i++) {
+            f32 sx = halfW * kCorners[i][0];
+            f32 sy = halfH * kCorners[i][1];
+            Vec3f corner = { eye.x + fwd.x * view.zNear + right.x * sx + up.x * sy,
+                             eye.y + fwd.y * view.zNear + right.y * sx + up.y * sy,
+                             eye.z + fwd.z * view.zNear + right.z * sx + up.z * sy };
+            f32 d = hitDistance(corner);
+            if (d >= 0.0f) {
+                hits++;
+                hitNames += (hitNames.empty() ? "" : ",") + std::string(kCornerNames[i]);
+                hitMin = std::min(hitMin, d);
+            }
+        }
+        const f32 kClearRadius = 32.0f;
+        f32 clear = kClearRadius;
+        int clearDir[3] = { 0, 0, 0 };
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    if (dx == 0 && dy == 0 && dz == 0) {
+                        continue;
+                    }
+                    f32 n = std::sqrt((f32)(dx * dx + dy * dy + dz * dz));
+                    Vec3f to = { eye.x + kClearRadius * dx / n, eye.y + kClearRadius * dy / n,
+                                 eye.z + kClearRadius * dz / n };
+                    f32 d = hitDistance(to);
+                    if (d >= 0.0f && d < clear) {
+                        clear = d;
+                        clearDir[0] = dx;
+                        clearDir[1] = dy;
+                        clearDir[2] = dz;
+                    }
+                }
+            }
+        }
+        char buf[256];
+        std::snprintf(buf, sizeof(buf),
+                      "camclear eye=%.1f,%.1f,%.1f znear=%.1f fovy=%.1f aspect=%.2f near_hits=%d/5%s%s "
+                      "hit_min=%.1f clear=%.1f clear_dir=%d,%d,%d",
+                      eye.x, eye.y, eye.z, view.zNear, view.fovy, aspect, hits, hits ? " at=" : "",
+                      hitNames.c_str(), hits ? hitMin : -1.0f, clear, clearDir[0], clearDir[1], clearDir[2]);
+        WriteMarker(buf);
+        if (output) {
+            *output += buf;
         }
         return 0;
     }

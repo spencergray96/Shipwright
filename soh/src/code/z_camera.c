@@ -617,6 +617,43 @@ s16 func_80044ADC(Camera* camera, s16 yaw, s16 arg2) {
             playerPos.y = ceilChkY + temp_f2 - 1.0f;
         }
     }
+    // The same probe also sees *over* a wall whose top sits between the player's head and the probe
+    // origin: standing on a grid-tool wall-walk facing the keep, the origin (84 + 81.6) clears the
+    // keep wall's top at 164 by 1.6 units, the floor raycast ahead lands on the storey above, and
+    // the 80-unit "slope" buries the eye under the walk (sturdy-bassoon#103). A wall taller than
+    // the player's head is not a slope he can walk up, so shorten both probes to stop in front of
+    // it. Walls shorter than his head (steps, ledges, crates) are left to the vanilla probe.
+    {
+        Vec3f headPos = camera->playerPosRot.pos;
+        Vec3f aheadPos;
+        Vec3f wallHit;
+        CollisionPoly* wallPoly;
+        s32 wallBgId;
+        f32 wallDist;
+
+        headPos.y = camera->playerGroundY + playerHeight;
+        if (headPos.y > playerPos.y) {
+            headPos.y = playerPos.y;
+        }
+        aheadPos.x = headPos.x + (sp2C * sinYaw);
+        aheadPos.y = headPos.y;
+        aheadPos.z = headPos.z + (sp2C * cosYaw);
+        // Walls only, front faces only: a wall facing the player is one in his way.
+        if (BgCheck_CameraLineTest1(&camera->play->colCtx, &headPos, &aheadPos, &wallHit, &wallPoly, 1, 0, 0, 1,
+                                    &wallBgId)) {
+            // Stop 5 short of the face so the floor raycasts below land in front of it, not on its top.
+            wallDist = OLib_Vec3fDistXZ(&headPos, &wallHit) - 5.0f;
+            if (wallDist < 1.0f) {
+                wallDist = 1.0f;
+            }
+            if (sp2C > wallDist) {
+                sp2C = wallDist;
+            }
+            if (sp30 > wallDist) {
+                sp30 = wallDist;
+            }
+        }
+    }
     rotatedPos.x = playerPos.x + (sp30 * sinYaw);
     rotatedPos.y = playerPos.y;
     rotatedPos.z = playerPos.z + (sp30 * cosYaw);
@@ -1607,6 +1644,57 @@ s32 Camera_Free(Camera* camera) {
     return 1;
 }
 
+/**
+ * How far under a ceiling the eye is kept. The near clip plane is a rectangle zNear (10) in front
+ * of the eye; its top edge rises ~6 units above the eye looking level and ~9 looking 20 degrees
+ * up. Eye collision alone only keeps the eye 1 unit off the poly, so under a close ceiling the
+ * near plane cuts into the slab and shows the storey above through it.
+ */
+#define CAM_EYE_CEILING_CLEARANCE 12.0f
+
+/**
+ * Lowers `eyeNext` so it sits at least CAM_EYE_CEILING_CLEARANCE under any ceiling between it and
+ * `at`, but never below `at`.
+ *
+ * CAM_SET_NORMAL0 (which runs this Normal1 function) rests the eye ~80 units above adult Link's
+ * feet - exactly one grid-tool storey - so under every covered floor the eye wants to sit in the
+ * ceiling slab, collision pins it 1-2 units under the slab, and the near plane pokes through
+ * (sturdy-bassoon#103).
+ *
+ * The test is a segment from `at` to the eye raised by the clearance: a ceiling that segment
+ * crosses before any wall is one the eye is under (or would be pushed through). A vertical ceiling
+ * check at the eye's x/z is not enough, and neither is a ceilings-only segment - an eye swinging
+ * up and out over a wall top finds the underside of the storey *behind* that wall and is held
+ * down against it (the balcony facing the courtyard in Lumbridge Castle). Outdoors, and
+ * under any ceiling higher than the eye plus the clearance, nothing is crossed and the eye is
+ * untouched.
+ */
+static void Camera_KeepEyeUnderCeiling(Camera* camera, Vec3f* at, Vec3f* eyeNext) {
+    Vec3f raised = *eyeNext;
+    Vec3f hit;
+    CollisionPoly* poly;
+    s32 bgId;
+    f32 limitY;
+
+    // +1 so an eye already resting at the limit still crosses the ceiling, rather than grazing
+    // it and flickering between clamped and unclamped as the pitch creeps back up.
+    raised.y += CAM_EYE_CEILING_CLEARANCE + 1.0f;
+    // Walls are tested too, and a wall hit first means no clamp: the eye is past that wall (its
+    // own collision will stop it there), so a ceiling beyond is not over it. Front faces only, so
+    // a ceiling counts from below. -0.8 is BgCheck's own ceiling classification threshold.
+    if (!BgCheck_CameraLineTest1(&camera->play->colCtx, at, &raised, &hit, &poly, 1, 0, 1, 1, &bgId) ||
+        !(COLPOLY_GET_NORMAL(poly->normal.y) < -0.8f)) {
+        return;
+    }
+    limitY = hit.y - CAM_EYE_CEILING_CLEARANCE;
+    if (limitY < at->y) {
+        limitY = at->y;
+    }
+    if (eyeNext->y > limitY) {
+        eyeNext->y = limitY;
+    }
+}
+
 s32 Camera_Normal1(Camera* camera) {
     if (CVarGetInteger(CVAR_SETTING("FreeLook.Enabled"), 0) && SetCameraManual(camera) == 1) {
         Camera_Free(camera);
@@ -1792,6 +1880,7 @@ s32 Camera_Normal1(Camera* camera) {
     }
 
     Camera_Vec3fVecSphGeoAdd(eyeNext, at, &eyeAdjustment);
+    Camera_KeepEyeUnderCeiling(camera, at, eyeNext);
     if ((camera->status == CAM_STAT_ACTIVE) && (!(norm1->interfaceFlags & 0x10))) {
         anim->swingYawTarget = BINANG_ROT180(camera->playerPosRot.rot.y);
         if (!CVarGetInteger(CVAR_ENHANCEMENT("FixCameraSwing"), 0)) {
