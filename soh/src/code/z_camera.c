@@ -8,8 +8,10 @@
 
 #include "soh/frame_interpolation.h"
 #include "soh/Enhancements/controls/Mouse.h"
+#include "soh/Enhancements/camera/CameraIndoorTuning.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/savestate_serialize.h"
+#include "soh/custom/scenes/grid_tool/GridToolSceneRegistry.h"
 
 s16 Camera_ChangeSettingFlags(Camera* camera, s16 setting, s16 flags);
 s32 Camera_RequestModeImpl(Camera* camera, s16 requestedMode, u8 forceModeChange);
@@ -1720,6 +1722,240 @@ static void Camera_KeepEyeUnderCeiling(Camera* camera, Vec3f* at, Vec3f* eyeNext
     }
 }
 
+/**
+ * The indoor camera pull-in (sturdy-bassoon#108). Knob names, defaults and the probe struct are in
+ * soh/Enhancements/camera/CameraIndoorTuning.h; `camindoor` in CameraIndoorConsole.cpp sets them.
+ *
+ * A grid-tool room is 2x3 tiles and 80 units tall, and NORMAL0's follow distance was tuned for open
+ * ground, so the eye spends small rooms shoved into a corner by its own collision. Shortening the
+ * distance while the player is under a ceiling gives the room back. Vanilla's own pull-in when the
+ * eye meets a wall is untouched and still runs; this only gives it a shorter target to work from.
+ *
+ * Three things keep this honest:
+ * - Nothing is latched. Every value is recomputed from live collision each frame, so there is no
+ *   "indoors" flag that can be set and never cleared. The only state is `camera->dist` itself,
+ *   which Camera_ClampDist already eases toward whatever target it is given.
+ * - Grid-tool scenes only. Vanilla scenes never reach any of this.
+ * - Every number is a CVar read here, at the point of use, so it changes on the next frame.
+ */
+
+/**
+ * Returns 1 when at least k of the ceiling samples around the player find a ceiling within the
+ * height cap. The counts themselves come back through `out`, for the console.
+ *
+ * The centre sample sits at the player, the ring (0-8 more) around a centre pushed `bias` units
+ * along his facing. All of them start at `playerGroundY` rather than his actual y, so a jump or a
+ * fall does not change the answer - "indoors" is a property of the floor he is standing on.
+ *
+ * With 0 ring samples and k = 1 this is exactly one BgCheck_AnyCheckCeiling at his feet, which is
+ * the same query the #38 clamp in func_80044ADC already runs every other frame. The ring exists to
+ * ignore thin overheads - a walkway or a narrow arch covers few of its points - and to steady the
+ * single-point flip on a doorway threshold, which can otherwise pulse the camera when the player
+ * paces across the line. The forward bias starts the pull-in just before a threshold, not on it.
+ */
+static s32 Camera_IndoorCeilingFound(Camera* camera, CameraIndoorProbe* out) {
+    f32 checkHeight = CVarGetFloat(CVAR_CAM_INDOOR_HEIGHT, CAM_INDOOR_HEIGHT_DEFAULT);
+    f32 radius = CVarGetFloat(CVAR_CAM_INDOOR_RING_RADIUS, CAM_INDOOR_RING_RADIUS_DEFAULT);
+    f32 bias = CVarGetFloat(CVAR_CAM_INDOOR_RING_BIAS, CAM_INDOOR_RING_BIAS_DEFAULT);
+    s32 ringCount = CVarGetInteger(CVAR_CAM_INDOOR_RING_SAMPLES, CAM_INDOOR_RING_SAMPLES_DEFAULT);
+    s32 needed = CVarGetInteger(CVAR_CAM_INDOOR_RING_K, CAM_INDOOR_RING_K_DEFAULT);
+    Vec3f pos;
+    f32 ceilY;
+    f32 ringX;
+    f32 ringZ;
+    s32 hits = 0;
+    s32 i;
+
+    // BgCheck_AnyCheckCeiling requires a positive height, and a k above the sample count would
+    // switch the feature off silently rather than loudly.
+    if (checkHeight < CAM_INDOOR_HEIGHT_MIN) {
+        checkHeight = CAM_INDOOR_HEIGHT_MIN;
+    }
+    if (checkHeight > CAM_INDOOR_HEIGHT_MAX) {
+        checkHeight = CAM_INDOOR_HEIGHT_MAX;
+    }
+    if (ringCount < 0) {
+        ringCount = 0;
+    }
+    if (ringCount > CAM_INDOOR_RING_MAX) {
+        ringCount = CAM_INDOOR_RING_MAX;
+    }
+    if (needed < 1) {
+        needed = 1;
+    }
+    if (needed > ringCount + 1) {
+        needed = ringCount + 1;
+    }
+
+    pos.y = camera->playerGroundY;
+    pos.x = camera->playerPosRot.pos.x;
+    pos.z = camera->playerPosRot.pos.z;
+    if (BgCheck_AnyCheckCeiling(&camera->play->colCtx, &ceilY, &pos, checkHeight)) {
+        hits++;
+    }
+
+    if (ringCount > 0) {
+        ringX = pos.x + (bias * Math_SinS(camera->playerPosRot.rot.y));
+        ringZ = pos.z + (bias * Math_CosS(camera->playerPosRot.rot.y));
+    }
+    for (i = 0; i < ringCount; i++) {
+        s16 angle = (s16)((0x10000 / ringCount) * i);
+
+        pos.x = ringX + (radius * Math_SinS(angle));
+        pos.z = ringZ + (radius * Math_CosS(angle));
+        if (BgCheck_AnyCheckCeiling(&camera->play->colCtx, &ceilY, &pos, checkHeight)) {
+            hits++;
+        }
+    }
+
+    out->hits = hits;
+    out->samples = ringCount + 1;
+    out->needed = needed;
+    out->checkHeight = checkHeight;
+    out->ringRadius = radius;
+    out->ringBias = bias;
+    return hits >= needed;
+}
+
+/**
+ * Returns what norm1's distMin/distMax should be multiplied by this frame: the scale CVar while the
+ * player is indoors on a grid-tool scene, 1.0 otherwise.
+ *
+ * `out` is filled either way, so the console can report *why* the answer is 1.0.
+ */
+static f32 Camera_IndoorPullInScale(Camera* camera, CameraIndoorProbe* out) {
+    f32 scale;
+
+    out->sceneId = camera->play->sceneNum;
+    out->enabled = CVarGetInteger(CVAR_CAM_INDOOR_ON, CAM_INDOOR_ON_DEFAULT) != 0;
+    out->gridToolScene = GridToolSceneRegistry_IsCustomScene(camera->play->sceneNum) != 0;
+    out->easeIn = CVarGetFloat(CVAR_CAM_INDOOR_EASE_IN, CAM_INDOOR_EASE_IN_DEFAULT);
+    out->hits = 0;
+    out->samples = 0;
+    out->needed = 0;
+    out->indoors = 0;
+    out->scale = 1.0f;
+    out->checkHeight = 0.0f;
+    out->ringRadius = 0.0f;
+    out->ringBias = 0.0f;
+    if (!out->enabled || !out->gridToolScene) {
+        return 1.0f;
+    }
+
+    out->indoors = Camera_IndoorCeilingFound(camera, out);
+    if (!out->indoors) {
+        return 1.0f;
+    }
+
+    scale = CVarGetFloat(CVAR_CAM_INDOOR_SCALE, CAM_INDOOR_SCALE_DEFAULT);
+    // The same bounds the console refuses a typed value outside of - shared, so the clamp cannot
+    // say one thing here and another there. The reasoning for each is beside the #define.
+    if (scale > CAM_INDOOR_SCALE_MAX) {
+        scale = CAM_INDOOR_SCALE_MAX;
+    }
+    if (scale < CAM_INDOOR_SCALE_MIN) {
+        scale = CAM_INDOOR_SCALE_MIN;
+    }
+    out->scale = scale;
+    return scale;
+}
+
+// Diagnostic mirror of what Camera_Normal1 last actually did, for `camindoor status`. Written here
+// and read only by Camera_IndoorPullInProbe - no camera code reads it back, so it cannot become the
+// latched state this feature is built to avoid.
+static f32 sCamIndoorAppliedScale = 1.0f;
+static f32 sCamIndoorDistMin = 0.0f;
+static f32 sCamIndoorDistMax = 0.0f;
+static u32 sCamIndoorAppliedFrame = 0;
+static s32 sCamIndoorApplied = 0;
+
+/**
+ * 1 when this frame's scaling actually moved the distance target, rather than just being active.
+ *
+ * Camera_ClampDist targets `dist` itself whenever it already lies inside the band, so on those
+ * frames a scaled band and an unscaled one produce the identical target and there is nothing of
+ * ours to ease. Only a frame where the SCALED bound binds has a target we lowered - and then the
+ * whole gap between it and vanilla's target is ours.
+ *
+ * This is what keeps the ease from slowing things it has no business slowing: vanilla's own pull-in
+ * as the eye meets a wall, and the distance shrinking because the player ran toward the camera,
+ * both happen inside the band and are left at the vanilla rate.
+ */
+static s32 Camera_IndoorScaleMovedTarget(f32 scale, f32 dist, f32 distMin, f32 distMax) {
+    if (scale >= 1.0f) {
+        return 0;
+    }
+    return (dist > (distMax * scale)) || (dist < (distMin * scale));
+}
+
+/**
+ * Applies the pull-in to one Camera_ClampDist call and returns the distance to use this frame.
+ *
+ * The scaled min/max exist only inside this call: `norm1`'s own values are set once on a parameter
+ * reload and are left alone, so nothing accumulates and a changed CVar takes effect immediately.
+ *
+ * Camera_ClampDist already eases `camera->dist` toward its target every frame, which is what makes
+ * the pull-in glide instead of snap. While the pull-in is what is shortening the distance, that
+ * step is scaled down by the ease CVar - so walking under an outdoor archway at speed barely moves
+ * the camera before the target flips back, and no dwell counter is needed to get that. The push
+ * back out is never slowed: stepping outdoors opens the view at the vanilla rate.
+ *
+ * One wrinkle in that blend, harmless at the shipped ease of 1.0 and worth knowing before turning
+ * it down: Camera_ClampDist has already advanced `camera->rUpdateRateInv` as though the full step
+ * were taken by the time we scale the step down, so a low ease composes two easings rather than
+ * replacing one. It makes the pull-in slower than the ease fraction alone suggests, which is the
+ * direction the knob is being turned anyway. Measured values are in the #108 test run; do not read
+ * the fraction as a ratio of the vanilla rate.
+ */
+static f32 Camera_IndoorClampDist(Camera* camera, f32 dist, f32 distMin, f32 distMax, s16 timer) {
+    // Zeroed rather than left on the stack: Camera_IndoorPullInScale fills every field on both of
+    // its paths today, and a field added later that it misses would otherwise print stack garbage
+    // out of `camindoor status` instead of a zero.
+    CameraIndoorProbe probe = { 0 };
+    f32 scale = Camera_IndoorPullInScale(camera, &probe);
+    f32 prevDist = camera->dist;
+    f32 newDist = Camera_ClampDist(camera, dist, distMin * scale, distMax * scale, timer);
+
+    if (Camera_IndoorScaleMovedTarget(scale, dist, distMin, distMax) && (newDist < prevDist)) {
+        f32 ease = probe.easeIn;
+
+        if (ease > CAM_INDOOR_EASE_IN_MAX) {
+            ease = CAM_INDOOR_EASE_IN_MAX;
+        }
+        if (ease < CAM_INDOOR_EASE_IN_MIN) {
+            ease = CAM_INDOOR_EASE_IN_MIN;
+        }
+        newDist = prevDist + ((newDist - prevDist) * ease);
+    }
+
+    sCamIndoorAppliedScale = scale;
+    sCamIndoorDistMin = distMin;
+    sCamIndoorDistMax = distMax;
+    sCamIndoorAppliedFrame = camera->play->state.frames;
+    sCamIndoorApplied = 1;
+    return newDist;
+}
+
+void Camera_IndoorPullInProbe(Camera* camera, CameraIndoorProbe* out) {
+    memset(out, 0, sizeof(*out));
+    Camera_IndoorPullInScale(camera, out);
+    // The camera path stops at the gate and never pays for the ceiling queries. A diagnostic must
+    // not: without this, `camindoor off` reported hits=0 of=0 indoors=0 everywhere, which reads as
+    // "the check looked and found no ceiling" - the one thing it cannot mean, and it made the
+    // baseline row of the #108 run unclassifiable. `scale` still reports the gated answer, so the
+    // two questions stay separate: `indoors` is what the check sees, `scale` is what gets applied.
+    if (!out->enabled || !out->gridToolScene) {
+        out->indoors = Camera_IndoorCeilingFound(camera, out);
+    }
+    out->dist = camera->dist;
+    out->distMin = sCamIndoorDistMin;
+    out->distMax = sCamIndoorDistMax;
+    out->appliedScale = sCamIndoorAppliedScale;
+    out->appliedFrame = sCamIndoorAppliedFrame;
+    out->appliedValid = sCamIndoorApplied;
+    out->frame = camera->play->state.frames;
+}
+
 s32 Camera_Normal1(Camera* camera) {
     if (CVarGetInteger(CVAR_SETTING("FreeLook.Enabled"), 0) && SetCameraManual(camera) == 1) {
         Camera_Free(camera);
@@ -1872,7 +2108,7 @@ s32 Camera_Normal1(Camera* camera) {
     OLib_Vec3fDiffToVecSphGeo(&eyeAdjustment, at, eyeNext);
 
     camera->dist = eyeAdjustment.r =
-        Camera_ClampDist(camera, eyeAdjustment.r, norm1->distMin, norm1->distMax, anim->unk_28);
+        Camera_IndoorClampDist(camera, eyeAdjustment.r, norm1->distMin, norm1->distMax, anim->unk_28);
 
     if (anim->startSwingTimer <= 0) {
         // idle camera re-center
