@@ -72,9 +72,13 @@ namespace {
  * deliberately (settlement / west_fields / north_march / wilderness rather than lumbridge) so
  * that nothing downstream inherits a false premise about where it is.
  *
- * The TRACK LISTS AND DURATIONS added in P2 are POC on the same terms. They are vanilla OoT
- * sequences chosen to be told apart in a log, and their durations are a policy rather than a
- * measurement - see track_durations. Every one of them is replaced when #91 lands real audio.
+ * The TRACK LISTS added in P2 are POC on the same terms, and P3 made half of them real without
+ * making them right. `settlement` and `west_fields` now play the six imported Lumbridge tracks
+ * (#91) - real RuneScape music, in rects named after a fixture, over terrain that is a density
+ * stand-in. THE TRACKS ARE REAL AND THE PLACEMENT IS NOT: nothing about these two zones is
+ * Lumbridge except the music, and when real geography lands the rows go and the rsTrack ids move
+ * to the zones they belong to. `settlement_core`, `north_march`, `wilderness` and
+ * `test_map_interior` keep vanilla ids, which is what keeps the mixed format exercised in-game.
  *
  * What makes throwing this away cheap is the coordinate frame: a rect authored against today's
  * fixture lives in the same frame as a rect authored against real Falador later. Replacing POC
@@ -150,22 +154,42 @@ namespace {
  */
 
 /*
- * `lengthSec` IS A DURATION TABLE, NOT A MEASURED LENGTH, and #90 section 9 chose it over
- * end-of-track detection deliberately. Read since P2.
+ * A TRACK ENTRY IS EITHER A VANILLA `seqId` OR AN IMPORTED `rsTrack`, NEVER BOTH AND NEVER
+ * NEITHER. The format keeps both on purpose (owner, 2026-09-17): RS has no music for a test map,
+ * and an un-imported place still needs something to play.
  *
- * For a looping vanilla NA_BGM_* id the number is a POLICY - 'let this play for about this
- * long, then move on' - because the sequence data loops and would not end on its own. (That
- * vanilla BGM never ends is recorded as INFERRED rather than byte-verified, in AUDIO_SYSTEM.md
- * section 7; nothing here depends on resolving it, which is the point of a duration table.)
+ * A DURATION IS STILL A DURATION TABLE, NOT END-OF-TRACK DETECTION - #90 section 9 chose it
+ * deliberately - but the two halves of the union mean different things by it.
  *
- * For an imported RS track (#91) it will be the track's real length, which the importer already
- * has to know: a Looped="false" sequence requires a Length in seconds. So #91 should EMIT
- * durations rather than making somebody stopwatch them.
+ * For a vanilla `seqId` you write `lengthSec`, in whole seconds, and it is a POLICY: 'let this
+ * play for about this long, then move on', because the sequence data loops and would not end on
+ * its own. (That vanilla BGM never ends is recorded as INFERRED rather than byte-verified, in
+ * AUDIO_SYSTEM.md section 7; nothing here depends on resolving it, which is the point of a
+ * duration table.) The advance is a cut into a song still playing, so it takes the global
+ * RsMusicFadeOutSec.
+ *
+ * For an `rsTrack` you write NOTHING but the id. Its duration is `audioSec` from
+ * rs-tracks.record.json - a MEASUREMENT of where the music ends - and the generator refuses a
+ * `lengthSec` beside it, because a number here would be a second answer that agrees until the
+ * next re-import. Its placeholder, its end fade and its archive path come from the same record.
+ *
+ * WHY audioSec AND NOT THE SEQUENCE'S LENGTH. A Looped="false" sequence runs about 2% past its
+ * authored `Length` plus up to 1.25 s of tick rounding, so the player is still enabled for a
+ * second or two after the music has stopped. Advancing on quiet would put that silence in front
+ * of every track change.
+ *
+ * AND THE END FADE IS THE TRACK'S, NOT THE DIRECTOR'S. RS exports end inconsistently - Flute
+ * Salad carries ~10 s of baked fade-out, Autumn Voyage stops dead - so each track records an
+ * `endFadeSec` (5 by default, authored by ear in rs-tracks.json) and the in-zone advance fires
+ * that far BEFORE audioSec, fading for exactly that long so the ramp lands on the ending. 0 lets
+ * the track's own ending play. Change it with `npm run import:rs-music -- --refresh-record`,
+ * never by editing the record: re-encoding is not byte-reproducible.
  *
  * 0 keeps its old meaning, 'plays until stopped', and a zone whose tracks are all 0 never
  * advances at all. That is what every zone did through P1 and it stays valid - `north_march`
  * below is authored that way on purpose so the behaviour has a live example rather than only a
- * sentence.
+ * sentence. ALL-OR-NOTHING WITHIN A ZONE still holds across the union: an rsTrack always has a
+ * duration, so mixing one into a zone of bare NA_BGM_* ids is refused.
  *
  * The director also advances when sequence player 0 goes quiet on its own, whichever comes
  * first. That is opportunistic and never the mechanism: see 'one end-of-track handler, two
@@ -188,7 +212,7 @@ namespace {
  * rect drawn over the same scene id cannot quietly outrank it.
  */
 const RsZoneTrack kTracks_test_map_interior[] = {
-    { NA_BGM_INSIDE_DEKU_TREE, RS_ZONE_COND_ANY, 0 },
+    { NA_BGM_INSIDE_DEKU_TREE, RS_ZONE_COND_ANY, 0, RS_TRACK_END_FADE_GLOBAL, NULL },
 };
 
 /*
@@ -202,15 +226,20 @@ const RsZoneRect kRects_settlement_core[] = {
     { 3024, 3404, 3043, 3429, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_settlement_core[] = {
-    { NA_BGM_LINK_HOUSE, RS_ZONE_COND_ANY, 0 },
+    { NA_BGM_LINK_HOUSE, RS_ZONE_COND_ANY, 0, RS_TRACK_END_FADE_GLOBAL, NULL },
 };
 
 /*
  * POC. The composited settlement, drawn to its WALL rather than to the grid-tool project's footprint -
- * authoring rule 1. Multi-track since P2, and authored to make the opener interaction observable:
- * NA_BGM_MARKET is BOTH the one-shot opener and an ordinary member of the rotation, so the shuffle bag's
- * very first draw after the opener is the one place the back-to-back guard can be caught doing its job. If
- * it ever draws 0x1D straight after the first-visit 0x1D, the guard is broken.
+ * authoring rule 1. Multi-track since P2 and IMPORTED RS TRACKS since P3, and still authored to make the
+ * opener interaction observable: `harmony` is BOTH the one-shot opener and an ordinary member of the
+ * rotation, so the shuffle bag's very first draw after the opener is the one place the back-to-back guard
+ * can be caught doing its job (authoring rule 7). If it ever draws harmony straight after the first-visit
+ * harmony, the guard is broken - and note that with imported tracks that guard can no longer be checked by
+ * comparing sequence ids, because all six of these carry the same placeholder 0x82. The director compares
+ * the ENTRY, and the marker channel names tracks as `rs:harmony` rather than as `0x82` for the same reason.
+ * These three are the longer half of the Lumbridge set (216 s, 237 s, 324 s), so a full bag cycle here runs
+ * about thirteen minutes: this is the zone for listening, not for watching a queue move.
  *
  * Derivation:
  * `Lumbridge Settlement X3` is 62x79 tiles placed at terrain tile (56,64), and the composite rotates it 180
@@ -224,28 +253,39 @@ const RsZoneRect kRects_settlement[] = {
     { 3006, 3382, 3061, 3451, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_settlement[] = {
-    { NA_BGM_KAKARIKO_KID, RS_ZONE_COND_ANY, 55 },
-    { NA_BGM_MARKET, RS_ZONE_COND_ANY, 45 },
-    { NA_BGM_SHOP, RS_ZONE_COND_ANY, 35 },
+    // harmony: 216.038 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 216038, 5000, "custom/music/rs/harmony" },
+    // yesteryear: 237.029 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 237029, 5000, "custom/music/rs/yesteryear" },
+    // book-of-spells: 323.663 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 323663, 5000, "custom/music/rs/book-of-spells" },
 };
-const RsZoneTrack kFirstVisit_settlement[] = { { NA_BGM_MARKET, RS_ZONE_COND_ANY, 45 } };
+const RsZoneTrack kFirstVisit_settlement[] = {
+    // harmony: 216.038 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 216038, 5000, "custom/music/rs/harmony" },
+};
 
 /*
  * POC. The open ground the settlement stands in, and the zone Link spawns in - which is why it carries the
- * longest track list: it is where a full bag cycle can be watched without moving. Four tracks, all with
- * durations, so one cycle plus the refill draw that follows it runs a little under four minutes. Widened
- * from P0's x 2944..2999 to cover the whole block, so that the ground between the old footprint edge and
- * the actual wall now sounds like the fields - the audible form of authoring rule 1 and the one thing a
- * teleport can demonstrate about it.
+ * tracks a run has to wait on: it is where a queue can be watched without moving. IMPORTED RS TRACKS since
+ * P3, and deliberately the THREE SHORTEST of the Lumbridge set (115 s, 136 s, 154 s), because every in-zone
+ * advance a run asserts has to be waited out in real time and the alternatives are two to five minutes
+ * each. `flute-salad` is also the one with ~10 s of fade-out baked into the audio, which is the track the 5
+ * s end fade has the least to do on - the pair that makes the end-fade design legible is this zone's
+ * flute-salad against autumn-voyage, which stops dead. Widened from P0's x 2944..2999 to cover the whole
+ * block, so that the ground between the old footprint edge and the actual wall now sounds like the fields -
+ * the audible form of authoring rule 1 and the one thing a teleport can demonstrate about it.
  */
 const RsZoneRect kRects_west_fields[] = {
     { 2944, 3376, 3062, 3455, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_west_fields[] = {
-    { NA_BGM_KOKIRI, RS_ZONE_COND_ANY, 45 },
-    { NA_BGM_SARIA_THEME, RS_ZONE_COND_ANY, 40 },
-    { NA_BGM_FIELD_MORNING, RS_ZONE_COND_ANY, 35 },
-    { NA_BGM_WINDMILL, RS_ZONE_COND_ANY, 50 },
+    // flute-salad: 115.217 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 115217, 5000, "custom/music/rs/flute-salad" },
+    // autumn-voyage: 136.046 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 136046, 5000, "custom/music/rs/autumn-voyage" },
+    // dream: 153.646 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 153646, 5000, "custom/music/rs/dream" },
 };
 
 /*
@@ -260,9 +300,9 @@ const RsZoneRect kRects_north_march[] = {
     { 2944, 3456, 3062, 3519, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_north_march[] = {
-    { NA_BGM_GERUDO_VALLEY, RS_ZONE_COND_ANY, 0 },
-    { NA_BGM_ZORA_DOMAIN, RS_ZONE_COND_ANY, 0 },
-    { NA_BGM_GORON_CITY, RS_ZONE_COND_ANY, 0 },
+    { NA_BGM_GERUDO_VALLEY, RS_ZONE_COND_ANY, 0, RS_TRACK_END_FADE_GLOBAL, NULL },
+    { NA_BGM_ZORA_DOMAIN, RS_ZONE_COND_ANY, 0, RS_TRACK_END_FADE_GLOBAL, NULL },
+    { NA_BGM_GORON_CITY, RS_ZONE_COND_ANY, 0, RS_TRACK_END_FADE_GLOBAL, NULL },
 };
 
 /*
@@ -271,7 +311,7 @@ const RsZoneTrack kTracks_north_march[] = {
  * does not create silence - it creates a hole.
  */
 const RsZoneTrack kTracks_wilderness[] = {
-    { NA_BGM_LONLON, RS_ZONE_COND_ANY, 0 },
+    { NA_BGM_LONLON, RS_ZONE_COND_ANY, 0, RS_TRACK_END_FADE_GLOBAL, NULL },
 };
 
 /*
@@ -323,7 +363,7 @@ const RsMusicZone kZones[] = {
         .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
         .flags = 0,
         .rectCount = 1,
-        .trackCount = 4,
+        .trackCount = 3,
         .rects = kRects_west_fields,
         .tracks = kTracks_west_fields,
         .firstVisitTrack = NULL,
@@ -383,10 +423,12 @@ const RsMusicScene kScenes[] = {
         .flags = 0,
     },
    /*
-    * THE ONE TO TEST AUDIO IN (0x8A, `entrance 0x633`). Same bake as SCENE_TERRAIN_F2P_SETTLEMENT above -
-    * same field, same `Lumbridge Settlement X3@56,64` composite, same everything - re-emitted 2026-09-10
-    * through the C exporter with #95's T-junctions closed, so the seams no longer tear. Prefer it for
-    * anything a human has to look at while listening.
+    * THE ONE TO TEST AUDIO IN (0x8A, `entrance 0x633`). Same inputs as SCENE_TERRAIN_F2P_SETTLEMENT above -
+    * same field, same `Lumbridge Settlement X3@56,64` composite - re-emitted 2026-09-10, so the seams no
+    * longer tear. NOT only a T-junction difference: the original was baked 2026-08-26 and a dozen emitter
+    * changes have landed since (wall-run and floor-slab merging, carving, stone tiling, then #95), which is
+    * why this mesh is the smaller of the two despite stitching adding vertices. Prefer it for anything a
+    * human has to look at while listening.
     *
     * Derivation:
     * IDENTICAL to SCENE_TERRAIN_F2P_SETTLEMENT's, and that is checked rather than assumed. The anchor is a

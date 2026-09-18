@@ -108,6 +108,28 @@
  * answer: if the trigger was "went quiet" there is nothing left to fade out of, and if it was the
  * timer, the handler asks func_800FA0B4 whether player 0 is still sounding and fades if it is.
  *
+ * IMPORTED RS TRACKS (#90 P3, on top of #91). A track entry is either a vanilla NA_BGM_* id or an
+ * imported one, and four things follow from the second case. All four are engine facts measured in
+ * #91, not preferences - AUDIO_SYSTEM.md section 10 has the measurements.
+ *
+ *   - IT IS STARTED THROUGH THE BACK DOOR. SEQCMD masks its sequence id to 8 bits and custom
+ *     sequences number from about 110 up, so the real number goes into gAudioContext.seqToPlay[0]
+ *     with seqReplaced[0] = 1 and a vanilla-range PLACEHOLDER rides through SEQCMD beside it.
+ *   - PLAYER 0 THEN REPORTS THE PLACEHOLDER, not the track. That is why RsZoneTrack::seqId holds
+ *     the placeholder for an RS entry: every "is player 0 still ours" test in this file compares
+ *     against that field, so the yield check, both release exits and the warp reclaim are right
+ *     for imported tracks with no branch of their own. Comparing against the custom number instead
+ *     makes the director yield to its own track on the very next tick.
+ *   - THE NAME IS A PATH, RESOLVED EVERY TIME. Custom numbers are handed out in sorted path order
+ *     across every mounted archive, so a player installing any music pack that sorts earlier
+ *     renumbers ours. A path that does not resolve is never silently skipped: it logs
+ *     `track_unresolved` naming the path and the zone goes audibly quiet until the next switch.
+ *   - THE QUEUE ADVANCES ON WHEN THE MUSIC ENDS, NOT ON WHEN THE PLAYER STOPS. A Looped="false"
+ *     sequence runs about 2% past its authored Length plus up to 1.25 s of tick rounding, so
+ *     waiting for quiet would leave a silent tail. RsZoneTrack::durationMs is the measured audio
+ *     length, and RsZoneTrack::endFadeMs starts the fade that far before it so the ramp reaches
+ *     zero as the music does.
+ *
  * A TRACK THAT NEVER STARTS IS NOT A TRACK THAT ENDED. A bad sequence id leaves player 0 quiet
  * immediately, and a naive "quiet means advance" would walk the whole bag at frame rate. The
  * director will not treat quiet as an ending unless it has actually SEEN that track sounding on
@@ -120,6 +142,10 @@
  */
 
 #include <stdint.h>
+
+/* For RsZoneTrack: since #90 P3 this interface speaks in table entries rather than in sequence ids,
+ * because an id no longer identifies a track (every imported one carries the same placeholder). */
+#include "MusicZones.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -145,6 +171,35 @@ void RsMusic_NotifyWarped(const char* reason);
 /* Writes `<x>,<y>`, or `none` if either is RS_NO_TILE. One function so every surface that prints a
  * tile pair - the marker channel, `status`, `where` - agrees about what "nowhere" looks like. */
 void RsMusic_FormatTiles(char* buf, uint32_t size, int32_t rsX, int32_t rsY);
+
+/*
+ * A custom sequence named by its archive path -> the number it was given THIS boot, or -1 with
+ * `*error` set to a single-token reason (`not_registered`, `ambiguous_name`). `error` may be NULL.
+ *
+ * NEVER CACHE WHAT THIS RETURNS ACROSS A BOOT. Numbers are handed out in sorted path order over
+ * every mounted archive, so a track's number moves when any archive adds a custom/music path that
+ * sorts earlier - including a player's own music pack, which can renumber ours (#91, measured). The
+ * path is the stable name; this is the lookup, and it is cheap enough to do at every track start.
+ *
+ * `name` may also be the part after the last '/' when that is unique across every custom/music
+ * path, which is what makes `rsmusic testplay flute-salad` typeable. The zone table always passes
+ * the full path, which takes the exact-match branch.
+ *
+ * Lives here rather than in MusicConsole.cpp because the director is the consumer that matters: two
+ * implementations of "which number is this path" is two answers the day one of them is edited.
+ */
+int32_t RsMusic_ResolveTrackPath(const char* name, const char** error);
+
+/*
+ * What a track is CALLED, on the marker channel and on every console surface: `0x3C` for a vanilla
+ * id, `rs:flute-salad` for an imported one, `none` for NULL.
+ *
+ * One formatter, for the same reason RsMusic_FormatTiles is one: `transition`, `advance`, `refill`,
+ * `status`, `zones`, `bags` and `firstvisit` all name tracks, and a second spelling is a second
+ * thing to keep in step. It is not `0x%X` any more because an id stopped identifying a track when
+ * imported ones arrived - all six Lumbridge tracks are `0x82`.
+ */
+void RsMusic_FormatTrack(char* buf, uint32_t size, const RsZoneTrack* track);
 
 /* One-line description of the live state: `zone=<name> track=0x<hex> state=<name> ...`. Never NULL.
  *

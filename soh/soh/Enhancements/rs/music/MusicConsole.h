@@ -30,7 +30,10 @@
 //                         "greppable" and "one line in total" were never the same requirement
 //   where                 Link's position in BOTH frames plus the zone that wins there. The
 //                         "check a rect against where he actually is" tool
-//   zones                 one line per table entry: priority, scene binding, rects, tracks
+//   zones                 one line per table entry: priority, scene binding, rects, tracks. A
+//                         track line is the ONE surface that prints an imported track's full
+//                         archive path and the sequence number it resolved to this boot, which are
+//                         the two things the short `rs:<id>` label everywhere else cannot answer
 //   scenes                the per-scene opt-in list and each scene's RS coordinate anchor
 //   bags                  every zone's shuffle bag: the shuffled order, how far through it the
 //                         zone is, and what it played last. The `advance` marker already makes a
@@ -52,8 +55,12 @@
 //   players               all four sequence players as the engine reads them (#90 P5), plus the
 //                         audio thread's own view of each (#91) - see the comment in the renderer
 //
-// TEST SURFACE for sturdy-bassoon#91, the RS track import. These bypass the director entirely and are
-// a probe, not a feature; #90 P3 wires tracks into the director and may retire them:
+// TEST SURFACE for sturdy-bassoon#91, the RS track import. These bypass the director entirely.
+// #90 P3 wired imported tracks into the director and KEPT THESE: the director only ever plays what
+// the zone table says, in an opted-in scene, after a dwell, so it cannot answer "does this newly
+// imported file sound right" - which is the question every future import asks and the one the #91
+// listening pass was made of. What P3 did take is the path->number lookup, now shared with the
+// director as RsMusic_ResolveTrackPath, so `testplay flute-salad` and the table cannot disagree:
 //   tracks                every custom sequence and the number it got this boot. rc=1 when no RS
 //                         track is registered - which is what a stale soh.o2r looks like
 //   testplay <track> <placeholder> [fade_in_sec]

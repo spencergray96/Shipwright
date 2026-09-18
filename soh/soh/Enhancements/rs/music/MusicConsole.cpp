@@ -100,10 +100,20 @@ int32_t SetSeconds(const std::vector<std::string>& args, std::vector<std::string
 
 // --- TEST SURFACE for sturdy-bassoon#91: tracks / testplay / teststop ---------------------------
 //
-// #91 imports RS tracks and proves they play; wiring them into the zone director is #90 P3. These
+// #91 imports RS tracks and proves they play; #90 P3 wired them into the zone director. These
 // subcommands start, stop and list custom tracks WITHOUT going through the director, so a track can
-// be heard and measured on its own. They are a probe, not a feature: the director reads none of it,
-// and P3 is expected to replace `testplay` with the director's own start.
+// be heard and measured on its own.
+//
+// P3 WAS EXPECTED TO RETIRE `testplay` AND DELIBERATELY DID NOT. The director's start is now the
+// production path, but it only ever plays what the zone table says, in an opted-in scene, after a
+// dwell - so it cannot answer "does this newly imported file sound right", which is the question
+// every future import asks and the one the owner's #91 listening pass was made of. Isolating one
+// track from all of the zone logic is the whole value; that is a different job from playing the
+// right track in the right place, and it keeps its own command.
+//
+// What P3 DID take from here is the path->number lookup, which is now RsMusic_ResolveTrackPath in
+// ZoneDirector.cpp and shared, so `testplay flute-salad` and the table cannot disagree about which
+// sequence that is.
 
 // Every custom sequence is listed from this virtual path (audio_load.c, ListFiles "custom/music/*").
 constexpr const char* CUSTOM_MUSIC_PREFIX = "custom/music/";
@@ -120,35 +130,9 @@ bool StartsWith(const char* s, const char* prefix) {
     return std::strncmp(s, prefix, std::strlen(prefix)) == 0;
 }
 
-// A track named by path, resolved to the number it was given THIS boot. Numbers are handed out in
-// sorted path order across every mounted archive, so the path is the stable name and the number is
-// not. Accepts the full archive path, or the part after its last '/' when that is unique.
-int32_t ResolveCustomTrack(const std::string& name, const char** error) {
-    int32_t found = -1;
-    int32_t matches = 0;
-    const size_t slots = SequenceSlots();
-    for (size_t i = 0; i < slots; i++) {
-        const char* path = sequenceMap[i];
-        if (path == nullptr || !StartsWith(path, CUSTOM_MUSIC_PREFIX)) {
-            continue;
-        }
-        if (name == path) {
-            *error = nullptr;
-            return (int32_t)i;
-        }
-        const char* slash = std::strrchr(path, '/');
-        if (name == (slash != nullptr ? slash + 1 : path)) {
-            found = (int32_t)i;
-            matches++;
-        }
-    }
-    if (matches == 1) {
-        *error = nullptr;
-        return found;
-    }
-    *error = (matches == 0) ? "not_registered" : "ambiguous_name";
-    return -1;
-}
+// (Resolving a path to a sequence number lives in ZoneDirector.cpp as RsMusic_ResolveTrackPath. It
+// started here, for #91's probe; the zone director is the consumer that matters now, and two
+// answers to "which number is this path" is one answer too many.)
 
 bool ParseSeqByte(const std::string& s, uint32_t* out) {
     char* end = nullptr;
@@ -234,17 +218,44 @@ int32_t MusicConsole_Run(const std::vector<std::string>& args, std::vector<std::
                  z->name, (int32_t)z->priority, (z->flags & RS_ZONE_FLAG_FALLBACK) ? 1 : 0, scene,
                  (int32_t)z->rectCount, (int32_t)z->trackCount, (int32_t)z->firstVisitFlag);
             if (z->firstVisitTrack != NULL) {
-                Addf(lines, "first_visit[%d]=0x%X flag=%d set=%d", i, (uint32_t)z->firstVisitTrack->seqId,
-                     (int32_t)z->firstVisitFlag, Flags_GetWorldFlag(z->firstVisitFlag) ? 1 : 0);
+                char label[48];
+                RsMusic_FormatTrack(label, sizeof(label), z->firstVisitTrack);
+                Addf(lines, "first_visit[%d]=%s flag=%d set=%d", i, label, (int32_t)z->firstVisitFlag,
+                     Flags_GetWorldFlag(z->firstVisitFlag) ? 1 : 0);
             }
             for (uint8_t r = 0; r < z->rectCount; r++) {
                 const RsZoneRect& rect = z->rects[r];
                 Addf(lines, "rect[%d.%d]=%d,%d..%d,%d y=%d..%d", i, (int32_t)r, (int32_t)rect.x0, (int32_t)rect.y0,
                      (int32_t)rect.x1, (int32_t)rect.y1, (int32_t)rect.yMinUnits, (int32_t)rect.yMaxUnits);
             }
+            // The one surface that prints an imported track's FULL path and its live sequence
+            // number, because "which file is that" and "did it resolve this boot" are the two
+            // questions the short label cannot answer. A vanilla entry reports rs=none.
             for (uint8_t t = 0; t < z->trackCount; t++) {
-                Addf(lines, "track[%d.%d]=0x%X cond=0x%X len=%d", i, (int32_t)t, (uint32_t)z->tracks[t].seqId,
-                     (uint32_t)z->tracks[t].conditions, (int32_t)z->tracks[t].lengthSec);
+                const RsZoneTrack& track = z->tracks[t];
+                char label[48];
+                RsMusic_FormatTrack(label, sizeof(label), &track);
+                char endFade[16];
+                if (track.endFadeMs == RS_TRACK_END_FADE_GLOBAL) {
+                    std::snprintf(endFade, sizeof(endFade), "global");
+                } else {
+                    std::snprintf(endFade, sizeof(endFade), "%u", (uint32_t)track.endFadeMs);
+                }
+                char resolved[16];
+                if (track.rsPath == NULL) {
+                    std::snprintf(resolved, sizeof(resolved), "none");
+                } else {
+                    const char* error = nullptr;
+                    const int32_t seq = RsMusic_ResolveTrackPath(track.rsPath, &error);
+                    if (seq < 0) {
+                        std::snprintf(resolved, sizeof(resolved), "%s", error != nullptr ? error : "unknown");
+                    } else {
+                        std::snprintf(resolved, sizeof(resolved), "0x%X", (uint32_t)seq);
+                    }
+                }
+                Addf(lines, "track[%d.%d]=%s seq=0x%X cond=0x%X len_ms=%u end_fade_ms=%s audio_seq=%s rs=\"%s\"", i,
+                     (int32_t)t, label, (uint32_t)track.seqId, (uint32_t)track.conditions, track.durationMs, endFade,
+                     resolved, track.rsPath != NULL ? track.rsPath : "none");
             }
         }
         return 0;
@@ -298,8 +309,10 @@ int32_t MusicConsole_Run(const std::vector<std::string>& args, std::vector<std::
                 continue;
             }
             withOpener++;
-            Addf(lines, "firstvisit zone=%s flag=%d track=0x%X set=%d", z->name, (int32_t)z->firstVisitFlag,
-                 (uint32_t)z->firstVisitTrack->seqId, Flags_GetWorldFlag(z->firstVisitFlag) ? 1 : 0);
+            char label[48];
+            RsMusic_FormatTrack(label, sizeof(label), z->firstVisitTrack);
+            Addf(lines, "firstvisit zone=%s flag=%d track=%s set=%d", z->name, (int32_t)z->firstVisitFlag, label,
+                 Flags_GetWorldFlag(z->firstVisitFlag) ? 1 : 0);
         }
         // Emitted last so the count is a witness that the loop ran, not a header a zero-zone table
         // could produce by doing nothing. `agenttest worldflag <n> 0` clears one to re-test.
@@ -418,7 +431,7 @@ int32_t MusicConsole_Run(const std::vector<std::string>& args, std::vector<std::
             return 1;
         }
         const char* error = nullptr;
-        const int32_t seq = ResolveCustomTrack(args[1], &error);
+        const int32_t seq = RsMusic_ResolveTrackPath(args[1].c_str(), &error);
         if (seq < 0) {
             Addf(lines, "op=testplay result=error error=%s track=%s", error, args[1].c_str());
             return 1;

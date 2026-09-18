@@ -35,6 +35,11 @@ extern PlayState* gPlayState;
 // code_800EC960.c's mini-boss stash, declared in no header. Written in exactly one place - see
 // ReclaimFromOverride.
 extern u16 sPrevMainBgmSeqId;
+// audio_load.c's registry: sequenceMap[n] is the archive path sequence number n was given at boot,
+// NULL for an unassigned number, over sequenceMapSize + 0xF slots (the same figure
+// AudioLoad_SyncInitSeqPlayerInternal bounds-checks against). z64audio.h declares only the size.
+// Read, never written. See RsMusic_ResolveTrackPath.
+extern char** sequenceMap;
 }
 
 // --- the four knobs ----------------------------------------------------------------------------
@@ -93,7 +98,12 @@ constexpr int32_t FADE_UNITS_MAX = 255;
 constexpr int32_t START_GRACE_TICKS = 10;
 
 constexpr int32_t EVENT_SLOTS = 8;
-constexpr int32_t EVENT_LEN = 256;
+// Raised from 256 by #90 P3. `transition` and `advance` both grew a track NAME (an imported track's
+// is `rs:book-of-spells`, not two hex digits), the resolved custom sequence number, the per-track end
+// fade and which fade the advance used; the longest measured about 240 characters, which is close
+// enough to 256 that the next field added would have truncated a line silently. A truncated
+// key=value line is worse than a missing one: it parses, and the last field it carries is wrong.
+constexpr int32_t EVENT_LEN = 384;
 constexpr int32_t NO_ZONE = -1;
 
 /*
@@ -120,6 +130,10 @@ constexpr int32_t NO_ZONE = -1;
  *
  * Returns 0 before the audio heap is initialised, which the caller reads as "no clock, do not
  * advance on duration".
+ *
+ * THIS IS THE REPORTED RATE, NOT THE ONE ANY COMPARISON USES. It is truncated to a whole number of
+ * ticks per second - 176 here, where the true value is fractional - which is exactly why nothing
+ * times a track with it. See ScriptTicksToMs.
  */
 uint32_t ScriptTicksPerSecond() {
     const AudioBufferParameters* p = &gAudioContext.audioBufferParameters;
@@ -128,6 +142,43 @@ uint32_t ScriptTicksPerSecond() {
     }
     return (uint32_t)(((uint64_t)p->frequency * (uint64_t)(uint32_t)p->updatesPerFrame) /
                       (uint64_t)(uint32_t)p->samplesPerFrameTarget);
+}
+
+/*
+ * Script ticks -> milliseconds, in one exact rational step rather than through a truncated rate.
+ *
+ *     ms = ticks * 1000 * samplesPerFrameTarget / (frequency * updatesPerFrame)
+ *
+ * WHY NOT `ticks / ScriptTicksPerSecond()`. That integer divide was P2's arithmetic, and truncating
+ * 176.4-ish to 176 fires a duration consistently about 1% EARLY - measured on the 2026-09-09 P2
+ * run, where a 45 s track advanced at 44.6 s across four tracks. At P2 that was inside what an
+ * authored policy number even meant, and it was recorded rather than fixed (AUDIO_SYSTEM.md
+ * section 7).
+ *
+ * P3 is where it stops being inside the meaning. An imported track's duration is a MEASUREMENT of
+ * where the music ends, and the end fade is aimed at that instant: 1% of a 136 s track is 1.4 s, so
+ * a nominally 5 s ramp would reach zero a second and a half before the music did and the stop would
+ * cut the last of it. In 64-bit integer arithmetic there is nothing to truncate, and the largest
+ * intermediate here (a five-minute track, ~53k ticks x 1000 x samplesPerFrameTarget) is nine orders
+ * of magnitude inside the type.
+ *
+ * Returns 0 when there is no clock yet, which the caller reads the same way as before.
+ */
+uint64_t ScriptTicksToMs(uint32_t ticks) {
+    const AudioBufferParameters* p = &gAudioContext.audioBufferParameters;
+    if (p->frequency == 0 || p->samplesPerFrameTarget <= 0 || p->updatesPerFrame <= 0) {
+        return 0;
+    }
+    const uint64_t num = (uint64_t)ticks * 1000u * (uint64_t)(uint32_t)p->samplesPerFrameTarget;
+    const uint64_t den = (uint64_t)p->frequency * (uint64_t)(uint32_t)p->updatesPerFrame;
+    return num / den;
+}
+
+/* Does the audio clock exist yet? Separate from "the elapsed time is 0", which is a real answer on
+ * the first tick of a track. */
+bool HasAudioClock() {
+    const AudioBufferParameters* p = &gAudioContext.audioBufferParameters;
+    return p->frequency != 0 && p->samplesPerFrameTarget > 0 && p->updatesPerFrame > 0;
 }
 
 uint32_t ScriptCounter() {
@@ -171,16 +222,34 @@ int32_t sGraceTicks = 0; // remaining ticks before the yield check trusts func_8
 // not a pure function any more - a first-visit pick spends a world flag - so calling the picker
 // again to fill in a log line would spend it twice and hand STATE_FADING a different track from the
 // one that was announced.
-uint16_t sPendingSeqId = NA_BGM_DISABLED;
+// The chosen entry itself, pointing into the static generated table, rather than a copy of its
+// fields: since #90 P3 a track is four numbers and a string, and every consumer wants a different
+// subset. NULL means authored silence.
+const RsZoneTrack* sPendingEntry = nullptr;
 bool sPendingFirstVisit = false;
-uint16_t sPendingLengthSec = 0;
 uint8_t sPendingBagPos = 0; // 1-based position within the bag; 0 = not drawn from one
 uint8_t sPendingBagSize = 0;
+/*
+ * The custom sequence number the pending entry's rsPath resolved to; -1 for a vanilla entry and for
+ * an RS path that did not resolve, told apart by sPendingUnresolved.
+ *
+ * RESOLVED AT PICK TIME rather than at start time, so the `transition` line can report the number
+ * it is about to play - or report the failure before it announces a track that cannot sound.
+ * sequenceMap does not change after boot, so the answer cannot go stale inside the switch's own
+ * quiet gap.
+ */
+int32_t sPendingAudioSeq = -1;
+bool sPendingUnresolved = false;
+
+const RsZoneTrack* sPlayingEntry = nullptr;
+// Kept apart from sPlayingEntry because it has a different lifetime: this is "our id" for every
+// ownership test, and it is the PLACEHOLDER for an imported track, which is exactly what player 0
+// reports back (#91). NA_BGM_DISABLED means nothing of ours is on player 0.
 uint16_t sPlayingSeqId = NA_BGM_DISABLED;
 bool sPlayingFirstVisit = false;
-uint16_t sPlayingLengthSec = 0; // 0 = "plays until stopped": no duration trigger for this track
 uint8_t sPlayingBagPos = 0;
 uint8_t sPlayingBagSize = 0;
+int32_t sPlayingAudioSeq = -1;
 
 /*
  * Has player 0 actually been observed sounding OUR track since we asked for it?
@@ -193,8 +262,32 @@ uint8_t sPlayingBagSize = 0;
  * not move for it - otherwise one typo walks the whole bag (see EndOfTrack).
  */
 bool sSounding = false;
-uint32_t sTrackStartCounter = 0; // scriptCounter on the tick sSounding first went true
-bool sClockResetLogged = false;  // one diagnostic per track, not one per frame
+
+/*
+ * THE TRACK CLOCK IS seqPlayer->scriptCounter ITSELF, not a difference from a baseline taken when
+ * the director first saw the track sounding. `now`, not `now - start`.
+ *
+ * AudioSeq_ResetSequencePlayer zeroes scriptCounter when a sequence is loaded onto the player, and
+ * SEQCMD_PLAY_SEQUENCE always loads, so the counter IS "how long this track has been playing".
+ * Subtracting a baseline threw away everything before the director noticed - the play command's
+ * trip to the audio thread plus START_GRACE_TICKS, about **one second**, measured at 0.97 s on the
+ * 2026-09-17 P3 run against `players[0] sec=`.
+ *
+ * P2 could not see that, because its two errors cancelled: truncating tick_hz fired the duration
+ * ~1% early (1.15 s on a 115 s track) and the baseline fired it ~1 s late. Fixing the truncation
+ * for P3's end fade uncovered the other half, and the run measured the fade landing 1.1 s after
+ * the music ended rather than the predicted 0.1 s - on a track whose whole point is that the ramp
+ * reaches zero AS the music does.
+ *
+ * WHAT THE BASELINE WAS FOR is now covered elsewhere. #90 P2 added it against a re-assert that
+ * confirmed `sounding` against the OUTGOING playback and then had the counter zeroed under it; the
+ * grace window's "nothing func_800FA0B4 says is trusted in here, positive or negative" is what
+ * fixes that, and it is unchanged. And the unsigned-wrap runaway the old code guarded against
+ * cannot happen without a subtraction at all: a sequence that writes its own counter backwards
+ * (opcode 0xC5) now simply makes the duration fire later, never four billion ticks early.
+ */
+uint32_t sLastCounter = 0;      // previous reading, for the backwards-jump diagnostic only
+bool sClockResetLogged = false; // one diagnostic per track, not one per frame
 
 int32_t sTransitions = 0;
 // Advances are counted apart from transitions and this is load-bearing. The negative every run of
@@ -258,6 +351,18 @@ int32_t SecondsToTicks(float seconds) {
     return (int32_t)lroundf(ClampSeconds(seconds) * (float)TICKS_PER_SECOND);
 }
 
+// The millisecond forms, for a per-track end fade (RsZoneTrack::endFadeMs) rather than a CVar in
+// seconds. Same clamps, same 8-bit ceiling - a fade the engine cannot express would wrap, not
+// saturate, so this is the last line of defence behind the generator's own cap.
+int32_t FadeUnitsMs(uint32_t ms) {
+    const int32_t units = (int32_t)(((uint64_t)ms * FADE_UNITS_PER_SECOND + 500u) / 1000u);
+    return units > FADE_UNITS_MAX ? FADE_UNITS_MAX : units;
+}
+
+int32_t TicksFromMs(uint32_t ms) {
+    return (int32_t)(((uint64_t)ms * TICKS_PER_SECOND + 500u) / 1000u);
+}
+
 void RecordEvent(const char* fmt, ...) {
     const int32_t next = (sEventWrite + 1) % EVENT_SLOTS;
     if (next == sEventRead) {
@@ -269,6 +374,64 @@ void RecordEvent(const char* fmt, ...) {
     std::vsnprintf(sEvents[sEventWrite], EVENT_LEN, fmt, args);
     va_end(args);
     sEventWrite = next;
+}
+
+// --- naming a track ------------------------------------------------------------------------------
+//
+// A vanilla entry is named by its id and an imported one by its path, and after #90 P3 those two
+// live in one list. Everything below exists because the OBVIOUS name - RsZoneTrack::seqId - stopped
+// identifying a track the moment RS entries arrived: every imported track carries the same
+// placeholder (0x82 for all six Lumbridge tracks), so an id comparison says "same track" about two
+// different songs and an id in a log line says nothing about which one played.
+
+/*
+ * Are these two entries the same track? THE BACK-TO-BACK GUARD DEPENDS ON THIS ANSWER, and getting
+ * it from seqId would have silently disabled the guard for RS content: with every placeholder equal
+ * the guard sees a repeat proposed every single refill, scans for an entry with a different id,
+ * finds none, and reports `guard=unavoidable` forever - which is also exactly what it reports for
+ * a zone legitimately authored as several copies of one track. A guard that cannot act, reporting
+ * the outcome that means "correctly could not act".
+ *
+ * So: two RS entries are the same track when their paths match, two vanilla entries when their ids
+ * match, and an RS entry is never the same track as a vanilla one. Comparing the path's CONTENT
+ * rather than the pointer keeps the property #90 P2 wrote down for ids - a list authored with the
+ * same track twice still guards correctly - and does not depend on whether the compiler pooled two
+ * identical string literals.
+ */
+bool SameTrack(const RsZoneTrack* a, const RsZoneTrack* b) {
+    if (a == nullptr || b == nullptr) {
+        return false;
+    }
+    if ((a->rsPath == nullptr) != (b->rsPath == nullptr)) {
+        return false;
+    }
+    if (a->rsPath != nullptr) {
+        return std::strcmp(a->rsPath, b->rsPath) == 0;
+    }
+    return a->seqId == b->seqId;
+}
+
+/*
+ * What a track is called on the marker channel and the console: `0x3C` for a vanilla id, or
+ * `rs:flute-salad` for an imported one.
+ *
+ * ONE FORMATTER so `transition`, `advance`, `refill`, `status` and `zones` cannot disagree - the
+ * same reason RsMusic_FormatTiles and FormatBag exist. The last path segment rather than the whole
+ * path because the channel is `key=value` with no spaces and the full path is long; `rsmusic zones`
+ * prints it in full, which is the surface for "which file is that".
+ */
+/* (The definition is RsMusic_FormatTrack, at the bottom of this file with the other exported
+ * surfaces - MusicConsole.cpp names tracks too, and two spellings of a label is two things to keep
+ * in step.) */
+
+/* The same label with a caller-chosen word for NULL, because "no track" means different things in
+ * different lines: `silence` where a zone authored none, `none` where one simply is not playing. */
+void FormatTrackOr(char* buf, uint32_t size, const RsZoneTrack* t, const char* ifNull) {
+    if (t == nullptr) {
+        std::snprintf(buf, size, "%s", ifNull);
+        return;
+    }
+    RsMusic_FormatTrack(buf, size, t);
 }
 
 // --- the coordinate frame ----------------------------------------------------------------------
@@ -405,8 +568,15 @@ struct TrackBag {
     uint8_t order[RS_MUSIC_MAX_TRACKS_PER_ZONE]; // indices into the zone's track list, shuffled
     uint8_t size;                                // entries in `order`
     uint8_t next;                                // next index to draw; next == size means empty
-    uint16_t lastSeqId;                          // what this zone played last, for the guard below
-    bool hasLast;
+    /*
+     * What this zone played last, for the guard below. NULL means nothing yet this session.
+     *
+     * A POINTER INTO THE GENERATED TABLE, not a copy and not an id. The table is static storage
+     * that outlives every scene load, so the pointer stays valid exactly as long as the bag does.
+     * It was a uint16_t seqId through P2; #90 P3 gave every imported track the same placeholder id,
+     * which made an id comparison stop identifying a track at all - see SameTrack.
+     */
+    const RsZoneTrack* last;
 };
 
 TrackBag sBags[RS_MUSIC_MAX_ZONES];
@@ -476,23 +646,28 @@ void RefillBag(TrackBag* bag, const RsMusicZone* z) {
      *
      * A zone with one track cannot avoid the repeat and should not try: with an imported
      * non-looping track (#91) a one-track zone with a duration means "when it ends, play it again",
-     * which is exactly right. Duplicate ids inside a list are handled too - the scan skips past any
-     * entry that would repeat the id rather than only past the entry that was drawn.
+     * which is exactly right. A list authored with the same track twice is handled too - the scan
+     * skips past any entry that would repeat it, not only past the entry that was drawn.
+     *
+     * WHAT "THE SAME TRACK" MEANS IS NOT "THE SAME seqId" - see SameTrack. Every imported track
+     * carries the same placeholder, so an id comparison here would report `unavoidable` on every
+     * refill of an RS zone: the guard silently unable to act, wearing the outcome that means it
+     * correctly could not.
      */
-    const uint16_t shuffledFirst = (n > 0) ? z->tracks[bag->order[0]].seqId : (uint16_t)NA_BGM_DISABLED;
+    const RsZoneTrack* shuffledFirst = (n > 0) ? &z->tracks[bag->order[0]] : nullptr;
     const char* guard = "not_needed";
-    if (!bag->hasLast) {
+    if (bag->last == nullptr) {
         guard = "no_last"; // first fill of the session: there is no just-played track to repeat
     } else if (n <= 1) {
         guard = "single"; // see above - a one-track zone repeating itself is correct, not a miss
-    } else if (shuffledFirst == bag->lastSeqId) {
-        // Overwritten below unless every OTHER entry carries the same id too - a zone authored
+    } else if (SameTrack(shuffledFirst, bag->last)) {
+        // Overwritten below unless every OTHER entry is the same track too - a zone authored
         // as several copies of one track, where the repeat is arithmetic rather than a miss.
         guard = "unavoidable";
         const uint8_t start = (uint8_t)(NextRandom() % (uint32_t)(n - 1));
         for (uint8_t k = 0; k < n - 1; k++) {
             const uint8_t j = (uint8_t)(1 + ((start + k) % (n - 1)));
-            if (z->tracks[bag->order[j]].seqId != bag->lastSeqId) {
+            if (!SameTrack(&z->tracks[bag->order[j]], bag->last)) {
                 const uint8_t tmp = bag->order[0];
                 bag->order[0] = bag->order[j];
                 bag->order[j] = tmp;
@@ -527,22 +702,25 @@ void RefillBag(TrackBag* bag, const RsMusicZone* z) {
             break;
         }
     }
-    char last[16];
-    if (bag->hasLast) {
-        std::snprintf(last, sizeof(last), "0x%X", (uint32_t)bag->lastSeqId);
-    } else {
-        std::snprintf(last, sizeof(last), "none");
-    }
-    RecordEvent("refill zone=%s size=%d last=%s shuffled=0x%X guard=%s order=%s frame=%u", z->name, (int32_t)n, last,
-                shuffledFirst, guard, order, gPlayState != nullptr ? gPlayState->state.frames : 0u);
+    char last[48];
+    FormatTrackOr(last, sizeof(last), bag->last, "none");
+    char proposed[48];
+    FormatTrackOr(proposed, sizeof(proposed), shuffledFirst, "none");
+    RecordEvent("refill zone=%s size=%d last=%s shuffled=%s guard=%s order=%s frame=%u", z->name, (int32_t)n, last,
+                proposed, guard, order, gPlayState != nullptr ? gPlayState->state.frames : 0u);
 }
 
-/* What a track choice hands back: the id, how long to let it play, and where in the bag it came
- * from so the marker channel can carry a reconstructable cycle. bagPos is 1-based; 0 means "not
- * drawn from the bag" - the first-visit seed, or silence. */
+/*
+ * What a track choice hands back: WHICH ENTRY, and where in the bag it came from so the marker
+ * channel can carry a reconstructable cycle. bagPos is 1-based; 0 means "not drawn from the bag" -
+ * the first-visit seed, or silence.
+ *
+ * The entry rather than a copy of its fields, because since #90 P3 a track is four numbers and a
+ * string and every consumer wants a different subset. It points into the static generated table.
+ * NULL means authored silence, which is a legitimate choice rather than an error.
+ */
 struct TrackPick {
-    uint16_t seqId;
-    uint16_t lengthSec;
+    const RsZoneTrack* entry;
     uint8_t bagPos;
     uint8_t bagSize;
 };
@@ -559,7 +737,7 @@ struct TrackPick {
  * save state, is the fix - not "the flag will already be set by then".
  */
 TrackPick NextFromBag(int32_t zoneIndex) {
-    TrackPick pick = { NA_BGM_DISABLED, 0, 0, 0 };
+    TrackPick pick = { nullptr, 0, 0 };
     const RsMusicZone* z = RsMusicZones_At(zoneIndex);
     if (z == nullptr || z->trackCount == 0) {
         return pick; // an empty track list is authored silence, not an error
@@ -567,8 +745,7 @@ TrackPick NextFromBag(int32_t zoneIndex) {
     if (zoneIndex >= RS_MUSIC_MAX_ZONES) {
         // Unreachable: the generator refuses a table with more zones than this. Degrade to P1's
         // behaviour rather than index past sBags.
-        pick.seqId = z->tracks[0].seqId;
-        pick.lengthSec = z->tracks[0].lengthSec;
+        pick.entry = &z->tracks[0];
         return pick;
     }
 
@@ -580,12 +757,10 @@ TrackPick NextFromBag(int32_t zoneIndex) {
         return pick;
     }
     const uint8_t entry = bag->order[bag->next++];
-    pick.seqId = z->tracks[entry].seqId;
-    pick.lengthSec = z->tracks[entry].lengthSec;
+    pick.entry = &z->tracks[entry];
     pick.bagPos = bag->next; // 1-based: "this was draw N of size"
     pick.bagSize = bag->size;
-    bag->lastSeqId = pick.seqId;
-    bag->hasLast = true;
+    bag->last = pick.entry;
     return pick;
 }
 
@@ -594,7 +769,8 @@ TrackPick NextFromBag(int32_t zoneIndex) {
  *
  * CALL IT EXACTLY ONCE PER SWITCH. It is not a pure function: the first-visit branch writes a
  * world flag, so calling it twice - to fill in a log line, say - would burn the opener on a switch
- * that only ever played it once. BeginSwitch calls it and everything downstream reads sPendingSeqId.
+ * that only ever played it once. BeginSwitch calls it once and everything downstream reads
+ * sPendingEntry.
  *
  * WHEN THE FLAG IS SPENT is the design point (#90 section 10): on ACTIVATION, which is this call,
  * inside BeginSwitch, after the dwell has already expired. Not on boundary contact - clipping the
@@ -611,20 +787,19 @@ TrackPick SelectTrack(int32_t zoneIndex, bool* firstVisit) {
     *firstVisit = false;
     const RsMusicZone* z = RsMusicZones_At(zoneIndex);
     if (z == nullptr || z->trackCount == 0) {
-        const TrackPick silence = { NA_BGM_DISABLED, 0, 0, 0 };
+        const TrackPick silence = { nullptr, 0, 0 };
         return silence;
     }
     if (z->firstVisitTrack != nullptr && z->firstVisitFlag != RS_ZONE_NO_FIRST_VISIT &&
         !Flags_GetWorldFlag(z->firstVisitFlag)) {
         Flags_SetWorldFlag(z->firstVisitFlag);
         *firstVisit = true;
-        const TrackPick opener = { z->firstVisitTrack->seqId, z->firstVisitTrack->lengthSec, 0, 0 };
+        const TrackPick opener = { z->firstVisitTrack, 0, 0 };
         // The opener counts as the just-played track for the back-to-back guard, so the bag's first
         // draw after it cannot repeat it. bagPos stays 0 - it was not drawn from the bag, and the
         // marker channel renders that as bag=seed rather than as a position it never occupied.
         if (zoneIndex < RS_MUSIC_MAX_ZONES) {
-            sBags[zoneIndex].lastSeqId = opener.seqId;
-            sBags[zoneIndex].hasLast = true;
+            sBags[zoneIndex].last = z->firstVisitTrack;
         }
         return opener;
     }
@@ -645,50 +820,160 @@ void FormatBag(char* buf, uint32_t size, uint8_t pos, uint8_t bagSize, bool firs
     std::snprintf(buf, size, "%d/%d", (int32_t)pos, (int32_t)bagSize);
 }
 
+/* `audio_seq=` - the custom sequence number an imported track resolved to THIS boot. `none` for a
+ * vanilla entry, which has no such number; `unresolved` when the path was not found, which is a
+ * fault and is also reported on its own line by ApplyPick. Never a bare -1: a number on a key=value
+ * line is a thing a reader believes. */
+void FormatAudioSeq(char* buf, uint32_t size, const RsZoneTrack* entry, int32_t audioSeq) {
+    if (entry == nullptr || entry->rsPath == nullptr) {
+        std::snprintf(buf, size, "none");
+        return;
+    }
+    if (audioSeq < 0) {
+        std::snprintf(buf, size, "unresolved");
+        return;
+    }
+    std::snprintf(buf, size, "0x%X", (uint32_t)audioSeq);
+}
+
+/* `end_fade_ms=` - `global` for a track whose duration is a policy cut and which therefore takes
+ * RsMusicFadeOutSec, a number (including 0) for one whose duration is where the music ends. Spelled
+ * out rather than printed as 65535, which reads as a fade sixty-five seconds long. */
+void FormatEndFade(char* buf, uint32_t size, const RsZoneTrack* entry) {
+    if (entry == nullptr) {
+        std::snprintf(buf, size, "none");
+        return;
+    }
+    if (entry->endFadeMs == RS_TRACK_END_FADE_GLOBAL) {
+        std::snprintf(buf, size, "global");
+        return;
+    }
+    std::snprintf(buf, size, "%u", (uint32_t)entry->endFadeMs);
+}
+
 // --- driving player 0 ---------------------------------------------------------------------------
 
 /* Player 0 is no longer carrying our track - it has been stopped, or it went quiet. Clears the
  * "what is playing" half of the state so the console cannot report a length, a bag position and
  * sounding=1 for a track that has already been told to stop. It read that way through the first P2
- * run: `status.track track=0xFFFF ... sounding=1` during the fade of a switch, which is the same
- * class of thing as the P1 run's rs=-2147483648 - a field a reader believes. */
+ * run: `status.track track=0xFFFF ... sounding=1` during the fade of a switch (`track=none` now that
+ * tracks are named), which is the same class of thing as the P1 run's rs=-2147483648 - a field a
+ * reader believes. */
 void MarkNothingPlaying() {
+    sPlayingEntry = nullptr;
     sPlayingSeqId = NA_BGM_DISABLED;
-    sPlayingLengthSec = 0;
     sPlayingBagPos = 0;
     sPlayingBagSize = 0;
     sPlayingFirstVisit = false;
+    sPlayingAudioSeq = -1;
     sSounding = false;
-    sTrackStartCounter = 0;
+    sLastCounter = 0;
 }
 
-void StartTrack(uint16_t seqId, int32_t fadeInUnits) {
+/* The playing track's authored duration, in milliseconds, or 0 for "plays until stopped" (which is
+ * also what silence answers). One accessor so no caller has to remember that sPlayingEntry may be
+ * NULL. */
+uint32_t PlayingDurationMs() {
+    return sPlayingEntry != nullptr ? sPlayingEntry->durationMs : 0u;
+}
+
+/*
+ * Turn a chosen entry into the pending state, RESOLVING AN IMPORTED TRACK'S PATH here rather than at
+ * start time. Both entry points into track selection go through this, so there is one place that
+ * knows how a pick becomes something playable.
+ *
+ * A path that does not resolve is left as sPendingUnresolved and handled by StartTrack; it is never
+ * silently skipped, because "the zone went quiet" with nothing in the log is the failure this whole
+ * feature's observability exists to prevent.
+ */
+void ApplyPick(const TrackPick& pick, bool firstVisit) {
+    sPendingEntry = pick.entry;
+    sPendingFirstVisit = firstVisit;
+    sPendingBagPos = pick.bagPos;
+    sPendingBagSize = pick.bagSize;
+    sPendingAudioSeq = -1;
+    sPendingUnresolved = false;
+    if (pick.entry == nullptr || pick.entry->rsPath == nullptr) {
+        return; // authored silence, or a vanilla id, which needs no lookup
+    }
+    const char* error = nullptr;
+    const int32_t seq = RsMusic_ResolveTrackPath(pick.entry->rsPath, &error);
+    if (seq < 0) {
+        sPendingUnresolved = true;
+        RecordEvent("track_unresolved zone=%s path=\"%s\" error=%s frame=%u", ZoneName(sActiveZone),
+                    pick.entry->rsPath, error != nullptr ? error : "unknown",
+                    gPlayState != nullptr ? gPlayState->state.frames : 0u);
+        return;
+    }
+    sPendingAudioSeq = seq;
+}
+
+void StartTrack(int32_t fadeInUnits) {
+    const RsZoneTrack* entry = sPendingEntry;
+    sPlayingEntry = entry;
     sPlayingFirstVisit = sPendingFirstVisit;
-    sPlayingLengthSec = sPendingLengthSec;
     sPlayingBagPos = sPendingBagPos;
     sPlayingBagSize = sPendingBagSize;
-    // The duration clock starts when the track is first SEEN sounding, not when the command is
-    // queued, so both of these are cleared here and set by the per-frame handler.
+    sPlayingAudioSeq = sPendingAudioSeq;
+    // The duration is not counted until the track has been SEEN sounding - that is what tells "the
+    // track ended" from "the track never started" - but it is counted from the sequence player's
+    // own counter, which the load zeroed, so nothing before that moment is lost. See sLastCounter.
     sSounding = false;
-    sTrackStartCounter = 0;
+    sLastCounter = 0;
     sClockResetLogged = false;
-    if (seqId == NA_BGM_DISABLED) {
+
+    /*
+     * Two ways to end up with nothing to play, and they are NOT the same thing.
+     *
+     * Authored silence (no entry) is a legitimate choice a zone makes - #90 section 3. An RS path
+     * that did not resolve is a fault, already named on the marker channel by ApplyPick; the zone
+     * goes audibly quiet rather than playing something arbitrary, so the failure is visible from
+     * the speakers as well as the log, and the next switch retries the lookup. Both land in
+     * STATE_SILENT because the director's behaviour from here is identical: hold, and do not treat
+     * player 0's quiet as a track that ended.
+     */
+    if (entry == nullptr || sPendingUnresolved) {
         sState = STATE_SILENT;
+        // sPlayingEntry is deliberately KEPT for an unresolved track, so `rsmusic status` reads
+        // `state=silent track=rs:dream audio_seq=unresolved` rather than `track=none` - "which
+        // track failed" is the first question a silent zone raises, and the marker that answered it
+        // has by then scrolled past. Nothing acts on it: the duration trigger needs STATE_PLAYING.
         sPlayingSeqId = NA_BGM_DISABLED;
-        sPlayingLengthSec = 0; // silence has no duration to expire
         // Vanilla's "no music here" value, so anything reading the save context's idea of the
         // ambient track agrees with what the player can hear.
         gSaveContext.seqId = NA_BGM_NO_MUSIC;
         return;
     }
-    SEQCMD_PLAY_SEQUENCE(SEQ_PLAYER_BGM_MAIN, fadeInUnits, 0, seqId);
-    sPlayingSeqId = seqId;
+
+    /*
+     * THE BACK DOOR, for an imported track (#91): the real custom number goes in seqToPlay with
+     * seqReplaced set, and the placeholder rides through SEQCMD beside it, because SEQCMD masks its
+     * id field to 8 bits. Audio_StartSequence prefers seqToPlay and CLEARS seqReplaced as it takes
+     * it.
+     *
+     * Set immediately before the command that consumes it, and never earlier: a pending seqReplaced
+     * goes to whichever play reaches player 0 next, and the audio thread's own opcodes 0xEB/0xC6
+     * can read it too. `replaced=` on `rsmusic players` is the witness if one is ever left behind.
+     */
+    if (entry->rsPath != nullptr && sPendingAudioSeq >= 0) {
+        gAudioContext.seqToPlay[SEQ_PLAYER_BGM_MAIN] = (u16)sPendingAudioSeq;
+        gAudioContext.seqReplaced[SEQ_PLAYER_BGM_MAIN] = 1;
+    }
+    SEQCMD_PLAY_SEQUENCE(SEQ_PLAYER_BGM_MAIN, fadeInUnits, 0, entry->seqId);
+    sPlayingSeqId = entry->seqId;
     sState = STATE_PLAYING;
     sGraceTicks = START_GRACE_TICKS;
+    // The gap is spent. Zeroing it is not bookkeeping for its own sake: STATE_FADING exits by
+    // decrementing PAST zero, so a switch whose gap was 0 left `status.tuning gap=-1` behind for
+    // anyone who looked - a negative number of ticks remaining, which is not a thing. Seen on the
+    // 2026-09-17 P3 run after an endFadeSec 0 advance.
+    sGapTicks = 0;
     // Keep the save context in step with what the director considers the ambient track:
     // Audio_SetSequenceMode reads gActiveSeqs[0].seqId to decide whether combat music may duck,
     // and z_play.c clears gSaveContext.seqId on transitions expecting the loader to have set it.
-    gSaveContext.seqId = (u8)(seqId & 0xFF);
+    // For an imported track this is the placeholder, which is the same value Audio_StartSequence
+    // itself stores in gActiveSeqs[0].seqId - so the two agree by construction rather than by luck.
+    gSaveContext.seqId = (u8)(entry->seqId & 0xFF);
 }
 
 /*
@@ -722,12 +1007,19 @@ void BeginSwitch(int32_t zoneIndex, const char* reason, int32_t rsX, int32_t rsY
     sDwellTicks = 0;
 
     // Choose once, here. See SelectTrack: the first-visit branch spends a world flag, so the track
-    // has to be decided at the moment of activation and then carried, not re-derived.
-    const TrackPick pick = SelectTrack(zoneIndex, &sPendingFirstVisit);
-    sPendingSeqId = pick.seqId;
-    sPendingLengthSec = pick.lengthSec;
-    sPendingBagPos = pick.bagPos;
-    sPendingBagSize = pick.bagSize;
+    // has to be decided at the moment of activation and then carried, not re-derived. ApplyPick
+    // also resolves an imported track's path, so a `track_unresolved` marker lands just before the
+    // transition it belongs to rather than half a second later inside the quiet gap.
+    //
+    // TWO STATEMENTS, NOT ONE CALL. Writing this as `ApplyPick(SelectTrack(zoneIndex, &firstVisit),
+    // firstVisit)` compiles and is wrong: the order in which a call's arguments are evaluated is
+    // unspecified, and MSVC evaluates right to left, so `firstVisit` was read BEFORE SelectTrack
+    // had set it. The opener still played and still spent its flag - only every report of it lied,
+    // with `first_visit=0 bag=none` on the transition line and no `first_visit` marker at all. The
+    // 2026-09-17 P3 run caught it against `rsmusic firstvisit`, which read set=1 a second later.
+    bool firstVisit = false;
+    const TrackPick pick = SelectTrack(zoneIndex, &firstVisit);
+    ApplyPick(pick, firstVisit);
 
     if (wasSounding) {
         // Op 1, "disable seq player", with a fade. A duration of 0 here is an immediate disable
@@ -738,18 +1030,25 @@ void BeginSwitch(int32_t zoneIndex, const char* reason, int32_t rsX, int32_t rsY
         sState = STATE_FADING;
     } else {
         sGapTicks = 0;
-        StartTrack(sPendingSeqId, fadeInUnits);
+        StartTrack(fadeInUnits);
     }
 
     char tiles[32];
     RsMusic_FormatTiles(tiles, sizeof(tiles), rsX, rsY);
     char bag[16];
     FormatBag(bag, sizeof(bag), sPendingBagPos, sPendingBagSize, sPendingFirstVisit);
-    RecordEvent("transition from=%s to=%s track=0x%X first_visit=%d bag=%s len=%d reason=%s fade_out=%d "
-                "fade_in=%d gap=%d rs=%s pos=%.0f,%.0f,%.0f n=%d frame=%u",
-                from == NO_ZONE ? "none" : ZoneName(from), ZoneName(zoneIndex), sPendingSeqId,
-                sPendingFirstVisit ? 1 : 0, bag, (int32_t)sPendingLengthSec, reason, fadeOutUnits, fadeInUnits,
-                sGapTicks, tiles, pos.x, pos.y, pos.z, sTransitions,
+    char track[48];
+    FormatTrackOr(track, sizeof(track), sPendingEntry, "silence");
+    char audioSeq[16];
+    FormatAudioSeq(audioSeq, sizeof(audioSeq), sPendingEntry, sPendingAudioSeq);
+    char endFade[16];
+    FormatEndFade(endFade, sizeof(endFade), sPendingEntry);
+    RecordEvent("transition from=%s to=%s track=%s seq=0x%X audio_seq=%s first_visit=%d bag=%s len_ms=%u "
+                "end_fade_ms=%s reason=%s fade_out=%d fade_in=%d gap=%d rs=%s pos=%.0f,%.0f,%.0f n=%d frame=%u",
+                from == NO_ZONE ? "none" : ZoneName(from), ZoneName(zoneIndex), track,
+                sPendingEntry != nullptr ? (uint32_t)sPendingEntry->seqId : (uint32_t)NA_BGM_DISABLED, audioSeq,
+                sPendingFirstVisit ? 1 : 0, bag, sPendingEntry != nullptr ? sPendingEntry->durationMs : 0u, endFade,
+                reason, fadeOutUnits, fadeInUnits, sGapTicks, tiles, pos.x, pos.y, pos.z, sTransitions,
                 gPlayState != nullptr ? gPlayState->state.frames : 0u);
 
     // Logged after the transition it belongs to, so the channel reads in the order things happened.
@@ -759,58 +1058,85 @@ void BeginSwitch(int32_t zoneIndex, const char* reason, int32_t rsX, int32_t rsY
     // half, reading the flag back.
     if (sPendingFirstVisit) {
         const RsMusicZone* z = RsMusicZones_At(zoneIndex);
-        RecordEvent("first_visit zone=%s flag=%d track=0x%X reason=%s frame=%u", ZoneName(zoneIndex),
-                    (int32_t)z->firstVisitFlag, sPendingSeqId, reason,
+        RecordEvent("first_visit zone=%s flag=%d track=%s reason=%s frame=%u", ZoneName(zoneIndex),
+                    (int32_t)z->firstVisitFlag, track, reason,
                     gPlayState != nullptr ? gPlayState->state.frames : 0u);
     }
 }
 
 /*
- * Has the playing track's authored duration run out?
+ * When, on the audio clock, this track's in-zone advance should fire - in milliseconds since the
+ * track was first heard.
  *
- * lengthSec 0 means "plays until stopped" and always answers no - which is what every zone did
+ * FOR A VANILLA ENTRY THAT IS SIMPLY ITS DURATION. The duration is a policy cut into a looping
+ * song, the fade is the global one, and there is nothing to land on.
+ *
+ * FOR AN IMPORTED TRACK IT IS `endFadeMs` EARLIER, because the fade is aimed at the ending rather
+ * than applied after it (#90 comment of 2026-09-17; #91 ADR section 7a). The advance IS the start
+ * of the fade: there is no second event at durationMs. RS exports end inconsistently - Flute Salad
+ * carries ~10 s of baked fade, Autumn Voyage stops dead - so a fade that begins when the music has
+ * already stopped ramps a silence and leaves the abrupt ending abrupt.
+ *
+ * The fade then runs about 2% longer than its nominal seconds (the units assume 180 audio updates a
+ * second and this build runs 176), so a nominal 5 s ramp reaches zero about 0.1 s AFTER the music
+ * ends. That is deliberately not compensated for: the sequence player is still running at that
+ * point - it does not stop until ~2% past its authored `Length`, which is at or beyond `audioSec` -
+ * so the overhang lands in the track's own silent tail and cuts nothing. Compensating would mean
+ * baking this machine's tick rate into the arithmetic to move an inaudible 0.1 s.
+ */
+uint32_t AdvanceAtMs(const RsZoneTrack* t) {
+    if (t == nullptr || t->durationMs == 0) {
+        return 0; // "plays until stopped": there is no advance point
+    }
+    if (t->endFadeMs == RS_TRACK_END_FADE_GLOBAL || t->endFadeMs >= t->durationMs) {
+        // The generator refuses a fade at least as long as the track, so the second half is a
+        // hand-edited-table guard: fire at the end rather than at a negative time.
+        return t->durationMs;
+    }
+    return t->durationMs - t->endFadeMs;
+}
+
+/*
+ * Has the playing track reached its advance point?
+ *
+ * durationMs 0 means "plays until stopped" and always answers no - which is what every zone did
  * through P1, and a zone whose tracks are all 0 therefore never advances at all.
  *
- * The clock is the audio thread's own (see ScriptTicksPerSecond), started when the track was first
- * seen sounding rather than when the command was queued, so a slow scene load does not eat seconds
- * off the first track of a zone.
+ * The clock is the audio thread's own - the sequence player's counter, zeroed when the track was
+ * loaded onto it, so it measures the music rather than the queue. See sLastCounter for why it is
+ * read directly rather than differenced against a baseline.
  */
 bool DurationExpired() {
-    if (sPlayingLengthSec == 0 || !sSounding || sState != STATE_PLAYING) {
+    if (PlayingDurationMs() == 0 || !sSounding || sState != STATE_PLAYING) {
         return false;
     }
-    const uint32_t rate = ScriptTicksPerSecond();
-    if (rate == 0) {
+    if (!HasAudioClock()) {
         return false; // audio heap not initialised: no clock, so no duration trigger
     }
     const uint32_t now = ScriptCounter();
-    if (now < sTrackStartCounter) {
+    if (now < sLastCounter && !sClockResetLogged) {
         /*
-         * THE CLOCK WENT BACKWARDS, and this is not paranoia about wraparound - u32 at ~180 ticks a
-         * second wraps after about 270 days. Sequence opcode 0xC5 writes scriptCounter outright
+         * THE CLOCK WENT BACKWARDS. Sequence opcode 0xC5 writes scriptCounter outright
          * (`seqPlayer->scriptCounter = (u16)AudioSeq_ScriptReadS16(seqScript)` in
          * AudioSeq_SequencePlayerProcessSequence), so the sequence DATA can move this clock under
-         * us, and AudioSeq_ResetSequencePlayer zeroes it whenever a new sequence is loaded.
+         * us. No vanilla sequence is known to use the opcode, and it is recorded as a hazard rather
+         * than as something observed.
          *
-         * Unsigned subtraction on a backwards jump would produce roughly four billion ticks and
-         * advance instantly, then again on the next tick - the walk-the-whole-bag failure. So
-         * re-baseline instead of advancing, and say so once per track rather than once per frame.
-         *
-         * A FORWARD jump written by 0xC5 would advance early and is not detectable from here; no
-         * vanilla sequence is known to use the opcode, and this is recorded as a hazard rather than
-         * something observed. If it ever bites, the lever is to count game ticks in this handler
-         * instead - a clock nothing but us can write, at the cost of drifting from the audio when
-         * the game runs below its logic rate.
+         * PURELY A DIAGNOSTIC NOW, and that is the point of reading the counter directly. Through
+         * P2 this was a real hazard: the clock was `now - baseline`, and unsigned subtraction on a
+         * backwards jump produced roughly four billion ticks and advanced the whole bag at frame
+         * rate. With no subtraction, a backwards jump just means the duration fires later - so
+         * this says so once and changes nothing. A FORWARD jump would advance early and is still
+         * not detectable from outside.
          */
-        sTrackStartCounter = now;
-        if (!sClockResetLogged) {
-            sClockResetLogged = true;
-            RecordEvent("clock_reset zone=%s track=0x%X counter=%u frame=%u", ZoneName(sActiveZone), sPlayingSeqId,
-                        now, gPlayState != nullptr ? gPlayState->state.frames : 0u);
-        }
-        return false;
+        sClockResetLogged = true;
+        char track[48];
+        FormatTrackOr(track, sizeof(track), sPlayingEntry, "none");
+        RecordEvent("clock_reset zone=%s track=%s counter=%u was=%u frame=%u", ZoneName(sActiveZone), track, now,
+                    sLastCounter, gPlayState != nullptr ? gPlayState->state.frames : 0u);
     }
-    return (now - sTrackStartCounter) >= (uint32_t)sPlayingLengthSec * rate;
+    sLastCounter = now;
+    return ScriptTicksToMs(now) >= (uint64_t)AdvanceAtMs(sPlayingEntry);
 }
 
 /*
@@ -833,45 +1159,72 @@ bool DurationExpired() {
  * the declaration of sAdvances for why that separation is load-bearing.
  */
 void EndOfTrack(const char* trigger, int32_t rsX, int32_t rsY, const Vec3f& pos) {
-    const float fadeOutSec = CVarGetFloat(CVAR_RS_MUSIC_FADE_OUT, RS_MUSIC_FADE_OUT_DEFAULT);
     const float fadeInSec = CVarGetFloat(CVAR_RS_MUSIC_FADE_IN, RS_MUSIC_FADE_IN_DEFAULT);
     const int32_t fadeInUnits = FadeUnits(fadeInSec);
-    const uint16_t previous = sPlayingSeqId; // captured before MarkNothingPlaying clears it
+    const RsZoneTrack* previous = sPlayingEntry; // captured before MarkNothingPlaying clears it
+
+    /*
+     * WHOSE FADE IS THIS? The one place in the director where the answer is not RsMusicFadeOutSec.
+     *
+     * A vanilla entry's duration is a policy cut into a song that would have gone on, so the global
+     * fade is right - it is the same kind of interruption a zone change is. An imported track's
+     * duration is where the music ENDS, and the advance has already been brought forward by
+     * endFadeMs (see AdvanceAtMs), so the ramp that starts here is the track's own ending and must
+     * be exactly that long. endFadeMs 0 then means "let the track's own ending play": a stop with a
+     * fade of zero is an immediate disable, and the music is over anyway.
+     *
+     * Only this trigger. Zone changes, teleports and override releases go through BeginSwitch and
+     * keep the global fade, because they happen mid-song.
+     */
+    const bool endFadeIsOwn = previous != nullptr && previous->endFadeMs != RS_TRACK_END_FADE_GLOBAL;
+    const uint32_t fadeOutMs = endFadeIsOwn
+                                   ? (uint32_t)previous->endFadeMs
+                                   : (uint32_t)lroundf(ClampSeconds(CVarGetFloat(CVAR_RS_MUSIC_FADE_OUT,
+                                                                                 RS_MUSIC_FADE_OUT_DEFAULT)) *
+                                                       1000.0f);
 
     // NextFromBag, not SelectTrack: this is the second entry point into track selection that #90 P2
     // warns about, and it is structurally unable to reach the first-visit branch. See NextFromBag.
-    const TrackPick pick = NextFromBag(sActiveZone);
-    sPendingSeqId = pick.seqId;
-    sPendingFirstVisit = false;
-    sPendingLengthSec = pick.lengthSec;
-    sPendingBagPos = pick.bagPos;
-    sPendingBagSize = pick.bagSize;
+    ApplyPick(NextFromBag(sActiveZone), false);
     sAdvances++;
 
     const bool stillSounding = func_800FA0B4(SEQ_PLAYER_BGM_MAIN) != NA_BGM_DISABLED;
     int32_t fadeOutUnits = 0;
     if (stillSounding) {
-        fadeOutUnits = FadeUnits(fadeOutSec);
+        fadeOutUnits = FadeUnitsMs(fadeOutMs);
         SEQCMD_STOP_SEQUENCE(SEQ_PLAYER_BGM_MAIN, fadeOutUnits);
         MarkNothingPlaying();
-        sGapTicks = SecondsToTicks(fadeOutSec);
+        sGapTicks = TicksFromMs(fadeOutMs);
         sState = STATE_FADING;
     } else {
         sGapTicks = 0;
-        StartTrack(sPendingSeqId, fadeInUnits);
+        StartTrack(fadeInUnits);
     }
 
     char tiles[32];
     RsMusic_FormatTiles(tiles, sizeof(tiles), rsX, rsY);
     char bag[16];
     FormatBag(bag, sizeof(bag), sPendingBagPos, sPendingBagSize, false);
+    char fromTrack[48];
+    FormatTrackOr(fromTrack, sizeof(fromTrack), previous, "none");
+    char track[48];
+    FormatTrackOr(track, sizeof(track), sPendingEntry, "silence");
+    char audioSeq[16];
+    FormatAudioSeq(audioSeq, sizeof(audioSeq), sPendingEntry, sPendingAudioSeq);
+    char endFade[16];
+    FormatEndFade(endFade, sizeof(endFade), sPendingEntry);
     // Everything a full bag cycle needs to be reconstructed FROM THE LOG: which zone, what stopped,
     // what started, which trigger fired, and where in the bag the new track came from. Polling for
     // this would cost a harness round trip per sample, and a cycle is minutes long.
-    RecordEvent("advance zone=%s from=0x%X track=0x%X trigger=%s bag=%s len=%d fade_out=%d fade_in=%d gap=%d "
-                "rs=%s pos=%.0f,%.0f,%.0f n=%d frame=%u",
-                ZoneName(sActiveZone), previous, sPendingSeqId, trigger, bag, (int32_t)sPendingLengthSec,
-                fadeOutUnits, fadeInUnits, sGapTicks, tiles, pos.x, pos.y, pos.z, sAdvances,
+    //
+    // fade_source= says which fade the line above used, so "the end fade fired" is checkable from
+    // one line instead of by comparing fade_out= against a CVar the reader has to go and look up.
+    RecordEvent("advance zone=%s from=%s track=%s seq=0x%X audio_seq=%s trigger=%s bag=%s len_ms=%u end_fade_ms=%s "
+                "fade_out=%d fade_source=%s fade_in=%d gap=%d rs=%s pos=%.0f,%.0f,%.0f n=%d frame=%u",
+                ZoneName(sActiveZone), fromTrack, track,
+                sPendingEntry != nullptr ? (uint32_t)sPendingEntry->seqId : (uint32_t)NA_BGM_DISABLED, audioSeq,
+                trigger, bag, sPendingEntry != nullptr ? sPendingEntry->durationMs : 0u, endFade, fadeOutUnits,
+                endFadeIsOwn ? "track_end" : "global", fadeInUnits, sGapTicks, tiles, pos.x, pos.y, pos.z, sAdvances,
                 gPlayState != nullptr ? gPlayState->state.frames : 0u);
 }
 
@@ -913,18 +1266,20 @@ void ResetState() {
     sDwellTicks = 0;
     sGapTicks = 0;
     sGraceTicks = 0;
-    sPendingSeqId = NA_BGM_DISABLED;
+    sPendingEntry = nullptr;
     sPendingFirstVisit = false;
-    sPendingLengthSec = 0;
     sPendingBagPos = 0;
     sPendingBagSize = 0;
+    sPendingAudioSeq = -1;
+    sPendingUnresolved = false;
+    sPlayingEntry = nullptr;
     sPlayingSeqId = NA_BGM_DISABLED;
     sPlayingFirstVisit = false;
-    sPlayingLengthSec = 0;
     sPlayingBagPos = 0;
     sPlayingBagSize = 0;
+    sPlayingAudioSeq = -1;
     sSounding = false;
-    sTrackStartCounter = 0;
+    sLastCounter = 0;
     sClockResetLogged = false;
     // NOTE WHAT IS NOT RESET: sBags. Bag state persists across leaving and re-entering a zone
     // within a session, and this function runs on every scene load and every disable. Clearing the
@@ -974,12 +1329,12 @@ void OnPlayerUpdateMusic() {
         return; // no fallback in the table - nothing sensible to do, and nothing worth breaking
     }
 
-    // 1. Finish a switch that is sitting in its quiet gap. It starts sPendingSeqId, the track chosen
+    // 1. Finish a switch that is sitting in its quiet gap. It starts sPendingEntry, the track chosen
     //    back in BeginSwitch - not a fresh pick, which would spend a second first-visit flag and
     //    could play something other than what the transition line announced.
     if (sState == STATE_FADING) {
         if (--sGapTicks <= 0) {
-            StartTrack(sPendingSeqId, FadeUnits(CVarGetFloat(CVAR_RS_MUSIC_FADE_IN, RS_MUSIC_FADE_IN_DEFAULT)));
+            StartTrack(FadeUnits(CVarGetFloat(CVAR_RS_MUSIC_FADE_IN, RS_MUSIC_FADE_IN_DEFAULT)));
         }
         return; // no zone decisions while a switch is mid-flight
     }
@@ -1031,12 +1386,12 @@ void OnPlayerUpdateMusic() {
         sGraceTicks--;
     } else if (sState == STATE_PLAYING) {
         if (live == sPlayingSeqId) {
-            // Our track really is on player 0. This is where the duration clock starts, so it
-            // measures the track rather than the queue.
-            if (!sSounding) {
-                sSounding = true;
-                sTrackStartCounter = ScriptCounter();
-            }
+            // Our track really is on player 0, so the duration may start counting. It counts the
+            // sequence player's own scriptCounter, zeroed when this track was loaded, rather than
+            // the time since THIS tick - the difference is the second or so the play command spent
+            // reaching the audio thread plus the grace window, which is a second of the track that
+            // already played (see sLastCounter).
+            sSounding = true;
         } else if (live == NA_BGM_DISABLED) {
             if (transitioning) {
                 // Not our event, and not a diagnostic either. The scene load that follows resets
@@ -1061,11 +1416,17 @@ void OnPlayerUpdateMusic() {
                 // told apart in the log. It inflates `transitions=`, so a run asserting the negative
                 // should read the reasons and not only the count.
                 sState = STATE_IDLE;
-                RecordEvent("track_gone zone=%s track=0x%X frame=%u", ZoneName(sActiveZone), sPlayingSeqId,
-                            play->state.frames);
+                char track[48];
+                FormatTrackOr(track, sizeof(track), sPlayingEntry, "none");
+                char audioSeq[16];
+                FormatAudioSeq(audioSeq, sizeof(audioSeq), sPlayingEntry, sPlayingAudioSeq);
+                RecordEvent("track_gone zone=%s track=%s seq=0x%X audio_seq=%s frame=%u", ZoneName(sActiveZone), track,
+                            (uint32_t)sPlayingSeqId, audioSeq, play->state.frames);
             }
         } else {
-            // Something else is on player 0.
+            // Something else is on player 0. `ours=` is the id player 0 was carrying for us, which
+            // for an imported track is its placeholder - the same value this comparison used, so
+            // the line says what was compared rather than what was conceptually playing.
             sState = STATE_YIELDED;
             RecordEvent("yield zone=%s ours=0x%X theirs=0x%X frame=%u", ZoneName(sActiveZone), sPlayingSeqId, live,
                         play->state.frames);
@@ -1260,6 +1621,67 @@ extern "C" void RsMusic_FormatTiles(char* buf, uint32_t size, int32_t rsX, int32
     std::snprintf(buf, size, "%d,%d", rsX, rsY);
 }
 
+extern "C" void RsMusic_FormatTrack(char* buf, uint32_t size, const RsZoneTrack* track) {
+    if (buf == nullptr || size == 0) {
+        return;
+    }
+    if (track == nullptr) {
+        std::snprintf(buf, size, "none");
+        return;
+    }
+    if (track->rsPath == nullptr) {
+        std::snprintf(buf, size, "0x%X", (uint32_t)track->seqId);
+        return;
+    }
+    // The last path segment, not the whole path: the channel is key=value with no spaces in a
+    // value, and "custom/music/rs/flute-salad" is four times the width of what it distinguishes.
+    // `rsmusic zones` prints the path in full, which is the surface for "which file is that".
+    const char* slash = std::strrchr(track->rsPath, '/');
+    std::snprintf(buf, size, "rs:%s", slash != nullptr ? slash + 1 : track->rsPath);
+}
+
+extern "C" int32_t RsMusic_ResolveTrackPath(const char* name, const char** error) {
+    // Every custom sequence is listed from this virtual path (audio_load.c, ListFiles
+    // "custom/music/*"), so the prefix is what separates a custom entry from a vanilla one in the
+    // same array.
+    static const char* const kCustomMusicPrefix = "custom/music/";
+    const char* ignored = nullptr;
+    if (error == nullptr) {
+        error = &ignored;
+    }
+    *error = "not_registered";
+    if (name == nullptr || sequenceMap == nullptr) {
+        return -1;
+    }
+    // audio_load.c allocates sequenceMapSize + 0xF slots and AudioLoad_SyncInitSeqPlayerInternal
+    // bounds-checks against the same figure.
+    const size_t slots = (size_t)sequenceMapSize + 0xF;
+    const size_t prefixLen = std::strlen(kCustomMusicPrefix);
+    int32_t found = -1;
+    int32_t matches = 0;
+    for (size_t i = 0; i < slots; i++) {
+        const char* path = sequenceMap[i];
+        if (path == nullptr || std::strncmp(path, kCustomMusicPrefix, prefixLen) != 0) {
+            continue;
+        }
+        if (std::strcmp(name, path) == 0) {
+            *error = nullptr;
+            return (int32_t)i; // a full path is exact: no ambiguity to resolve
+        }
+        const char* slash = std::strrchr(path, '/');
+        if (std::strcmp(name, slash != nullptr ? slash + 1 : path) == 0) {
+            found = (int32_t)i;
+            matches++;
+        }
+    }
+    if (matches == 1) {
+        *error = nullptr;
+        return found;
+    }
+    *error = (matches == 0) ? "not_registered" : "ambiguous_name";
+    return -1;
+}
+
 extern "C" int32_t RsMusic_TransitionCount(void) {
     return sTransitions;
 }
@@ -1313,12 +1735,8 @@ extern "C" int32_t RsMusic_BagLine(int32_t index, char* buf, uint32_t size) {
         std::snprintf(order, sizeof(order), "unshuffled");
     }
 
-    char last[16];
-    if (bag->hasLast) {
-        std::snprintf(last, sizeof(last), "0x%X", (uint32_t)bag->lastSeqId);
-    } else {
-        std::snprintf(last, sizeof(last), "none");
-    }
+    char last[48];
+    FormatTrackOr(last, sizeof(last), bag->last, "none");
     std::snprintf(buf, size, "bag[%d]=%s tracks=%d drawn=%d/%d last=%s order=%s", index, z->name,
                   (int32_t)z->trackCount, (int32_t)bag->next, (int32_t)bag->size, last, order);
     return 1;
@@ -1367,12 +1785,14 @@ extern "C" const char* RsMusic_Describe(void) {
     RsMusic_FormatTiles(tiles, sizeof(tiles), rsX, rsY);
     char bag[16];
     FormatBag(bag, sizeof(bag), sPlayingBagPos, sPlayingBagSize, sPlayingFirstVisit);
+    char track[48];
+    FormatTrackOr(track, sizeof(track), sPlayingEntry, "none");
     std::snprintf(sDescription, sizeof(sDescription),
-                  "rsmusic on=1 scene=0x%X opted_in=%d state=%s zone=%s track=0x%X first_visit=%d bag=%s len=%d "
+                  "rsmusic on=1 scene=0x%X opted_in=%d state=%s zone=%s track=%s first_visit=%d bag=%s len_ms=%u "
                   "winner=%s candidate=%s dwell=%d/%d rs=%s fade_out=%d fade_in=%d transitions=%d advances=%d "
                   "baseline=%d",
-                  sceneId, inZone, StateName(sState), sActiveZone == NO_ZONE ? "none" : ZoneName(sActiveZone),
-                  sPlayingSeqId, sPlayingFirstVisit ? 1 : 0, bag, (int32_t)sPlayingLengthSec,
+                  sceneId, inZone, StateName(sState), sActiveZone == NO_ZONE ? "none" : ZoneName(sActiveZone), track,
+                  sPlayingFirstVisit ? 1 : 0, bag, PlayingDurationMs(),
                   winner == NO_ZONE ? "none" : ZoneName(winner),
                   sCandidateZone == NO_ZONE ? "none" : ZoneName(sCandidateZone), sDwellTicks, dwellTarget, tiles,
                   FadeUnits(CVarGetFloat(CVAR_RS_MUSIC_FADE_OUT, RS_MUSIC_FADE_OUT_DEFAULT)),
@@ -1416,30 +1836,45 @@ extern "C" int32_t RsMusic_DescribeLine(int32_t index, char* buf, uint32_t size)
         {
             char tiles[32];
             RsMusic_FormatTiles(tiles, sizeof(tiles), rsX, rsY);
-            std::snprintf(buf, size, "status.zone active=%s track=0x%X first_visit=%d winner=%s candidate=%s rs=%s",
-                          sActiveZone == NO_ZONE ? "none" : ZoneName(sActiveZone), sPlayingSeqId,
-                          sPlayingFirstVisit ? 1 : 0, winner == NO_ZONE ? "none" : ZoneName(winner),
+            char track[48];
+            FormatTrackOr(track, sizeof(track), sPlayingEntry, "none");
+            std::snprintf(buf, size, "status.zone active=%s track=%s first_visit=%d winner=%s candidate=%s rs=%s",
+                          sActiveZone == NO_ZONE ? "none" : ZoneName(sActiveZone), track, sPlayingFirstVisit ? 1 : 0,
+                          winner == NO_ZONE ? "none" : ZoneName(winner),
                           sCandidateZone == NO_ZONE ? "none" : ZoneName(sCandidateZone), tiles);
             return 1;
         }
         case 2:
         {
             // The queue's own state: how far through the current track's authored duration it is,
-            // and where in the bag that track came from. elapsed= is in seconds off the audio
-            // clock, and reads -1 when there is no clock to read (audio heap not up yet).
+            // where in the bag that track came from, and - for an imported track - which custom
+            // sequence number its path resolved to this boot, which is the number `rsmusic players`
+            // reports as audio_seq= and the only way to check that the right FILE is playing.
+            //
+            // elapsed_ms= is off the audio clock and reads -1 when there is no clock to read (audio
+            // heap not up yet). advance_at_ms= is when this track's in-zone advance is due, which
+            // for an imported track is endFadeMs BEFORE len_ms - so "the fade started on time" is
+            // two numbers on one line rather than an inference.
             char bag[16];
             FormatBag(bag, sizeof(bag), sPlayingBagPos, sPlayingBagSize, sPlayingFirstVisit);
-            const uint32_t rate = ScriptTicksPerSecond();
-            int32_t elapsed = -1;
+            char track[48];
+            FormatTrackOr(track, sizeof(track), sPlayingEntry, "none");
+            char audioSeq[16];
+            FormatAudioSeq(audioSeq, sizeof(audioSeq), sPlayingEntry, sPlayingAudioSeq);
+            char endFade[16];
+            FormatEndFade(endFade, sizeof(endFade), sPlayingEntry);
+            int64_t elapsed = -1;
             // Not while yielded: scriptCounter then belongs to whatever took player 0, and the P5
-            // run read elapsed=59 and elapsed=157 off a mini-boss's clock minus our baseline. -1
-            // rather than a number somebody believes.
-            if (rate != 0 && sSounding && sState != STATE_YIELDED) {
-                const uint32_t now = ScriptCounter();
-                elapsed = (now >= sTrackStartCounter) ? (int32_t)((now - sTrackStartCounter) / rate) : -1;
+            // run read elapsed=59 and elapsed=157 off a mini-boss's clock. -1 rather than a number
+            // somebody believes.
+            if (HasAudioClock() && sSounding && sState != STATE_YIELDED) {
+                elapsed = (int64_t)ScriptTicksToMs(ScriptCounter());
             }
-            std::snprintf(buf, size, "status.track track=0x%X bag=%s len=%d elapsed=%d sounding=%d tick_hz=%u",
-                          sPlayingSeqId, bag, (int32_t)sPlayingLengthSec, elapsed, sSounding ? 1 : 0, rate);
+            std::snprintf(buf, size,
+                          "status.track track=%s seq=0x%X audio_seq=%s bag=%s len_ms=%u end_fade_ms=%s "
+                          "advance_at_ms=%u elapsed_ms=%lld sounding=%d tick_hz=%u",
+                          track, (uint32_t)sPlayingSeqId, audioSeq, bag, PlayingDurationMs(), endFade,
+                          AdvanceAtMs(sPlayingEntry), (long long)elapsed, sSounding ? 1 : 0, ScriptTicksPerSecond());
             return 1;
         }
         case 3:

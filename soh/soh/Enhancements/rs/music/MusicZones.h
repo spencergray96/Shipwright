@@ -14,9 +14,10 @@
  * THE ROWS ARE GENERATED. MusicZoneTable.cpp's marker block is written by
  * sturdy-bassoon/tools/music/generate-zone-table.ts from sturdy-bassoon/tools/music/zones.json.
  * Edit the zone file and re-run the generator; a hand edit to the block is lost on the next run.
- * The generator refuses a name that does not exist in Shipwright, a table with anything other than
- * exactly one fallback, an inverted rect, and a value too wide for the fields below - the whole
- * class of mistakes that compiles cleanly and then goes quiet in-game.
+ * The generator refuses a name that does not exist in Shipwright, an RS track id that is not in
+ * sturdy-bassoon/tools/music/rs-tracks.record.json, a table with anything other than exactly one
+ * fallback, an inverted rect, and a value too wide for the fields below - the whole class of
+ * mistakes that compiles cleanly and then goes quiet in-game.
  *
  * COORDINATES ARE RS ABSOLUTE SURFACE TILES, y increasing NORTH.
  *
@@ -93,21 +94,56 @@ typedef struct RsZoneRect {
     int16_t yMinUnits, yMaxUnits; /* OoT world Y band; RS_ZONE_Y_ANY_* = unconstrained */
 } RsZoneRect;
 
+/*
+ * `endFadeMs` on a track whose duration is a POLICY CUT rather than the end of the music - every
+ * vanilla NA_BGM_* entry, because those loop and the duration is "let this play for a minute, then
+ * move on". Such an advance happens mid-song, so it takes the global RsMusicFadeOutSec like a zone
+ * change or a teleport does.
+ *
+ * An explicit number, INCLUDING 0, means the opposite: this duration is where the music really
+ * ends, so the fade belongs to the track (#90 P3, #91 section 7a). 0 = let the track's own ending
+ * play. The distinction is per entry rather than per kind, which is why the sentinel is not
+ * "rsPath == NULL".
+ */
+#define RS_TRACK_END_FADE_GLOBAL 0xFFFF
+
 typedef struct RsZoneTrack {
-    uint16_t seqId;      /* NA_BGM_* today; a custom sequence number after #91 */
+    /*
+     * The u8 id the rest of the game believes is playing.
+     *
+     * For a vanilla entry that is the track: NA_BGM_*. FOR AN IMPORTED RS TRACK IT IS THE
+     * PLACEHOLDER (#91) - the vanilla-range id that rides through SEQCMD beside the real custom
+     * number, because SEQCMD masks its id field to 8 bits and custom sequences number from ~110 up.
+     * Audio_StartSequence stores THIS in gActiveSeqs[0].seqId, so it is what func_800FA0B4 reports,
+     * what the enemy-music flag gate reads, and what a mini-boss's restart replays.
+     *
+     * Which is why the director's "is player 0 still ours" tests need no special case for RS
+     * tracks: they compare against this field, and this field is what player 0 reports. The
+     * alternative - comparing against the custom sequence number - makes the director yield to its
+     * own track on the next tick, which is #90's comment of 2026-09-17 and #91's measured answer 1.
+     */
+    uint16_t seqId;
     uint16_t conditions; /* RS_ZONE_COND_* - not read yet */
 
     /*
-     * How long this track plays before the queue advances, in seconds. Read since #90 P2.
+     * How long this track plays before the queue advances, in MILLISECONDS. Read since #90 P2;
+     * widened from whole seconds by P3.
      *
      * 0 STILL MEANS "PLAYS UNTIL STOPPED", so a zone whose tracks are all 0 never advances - which
      * is what every zone did through P1 and remains a legitimate authored choice, not a hole.
      *
-     * IT IS A DURATION TABLE, NOT A MEASURED LENGTH. #90 section 9 chose it over end-of-track
-     * detection deliberately. For a looping vanilla NA_BGM_* id this number is a POLICY - "let
-     * this play for a minute, then move on" - because the sequence data loops and would not end on
-     * its own. For an imported RS track (#91) it will be the track's real length, which the
-     * importer already has to know: a Looped="false" sequence requires a Length in seconds.
+     * WHY MILLISECONDS. An imported track's duration is its measured `audioSec`, which is
+     * fractional (136.046 s), and P3 starts a fade a few seconds before it. Rounding the target to
+     * a whole second is up to half a second of error on top of the clock's own, against a fade
+     * whose whole job is to land on the ending. Whole seconds stay expressible; the generator
+     * multiplies an authored `lengthSec` by 1000.
+     *
+     * IT IS STILL A DURATION TABLE, NOT AN END-OF-TRACK DETECTOR. #90 section 9 chose it
+     * deliberately. For a looping vanilla NA_BGM_* id this number is a POLICY - "let this play for
+     * a minute, then move on" - because the sequence data loops and would not end on its own. For
+     * an imported RS track it is `audioSec` from tools/music/rs-tracks.record.json: when the MUSIC
+     * ends, which is NOT when the sequence player stops. The player runs about 2% past `Length`
+     * plus up to 1.25 s of tick rounding, so waiting for quiet would leave a silent tail (#91).
      *
      * The director does also use the engine's end-of-track signal, where it happens to be
      * available: player 0 going quiet advances the queue too. That is opportunistic, never the
@@ -117,7 +153,33 @@ typedef struct RsZoneTrack {
      * because such a queue advances until it draws the 0 and then silently stops advancing for the
      * rest of the session - a dead end that looks exactly like the feature not being finished.
      */
-    uint16_t lengthSec;
+    uint32_t durationMs;
+
+    /*
+     * The fade-out, in milliseconds, for the in-zone advance this track's own duration triggers -
+     * and the moment that advance fires is `durationMs - endFadeMs`, so the ramp reaches zero as
+     * the music ends rather than running over a silence that is already there.
+     *
+     * RS_TRACK_END_FADE_GLOBAL defers to RsMusicFadeOutSec; see the #define above for when that is
+     * the right answer. Everything that is NOT this trigger - zone changes, teleports, override
+     * releases - keeps the global fade whatever this field says, because those happen mid-song.
+     *
+     * Capped at 8500 by the generator: a fade is an 8-bit field in units of 1/30 s (AUDIO_SYSTEM.md
+     * section 3), so 8.5 s is the longest the engine can express and more would silently wrap.
+     */
+    uint16_t endFadeMs;
+
+    /*
+     * NULL for a vanilla NA_BGM_* entry. For an imported RS track, its `sequencePath` from
+     * rs-tracks.record.json - e.g. "custom/music/rs/flute-salad".
+     *
+     * THE PATH IS THE NAME AND THE NUMBER IS NOT, so the number is never stored here. Custom
+     * sequence numbers are handed out in sorted path order across EVERY mounted archive, so
+     * installing any mod whose custom/music path sorts earlier renumbers ours - measured in #91,
+     * where adding one archive moved two tracks in another. The director resolves this string
+     * against audio_load.c's sequenceMap at pick time, every time.
+     */
+    const char* rsPath;
 } RsZoneTrack;
 
 typedef struct RsMusicZone {

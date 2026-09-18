@@ -75,26 +75,41 @@
  *                                        that decided it
  *   rs_music <event>                     the zone music director did something (sturdy-bassoon#90).
  *                                        The one that matters is
- *                                        `transition from=<zone> to=<zone> track=0x<hex>
- *                                        first_visit=<0|1> reason=<why> fade_out=<units>
- *                                        fade_in=<units> gap=<ticks> rs=<x>,<y> pos=<x>,<y>,<z>
- *                                        n=<count> frame=<n>` - reason is dwell | activate |
- *                                        reassert | scene_load | teleport | override_release, fades
- *                                        are in 1/30 s units (the engine's own 8-bit field), rs= is
- *                                        RS absolute surface tiles and pos= OoT world units, so a
- *                                        rect can be checked against where Link actually was. Also
- *                                        `advance zone=<z> from=0x<hex> track=0x<hex>
- *                                        trigger=<duration|quiet> bag=<n>/<size> len=<sec> ...` every
+ *                                        `transition from=<zone> to=<zone> track=<name> seq=0x<hex>
+ *                                        audio_seq=<hex|none|unresolved> first_visit=<0|1> bag=<..>
+ *                                        len_ms=<n> end_fade_ms=<n|global> reason=<why>
+ *                                        fade_out=<units> fade_in=<units> gap=<ticks> rs=<x>,<y>
+ *                                        pos=<x>,<y>,<z> n=<count> frame=<n>` - reason is dwell |
+ *                                        activate | reassert | scene_load | teleport |
+ *                                        override_release, fades are in 1/30 s units (the engine's
+ *                                        own 8-bit field), rs= is RS absolute surface tiles and pos=
+ *                                        OoT world units, so a rect can be checked against where
+ *                                        Link actually was. `track=` NAMES THE TRACK - `0x3C` for a
+ *                                        vanilla id, `rs:flute-salad` for an imported one (#90 P3) -
+ *                                        because an id stopped identifying a track when imported
+ *                                        ones arrived: they all carry the same placeholder, which is
+ *                                        what `seq=` reports and what player 0 believes is playing.
+ *                                        `audio_seq=` is the custom sequence number the path
+ *                                        resolved to this boot, which moves between boots. Also
+ *                                        `advance zone=<z> from=<name> track=<name> seq=0x<hex>
+ *                                        audio_seq=<..> trigger=<duration|quiet> bag=<n>/<size>
+ *                                        len_ms=<n> end_fade_ms=<n|global> fade_out=<units>
+ *                                        fade_source=<track_end|global> ...` every
  *                                        time a multi-track zone's queue moves on WITHOUT the zone
  *                                        changing (sturdy-bassoon#90 P2) - `trigger` names which of
- *                                        the two triggers for the one end-of-track handler fired, and
+ *                                        the two triggers for the one end-of-track handler fired,
+ *                                        `fade_source` whether the fade was the outgoing track's own
+ *                                        ending or the global CVar, and
  *                                        `bag=` is the draw within the current shuffle bag, so a whole
  *                                        cycle reconstructs from the log with no polling. Advances are
  *                                        counted apart from transitions on purpose, so the negative
  *                                        assertion below is not polluted by a zone simply playing.
- *                                        Also `yield`/`track_gone`/`clock_reset`/`disabled`, and
- *                                        `first_visit zone=<z>
- *                                        flag=<n> track=0x<hex> reason=<why>` on the one tick a
+ *                                        Also `yield`/`track_gone`/`clock_reset`/`disabled`,
+ *                                        `track_unresolved zone=<z> path=<p> error=<why>` when an
+ *                                        imported track's path is not registered this boot (the zone
+ *                                        then goes audibly quiet rather than playing something
+ *                                        arbitrary), and `first_visit zone=<z>
+ *                                        flag=<n> track=<name> reason=<why>` on the one tick a
  *                                        zone's one-shot opener is spent - which happens on
  *                                        ACTIVATION and so never fires for a boundary Link merely
  *                                        clipped. THE AGENT LOOP CANNOT HEAR ANYTHING - this channel
@@ -806,7 +821,11 @@ void EmitTrace(const char* phase) {
 // - silently lost every event after the seventh (sturdy-bassoon#97). `sink` is WriteMarker in agent
 // mode and LogEvent otherwise.
 void DrainEvents(void (*sink)(const std::string&)) {
-    char event[256];
+    // Wider than any producer's own slot, so a line is never truncated HERE rather than where it was
+    // written - a silent truncation in the sink would be the same bug for every channel at once. The
+    // zone director's `advance` line reached ~240 characters when #90 P3 gave it track names, an
+    // imported track's resolved sequence number and a second fade field.
+    char event[512];
     // Trigger events from the distance-based room prototype (sturdy-bassoon#6 Exp 4). At most one
     // event per tick, and this runs every tick, so nothing queues.
     if (RoomDist_TakeEvent(event, sizeof(event))) {
