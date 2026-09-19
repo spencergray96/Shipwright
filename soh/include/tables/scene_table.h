@@ -155,4 +155,8 @@
 /* 0x8A */ DEFINE_SCENE(terrain_f2p_settlement_sealed_scene, none, SCENE_TERRAIN_F2P_SETTLEMENT_SEALED, SDC_DEFAULT, 0, 0) // terrain-bake terrain_f2p_settlement_sealed
 /* 0x8B */ DEFINE_SCENE(arch_cut_bench_100_scene, none, SCENE_ARCH_CUT_BENCH_100, SDC_DEFAULT, 0, 0) // project aa10692d-6739-455f-a1b3-52660d3136b0 name arch_cut_bench_100
 /* 0x8C */ DEFINE_SCENE(rs_props_p2_host_scene, none, SCENE_RS_PROPS_P2_HOST, SDC_DEFAULT, 0, 0) // hand-merge rs_props_p2_host
+/* 0x8D */ DEFINE_SCENE(lumbridge_lintel_none_scene, none, SCENE_LUMBRIDGE_LINTEL_NONE, SDC_DEFAULT, 0, 0) // project 95414382-a11a-4c3c-a603-df0cbab3e4e5 name lumbridge_lintel_none
+/* 0x8E */ DEFINE_SCENE(lumbridge_scale_44_scene, none, SCENE_LUMBRIDGE_SCALE_44, SDC_DEFAULT, 0, 0) // project c3bf16bd-ce2e-404c-80b0-f8c230466e69 name lumbridge_scale_44
+/* 0x8F */ DEFINE_SCENE(lumbridge_lintel_half_scene, none, SCENE_LUMBRIDGE_LINTEL_HALF, SDC_DEFAULT, 0, 0) // project ce85f467-a5c4-4d76-bc9f-1f1dffd03fec name lumbridge_lintel_half
+/* 0x90 */ DEFINE_SCENE(rs_area_p3_scene, none, SCENE_RS_AREA_P3, SDC_DEFAULT, 0, 0) // hand-merge rs_area_p3 (sturdy-bassoon#79 P3b)
 // END GRID TOOL EXPORTS

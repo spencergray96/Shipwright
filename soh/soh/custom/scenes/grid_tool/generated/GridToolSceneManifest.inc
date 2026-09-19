@@ -31,4 +31,8 @@
     { SCENE_TERRAIN_F2P_SETTLEMENT_SEALED, CustomTerrainF2pSettlementSealedScene_TrySpawn, CustomTerrainF2pSettlementSealedScene_InitRoom }, // terrain-bake terrain_f2p_settlement_sealed
     { SCENE_ARCH_CUT_BENCH_100, CustomArchCutBench100Scene_TrySpawn, CustomArchCutBench100Scene_InitRoom }, // project aa10692d-6739-455f-a1b3-52660d3136b0 name arch_cut_bench_100
     { SCENE_RS_PROPS_P2_HOST, CustomRsPropsP2HostScene_TrySpawn, CustomRsPropsP2HostScene_InitRoom }, // hand-merge rs_props_p2_host
+    { SCENE_LUMBRIDGE_LINTEL_NONE, CustomLumbridgeLintelNoneScene_TrySpawn, CustomLumbridgeLintelNoneScene_InitRoom }, // project 95414382-a11a-4c3c-a603-df0cbab3e4e5 name lumbridge_lintel_none
+    { SCENE_LUMBRIDGE_SCALE_44, CustomLumbridgeScale44Scene_TrySpawn, CustomLumbridgeScale44Scene_InitRoom }, // project c3bf16bd-ce2e-404c-80b0-f8c230466e69 name lumbridge_scale_44
+    { SCENE_LUMBRIDGE_LINTEL_HALF, CustomLumbridgeLintelHalfScene_TrySpawn, CustomLumbridgeLintelHalfScene_InitRoom }, // project ce85f467-a5c4-4d76-bc9f-1f1dffd03fec name lumbridge_lintel_half
+    { SCENE_RS_AREA_P3, CustomRsAreaP3Scene_TrySpawn, CustomRsAreaP3Scene_InitRoom }, // hand-merge rs_area_p3 (sturdy-bassoon#79 P3b)
 // END GRID TOOL EXPORTS

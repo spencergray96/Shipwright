@@ -30,4 +30,8 @@
 #include "../terrain_f2p_settlement_sealed/CustomTerrainF2pSettlementSealedScene.h" // terrain-bake terrain_f2p_settlement_sealed
 #include "../arch_cut_bench_100/CustomArchCutBench100Scene.h" // project aa10692d-6739-455f-a1b3-52660d3136b0 name arch_cut_bench_100
 #include "../rs_props_p2_host/CustomRsPropsP2HostScene.h" // hand-merge rs_props_p2_host
+#include "../lumbridge_lintel_none/CustomLumbridgeLintelNoneScene.h" // project 95414382-a11a-4c3c-a603-df0cbab3e4e5 name lumbridge_lintel_none
+#include "../lumbridge_scale_44/CustomLumbridgeScale44Scene.h" // project c3bf16bd-ce2e-404c-80b0-f8c230466e69 name lumbridge_scale_44
+#include "../lumbridge_lintel_half/CustomLumbridgeLintelHalfScene.h" // project ce85f467-a5c4-4d76-bc9f-1f1dffd03fec name lumbridge_lintel_half
+#include "../rs_area_p3/CustomRsAreaP3Scene.h" // hand-merge rs_area_p3 (sturdy-bassoon#79 P3b)
 // END GRID TOOL EXPORTS
