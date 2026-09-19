@@ -6,16 +6,12 @@
 #include "CameraIndoorConsole.h"
 #include "CameraIndoorTuning.h"
 
-#include <cstdarg>
-#include <cstdio>
 #include <cstdlib>
-#include <memory>
 
 #include <libultraship/bridge/consolevariablebridge.h>
-#include <ship/Context.h>
 #include <ship/debug/Console.h>
 
-#include "soh/ShipInit.hpp"
+#include "soh/Enhancements/console/ConsoleSink.h"
 
 extern "C" {
 #include <z64.h>
@@ -26,14 +22,9 @@ extern PlayState* gPlayState;
 
 namespace {
 
-void Addf(std::vector<std::string>& lines, const char* fmt, ...) {
-    char buf[512];
-    va_list args;
-    va_start(args, fmt);
-    std::vsnprintf(buf, sizeof(buf), fmt, args);
-    va_end(args);
-    lines.emplace_back(buf);
-}
+// Unqualified because this file has ~20 call sites. A using-declaration in the unnamed
+// namespace reaches the whole translation unit, including the renderer at global scope below.
+using ConsoleSink::Addf;
 
 // Every numeric argument goes through one of these two, so a typo is refused by the console rather
 // than written into a CVar the camera then reads every frame. A rejected value leaves the old one
@@ -212,57 +203,24 @@ int32_t CameraIndoorConsole_Run(const std::vector<std::string>& args, std::vecto
 }
 
 // --- the human sink: the `camindoor` console command ---------------------------------------------
+//
+// The mechanical half is ConsoleSink (sturdy-bassoon#112).
 
 namespace {
 
-int32_t CameraIndoorCommandHandler(std::shared_ptr<Ship::Console> console, const std::vector<std::string>& args,
-                                   std::string* output) {
-    std::vector<std::string> sub(args.begin() + 1, args.end());
-    std::vector<std::string> lines;
-    const int32_t rc = CameraIndoorConsole_Run(sub, lines);
-    if (output != nullptr) {
-        for (size_t i = 0; i < lines.size(); i++) {
-            if (i > 0) {
-                *output += "\n";
-            }
-            // ConsoleWindow hands the output to vsnprintf as the FORMAT string, so a stray '%'
-            // would be read as a conversion. Nothing here prints typed text back, but the doubling
-            // costs nothing and guards whatever grows into a line later.
-            for (char c : lines[i]) {
-                *output += c;
-                if (c == '%') {
-                    *output += '%';
-                }
-            }
-        }
-    }
-    return rc;
-}
-
-// ShipInit "*" functions re-run on preset apply and config drop; AddCommand only warns on a
-// duplicate, but the guard keeps the log clean.
-void RegisterCameraIndoorConsole() {
-    auto console = Ship::Context::GetRawInstance()->GetConsole();
-    if (console->HasCommand("camindoor")) {
-        return;
-    }
-    console->AddCommand(
-        "camindoor",
-        { CameraIndoorCommandHandler,
-          "Indoor camera pull-in on grid-tool scenes (sturdy-bassoon#108): status | on | off | scale <f> | "
-          "height <f> | ease <f> | ring <n> | radius <f> | bias <f> | k <n> | defaults. The follow distance "
-          "is multiplied by `scale` while a ceiling is found within `height` of the floor the player is on, "
-          "and Camera_ClampDist's own easing makes that glide. `ease` is the fraction of the normal step "
-          "taken while pulling IN, so a low value means a short pass under an archway barely moves the "
-          "camera; pushing back out is never slowed. `ring`/`radius`/`bias`/`k` widen the check from one "
-          "sample at the player's feet to a ring biased ahead of his facing, which ignores thin overheads "
-          "and steadies the flip on a doorway threshold. Every value applies on the next frame and "
-          "persists. `status` prints what the check is reading right now, which is how you tell "
-          "'not indoors' from 'the follow camera is not the one running'.",
-          { { "status|on|off|scale|height|ease|ring|radius|bias|k|defaults", Ship::ArgumentType::TEXT },
-            { "value", Ship::ArgumentType::TEXT, true } } });
-}
-
-RegisterShipInitFunc cameraIndoorConsoleInitFunc(RegisterCameraIndoorConsole);
+const ConsoleSink::Command cameraIndoorCommand(
+    "camindoor", CameraIndoorConsole_Run,
+    "Indoor camera pull-in on grid-tool scenes (sturdy-bassoon#108): status | on | off | scale <f> | "
+    "height <f> | ease <f> | ring <n> | radius <f> | bias <f> | k <n> | defaults. The follow distance "
+    "is multiplied by `scale` while a ceiling is found within `height` of the floor the player is on, "
+    "and Camera_ClampDist's own easing makes that glide. `ease` is the fraction of the normal step "
+    "taken while pulling IN, so a low value means a short pass under an archway barely moves the "
+    "camera; pushing back out is never slowed. `ring`/`radius`/`bias`/`k` widen the check from one "
+    "sample at the player's feet to a ring biased ahead of his facing, which ignores thin overheads "
+    "and steadies the flip on a doorway threshold. Every value applies on the next frame and "
+    "persists. `status` prints what the check is reading right now, which is how you tell "
+    "'not indoors' from 'the follow camera is not the one running'.",
+    { { "status|on|off|scale|height|ease|ring|radius|bias|k|defaults", Ship::ArgumentType::TEXT },
+      { "value", Ship::ArgumentType::TEXT, true } });
 
 } // namespace

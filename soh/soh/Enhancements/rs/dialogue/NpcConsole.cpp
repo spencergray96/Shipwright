@@ -1,19 +1,17 @@
 #include "NpcConsole.h"
 
 #include <cstdio>
-#include <memory>
-#include <ship/Context.h>
 #include <ship/debug/Console.h>
 
 #include "NpcDialogue.h"
 #include "NpcDialogueDef.h"
 #include "NpcIds.h"
+#include "soh/Enhancements/console/ConsoleSink.h"
 #include "soh/Enhancements/rs/actors/RsActorParams.h"
 #include "soh/Enhancements/rs/quest/Quest.h"
 #include "soh/Enhancements/rs/quest/QuestDef.h"
 #include "soh/Enhancements/rs/quest/QuestPredicate.h"
 #include "soh/Enhancements/rs/quest/QuestStore.h"
-#include "soh/ShipInit.hpp"
 
 extern "C" {
 #include <z64.h>
@@ -380,52 +378,23 @@ int32_t RsNpcConsole_Run(const std::vector<std::string>& args, std::vector<std::
 }
 
 // --- the human sink: the `npc` console command --------------------------------------------------
+//
+// The mechanical half is ConsoleSink (sturdy-bassoon#112). Definition strings are refused at
+// registration if they carry a '%'; the sink's doubling guards everything else.
 
 namespace {
 
-int32_t NpcCommandHandler(std::shared_ptr<Ship::Console> console, const std::vector<std::string>& args,
-                          std::string* output) {
-    std::vector<std::string> sub(args.begin() + 1, args.end());
-    std::vector<std::string> lines;
-    const int32_t rc = RsNpcConsole_Run(sub, lines);
-    if (output) {
-        for (size_t i = 0; i < lines.size(); i++) {
-            if (i > 0) {
-                *output += "\n";
-            }
-            // ConsoleWindow hands the output to vsnprintf as the FORMAT string; definition strings
-            // are refused at registration if they carry '%', and this guards the rest.
-            for (char c : lines[i]) {
-                *output += c;
-                if (c == '%') {
-                    *output += '%';
-                }
-            }
-        }
-    }
-    return rc;
-}
-
-// ShipInit "*" functions re-run on preset apply and config load; AddCommand only warns on a
-// duplicate, but the guard keeps the log clean.
-void RegisterNpcConsole() {
-    auto console = Ship::Context::GetRawInstance()->GetConsole();
-    if (console->HasCommand("npc")) {
-        return;
-    }
-    console->AddCommand("npc", { NpcCommandHandler,
-                                 "NPC dialogue (sturdy-bassoon#58 P3, #96): list | dump <id> | tree <id> | "
-                                 "resolve <id> | actors | badcheck. dump prints every rule with each predicate's "
-                                 "live value, which rule MATCHES and which one SPEAKS (first match wins), every "
-                                 "option's `next` and whether its own gate makes it visible right now, and the "
-                                 "NODE array a dialogue tree navigates through; tree prints the graph - every "
-                                 "screen, every edge and each node's reachability; resolve prints the speaking "
-                                 "rule's composed body alone; actors lists the live RS actor instances in the "
-                                 "loaded scene; badcheck proves registration refuses malformed definitions.",
-                                 { { "list|dump|tree|resolve|actors|badcheck", Ship::ArgumentType::TEXT },
-                                   { "npc id", Ship::ArgumentType::TEXT, true } } });
-}
-
-RegisterShipInitFunc npcConsoleInitFunc(RegisterNpcConsole);
+const ConsoleSink::Command npcCommand(
+    "npc", RsNpcConsole_Run,
+    "NPC dialogue (sturdy-bassoon#58 P3, #96): list | dump <id> | tree <id> | "
+    "resolve <id> | actors | badcheck. dump prints every rule with each predicate's "
+    "live value, which rule MATCHES and which one SPEAKS (first match wins), every "
+    "option's `next` and whether its own gate makes it visible right now, and the "
+    "NODE array a dialogue tree navigates through; tree prints the graph - every "
+    "screen, every edge and each node's reachability; resolve prints the speaking "
+    "rule's composed body alone; actors lists the live RS actor instances in the "
+    "loaded scene; badcheck proves registration refuses malformed definitions.",
+    { { "list|dump|tree|resolve|actors|badcheck", Ship::ArgumentType::TEXT },
+      { "npc id", Ship::ArgumentType::TEXT, true } });
 
 } // namespace

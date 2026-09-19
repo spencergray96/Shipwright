@@ -1,13 +1,11 @@
 #include "RegionConsole.h"
 
-#include <memory>
-#include <ship/Context.h>
 #include <ship/debug/Console.h>
 
 #include "FloorText.h"
 #include "RegionOverlay.h"
 #include "RsPrefs.h"
-#include "soh/ShipInit.hpp"
+#include "soh/Enhancements/console/ConsoleSink.h"
 
 namespace {
 
@@ -150,52 +148,23 @@ int32_t RsRegionConsole_Run(const std::vector<std::string>& args, std::vector<st
 }
 
 // --- the human sink: the `region` console command -----------------------------------------------
+//
+// The mechanical half is ConsoleSink (sturdy-bassoon#112). This is the command its '%' doubling is
+// load-bearing for: unlike the other rs/ commands, `expand` takes ARBITRARY TYPED TEXT and prints a
+// transformation of it, so a '%' really can reach the console's vsnprintf.
+//
+// `region` collides with nothing in debugger/debugconsole.cpp's CMD_REGISTER list.
 
 namespace {
 
-int32_t RegionCommandHandler(std::shared_ptr<Ship::Console> console, const std::vector<std::string>& args,
-                             std::string* output) {
-    std::vector<std::string> sub(args.begin() + 1, args.end());
-    std::vector<std::string> lines;
-    const int32_t rc = RsRegionConsole_Run(sub, lines);
-    if (output) {
-        for (size_t i = 0; i < lines.size(); i++) {
-            if (i > 0) {
-                *output += "\n";
-            }
-            // ConsoleWindow hands the output to vsnprintf as the FORMAT string. Unlike the other
-            // rs/ commands, `expand` takes ARBITRARY TYPED TEXT and prints a transformation of it,
-            // so a '%' really can reach here - this doubling is load-bearing, not belt and braces.
-            for (char c : lines[i]) {
-                *output += c;
-                if (c == '%') {
-                    *output += '%';
-                }
-            }
-        }
-    }
-    return rc;
-}
-
-// ShipInit "*" functions re-run on preset apply and config load; AddCommand only warns on a
-// duplicate, but the guard keeps the log clean. `region` collides with nothing in
-// debugger/debugconsole.cpp's CMD_REGISTER list.
-void RegisterRegionConsole() {
-    auto console = Ship::Context::GetRawInstance()->GetConsole();
-    if (console->HasCommand("region")) {
-        return;
-    }
-    console->AddCommand("region",
-                        { RegionCommandHandler,
-                          "The save file's floor convention (sturdy-bassoon#94): get | set <uk|us> | toggle | "
-                          "expand <text...> | overlay [on|off]. UK calls the storey at ground level the ground "
-                          "floor, US calls it the first floor; every piece of rs/ prose writes {floor:N} and is "
-                          "expanded at read time. expand prints a sentence under BOTH conventions, which is the "
-                          "fastest way to see what the other half of your players will read.",
-                          { { "get|set|toggle|expand|overlay", Ship::ArgumentType::TEXT },
-                            { "argument", Ship::ArgumentType::TEXT, true } } });
-}
-
-RegisterShipInitFunc regionConsoleInitFunc(RegisterRegionConsole);
+const ConsoleSink::Command regionCommand(
+    "region", RsRegionConsole_Run,
+    "The save file's floor convention (sturdy-bassoon#94): get | set <uk|us> | toggle | "
+    "expand <text...> | overlay [on|off]. UK calls the storey at ground level the ground "
+    "floor, US calls it the first floor; every piece of rs/ prose writes {floor:N} and is "
+    "expanded at read time. expand prints a sentence under BOTH conventions, which is the "
+    "fastest way to see what the other half of your players will read.",
+    { { "get|set|toggle|expand|overlay", Ship::ArgumentType::TEXT },
+      { "argument", Ship::ArgumentType::TEXT, true } });
 
 } // namespace

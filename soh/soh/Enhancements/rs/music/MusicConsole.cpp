@@ -7,19 +7,16 @@
 #include "MusicZones.h"
 #include "ZoneDirector.h"
 
-#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <memory>
 
 #include <libultraship/bridge/consolevariablebridge.h>
-#include <ship/Context.h>
 #include <ship/debug/Console.h>
 
 #include "soh/Enhancements/agenttest/AgentTest.h"
+#include "soh/Enhancements/console/ConsoleSink.h"
 #include "soh/Enhancements/worldstate/WorldFlags.h"
-#include "soh/ShipInit.hpp"
 #include "soh/cvar_prefixes.h"
 
 extern "C" {
@@ -50,14 +47,9 @@ u16 AudioEditor_GetReplacementSeq(u16 seqId);
 
 namespace {
 
-void Addf(std::vector<std::string>& lines, const char* fmt, ...) {
-    char buf[512];
-    va_list args;
-    va_start(args, fmt);
-    std::vsnprintf(buf, sizeof(buf), fmt, args);
-    va_end(args);
-    lines.emplace_back(buf);
-}
+// Unqualified because this file has ~30 call sites. A using-declaration in the unnamed
+// namespace reaches the whole translation unit, including the renderer at global scope below.
+using ConsoleSink::Addf;
 
 bool ParseSeconds(const std::string& s, float* out) {
     char* end = nullptr;
@@ -532,71 +524,47 @@ int32_t MusicConsole_Run(const std::vector<std::string>& args, std::vector<std::
 }
 
 // --- the human sink: the `rsmusic` console command ----------------------------------------------
+//
+// The mechanical half is ConsoleSink (sturdy-bassoon#112). What stays here is the one part of this
+// surface that is not mechanical: the marker echo.
 
 namespace {
 
-int32_t MusicCommandHandler(std::shared_ptr<Ship::Console> console, const std::vector<std::string>& args,
-                            std::string* output) {
-    std::vector<std::string> sub(args.begin() + 1, args.end());
-    std::vector<std::string> lines;
-    const int32_t rc = MusicConsole_Run(sub, lines);
-    // #91's test subcommands also reach the engine log from a human session, so a listening pass can be
-    // read back afterwards the way #97 made director events readable. Only these: the read-only
-    // subcommands get polled, and a poll is not an event.
-    if (!sub.empty() && (sub[0] == "testplay" || sub[0] == "teststop" || sub[0] == "tracks")) {
+// #91's test subcommands also reach the engine log from a human session, so a listening pass can be
+// read back afterwards the way #97 made director events readable. Only these: the read-only
+// subcommands get polled, and a poll is not an event.
+//
+// This wraps the renderer rather than living inside it, because `agenttest music` writes its own
+// markers for every subcommand and would double these.
+int32_t RunAndEchoTestMarkers(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    const int32_t rc = MusicConsole_Run(args, lines);
+    if (!args.empty() && (args[0] == "testplay" || args[0] == "teststop" || args[0] == "tracks")) {
         for (const std::string& line : lines) {
             AgentTest_WriteMarker(("rs_music " + line).c_str());
-        }
-    }
-    if (output != nullptr) {
-        for (size_t i = 0; i < lines.size(); i++) {
-            if (i > 0) {
-                *output += "\n";
-            }
-            // ConsoleWindow hands the output to vsnprintf as the FORMAT string, so a stray '%'
-            // would be read as a conversion. Zone names are ours and contain none, but this
-            // guards anything that grows into a line later.
-            for (char c : lines[i]) {
-                *output += c;
-                if (c == '%') {
-                    *output += '%';
-                }
-            }
         }
     }
     return rc;
 }
 
-// ShipInit "*" functions re-run on preset apply and config drop; AddCommand only warns on a
-// duplicate, but the guard keeps the log clean.
-void RegisterMusicConsole() {
-    auto console = Ship::Context::GetRawInstance()->GetConsole();
-    if (console->HasCommand("rsmusic")) {
-        return;
-    }
-    console->AddCommand(
-        "rsmusic",
-        { MusicCommandHandler,
-          "Zone-based overworld music (sturdy-bassoon#90): status | where | zones | scenes | bags | "
-          "firstvisit | players | on | off | dwell <sec> | fadeout <sec> | fadein <sec> | baseline | tracks | "
-          "testplay <track> <placeholder> [fade_in_sec] | teststop [fade_out_sec]. `players` "
-          "reads all four sequence players, which is how a duck (enemy music, a fanfare) is seen at all. "
-          "`tracks`, `testplay` and `teststop` are the imported-track probe (sturdy-bassoon#91): they "
-          "list custom sequences and start or stop one on player 0 WITHOUT the director. "
-          "`where` prints Link's "
-          "position in both OoT world units and RS absolute tiles plus the zone that wins there - "
-          "that is how you check a rect against where he actually is. Fades are an 8-bit field in "
-          "units of 1/30 s, so they clamp at 8.5 seconds and the reported unit count is what the "
-          "engine really gets. `baseline` bookmarks the transition count so `status` can report the "
-          "difference; it does NOT zero the counter, on purpose.",
-          { { "status|where|zones|scenes|bags|firstvisit|players|on|off|dwell|fadeout|fadein|baseline|tracks|"
-              "testplay|teststop",
-              Ship::ArgumentType::TEXT },
-            { "seconds|track", Ship::ArgumentType::TEXT, true },
-            { "placeholder", Ship::ArgumentType::TEXT, true },
-            { "fade_in_sec", Ship::ArgumentType::TEXT, true } } });
-}
-
-RegisterShipInitFunc musicConsoleInitFunc(RegisterMusicConsole);
+const ConsoleSink::Command musicCommand(
+    "rsmusic", RunAndEchoTestMarkers,
+    "Zone-based overworld music (sturdy-bassoon#90): status | where | zones | scenes | bags | "
+    "firstvisit | players | on | off | dwell <sec> | fadeout <sec> | fadein <sec> | baseline | tracks | "
+    "testplay <track> <placeholder> [fade_in_sec] | teststop [fade_out_sec]. `players` "
+    "reads all four sequence players, which is how a duck (enemy music, a fanfare) is seen at all. "
+    "`tracks`, `testplay` and `teststop` are the imported-track probe (sturdy-bassoon#91): they "
+    "list custom sequences and start or stop one on player 0 WITHOUT the director. "
+    "`where` prints Link's "
+    "position in both OoT world units and RS absolute tiles plus the zone that wins there - "
+    "that is how you check a rect against where he actually is. Fades are an 8-bit field in "
+    "units of 1/30 s, so they clamp at 8.5 seconds and the reported unit count is what the "
+    "engine really gets. `baseline` bookmarks the transition count so `status` can report the "
+    "difference; it does NOT zero the counter, on purpose.",
+    { { "status|where|zones|scenes|bags|firstvisit|players|on|off|dwell|fadeout|fadein|baseline|tracks|"
+        "testplay|teststop",
+        Ship::ArgumentType::TEXT },
+      { "seconds|track", Ship::ArgumentType::TEXT, true },
+      { "placeholder", Ship::ArgumentType::TEXT, true },
+      { "fade_in_sec", Ship::ArgumentType::TEXT, true } });
 
 } // namespace

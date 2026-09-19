@@ -1,8 +1,6 @@
 #include "QuestConsole.h"
 
 #include <cstdio>
-#include <memory>
-#include <ship/Context.h>
 #include <ship/debug/Console.h>
 
 #include "Quest.h"
@@ -11,8 +9,8 @@
 #include "QuestOverlay.h"
 #include "QuestPredicate.h"
 #include "WorldFlagIds.h"
+#include "soh/Enhancements/console/ConsoleSink.h"
 #include "soh/Enhancements/rs/actors/RsItemArt.h"
-#include "soh/ShipInit.hpp"
 
 // The malformed-definition table, defined in quests/DebugJournalQuest.cpp next to the good
 // definition it contrasts with.
@@ -421,58 +419,28 @@ int32_t QuestConsole_Run(const std::vector<std::string>& args, std::vector<std::
 }
 
 // --- the human sink: the `quest` console command -----------------------------------------------
+//
+// The mechanical half is ConsoleSink (sturdy-bassoon#112). Definition strings are refused at
+// registration if they carry a '%'; the sink's doubling guards everything else.
 
 namespace {
 
-int32_t QuestCommandHandler(std::shared_ptr<Ship::Console> console, const std::vector<std::string>& args,
-                            std::string* output) {
-    std::vector<std::string> sub(args.begin() + 1, args.end());
-    std::vector<std::string> lines;
-    const int32_t rc = QuestConsole_Run(sub, lines);
-    if (output) {
-        for (size_t i = 0; i < lines.size(); i++) {
-            if (i > 0) {
-                *output += "\n";
-            }
-            // ConsoleWindow hands the output to vsnprintf as the FORMAT string; definition strings
-            // are refused at registration if they carry '%', and this guards the rest.
-            for (char c : lines[i]) {
-                *output += c;
-                if (c == '%') {
-                    *output += '%';
-                }
-            }
-        }
-    }
-    return rc;
-}
-
-// ShipInit "*" functions re-run on preset apply and config drop; AddCommand only warns on a
-// duplicate, but the guard keeps the log clean.
-void RegisterQuestConsole() {
-    auto console = Ship::Context::GetRawInstance()->GetConsole();
-    if (console->HasCommand("quest")) {
-        return;
-    }
-    console->AddCommand("quest",
-                        { QuestCommandHandler,
-                          "Quest system (sturdy-bassoon#58): list | dump <id> | start <id> | setstep <id> <step> | "
-                          "clearstep <id> <step> | check <id> <step> | complete <id> | force <id> | reset <id> | "
-                          "debugwipe | journal <id|all> [runs] | parse <text...> | badcheck | "
-                          "overlay [on|off|all|<id>] | itemart | pickup <id> <step>. debugwipe clears only "
-                          "the debug bands of quests and world flags; journal renders the resolved entry with "
-                          "spans as [item:Egg]; parse is the markup probe; badcheck proves registration refuses "
-                          "malformed definitions; overlay switches the on-screen journal overlay and reports what "
-                          "it drew last frame; itemart lists which sprite each quest item wears and "
-                          "fails if one cannot be found in the asset archive; pickup prints what a step's item "
-                          "says when it is picked up.",
-                          { { "list|dump|start|setstep|clearstep|check|complete|force|reset|debugwipe|journal|parse|"
-                              "badcheck|overlay|itemart|pickup",
-                              Ship::ArgumentType::TEXT },
-                            { "quest id / text", Ship::ArgumentType::TEXT, true },
-                            { "step / runs", Ship::ArgumentType::TEXT, true } } });
-}
-
-RegisterShipInitFunc questConsoleInitFunc(RegisterQuestConsole);
+const ConsoleSink::Command questCommand(
+    "quest", QuestConsole_Run,
+    "Quest system (sturdy-bassoon#58): list | dump <id> | start <id> | setstep <id> <step> | "
+    "clearstep <id> <step> | check <id> <step> | complete <id> | force <id> | reset <id> | "
+    "debugwipe | journal <id|all> [runs] | parse <text...> | badcheck | "
+    "overlay [on|off|all|<id>] | itemart | pickup <id> <step>. debugwipe clears only "
+    "the debug bands of quests and world flags; journal renders the resolved entry with "
+    "spans as [item:Egg]; parse is the markup probe; badcheck proves registration refuses "
+    "malformed definitions; overlay switches the on-screen journal overlay and reports what "
+    "it drew last frame; itemart lists which sprite each quest item wears and "
+    "fails if one cannot be found in the asset archive; pickup prints what a step's item "
+    "says when it is picked up.",
+    { { "list|dump|start|setstep|clearstep|check|complete|force|reset|debugwipe|journal|parse|"
+        "badcheck|overlay|itemart|pickup",
+        Ship::ArgumentType::TEXT },
+      { "quest id / text", Ship::ArgumentType::TEXT, true },
+      { "step / runs", Ship::ArgumentType::TEXT, true } });
 
 } // namespace
