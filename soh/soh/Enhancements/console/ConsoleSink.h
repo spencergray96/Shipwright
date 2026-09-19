@@ -10,20 +10,24 @@
 
 #include "soh/ShipInit.hpp"
 
-// The mechanical half of a console command's HUMAN SINK (sturdy-bassoon#112), shared by every
-// `<feature>Console.cpp` in the mod. It owns three things that were copy-pasted five times:
+// The mechanical half of a console command surface, shared by every `<feature>Console.cpp` in the
+// mod - BOTH destinations a renderer's lines go to:
 //
-//   - Addf, the printf-into-a-line helper,
-//   - the '%'-safe join from `lines` into the console's output string, and
-//   - the registration: the HasCommand guard, the handler lambda, the RegisterShipInitFunc.
+//   - the human `<name> <sub>` command (sturdy-bassoon#112): Addf, the '%'-safe join into the
+//     console's output string, and the registration - HasCommand guard, handler lambda,
+//     RegisterShipInitFunc. That is `Command` plus `WriteOutput`.
+//   - the `agenttest <name> <sub>` marker channel (sturdy-bassoon#113): one marker per line plus
+//     the same lines joined into `out=`. That is `RunToMarkers`.
+//
+// Between them those were nine hand-copied blocks; the '%' doubling alone was five, and is now one
+// function (AppendEscaped in the .cpp) that both destinations append through.
 //
 // It owns NONE of the parsing. A feature's `<Feature>Console_Run(args, lines)` stays exactly where
 // it is and keeps its own header - the one-parser-two-sinks arrangement documented in
-// MusicConsole.h (human command + `agenttest <sub>` marker channel) is untouched by this, and a
-// renderer must go on being callable from both.
+// MusicConsole.h is untouched by this, and a renderer must go on being callable from both.
 //
-// Adding a console command is now a parser plus one file-scope Command object; see any of the five
-// for the shape.
+// Adding a console command is a parser, one file-scope Command object and one RunToMarkers call;
+// the recipe is the `soh-add-console-command` skill.
 namespace ConsoleSink {
 
 // A feature's renderer. `args` is the subcommand words with the command name already sliced off;
@@ -50,6 +54,25 @@ void Addf(std::vector<std::string>& lines, const char* fmt, ...);
 // reason must still be able to reach this rather than write the loop again, which is the whole
 // point of the extraction.
 void WriteOutput(const std::vector<std::string>& lines, std::string* output);
+
+// The marker sink's line writer (sturdy-bassoon#113). This is a parameter rather than a direct
+// call because AgentTest.cpp's WriteMarker is file-local there - and deliberately so: the public
+// AgentTest_WriteMarker stands down when the agent-test switch is off, which is right for gameplay
+// code and wrong for a command the user typed on purpose.
+// A plain function pointer rather than a std::function (which is what RunFn is): no caller needs
+// to capture, and refusing a capturing lambda at compile time is free.
+using MarkerFn = void (*)(const std::string&);
+
+// Runs `run` and feeds the two things an `agenttest <sub>` produces: one `<prefix><line>` marker
+// per line, written VERBATIM because a marker is never a format string; and the same lines joined
+// onto `*output` with " | " and '%'-doubled, because a typed `agenttest <sub>` reaches
+// ConsoleWindow's vsnprintf like any other command. The differing escaping is the point.
+//
+// The caller keeps its own arity guard. `agenttest music` admits an empty subcommand list where
+// the others do not, and that difference is the caller's to state rather than this function's to
+// flatten.
+int32_t RunToMarkers(const RunFn& run, const std::vector<std::string>& args, const std::string& markerPrefix,
+                     std::string* output, MarkerFn writeMarker);
 
 // One console command - sturdy-bassoon#112's `RegisterConsoleCommand(name, runFn, helpText,
 // argSpec)` in object form, which is what lets the RegisterShipInitFunc live inside it. Declare it

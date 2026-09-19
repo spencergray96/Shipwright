@@ -318,6 +318,7 @@
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/actortiers/ActorTiers.h"
 #include "soh/Enhancements/roomdist/RoomDist.h"
+#include "soh/Enhancements/console/ConsoleSink.h"
 #include "soh/Enhancements/rs/music/MusicConsole.h"
 #include "soh/Enhancements/rs/music/ZoneDirector.h"
 #include "soh/Enhancements/worldstate/WorldFlags.h"
@@ -1870,53 +1871,17 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     // pre-validated through the Quest_Check* calls, never via an assert.
     if (args.size() >= 3 && args[1] == "quest") {
         const std::vector<std::string> sub(args.begin() + 2, args.end());
-        std::vector<std::string> lines;
-        const int32_t rc = QuestConsole_Run(sub, lines);
-        for (const std::string& line : lines) {
-            WriteMarker("quest " + line); // the marker is written verbatim - it is not a format string
-            if (output) {
-                if (!output->empty()) {
-                    *output += " | ";
-                }
-                // ConsoleWindow hands a handler's `output` to vsnprintf as the FORMAT string when
-                // the command is typed, so '%' must be doubled here exactly as the human `quest`
-                // sink does it (QuestConsole.cpp). Today nothing can produce one - definition
-                // strings and `quest parse` input both refuse '%' - so this only ever escapes a
-                // future line that grows one, which is the point of having it.
-                for (char c : line) {
-                    *output += c;
-                    if (c == '%') {
-                        *output += '%';
-                    }
-                }
-            }
-        }
-        return rc;
+        return ConsoleSink::RunToMarkers(QuestConsole_Run, sub, "quest ", output, WriteMarker);
     }
     // The zone music director's surface (sturdy-bassoon#90 P0). Same parser and renderer as the
     // human `rsmusic` console command - MusicConsole_Run - so the two cannot drift; the only
     // difference is the sink: every line becomes its own `rs_music <line>` marker.
+    // `>= 2`, not `>= 3`: a bare `agenttest music` reaches the renderer with no subcommand and
+    // gets the status report, where the other three fall through to the usage line. Deliberate,
+    // and asserted by the #113 capture.
     if (args.size() >= 2 && args[1] == "music") {
         const std::vector<std::string> sub(args.begin() + 2, args.end());
-        std::vector<std::string> lines;
-        const int32_t rc = MusicConsole_Run(sub, lines);
-        for (const std::string& line : lines) {
-            WriteMarker("rs_music " + line); // written verbatim - it is not a format string
-            if (output) {
-                if (!output->empty()) {
-                    *output += " | ";
-                }
-                // Doubled for the same reason as the `quest` sink above: ConsoleWindow hands a
-                // handler's `output` to vsnprintf as the FORMAT string when the command is typed.
-                for (char c : line) {
-                    *output += c;
-                    if (c == '%') {
-                        *output += '%';
-                    }
-                }
-            }
-        }
-        return rc;
+        return ConsoleSink::RunToMarkers(MusicConsole_Run, sub, "rs_music ", output, WriteMarker);
     }
     // The NPC dialogue surface (sturdy-bassoon#58 P3 / D18). Same arrangement as `quest` above:
     // one implementation (RsNpcConsole_Run) behind two sinks, so the human command and the agent
@@ -1924,52 +1889,18 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     // dialogue option is what writes, and only an actor in a real conversation does that.
     if (args.size() >= 3 && args[1] == "npc") {
         const std::vector<std::string> sub(args.begin() + 2, args.end());
-        std::vector<std::string> lines;
-        const int32_t rc = RsNpcConsole_Run(sub, lines);
-        for (const std::string& line : lines) {
-            WriteMarker("npc " + line); // written verbatim - it is not a format string
-            if (output) {
-                if (!output->empty()) {
-                    *output += " | ";
-                }
-                // ConsoleWindow hands a handler's `output` to vsnprintf as the FORMAT string when
-                // the command is typed, so '%' is doubled exactly as the human `npc` sink does it.
-                for (char c : line) {
-                    *output += c;
-                    if (c == '%') {
-                        *output += '%';
-                    }
-                }
-            }
-        }
-        return rc;
+        return ConsoleSink::RunToMarkers(RsNpcConsole_Run, sub, "npc ", output, WriteMarker);
     }
     // The region setting's surface (sturdy-bassoon#94). Same arrangement as `quest` and `npc`
     // above: one implementation (RsRegionConsole_Run) behind two sinks, so the human `region`
     // command and the agent markers cannot drift. This is the leg that makes the substitution
     // assertable - `agenttest region set us` then `agenttest npc resolve <npc>` prints the US
     // label, because the console prints the COMPOSED body rather than the definition string.
+    // The one bridge whose '%' doubling is not hypothetical: `region expand` takes arbitrary
+    // typed text and prints a transformation of it.
     if (args.size() >= 3 && args[1] == "region") {
         const std::vector<std::string> sub(args.begin() + 2, args.end());
-        std::vector<std::string> lines;
-        const int32_t rc = RsRegionConsole_Run(sub, lines);
-        for (const std::string& line : lines) {
-            WriteMarker("rs_region " + line); // written verbatim - it is not a format string
-            if (output) {
-                if (!output->empty()) {
-                    *output += " | ";
-                }
-                // Doubled for the same reason as the `quest` sink above, and here it is not
-                // hypothetical: `region expand` takes arbitrary typed text.
-                for (char c : line) {
-                    *output += c;
-                    if (c == '%') {
-                        *output += '%';
-                    }
-                }
-            }
-        }
-        return rc;
+        return ConsoleSink::RunToMarkers(RsRegionConsole_Run, sub, "rs_region ", output, WriteMarker);
     }
     if (args.size() >= 2 && args[1] == "mark") {
         std::string text;
