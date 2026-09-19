@@ -53,7 +53,7 @@ static EntranceEntry sLumbridgeCastleEntrances[] = {
 // mode 0 is PLAYER_START_MODE_NOTHING, which leaves Player's update/draw entirely inert), low
 // byte 0xFF = "no start bg-camera override" (we don't author per-scene camera data).
 static ActorEntry sLumbridgeCastlePlayerSpawn = {
-    ACTOR_PLAYER, { 220, 0, -240 }, { 0, 0, 0 }, 0xDFF
+    ACTOR_PLAYER, { 740, 244, -200 }, { 0, 0, 0 }, 0xDFF
 };
 
 static RomFile sLumbridgeCastleRoomList[] = {
