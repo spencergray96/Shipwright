@@ -9,12 +9,14 @@ extern Gfx rs_props_p2_host_room_0_shapeHeader_entry_0_opaque[];
 extern Gfx rs_church_pew_5788_opaque_dl[];
 extern Gfx rs_stacked_barrels_4641_vcolonly_opaque_dl[];
 extern Gfx rs_stacked_barrels_4641_opaque_dl[];
+extern Gfx rs_crate_355_opaque_dl[];
 
-RoomShapeDListsEntry rs_props_p2_host_room_0_shapeDListsEntry[4] = {
+RoomShapeDListsEntry rs_props_p2_host_room_0_shapeDListsEntry[5] = {
     { rs_props_p2_host_room_0_shapeHeader_entry_0_opaque, NULL },
     { rs_church_pew_5788_opaque_dl, NULL },
     { rs_stacked_barrels_4641_vcolonly_opaque_dl, NULL },
     { rs_stacked_barrels_4641_opaque_dl, NULL },
+    { rs_crate_355_opaque_dl, NULL },
 };
 
 RoomShapeNormal rs_props_p2_host_room_0_shapeHeader = {
