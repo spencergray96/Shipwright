@@ -175,6 +175,22 @@
  *   rs_quest quest=<n> event=on_complete a quest's optional completion callback ran (D12). It runs after the
  *                                        declarative rewards with the status already COMPLETE, so counting
  *                                        these markers is how a run proves a reward fired exactly once
+ *   rs_menu boot button=N64_L mask=0x<hex> bindings=<n> bound=<0|1> [hint=...]
+ *                                        written once per session by the mod-owned pause interface
+ *                                        (sturdy-bassoon#111) as soon as the control deck is up. It
+ *                                        exists because on a GameCube pad NOTHING produces N64 L by
+ *                                        default - SoH binds it to SDL leftshoulder, which no GC
+ *                                        adapter exposes - so without this line an unbound trigger
+ *                                        and a broken menu are indistinguishable. Like the other
+ *                                        gameplay markers it reaches the engine log in every
+ *                                        session, agent mode or not
+ *   rs_menu <line>                       one line of RsMenuConsole_Run output per marker, from
+ *                                        `agenttest menu ...`. Same renderer as the human `menu`
+ *                                        console command, so the two cannot drift. `rs_menu op=dump
+ *                                        …` is the menu's whole observable surface: a full-screen
+ *                                        panel has no gameplay side effect, so a screenshot alone
+ *                                        cannot say which page the ring is on or whether the world
+ *                                        is really frozen
  *   mark <text>                          echoed from "agenttest mark <text>"
  *   input_done [reason=scene_change]     a walk/press injection finished (or was cancelled by a scene change)
  *
@@ -281,6 +297,21 @@
  *                                          `npc dump`/`npc resolve` print the COMPOSED body, `region
  *                                          set us` followed by one of those asserts what a player
  *                                          would actually read
+ *   agenttest menu open|close|page <n>|primary [custom|vanilla]|dump
+ *                                          the mod-owned pause interface (sturdy-bassoon#111) - the
+ *                                          RS-style scroll that opens beside vanilla pause rather
+ *                                          than inside it. `open`/`close` drive it, `page` selects
+ *                                          one of the registered pages (1-based, and the number
+ *                                          always matches the page's own title), and `primary`
+ *                                          decides which menu START opens - a subcommand because
+ *                                          there is no console `set`. `dump` is the one that
+ *                                          matters: a full-screen menu has no gameplay side effect
+ *                                          to observe, so without it a run's only evidence is a
+ *                                          screenshot, which cannot say which page the ring is on
+ *                                          or whether the world is really frozen. Its
+ *                                          `stick_frames=` counts frames on which input reached the
+ *                                          game WHILE frozen, which is what makes "Link did not
+ *                                          move" a challenged negative rather than an untested one
  *   agenttest mark <text>                  write a marker, for bracketing checkpoints in the log
  *
  * Command-file consumption pauses while an injection is in progress, so queued lines run in order.
@@ -328,6 +359,7 @@
 #include "soh/Enhancements/rs/quest/QuestConsole.h"
 #include "soh/Enhancements/rs/dialogue/NpcConsole.h"
 #include "soh/Enhancements/rs/prefs/RegionConsole.h"
+#include "soh/Enhancements/rs/menu/MenuConsole.h"
 #include "AgentTest.h"
 #include "soh/ActorDB.h"
 #include "soh/ShipInit.hpp"
@@ -1902,6 +1934,16 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(RsRegionConsole_Run, sub, "rs_region ", output, WriteMarker);
     }
+    // The mod-owned pause interface (sturdy-bassoon#111). Same arrangement again: one
+    // implementation (RsMenuConsole_Run) behind two sinks. This one carries more weight than the
+    // others, because a full-screen menu has no gameplay side effect for a run to observe - without
+    // `rs_menu op=dump …` the only evidence available is a screenshot, which cannot say which page
+    // the ring is on, whether the world is actually frozen, or whether the N64 L trigger has a
+    // binding at all.
+    if (args.size() >= 3 && args[1] == "menu") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(RsMenuConsole_Run, sub, "rs_menu ", output, WriteMarker);
+    }
     if (args.size() >= 2 && args[1] == "mark") {
         std::string text;
         for (size_t i = 2; i < args.size(); i++) {
@@ -1924,6 +1966,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
+              "menu open|close|page <n>|primary [custom|vanilla]|dump | "
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|fadein <s>|"
               "baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
             "save <fileNum> | loadsave <fileNum> | mark <text>";
@@ -1957,6 +2000,7 @@ void RegisterAgentTest() {
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
+              "menu open|close|page <n>|primary [custom|vanilla]|dump | "
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|"
               "fadein <s>|baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
               "save <fileNum> | loadsave <fileNum> | mark <text>. walk/press inject controller 1 for N frames and end "
