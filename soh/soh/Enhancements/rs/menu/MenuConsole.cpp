@@ -89,19 +89,148 @@ int32_t Primary(const std::vector<std::string>& args, std::vector<std::string>& 
     return 0;
 }
 
-// Stage 4's two diagnostics. Neither writes a CVar - see RsMenuViewMode in RsMenu.h for why - so a
-// session that wedges cannot leave the owner's config on a debug setting the way `primary` can.
-int32_t ViewMode(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+// Stage 5's two surfaces, and neither writes a CVar - see RsMenu.h - so a session that wedges
+// cannot leave the owner's config on a debug setting the way `primary` can.
+//
+// The sweep's fields, formatted once because three lines report them. `tick=`/`of=` is what makes a
+// mid-sweep screenshot self-describing: it says which of the eleven positions the animation itself
+// could have drawn this frame belongs to, so a measured position that is not one of them came from
+// the renderer rather than from the game tick. Angles are radians, printed to four places because
+// the whole excursion is only about 0.055 of one.
+std::string DescribeSweep(const RsMenuSweepState& sweep) {
+    char buf[192];
+    std::snprintf(buf, sizeof(buf),
+                  "sweep=%d loop=%d hold=%d tick=%d of=%d dir=%d from=%d to=%d hand=%s env=%.3f dx=%.2f "
+                  "angle=%.4f sweeps=%d",
+                  sweep.active ? 1 : 0, sweep.loop ? 1 : 0, sweep.hold ? 1 : 0, sweep.tick, sweep.ticks, sweep.dir,
+                  sweep.fromPage + 1,
+                  sweep.toPage + 1, sweep.movingHand == 0 ? "left" : "right", sweep.env, sweep.dx, sweep.angle,
+                  sweep.sweeps);
+    return buf;
+}
+
+int32_t Sweep(const std::vector<std::string>& args, std::vector<std::string>& lines) {
     if (args.size() >= 2) {
-        int32_t mode = 0;
-        if (!RsMenu_ParseViewMode(args[1], &mode)) {
-            Addf(lines, "op=view result=error error=arg %s", Describe().c_str());
+        int32_t delta = 0;
+        if (args[1] == "loop") {
+            if (!RsMenu_StartSweepLoop()) {
+                Addf(lines, "op=sweep result=error error=no_ring %s %s", DescribeSweep(RsMenu_SweepState()).c_str(),
+                     Describe().c_str());
+                return 1;
+            }
+            Addf(lines, "op=sweep result=ok %s %s", DescribeSweep(RsMenu_SweepState()).c_str(), Describe().c_str());
+            return 0;
+        }
+        if (args[1] == "hold") {
+            int32_t tick = 0;
+            int32_t held = 0;
+            if (args.size() < 4 || !ParseIndex(args[3], &tick) ||
+                !(args[2] == "l" || args[2] == "r" || args[2] == "left" || args[2] == "right")) {
+                Addf(lines, "op=sweep result=error error=arg %s", Describe().c_str());
+                return 1;
+            }
+            held = (args[2] == "l" || args[2] == "left") ? -1 : 1;
+            if (!RsMenu_HoldSweep(held, tick)) {
+                Addf(lines, "op=sweep result=error error=range asked=%d %s %s", tick,
+                     DescribeSweep(RsMenu_SweepState()).c_str(), Describe().c_str());
+                return 1;
+            }
+            Addf(lines, "op=sweep result=ok %s %s", DescribeSweep(RsMenu_SweepState()).c_str(), Describe().c_str());
+            return 0;
+        }
+        if (args[1] == "stop") {
+            RsMenu_StopSweepLoop();
+            Addf(lines, "op=sweep result=ok %s %s", DescribeSweep(RsMenu_SweepState()).c_str(), Describe().c_str());
+            return 0;
+        }
+        if (args[1] == "l" || args[1] == "left") {
+            delta = -1;
+        } else if (args[1] == "r" || args[1] == "right") {
+            delta = 1;
+        } else {
+            Addf(lines, "op=sweep result=error error=arg %s", Describe().c_str());
             return 1;
         }
-        RsMenu_SetViewMode(mode);
+        if (!RsMenu_StartSweep(delta)) {
+            // Dropped, not queued. Named rather than silent, because "the sweep never started" and
+            // "the sweep started and finished before you looked" leave identical state behind.
+            const RsMenuSweepState live = RsMenu_SweepState();
+            Addf(lines, "op=sweep result=error error=%s %s %s", live.active ? "busy" : "no_ring",
+                 DescribeSweep(live).c_str(), Describe().c_str());
+            return 1;
+        }
     }
-    const int32_t live = RsMenu_GetViewMode();
-    Addf(lines, "op=view result=ok view=%s value=%d %s", RsMenu_ViewModeName(live), live, Describe().c_str());
+    const RsMenuSweepState sweep = RsMenu_SweepState();
+    Addf(lines, "op=sweep result=ok %s %s", DescribeSweep(sweep).c_str(), Describe().c_str());
+    return 0;
+}
+
+// The cursor's own line. `node=` is an id rather than an index on purpose - the graph is rebuilt
+// every tick and an index means a different thing on a different page - and the neighbours are
+// printed as ids too, so a run can assert the ADJACENCY rather than only the position. `box=` is
+// where the highlight draws and is the only geometric field here; nothing in the graph derives a
+// neighbour from it.
+std::string DescribeCursor() {
+    const int32_t index = RsMenu_CursorIndex();
+    const RsMenuCursorNode* node = RsMenu_CursorAt(index);
+    const int32_t count = RsMenu_CursorCount();
+    if (node == nullptr) {
+        char empty[64];
+        std::snprintf(empty, sizeof(empty), "node=none index=%d nodes=%d", index, count);
+        return empty;
+    }
+    const RsMenuCursorNode* left = RsMenu_CursorAt(node->left);
+    const RsMenuCursorNode* right = RsMenu_CursorAt(node->right);
+    const RsMenuCursorNode* up = RsMenu_CursorAt(node->up);
+    const RsMenuCursorNode* down = RsMenu_CursorAt(node->down);
+    char buf[256];
+    std::snprintf(buf, sizeof(buf), "node=%s index=%d nodes=%d hand=%d box=%d,%d,%d,%d left=%s right=%s up=%s down=%s",
+                  node->id.c_str(), index, count, node->hand, node->x, node->y, node->w, node->h,
+                  left != nullptr ? left->id.c_str() : "-", right != nullptr ? right->id.c_str() : "-",
+                  up != nullptr ? up->id.c_str() : "-", down != nullptr ? down->id.c_str() : "-");
+    return buf;
+}
+
+int32_t Cursor(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() >= 2) {
+        const std::string& word = args[1];
+        if (word == "select") {
+            const RsMenuSelectResult result = RsMenu_SelectCursor();
+            const bool refused = result == RS_MENU_SELECT_NONE || result == RS_MENU_SELECT_BUSY;
+            Addf(lines, "op=cursor result=%s select=%s %s %s", refused ? "error" : "ok",
+                 RsMenu_SelectResultName(result), DescribeCursor().c_str(), Describe().c_str());
+            return refused ? 1 : 0;
+        }
+        bool moved = false;
+        bool isDirection = true;
+        if (word == "left") {
+            moved = RsMenu_MoveCursor(-1, 0);
+        } else if (word == "right") {
+            moved = RsMenu_MoveCursor(1, 0);
+        } else if (word == "up") {
+            moved = RsMenu_MoveCursor(0, -1);
+        } else if (word == "down") {
+            moved = RsMenu_MoveCursor(0, 1);
+        } else {
+            isDirection = false;
+        }
+        if (isDirection) {
+            if (!moved) {
+                // Refused rather than clamped. A clamp would let a run report reaching the node at
+                // the end of a row when the graph in fact had no edge that way.
+                Addf(lines, "op=cursor result=error error=no_neighbour %s %s", DescribeCursor().c_str(),
+                     Describe().c_str());
+                return 1;
+            }
+        } else if (!RsMenu_SetCursorById(word.c_str())) {
+            // The error kind alone, never the typed word - an error path that echoes input is how a
+            // console command ends up putting something with a space in it into a key=value line.
+            Addf(lines, "op=cursor result=error error=no_such_node %s %s", DescribeCursor().c_str(),
+                 Describe().c_str());
+            return 1;
+        }
+    }
+    Addf(lines, "op=cursor result=ok %s %s", DescribeCursor().c_str(), Describe().c_str());
     return 0;
 }
 
@@ -110,7 +239,8 @@ int32_t ViewMode(const std::vector<std::string>& args, std::vector<std::string>&
 // screenshot is measured against: every position the 20 Hz animation can draw is a whole multiple of
 // `step` from the park position, so anything between two of them came from the renderer. `epoch` is
 // frame interpolation's camera epoch - the number that says whether something has quietly switched
-// interpolation off for the rest of the frame.
+// interpolation off for the rest of the frame, and it must stand still while the menu is open or
+// the sweep cannot be smooth either.
 std::string DescribeProbe(const RsMenuStatus& status) {
     char buf[128];
     std::snprintf(buf, sizeof(buf), "probe=%d step=%.1f phase=%d dy=%.1f epoch=%d", status.probe ? 1 : 0,
@@ -151,11 +281,20 @@ int32_t Dump(std::vector<std::string>& lines) {
     // from a trigger nobody has bound - and on a GameCube pad `bound=0` is the DEFAULT, not a fault.
     Addf(lines, "op=dump section=trigger button=N64_L mask=0x%04X bindings=%d bound=%d", trigger.mask,
          trigger.bindings, trigger.bound ? 1 : 0);
-    // Stage 4. `view` is how the scroll geometry gets a projection; the probe fields are the lattice
-    // a smoothness measurement is read against; `pause_mode` is the register that would have
-    // exempted a View bracket from bumping `epoch`, and which this menu must never set.
-    Addf(lines, "op=dump section=view view=%s value=%d %s pause_mode=%d", RsMenu_ViewModeName(status.viewMode),
-         status.viewMode, DescribeProbe(status).c_str(), status.pauseMenuMode);
+    // The live roll. `tick=`/`of=` says where in the excursion this line was read, which is what a
+    // mid-sweep screenshot is asserted against; `hand=` is the half of "the moving hand follows the
+    // shoulder pressed" that a screenshot alone cannot prove it MEANT to do.
+    Addf(lines, "op=dump section=sweep %s", DescribeSweep(RsMenu_SweepState()).c_str());
+    // The probe's lattice, plus `epoch` - the one number that says whether something has quietly
+    // switched interpolation off for the rest of the frame - and `pause_mode`, the register that
+    // would have exempted a View bracket from bumping it and which this menu must never set.
+    Addf(lines, "op=dump section=interp %s pause_mode=%d", DescribeProbe(status).c_str(), status.pauseMenuMode);
+    // What the LAST DRAWN FRAME cost, in the units OVERLAY_DISP's 2048-word budget is denominated
+    // in. `dl_words` is the heap display list's length: the menu submits one gSPDisplayList, so it
+    // no longer spends that budget, but the number is what stage 6's journal has to fit inside and
+    // is free to carry here. Zero while the menu is closed - nothing was drawn.
+    Addf(lines, "op=dump section=draw glyphs=%d quads=%d dl_words=%d", status.drawGlyphs, status.drawQuads,
+         status.dlWords);
     Addf(lines,
          "op=dump section=counters opens=%d closes=%d page_changes=%d open_frames=%d draw_frames=%d "
          "input_frames=%d stick_frames=%d button_frames=%d last_stick=%d,%d last_buttons=0x%04X",
@@ -171,11 +310,28 @@ int32_t Dump(std::vector<std::string>& lines) {
         Addf(lines, "op=dump section=page page=%d current=%d id=%s title=\"%s\"", i + 1, i == status.page ? 1 : 0,
              page->id.c_str(), page->title.c_str());
     }
+    // One line per cursor node, so the whole graph is readable from a marker - including its
+    // ADJACENCY, which is the thing no screenshot can show and the thing the settled design is
+    // actually making a claim about. At stage 5 that is two lines, and the empty middle between
+    // them is the point: no page contributes items yet.
+    Addf(lines, "op=dump section=cursor %s", DescribeCursor().c_str());
+    for (int32_t i = 0; i < RsMenu_CursorCount(); i++) {
+        const RsMenuCursorNode* node = RsMenu_CursorAt(i);
+        if (node == nullptr) {
+            continue;
+        }
+        const RsMenuCursorNode* left = RsMenu_CursorAt(node->left);
+        const RsMenuCursorNode* right = RsMenu_CursorAt(node->right);
+        Addf(lines, "op=dump section=node index=%d current=%d id=%s hand=%d box=%d,%d,%d,%d left=%s right=%s", i,
+             i == RsMenu_CursorIndex() ? 1 : 0, node->id.c_str(), node->hand, node->x, node->y, node->w, node->h,
+             left != nullptr ? left->id.c_str() : "-", right != nullptr ? right->id.c_str() : "-");
+    }
     return 0;
 }
 
 const char* kUsage = "usage: menu open | close | page <n> | primary [custom|vanilla] | "
-                     "view [ownvp|bracket|inherit] | probe [on|off] | dump";
+                     "sweep [l|r|loop|hold <l|r> <tick>|stop] | "
+                     "cursor [left|right|up|down|select|<id>] | probe [on|off] | dump";
 
 } // namespace
 
@@ -198,8 +354,11 @@ int32_t RsMenuConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "primary") {
         return Primary(args, lines);
     }
-    if (sub == "view") {
-        return ViewMode(args, lines);
+    if (sub == "sweep") {
+        return Sweep(args, lines);
+    }
+    if (sub == "cursor") {
+        return Cursor(args, lines);
     }
     if (sub == "probe") {
         return Probe(args, lines);
@@ -221,15 +380,19 @@ namespace {
 const ConsoleSink::Command menuCommand(
     "menu", RsMenuConsole_Run,
     "The mod-owned pause interface (sturdy-bassoon#111): open | close | page <n> | "
-    "primary [custom|vanilla] | view [ownvp|bracket|inherit] | probe [on|off] | dump. The scroll "
-    "opens on the N64 L bit and hard-freezes the world; primary decides which menu START opens, and "
-    "is a subcommand because there is no console `set`. view picks how the scroll geometry gets a "
-    "projection and exists so the two rejected alternatives can be seen rather than argued about; "
-    "probe drives a stepped per-tick offset into the geometry and into a string at once, so one "
-    "screenshot shows which of the two frame-interpolates. dump reports open/closed, the page ring, "
-    "the freeze and HUD state, whether N64 L has a binding at all, and how many frames of input "
-    "arrived while the world was frozen.",
-    { { "open|close|page|primary|view|probe|dump", Ship::ArgumentType::TEXT },
+    "primary [custom|vanilla] | sweep [l|r|loop|hold <l|r> <tick>|stop] | "
+    "cursor [left|right|up|down|select|<id>] | "
+    "probe [on|off] | dump. The scroll opens on the N64 L bit and hard-freezes the world; primary "
+    "decides which menu START opens, and is a subcommand because there is no console `set`. sweep "
+    "rolls the scroll one page the way a shoulder press does, and reports the tick it is on so a "
+    "mid-sweep screenshot is self-describing; cursor walks the node graph whose end nodes are the "
+    "two hands, and is the only way to assert which node the cursor is on, because a screenshot "
+    "shows a box and not an adjacency. probe drives a stepped per-tick offset into the geometry and "
+    "into a string at once, so one screenshot shows which of the two frame-interpolates. dump "
+    "reports open/closed, the page ring, the freeze and HUD state, the live sweep, the cursor "
+    "graph, what the last frame cost, whether N64 L has a binding at all, and how many frames of "
+    "input arrived while the world was frozen.",
+    { { "open|close|page|primary|sweep|cursor|probe|dump", Ship::ArgumentType::TEXT },
       { "argument", Ship::ArgumentType::TEXT, true } });
 
 } // namespace

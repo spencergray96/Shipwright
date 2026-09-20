@@ -24,10 +24,32 @@
 
 struct PlayState;
 
-// A page's body draw, called once per frame while that page is the visible one, after the menu has
-// drawn the panel behind it; it opens its own OPEN_DISPS block. A page that passes nullptr gets the
-// greybox body (its title, centred) - which is what every page is at stage 3.
+// A page's body draw, called once per frame while that page is the visible one, from INSIDE the
+// menu's own interpolation node and UNDER the sweep matrix, so whatever it draws rides the scroll.
+// It does NOT open an OPEN_DISPS block of its own: it appends to the menu's shared heap display
+// list through the RsMenu_DrawText* helpers below, which is what keeps a whole page of glyphs
+// inside the 2048-word OVERLAY_DISP budget and inside one interpolation node. A page that passes
+// nullptr gets the greybox body (its title, centred), which is what every page is up to stage 5.
 typedef void (*RsMenuPageDrawFn)(struct PlayState* play, int32_t pageIndex, void* userData);
+
+// Text, in the menu's own 320x240 game space, y down from the top-left. Valid ONLY from inside a
+// page's RsMenuPageDrawFn: each glyph is four vertices and a quad appended to the shared list, so
+// calling one of these outside a draw has nowhere to put them and does nothing.
+//
+// Glyphs are Vtx rather than texture rectangles on purpose and it is the substance of stage 5 -
+// a texrect's coordinates are baked into Gfx words, replay identically on every rendered frame,
+// and so step at 20 Hz while the scroll around them glides (SOH_2D_DRAWING.md). `x`/`y` is the
+// top-left of the first glyph cell, the same anchor the texrect renderer used.
+void RsMenu_DrawText(const char* text, int16_t x, int16_t y, float scale, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
+void RsMenu_DrawTextCentred(const char* text, int16_t centreX, int16_t y, float scale, uint8_t r, uint8_t g, uint8_t b,
+                            uint8_t a);
+float RsMenu_TextWidth(const char* text, float scale);
+
+// A page's cursor-node contribution, called once per update tick while that page is visible, from
+// between the two hand nodes. A page adds its selectable items with RsMenu_AddCursorNode; the
+// hands are added for it. Null means "this page has no items", which is every page at stage 5 -
+// the four greybox pages have nothing to select, so the live graph is exactly the two hands.
+typedef void (*RsMenuPageNodesFn)(int32_t pageIndex, void* userData);
 
 // One registered page. `id` is the greppable key a console line carries (no spaces); `title` is
 // what the page draws and may contain spaces, so every console line that prints it puts it last and
@@ -36,13 +58,15 @@ struct RsMenuPage {
     std::string id;
     std::string title;
     RsMenuPageDrawFn draw;
+    RsMenuPageNodesFn nodes;
     void* userData;
 };
 
 // Registers a page at the end of the ring and returns its 0-based index, or -1 if `id` is empty or
 // already taken. Safe to call from a ShipInit function; callers guard their own re-registration,
-// since ShipInit functions re-run on every config and preset load.
-int32_t RsMenu_RegisterPage(const char* id, const char* title, RsMenuPageDrawFn draw, void* userData);
+// since ShipInit functions re-run on every config and preset load. `nodes` may be null.
+int32_t RsMenu_RegisterPage(const char* id, const char* title, RsMenuPageDrawFn draw, RsMenuPageNodesFn nodes,
+                            void* userData);
 
 int32_t RsMenu_PageCount();
 // 0-based. Null when `index` is out of range, and null whenever the count is 0.
@@ -61,49 +85,128 @@ const char* RsMenu_OpenResultName(RsMenuOpenResult result);
 
 bool RsMenu_IsEnabled();
 bool RsMenu_IsOpen();
-// 0-based index into the ring; 0 when nothing is registered.
+// 0-based index into the ring; 0 when nothing is registered. During a sweep this is the OUTGOING
+// page until the midpoint tick and the INCOMING one after it - the swap is the animation's
+// midpoint, not its start or its end.
 int32_t RsMenu_CurrentPage();
 
 RsMenuOpenResult RsMenu_Open();
 // Returns whether it had been open. Clears haltAllActors and restores the HUD either way.
 bool RsMenu_Close();
-// 0-based. False when out of range or nothing is registered.
+// 0-based. False when out of range or nothing is registered. Instant - no sweep; this is the
+// console's page selector, and a run that wants the animation asks for a sweep instead. It also
+// abandons a sweep in flight, rather than letting it swap again on a tick the caller cannot see.
 bool RsMenu_SetPage(int32_t index);
-// The ring: wraps modulo the page count, in both directions. No-op with nothing registered.
-void RsMenu_CyclePage(int32_t delta);
 
-// How the scroll geometry gets a viewport and a projection (stage 4). Research § C.1 named three
-// levels and recommended level 2 - an own `View` applied with func_800AAA50(&myView, 127) and
-// restored with func_800AAA50(&play->view, 15). Level 2 is NOT what shipped, for three measured
-// reasons spelled out in RsMenu.cpp's "THE PROJECTION" block; these modes exist so the rejected
-// alternative can be SEEN rather than argued about, and each of those three findings came out of
-// running one of them. Diagnostic only: deliberately NOT a CVar, so nothing a run sets here can be
-// left behind in the owner's shipofharkinian.json the way `primary` can.
-enum RsMenuViewMode {
-    // What ships: our own Vp + guOrtho emitted straight into the menu's own pool, the letterbox
-    // pattern (z_rcp.c:1632-1706). `play->view` is never touched, so there is nothing to restore.
-    RS_MENU_VIEW_OWN_VP = 0,
-    // The same, plus the level-2 View bracket wrapped around it. The geometry still draws (our own
-    // viewport wins); what this isolates is what the bracket COSTS.
-    RS_MENU_VIEW_BRACKET = 1,
-    // Level 2 on its own: the View bracket and no viewport of our own, with kaleido's own eye. This
-    // is what research § C.1 recommended, applied to the pool the menu actually lives in - and the
-    // fact that it draws IDENTICALLY to `ownvp` is the photograph of the bracket being inert here.
-    RS_MENU_VIEW_INHERIT = 2,
+// --- the sweep (stage 5) -------------------------------------------------------------------------
+//
+// L/R do not cut between pages, they ROLL the scroll: an integer per-tick counter drives a
+// Matrix_Translate + Matrix_RotateZ excursion about the roll end that is NOT being pulled, and the
+// page content swaps at the excursion's midpoint, where the scroll is furthest from rest and the
+// per-tick motion is smallest. `delta` is +1 (R, the right hand pulls) or -1 (L, the left hand).
+// Refused while a sweep is already running, and while the ring has fewer than two pages - there is
+// nothing to roll to.
+bool RsMenu_StartSweep(int32_t delta);
+
+// Keep sweeping, alternating direction, until told to stop - THE INSTRUMENT FOR THIS STAGE, and it
+// exists because of the agent loop rather than because of the game. One sweep is ten game ticks,
+// half a second; a command round trip through agent-commands.txt is seconds, so a run can never
+// photograph a chosen tick of a single sweep. Under a loop every capture lands on SOME tick of a
+// live animation, and a burst of them samples the whole excursion - which is what turns "it looks
+// smooth" into a distribution. `RsMenu_StopSweepLoop` also abandons the sweep in flight.
+bool RsMenu_StartSweepLoop();
+void RsMenu_StopSweepLoop();
+
+// Parks the animation AT one tick and leaves it there - the other half of the same agent-loop
+// problem the sweep loop solves, from the other end. The loop makes every capture land somewhere in
+// a live excursion, which is what a DISTRIBUTION needs; a hold makes a capture land on a chosen
+// tick, which is what a LOOK needs - "is the parchment still in register at the peak", "which hand
+// carries the twist when R is pressed". Without it those are a race against half a second.
+//
+// `tick` is 0..the sweep length, and the page swap is applied as if the sweep had been played to
+// that tick, so a held frame is a frame the animation really produces rather than a pose only the
+// console can reach. False when the ring has fewer than two pages or `tick` is out of range;
+// RsMenu_StopSweepLoop releases it.
+bool RsMenu_HoldSweep(int32_t delta, int32_t tick);
+
+// Everything a console line or an acceptance script needs to say WHERE in the sweep a screenshot
+// was taken, which is what makes a mid-sweep capture self-describing.
+struct RsMenuSweepState {
+    bool active;
+    int32_t tick;       // 0 at rest; 1..ticks while sweeping
+    int32_t ticks;      // the whole excursion, in game ticks
+    int32_t dir;        // +1 (R) or -1 (L); retained after the sweep ends
+    int32_t fromPage;   // 0-based, the page the sweep left
+    int32_t toPage;     // 0-based, the page it is going to
+    int32_t movingHand; // 0 = left, 1 = right; which hand the shoulder pressed moves
+    float env;          // the excursion envelope, 0 at rest, 1 at the midpoint
+    float dx;           // game units of translate this tick
+    float angle;        // radians of Matrix_RotateZ this tick
+    int32_t sweeps;     // how many have run this session
+    bool loop;          // sweeping on repeat, alternating direction
+    bool hold;          // parked at `tick` rather than advancing
 };
-int32_t RsMenu_GetViewMode();
-void RsMenu_SetViewMode(int32_t mode);
-const char* RsMenu_ViewModeName(int32_t mode);
-bool RsMenu_ParseViewMode(const std::string& word, int32_t* mode);
+RsMenuSweepState RsMenu_SweepState();
 
-// The interpolation probe. Off by default; on, it drives a stepped per-tick vertical offset into
-// BOTH halves of the menu at once - the scroll geometry through Matrix_Translate, a probe string
-// through its texture rectangle's y - and recolours the scroll's centre columns magenta so a pixel
-// scan cannot confuse them with the scene. The two halves therefore disagree in a single frame
-// exactly when the matrix half interpolates and the texrect half does not, which is the measurement
-// stage 4 owes stage 5. See SOH_2D_DRAWING.md § "Verifying smoothness". There is no getter beside
-// this one: the probe's whole live state, lattice included, is on RsMenuStatus below, which is the
-// single place the console reads menu state from.
+// --- the cursor graph (stage 5) ------------------------------------------------------------------
+//
+// ADJACENCY IS THE GRAPH'S, NOT THE PIXELS'. That is the settled design's load-bearing claim and
+// the reason option A's full-width parchment costs nothing: pressing left at the leftmost item
+// reaches the left hand wherever the hand happens to be drawn, and the highlight follows onto it.
+// Nothing here derives a neighbour from a coordinate; `x/y/w/h` exist only so the highlight knows
+// where to draw.
+//
+// The node list is rebuilt every update tick as [left hand] + [the page's own items] + [right
+// hand] and wired left-to-right in that order. At stage 5 no page contributes items, so the graph
+// is exactly the two hands and the "empty middle" is literal. A page that needs 2-D adjacency is
+// stage 6's problem and will supply it; the linear wiring is the default, not a limit.
+struct RsMenuCursorNode {
+    std::string id;
+    int16_t x, y, w, h;               // where the highlight draws, in the same 320x240 game space
+    int32_t left, right, up, down;    // indices into the live list; -1 for no neighbour
+    int32_t hand;                     // 0 = left hand, 1 = right hand, -1 = an ordinary item
+};
+
+// Called by a page's RsMenuPageNodesFn, and valid only from inside it. Returns the new node's
+// index, or -1 outside a rebuild. Neighbours are wired by the menu afterwards.
+int32_t RsMenu_AddCursorNode(const char* id, int16_t x, int16_t y, int16_t w, int16_t h);
+
+int32_t RsMenu_CursorCount();
+// 0-based. Null when out of range.
+const RsMenuCursorNode* RsMenu_CursorAt(int32_t index);
+int32_t RsMenu_CursorIndex();
+// Moves one step along the graph. False when that direction has no neighbour - refused rather than
+// clamped silently, so a run cannot report reaching a node it never reached.
+bool RsMenu_MoveCursor(int32_t dx, int32_t dy);
+// Jumps to a node by id. False when no node carries it.
+bool RsMenu_SetCursorById(const char* id);
+
+// What A did. A hand starts the sweep its side implies, which is the design's "selecting a hand
+// does what L/R does"; an ordinary item has nothing to enter until stage 6's detail views exist.
+enum RsMenuSelectResult {
+    RS_MENU_SELECT_NONE = 0,    // no node under the cursor at all
+    RS_MENU_SELECT_HAND_LEFT,   // rolled back a page
+    RS_MENU_SELECT_HAND_RIGHT,  // rolled forward a page
+    RS_MENU_SELECT_BUSY,        // a sweep is already running; the press was dropped
+    RS_MENU_SELECT_ITEM,        // an ordinary item - nothing to do until stage 6
+};
+RsMenuSelectResult RsMenu_SelectCursor();
+const char* RsMenu_SelectResultName(RsMenuSelectResult result);
+
+// --- the interpolation probe ---------------------------------------------------------------------
+//
+// Stage 4's two-channel instrument, kept and repointed. Off by default; on, it drives a stepped
+// per-tick vertical offset into BOTH halves of the menu at once - the whole scroll through the same
+// Matrix_Translate chain the sweep uses, and a probe string through a texture rectangle's baked y -
+// and recolours the scroll's centre columns magenta so a pixel scan cannot confuse them with the
+// scene. The two therefore disagree in a single frame exactly when the matrix half interpolates and
+// the texrect half does not.
+//
+// ⚠ The probe string is the LAST texture rectangle in this menu, and it is one deliberately. Stage
+// 5 converted the parchment and every glyph to Vtx, which is the whole point of the stage - but
+// that would have left the probe with two interpolating channels and nothing to compare them
+// against. RsMenu.cpp keeps a texrect glyph renderer alive for this string alone, labelled as the
+// reference channel. See SOH_2D_DRAWING.md § "Verifying smoothness".
 void RsMenu_SetProbe(bool on);
 
 // Which menu START opens. Flipped live from the console so either is reachable mid-session.
@@ -131,15 +234,14 @@ struct RsMenuTriggerInfo {
 };
 RsMenuTriggerInfo RsMenu_TriggerInfo();
 
-// Everything `menu dump` reports that is not a page. Kept as a struct so the console renderer holds
-// no menu logic and the two cannot drift.
+// Everything `menu dump` reports that is not a page or a cursor node. Kept as a struct so the
+// console renderer holds no menu logic and the two cannot drift.
 struct RsMenuStatus {
     bool enabled;
     bool open;
     int32_t page;        // 0-based
     int32_t pages;
     int32_t primary;
-    int32_t viewMode;
     // The probe's live lattice. `probeStep` is how far one game tick moves both halves, so a
     // measured position that is not a whole number of steps from the park position cannot have come
     // from the 20 Hz animation and is therefore an interpolated frame.
@@ -147,9 +249,10 @@ struct RsMenuStatus {
     int32_t probePhase;
     float probeStep;
     float probeDy;
-    // Frame interpolation's camera epoch, and the register that exempts vanilla pause from the
-    // jump heuristic that bumps it. Both are here because stage 4's view-mode question turned out
-    // to be answerable only by watching them.
+    // Frame interpolation's camera epoch. Kept from stage 4, where it was the number that settled
+    // the projection question: anything that bumps it once per game tick has quietly switched
+    // interpolation off for everything under the camera node. It must stand still while the menu is
+    // open, and a stage-5 regression here would mean the sweep cannot interpolate either.
     int32_t cameraEpoch;
     int32_t pauseMenuMode;
     // Freeze and HUD, as actually applied to the live PlayState.
@@ -158,6 +261,13 @@ struct RsMenuStatus {
     bool hudHidden;
     int32_t hudPrev;     // gSaveContext.hudVisibilityMode at open; what close restores
     int32_t hudNow;
+    // What the last drawn frame cost, in the units the OVERLAY_DISP budget is denominated in.
+    // `dlWords` is the heap display list's length - OVERLAY_DISP itself holds only 2048 Gfx words
+    // (z64.h:107-112), which the menu no longer spends because it submits ONE gSPDisplayList, but
+    // the number is the measurement stage 7 needs and it is free to keep here.
+    int32_t drawGlyphs;
+    int32_t drawQuads;
+    int32_t dlWords;
     // Counters. The stage-2 evidence lives here: `stickFrames` says input REACHED the game while
     // the world was frozen, which is what turns "Link did not move" from an untested negative into
     // a challenged one (a still screenshot proves nothing if the input never arrived).

@@ -40,33 +40,65 @@
 //                         With no argument it only reports. This is the console's job because SoH
 //                         has no `set` command, so a CVar the agent loop must change needs a
 //                         subcommand of its own
-//   view [ownvp|bracket|inherit]
-//                         STAGE-4 DIAGNOSTIC. How the scroll geometry gets a viewport and a
-//                         projection. `ownvp` is what ships - our own Vp + guOrtho in the pool.
-//                         `bracket` adds the level-2 `View` bracket research recommended, and
-//                         `inherit` is that bracket ALONE. The two exist so the rejected
-//                         alternative can be run rather than argued about: `inherit` draws
-//                         pixel-identically to `ownvp`, which is how "the bracket never reaches
-//                         OVERLAY_DISP" was measured rather than only read. NOT a CVar (see
-//                         RsMenuViewMode in RsMenu.h) - it resets to `ownvp` every launch
-//   probe [on|off]        STAGE-4 INSTRUMENT. Drives one stepped per-tick offset into BOTH the
-//                         scroll geometry (through a Matrix_ op, which frame-interpolates) and a
-//                         green probe string (through a texture rectangle's baked y, which does
-//                         not), and recolours the rolls magenta so a pixel scan cannot pick up the
-//                         world. Reports `step=`/`phase=`/`dy=`, which is the 20 Hz lattice a
-//                         screenshot is measured against: a drawn position that is not a whole
-//                         multiple of `step` from the park position came from the renderer.
-//                         SOH_2D_DRAWING.md's "two-channel probe". Also not a CVar
+//   sweep [l|r|loop|hold <l|r> <tick>|stop]
+//                         STAGE 5. Rolls the scroll one page, the way a shoulder press does: the
+//                         hand on that side pulls, the scroll swings about the other roll end, and
+//                         the page content swaps at the midpoint. `l` rolls back, `r` forward; with
+//                         no argument it only reports. rc=1 while a sweep is already running and
+//                         when the ring has fewer than two pages - dropped rather than queued,
+//                         because a queued press would let a run assert a page the animation never
+//                         rolled to. It exists beside `agenttest press L|R` because a mid-sweep
+//                         screenshot has to be taken at a known tick: the line carries
+//                         `tick=`/`of=`/`dx=`/`angle=`, so a capture is self-describing.
+//                         `loop` keeps sweeping, alternating direction, until `stop`, and IT IS THE
+//                         INSTRUMENT FOR THIS STAGE rather than a convenience: one sweep is half a
+//                         second and a command round trip is seconds, so no run can photograph a
+//                         chosen tick of a single sweep. Under a loop every capture lands on some
+//                         tick of a live animation and a burst of them samples the whole excursion.
+//                         `hold <l|r> <tick>` parks the animation AT one tick instead - the same
+//                         agent-loop problem from the other end. A loop gives a distribution; a hold
+//                         gives a LOOK at a chosen frame ("is the parchment in register at the
+//                         peak", "which hand carries the twist"), which is otherwise a race against
+//                         half a second. The swap is played forward rather than assigned, so a held
+//                         frame is one the animation really produces. rc=1 on a tick out of range.
+//                         `stop` releases a hold and abandons the sweep in flight
+//   cursor [left|right|up|down|select|<id>]
+//                         STAGE 5. The cursor graph, whose end nodes are the two hands. With no
+//                         argument it only reports. A direction moves one step and is rc=1 when
+//                         that direction has no neighbour - refused rather than clamped, so a run
+//                         cannot report reaching a node it never reached. `select` is what A does:
+//                         on a hand it starts the sweep that hand implies ("selecting a hand does
+//                         what L/R does"), on an ordinary item it reports `select=item` and does
+//                         nothing, because detail views are stage 6. Anything else is taken as a
+//                         node id and is rc=1 when no node carries it.
+//                         THIS IS THE ONLY WAY TO ASSERT THE CURSOR. A screenshot shows a highlight
+//                         box; it cannot say which node the graph thinks the cursor is on, and
+//                         adjacency here is the graph's rather than the pixels'
+//   probe [on|off]        THE INSTRUMENT. Drives one stepped per-tick offset into BOTH halves of
+//                         the menu at once - the WHOLE scroll (parchment, rolls, hands and text)
+//                         through the same Matrix_ chain the sweep uses, and a green probe string
+//                         through a texture rectangle's baked y - and recolours the rolls magenta
+//                         so a pixel scan cannot pick up the world. Reports `step=`/`phase=`/`dy=`,
+//                         which is the 20 Hz lattice a screenshot is measured against: a drawn
+//                         position that is not a whole multiple of `step` from the park position
+//                         came from the renderer. It also colours the parchment frame cyan and each
+//                         page's glyphs a colour of that page's own, which is what makes a smear
+//                         MEASURABLE: a frame carrying two page colours is a content swap caught in
+//                         the act. Since stage 5 the probe string is the menu's ONLY
+//                         texture rectangle, kept as the deliberate non-interpolating reference
+//                         channel. SOH_2D_DRAWING.md's "two-channel probe". Not a CVar
 //   dump                  EVERYTHING a marker can carry: open/closed, current page, page count,
 //                         which menu `primary` selects, the live freeze and HUD state, the
 //                         trigger's binding count, the counters, and one line per registered page.
 //                         `stick_frames=` is the stage-2 evidence - it counts frames on which the
 //                         menu was OFFERED stick input while the world was frozen, which is what
 //                         turns "Link did not move" from an untested negative into a challenged one.
-//                         `section=view` adds the two above plus `epoch=` - frame interpolation's
-//                         camera epoch, the one number that says whether something has quietly
-//                         switched interpolation off for the rest of the frame - and `pause_mode=`,
-//                         the register that would have exempted it
+//                         `section=sweep` carries the live animation, `section=interp` the probe's
+//                         lattice plus `epoch=` - frame interpolation's camera epoch, the one
+//                         number that says whether something has quietly switched interpolation off
+//                         for the rest of the frame - and `pause_mode=`, the register that would
+//                         have exempted it. `section=draw` is what the last drawn frame cost in
+//                         glyphs, quads and Gfx words, and one `section=cursor` line per node
 //
 // Returns 0 when the operation succeeded (or for read-only subcommands), 1 otherwise - so `rc=` on
 // the agent loop's cmd marker is the pass/fail bit.
