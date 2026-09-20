@@ -70,8 +70,10 @@ extern PlayState* gPlayState;
 // expands to a BLOCK-SCOPE redeclaration of FrameInterpolation_RecordOpenChild (macros.h:206-222);
 // inside an anonymous namespace MSVC gives that redeclaration C++ linkage instead of picking up
 // frame_interpolation.h's extern "C" one, and the call comes out mangled and unresolvable at link
-// time. Every other C++ file in the tree that draws - nametag.cpp, kaleido.cpp - keeps its drawing
-// code out of an anonymous namespace for the same reason, whether or not it says so.
+// time. Checked rather than assumed: no file under soh/soh/ uses OPEN_DISPS from inside an
+// anonymous namespace except frame_interpolation.cpp, which defines the function and so links
+// either way. nametag.cpp and kaleido.cpp have no anonymous namespace at all - whether that was
+// this trap or just habit, neither says.
 
 // --- layout ------------------------------------------------------------------------------------
 //
