@@ -3,10 +3,14 @@
  *
  * What it is at this stage: an RS-style scroll - parchment, two roll ends and two blocky hands, all
  * real vertex-coloured geometry - that opens on N64 L, hard-freezes the world, hides the HUD, and
- * ROLLS between pages when a shoulder is pressed, the hand on that side pulling and the page
- * content swapping at the midpoint of the excursion. A cursor graph sits over it whose end nodes
- * are the two hands. All of it is drivable and assertable from the console (MenuConsole.h) with
- * nobody at the keyboard.
+ * SHUTS AND RE-OPENS when a shoulder is pressed. The side matching the shoulder - roll end and hand
+ * together - travels horizontally across until its hand meets the other hand's edge; the parchment
+ * between them shrinks with it, down to a fifth of its open width, so the scroll is a closed
+ * bundle at the midpoint, where the page changes; then the same side travels straight back out.
+ * Nobody can navigate a real scroll this way, which is the point: it is one open-and-shut gesture
+ * played in whichever direction the ring turns.
+ * A cursor graph sits over it whose end nodes are the two hands. All of it is drivable and
+ * assertable from the console (MenuConsole.h) with nobody at the keyboard.
  *
  * Stage 4's answer to "how does the geometry get a projection" is in the "THE PROJECTION" block
  * further down and is not re-opened here: its own Vp and guOrtho in the pool (level 3), NOT the
@@ -54,8 +58,15 @@
  *   - the hands on a constant key, for the same reason as the chrome.
  *
  * That is why the swap is at the MIDPOINT and why the envelope is a sine: at the midpoint the
- * excursion is at its peak, where per-tick motion is smallest (sin is flat there), so the two ticks
- * the content spends un-interpolated move about 1 game unit between them instead of a whole step.
+ * scroll is a closed bundle and the page is not drawn at all, so there is nothing on screen to
+ * smear, and the per-tick motion is smallest
+ * there (sin is flat at its peak), so the two ticks the content spends un-interpolated move about a
+ * game unit between them instead of a whole step.
+ *
+ * AT 1.0 THE CONTENT SIMPLY IS NOT DRAWN while the scroll is moving - it blinks out when the gesture
+ * starts and the new page blinks in when the paper is open again. 2.0 replaces that with a scissor
+ * so the content is revealed and hidden as a horizontal wipe under the moving roll; the note beside
+ * the branch in RsMenu_OnPlayDrawEnd says why the scissor has to carve at the sweep's TRAILING edge.
  *
  * The three mechanisms the menu rests on, each of which has a trap attached:
  *
@@ -111,6 +122,10 @@ extern "C" {
 #include "variables.h"
 #include "macros.h"
 extern PlayState* gPlayState;
+// OTRGlobals.h declares this only for C (#ifndef __cplusplus); the definition is extern "C". Same
+// forward declaration AgentTest.cpp carries, for the same reason. The dim quad needs it because it
+// is the one piece of this menu that spans the whole window rather than the 4:3 band.
+float OTRGetAspectRatio(void);
 }
 
 #define CVAR_RS_MENU_ON CVAR_ENHANCEMENT("RsMenu")
@@ -154,7 +169,6 @@ constexpr int32_t kRollCount = 2;
 constexpr int32_t kRollColumns = 3; // left edge, lit centre, right edge
 constexpr int32_t kRollRows = 2;    // top, bottom
 constexpr int32_t kVtxPerRoll = kRollColumns * kRollRows;
-constexpr int32_t kScrollVtxCount = kRollCount * kVtxPerRoll; // 12 vertices, 8 triangles
 constexpr int16_t kRollTopY = 43;
 constexpr int16_t kRollBottomY = 196;
 constexpr int16_t kRollX[kRollCount][kRollColumns] = { { 6, 16, 26 }, { 294, 304, 314 } };
@@ -235,33 +249,85 @@ constexpr int16_t kCursorOutline = 2; // how thick the highlight's four bars are
 // The envelope is sin(pi * t) rather than a triangle, and that is load-bearing rather than
 // decorative. The content swap is at the midpoint, and the two ticks straddling it are the ones
 // whose interpolation node key changes and which therefore render at their exact tick positions.
-// Under a sine the excursion moves ~1 game unit across those two ticks (sin is flat at its peak);
-// under a triangle it would move a whole step of 4.4 and the swap would read as a jolt.
-constexpr int32_t kSweepTicks = 10;
+// Under a sine the scroll moves ~1 game unit across those two ticks (sin is flat at its peak);
+// under a triangle it would move a whole step and the swap would read as a jolt. The midpoint is
+// also where the scroll is SHUT, so the swap happens behind closed paper either way.
+constexpr int32_t kSweepTicks = 16;
 constexpr int32_t kSweepSwapTick = kSweepTicks / 2;
-constexpr float kSweepShift = 22.0f;  // game units of Matrix_Translate at the peak
-constexpr float kSweepTilt = 0.055f;  // radians of Matrix_RotateZ at the peak, about 3.2 degrees
-constexpr float kHandTwist = 0.13f;   // radians the PULLED hand adds about its own grip, ~7.5 deg
 
-// WHERE THE EXCURSION PIVOTS, and this is the one number the first build got wrong. The pivot is
-// the GRIP of the hand that is not pulling - the point where that hand's fingers cross its roll -
-// not the roll's midpoint. Pivoting about the roll's midpoint rotates the roll's lower end out from
-// under the hand holding it, and the first mid-sweep screenshot showed exactly that: a planted hand
-// with its roll swung away from it. The grip is where the two are welded, so it is where they have
-// to turn.
+// THE SCROLL SHUTS AND RE-OPENS. It does not swing, tip or pivot - an earlier build did, and it
+// read as the whole thing sliding rather than as a scroll being rolled. What happens instead:
 //
-// AND EVERY PIECE OF THE SCROLL RIDES ONE MATRIX, hands included. A hand on a transform of its own
-// can always come apart from the roll it is holding, whatever the numbers are; a hand under the
-// same transform cannot, ever. "The moving hand follows the shoulder pressed" is then geometry
-// rather than a special case - the pivot sits at the other hand's grip, so the pulled side swings
-// through an arc and the planted side barely turns - plus one extra rotation, kHandTwist, applied
-// to the pulled hand about its own grip. A twist about the grip leaves the grip where it was, which
-// is why it is a twist and not a nudge.
+//   - the side matching the shoulder pressed - roll end AND hand together - travels HORIZONTALLY
+//     across to meet the other side, which does not move at all;
+//   - the parchment between them shrinks to zero width as it goes, so the scroll is genuinely shut
+//     at the midpoint;
+//   - then the same side travels straight back out and the parchment re-opens behind it.
+//
+// Nobody can navigate a real scroll this way, which is the point: it is one open-and-shut gesture
+// played in whichever direction the ring is turning, and the page changes while it is shut.
+//
+// Two consequences that decide how this is drawn:
+//
+//   - THE PARCHMENT IS NOT RIGID ANY MORE, so it cannot ride a translate. It shrinks under a
+//     Matrix_Scale on x about the stationary side's edge, which IS a recorded op
+//     (frame_interpolation.cpp Op::MatrixScale) and so still interpolates. Rebuilding its vertices
+//     per tick would work and would step at 20 Hz, which is the exact defect stage 5 existed to
+//     remove.
+//     WARNING for stage 10+: an x-scale STRETCHES a texture rather than rolling it away. While the
+//     parchment is a flat colour this is invisible; the moment it has a real texture it will need
+//     UV compensation or a different mechanism.
+//   - THE REGION THE MOVING SIDE HAS CROSSED HAS NO PARCHMENT. That falls out of scaling about the
+//     stationary edge for free: the parchment's moving edge lands exactly on the moving roll's
+//     centre at every value of the envelope, so the world shows through behind it.
 constexpr float kGripY = 157.0f;                // the middle of the fingers box below
 constexpr float kGripX[2] = { 16.0f, 304.0f };  // left roll centre, right roll centre
+// How far the moving side travels: until the two hands' inner edges MEET, never past it. The hands
+// are wider than the rolls they hold and their fingers overhang inward, so they touch before the
+// rolls do - which means the scroll closes to a BUNDLE rather than to a zero-width line, and that
+// is correct rather than a compromise. A real rolled scroll is exactly this: two rolls held side by
+// side with the remaining paper gathered between them.
+//
+// What it leaves at full close, worked from the numbers below rather than eyeballed: the hands sit
+// at x 0-46 and 46-92, touching; the rolls at x 6-26 and 66-86, forty units apart; and the
+// parchment is 60 units wide, 21% of open. That forty-unit strip of paper stays visible between the
+// rolls above the hands (game y 48-148) and is the bundle.
+//
+// Derived from the hand box rather than typed, so re-authoring the hand cannot silently put the two
+// hands back on top of each other. Three other travels were on the table and are recorded because
+// the choice is a look, not a fact: 268 makes the ROLL edges meet and overlaps the hands by 40, and
+// 288 puts the roll centres together and overlaps the hands by 60 - which is what the first build
+// did, and it read as one hand rather than two.
+constexpr float kSweepTravel = (float)(SCREEN_WIDTH - kHandBoxW) - (float)(kHandBoxX + kHandBoxW);
+
+// The parchment's full span. The scale factor is derived from it so the parchment's moving edge
+// lands exactly on the moving roll's centre at every value of the envelope - one identity instead
+// of two numbers to keep in step, and the reason the paper never detaches from the roll carrying it.
+constexpr float kPanelSpan = (float)(kPanelX1 - kPanelX0);
+static_assert(kGripX[0] == (float)kPanelX0 && kGripX[1] == (float)kPanelX1,
+              "the roll centres and the parchment edges must coincide, or the paper will detach "
+              "from the roll that is supposed to be rolling it up");
 // Spelled out rather than reached for: M_PI lives in soh/include/libc/math.h, which this file has
 // no direct include of and only reaches transitively.
 constexpr float kPi = 3.14159265f;
+
+// --- the entry ------------------------------------------------------------------------------------
+//
+// The menu is not switched on and off, it ARRIVES: the whole assembly rises from below the bottom
+// edge when it opens and drops back down when it closes, and the world dims behind it as it comes.
+//
+// The rise is one more term in the SAME Matrix_Translate the probe already uses, so it costs no
+// extra recorded op and interpolates for free. The dim cannot: alpha is an immediate value in a
+// gDPSetPrimColor word and replays identically on every rendered frame, so it steps in
+// kEntryTicks discrete levels while the geometry glides. That is the documented split
+// (SOH_2D_DRAWING.md) and it is acceptable here only because banding in a fade is far less
+// legible than stepping in a motion - it would not be acceptable for the slide itself.
+constexpr int32_t kEntryTicks = 8;     // 0.4 s at 20 Hz, each way
+constexpr float kEntryDrop = 210.0f;   // enough to put the roll tops (game y 43) below the screen
+constexpr u8 kDimAlpha = 140;          // how far the world goes down behind the menu, 0-255
+// A few units of overshoot on the dim quad. It spans the whole WINDOW rather than the 4:3 band, and
+// overshoot clips for free, so this only has to beat rounding.
+constexpr float kDimMargin = 8.0f;
 
 // The interpolation probe's lattice. One game tick moves the whole scroll by kProbeStep, up for ten
 // ticks and back down for ten, so every position the 20 Hz animation can produce is a whole
@@ -306,8 +372,31 @@ static std::vector<Gfx>& MenuDl() {
     return dl;
 }
 
-static bool sOpen = false;
+// Where the menu is in its arrival, which is NOT the same question as whether it is logically open.
+// A run asserting `open=0` after `menu close` must not have to wait out the slide, so the console
+// reports both: `open=` is the logical answer and `phase=` is the presentational one.
+enum RsMenuPhase {
+    RS_MENU_PHASE_CLOSED = 0,
+    RS_MENU_PHASE_OPENING,
+    RS_MENU_PHASE_OPEN,
+    RS_MENU_PHASE_CLOSING,
+};
+static int32_t sPhase = RS_MENU_PHASE_CLOSED;
+static int32_t sEntryTick = 0;
 static int32_t sPage = 0;
+
+// "The menu is on screen in some form." Everything that used to test sOpen tests this: the world
+// stays frozen and the HUD stays hidden for the whole of both slides, because un-freezing halfway
+// down would show the world moving under a menu that is still there.
+static bool MenuIsUp() {
+    return sPhase != RS_MENU_PHASE_CLOSED;
+}
+
+// "The menu is settled and will accept input." Distinct from MenuIsUp on purpose - a shoulder press
+// landing mid-slide would start a roll on a scroll that is still arriving.
+static bool MenuIsSettled() {
+    return sPhase == RS_MENU_PHASE_OPEN;
+}
 
 static u8 sHaltPrev = 0;
 static bool sHudApplied = false;
@@ -361,10 +450,11 @@ static int32_t sDlWords = 0;
 // taking the address of a file-static gives a key that cannot collide with vanilla's (which pass
 // NULL) or with OPEN_DISPS's (which passes __FILE__). The int carries the page index on the content
 // node and nothing on the other two.
-static const char sNodeKeys[3] = { 0, 1, 2 };
+static const char sNodeKeys[4] = { 0, 1, 2, 3 };
 static const void* const sNodeScroll = &sNodeKeys[0];
 static const void* const sNodeContent = &sNodeKeys[1];
 static const void* const sNodeHands = &sNodeKeys[2];
+static const void* const sNodeDim = &sNodeKeys[3];
 
 static int32_t sOpens = 0;
 static int32_t sCloses = 0;
@@ -412,15 +502,63 @@ static float SweepEnv() {
     return std::sin(kPi * (float)sSweepTick / (float)kSweepTicks);
 }
 
-// Which hand the shoulder pressed moves: R (+1) pulls with the right hand, L (-1) with the left.
+// How far the menu has arrived: 0 fully below the screen, 1 settled in place. Eased with a quarter
+// sine so it decelerates into position on the way up and accelerates on the way down, which is the
+// same curve read forwards and backwards.
+static float EntryProgress() {
+    switch (sPhase) {
+        case RS_MENU_PHASE_CLOSED:
+            return 0.0f;
+        case RS_MENU_PHASE_OPENING:
+            return std::sin(kPi * 0.5f * (float)sEntryTick / (float)kEntryTicks);
+        case RS_MENU_PHASE_CLOSING:
+            return std::sin(kPi * 0.5f * (1.0f - (float)sEntryTick / (float)kEntryTicks));
+        default:
+            return 1.0f;
+    }
+}
+
+// This tick's downward offset, in game units. Folded into the same Matrix_Translate as the probe's,
+// so the arrival costs no extra recorded op and interpolates like everything else.
+static float EntryDy() {
+    return kEntryDrop * (1.0f - EntryProgress());
+}
+
+// The dim behind the menu, ramped with the arrival. u8 because it is a prim-colour alpha, which is
+// exactly why it steps - see the constants block.
+static u8 DimAlpha() {
+    return (u8)((float)kDimAlpha * EntryProgress());
+}
+
+// Which side of the scroll travels: R (+1) closes with the right hand, L (-1) with the left. A
+// "side" is a roll end and the hand holding it, moved as one - which is what makes it impossible
+// for a hand to come apart from its roll.
 static int32_t SweepMovingHand() {
     return sSweepDir > 0 ? 1 : 0;
 }
 
-// The scroll pivots about the roll end that is NOT being pulled, which is the whole reason a rigid
-// translate-plus-rotate reads as a roll rather than as a slide.
-static int32_t SweepPivotHand() {
+// The side that does not move. The parchment scales about ITS edge, so it is also the anchor of the
+// whole gesture.
+static int32_t SweepAnchorSide() {
     return sSweepDir > 0 ? 0 : 1;
+}
+
+// How far this side is displaced this tick. Zero for the anchor side on every frame of every sweep;
+// for the moving side, the full travel scaled by the envelope, signed toward the anchor.
+static float SideDx(int32_t side) {
+    if (!sSweepActive || side != SweepMovingHand()) {
+        return 0.0f;
+    }
+    return (side == 0 ? 1.0f : -1.0f) * kSweepTravel * SweepEnv();
+}
+
+// How much of the parchment is still showing, as a fraction of its open width: 1 wide open, about
+// 0.21 at full close. It bottoms out above zero on purpose - see kSweepTravel. Scaled by the travel
+// rather than by the envelope alone, which is what keeps the parchment's moving edge welded to the
+// moving roll's centre. Also what the console reports, so a screenshot can be checked against a
+// number rather than against an impression.
+static float SweepWidth() {
+    return 1.0f - SweepEnv() * (kSweepTravel / kPanelSpan);
 }
 
 // This tick's probe offset: a triangle wave, 0 up to kProbeHalfPeriod * kProbeStep and back down.
@@ -667,6 +805,53 @@ static void SetFlatQuad(Vtx* v, int16_t x0, int16_t y0, int16_t x1, int16_t y1, 
     SetFlatVtx(&v[3], x1, y1, colour);
 }
 
+// The dim's own state: a flat primitive colour over XLU, which is the only translucent thing the
+// menu draws. Everything else is opaque.
+static void PushDimState() {
+    std::vector<Gfx>& dl = MenuDl();
+    dl.push_back(gsDPPipeSync());
+    dl.push_back(gsDPSetCycleType(G_CYC_1CYCLE));
+    dl.push_back(gsDPSetRenderMode(G_RM_XLU_SURF, G_RM_XLU_SURF2));
+    dl.push_back(gsDPSetCombineMode(G_CC_PRIMITIVE, G_CC_PRIMITIVE));
+    dl.push_back(gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_OFF));
+    dl.push_back(gsSPClearGeometryMode(G_ZBUFFER | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN |
+                                       G_TEXTURE_GEN_LINEAR));
+    dl.push_back(gsSPSetGeometryMode(G_SHADE | G_SHADING_SMOOTH));
+}
+
+// One quad over the whole WINDOW, darkening the frozen world so the menu reads as foreground.
+//
+// ⚠ It is authored in ORTHO units directly rather than through SetFlatQuad's game-space conversion,
+// because it is the one piece of this menu that must span the whole window rather than the 4:3
+// band. The renderer multiplies every vertex's post-projection x by (4:3 / window aspect)
+// (AdjXForAspectRatio), so a quad authored to +-160 leaves the pillarbox bright on a wide window;
+// pre-widening x by the inverse is the documented fix, and overshoot clips for free
+// (SOH_2D_DRAWING.md "The widescreen squeeze"). Everything inside the parchment is inside the 4:3
+// band by construction and needs none of this - this quad is the exception, not the pattern.
+static void DrawDim() {
+    const float halfW = (float)(SCREEN_HEIGHT / 2) * OTRGetAspectRatio() + kDimMargin;
+    const float halfH = (float)(SCREEN_HEIGHT / 2) + kDimMargin;
+    const float ox[4] = { -halfW, halfW, -halfW, halfW };
+    const float oy[4] = { halfH, halfH, -halfH, -halfH };
+
+    Vtx* vtx = (Vtx*)Graph_Alloc(sDrawGfxCtx, 4 * sizeof(Vtx));
+    for (int32_t i = 0; i < 4; i++) {
+        vtx[i].v.ob[0] = (int16_t)ox[i];
+        vtx[i].v.ob[1] = (int16_t)oy[i];
+        vtx[i].v.ob[2] = 0;
+        vtx[i].v.flag = 0;
+        vtx[i].v.tc[0] = vtx[i].v.tc[1] = 0;
+        vtx[i].v.cn[0] = vtx[i].v.cn[1] = vtx[i].v.cn[2] = 0;
+        vtx[i].v.cn[3] = 255;
+    }
+
+    std::vector<Gfx>& dl = MenuDl();
+    dl.push_back(gsDPSetPrimColor(0, 0, 0, 0, 0, DimAlpha()));
+    dl.push_back(gsSPVertex(vtx, 4, 0));
+    dl.push_back(gsSP1Quadrangle(0, 2, 3, 1, 0));
+    sDrawQuads++;
+}
+
 // Flat vertex colour: shade in, shade out. No texture, no lighting, and no Z - the world has
 // already written a depth buffer and the menu must never be tested against it.
 static void PushFlatState() {
@@ -705,38 +890,30 @@ static void PushTextState() {
 // Everything is in the ortho's centred, y-up space, so a game-space pivot comes in already
 // converted. `dy` is the probe's offset and is folded into the first translate rather than added as
 // a fourth op, for the same reason.
-static void ApplyScrollMatrix(float pivotGameX, float pivotGameY, float dx, float angle, float dy) {
-    const float px = pivotGameX - (float)(SCREEN_WIDTH / 2);
-    const float py = (float)(SCREEN_HEIGHT / 2) - pivotGameY;
-    Matrix_Translate(px + dx, py - dy, 0.0f, MTXMODE_NEW);
-    Matrix_RotateZ(angle, MTXMODE_APPLY);
-    Matrix_Translate(-px, -py, 0.0f, MTXMODE_APPLY);
+static void ApplyBaseMatrix() {
+    // The arrival offset and the probe's, in one translate. Emitted first in every chain, so the
+    // whole assembly rises and falls as one piece and the probe's four-channel measurement still
+    // means what it meant at stage 5.
+    Matrix_Translate(0.0f, -(ProbeDy() + EntryDy()), 0.0f, MTXMODE_NEW);
 }
 
-// The scroll body's transform: the sweep's excursion about the roll end not being pulled, plus the
-// probe's offset.
-static void ApplyScrollBodyMatrix() {
-    const float env = SweepEnv();
-    ApplyScrollMatrix(kGripX[SweepPivotHand()], kGripY, (float)sSweepDir * kSweepShift * env,
-                      (float)sSweepDir * kSweepTilt * env, ProbeDy());
+// The parchment shrinks toward the side that is NOT moving. Scaling about that edge is what puts
+// the parchment's moving edge exactly on the moving roll's centre at every value of the envelope -
+// no separate number to keep in step, and no paper left behind the roll.
+static void ApplyParchmentMatrix() {
+    const float ax = kGripX[SweepAnchorSide()] - (float)(SCREEN_WIDTH / 2);
+    ApplyBaseMatrix();
+    Matrix_Translate(ax, 0.0f, 0.0f, MTXMODE_APPLY);
+    Matrix_Scale(SweepWidth(), 1.0f, 1.0f, MTXMODE_APPLY);
+    Matrix_Translate(-ax, 0.0f, 0.0f, MTXMODE_APPLY);
 }
 
-// The extra a hand gets ON TOP of the scroll's own matrix: a twist about its own grip, non-zero
-// only for the hand whose shoulder was pressed. Three more Matrix_ ops, emitted for BOTH hands
-// every frame with a zero angle on the one that is not pulling - the same unconditional rule as the
-// chain above, for the same reason.
-//
-// Because the grip is the centre of rotation, the twist moves the fingers and leaves the point
-// where they meet the roll exactly where the scroll's own matrix put it. The hand turns the roll;
-// it does not slide along it.
-static void ApplyHandTwist(int32_t hand) {
-    const bool moving = sSweepActive && hand == SweepMovingHand();
-    const float twist = moving ? (float)sSweepDir * kHandTwist * SweepEnv() : 0.0f;
-    const float gx = kGripX[hand] - (float)(SCREEN_WIDTH / 2);
-    const float gy = (float)(SCREEN_HEIGHT / 2) - kGripY;
-    Matrix_Translate(gx, gy, 0.0f, MTXMODE_APPLY);
-    Matrix_RotateZ(twist, MTXMODE_APPLY);
-    Matrix_Translate(-gx, -gy, 0.0f, MTXMODE_APPLY);
+// One side of the scroll - its roll end and its hand, welded by sharing this one matrix. Emitted
+// for BOTH sides every frame with a zero displacement on the anchor: ops are matched positionally
+// inside a node, so the two sides must record the same chain whichever of them is travelling.
+static void ApplySideMatrix(int32_t side) {
+    ApplyBaseMatrix();
+    Matrix_Translate(SideDx(side), 0.0f, 0.0f, MTXMODE_APPLY);
 }
 
 // Pushes the matrix the Matrix_* chain above just built. Separate from the chain so the two nodes
@@ -764,30 +941,26 @@ static void DrawPanel() {
     sDrawQuads += 2;
 }
 
-// The two roll ends: 12 vertices, 8 triangles, a lighter centre column between two darker edges so
-// they read as cylinders rather than stripes.
-static void DrawRollEnds() {
+// One roll end: 6 vertices, 4 triangles, a lighter centre column between two darker edges so it
+// reads as a cylinder rather than a stripe. Drawn per SIDE rather than both at once, because the
+// two sides no longer share a transform - one of them travels and the other does not.
+static void DrawRoll(int32_t side) {
     const u8* light = sProbe ? kProbeLightColour : kRollLightColour;
-    Vtx* vtx = (Vtx*)Graph_Alloc(sDrawGfxCtx, kScrollVtxCount * sizeof(Vtx));
-    for (int32_t roll = 0; roll < kRollCount; roll++) {
-        for (int32_t row = 0; row < kRollRows; row++) {
-            for (int32_t col = 0; col < kRollColumns; col++) {
-                SetFlatVtx(&vtx[roll * kVtxPerRoll + row * kRollColumns + col], kRollX[roll][col],
-                           row == 0 ? kRollTopY : kRollBottomY, col == 1 ? light : kRollEdgeColour);
-            }
+    Vtx* vtx = (Vtx*)Graph_Alloc(sDrawGfxCtx, kVtxPerRoll * sizeof(Vtx));
+    for (int32_t row = 0; row < kRollRows; row++) {
+        for (int32_t col = 0; col < kRollColumns; col++) {
+            SetFlatVtx(&vtx[row * kRollColumns + col], kRollX[side][col], row == 0 ? kRollTopY : kRollBottomY,
+                       col == 1 ? light : kRollEdgeColour);
         }
     }
 
     std::vector<Gfx>& dl = MenuDl();
-    dl.push_back(gsSPVertex(vtx, kScrollVtxCount, 0));
-    for (int32_t roll = 0; roll < kRollCount; roll++) {
-        // Top row is b+0..b+2 left to right, bottom row b+3..b+5: two quads sharing the lit centre
-        // column. Winding does not matter here - G_CULL_BOTH is cleared above.
-        const u8 b = (u8)(roll * kVtxPerRoll);
-        dl.push_back(gsSP2Triangles(b + 0, b + 3, b + 4, 0, b + 0, b + 4, b + 1, 0));
-        dl.push_back(gsSP2Triangles(b + 1, b + 4, b + 5, 0, b + 1, b + 5, b + 2, 0));
-        sDrawQuads += 2;
-    }
+    // Top row is 0..2 left to right, bottom row 3..5: two quads sharing the lit centre column.
+    // Winding does not matter here - G_CULL_BOTH is cleared above.
+    dl.push_back(gsSPVertex(vtx, kVtxPerRoll, 0));
+    dl.push_back(gsSP2Triangles(0, 3, 4, 0, 0, 4, 1, 0));
+    dl.push_back(gsSP2Triangles(1, 4, 5, 0, 1, 5, 2, 0));
+    sDrawQuads += 2;
 }
 
 // One hand, as a rigid display list: five boxes, 20 vertices, 10 triangles. `hand` is 0 for the
@@ -1097,7 +1270,7 @@ static void RsMenu_OnGameStateMainStart() {
     if (VanillaPauseIsUp(play)) {
         return;
     }
-    const bool swallow = sOpen || (RsMenu_IsEnabled() && RsMenu_GetPrimary() == RS_MENU_PRIMARY_CUSTOM);
+    const bool swallow = MenuIsUp() || (RsMenu_IsEnabled() && RsMenu_GetPrimary() == RS_MENU_PRIMARY_CUSTOM);
     if (!swallow) {
         return;
     }
@@ -1199,10 +1372,11 @@ static void RsMenu_OnGameFrameUpdate() {
     WriteBootLineOnce();
 
     if (!InNormalPlay()) {
-        if (sOpen) {
+        if (MenuIsUp()) {
             // No PlayState to restore anything on. Drop the state rather than reaching through a
             // null pointer; the HUD belongs to the save context and the next scene re-establishes it.
-            sOpen = false;
+            sPhase = RS_MENU_PHASE_CLOSED;
+            sEntryTick = 0;
             sCloses++;
             sHudApplied = false;
         }
@@ -1215,7 +1389,7 @@ static void RsMenu_OnGameFrameUpdate() {
     sStartEdge = false;
 
     if (!RsMenu_IsEnabled()) {
-        if (sOpen) {
+        if (MenuIsUp()) {
             RsMenu_Close();
         }
         return;
@@ -1223,7 +1397,7 @@ static void RsMenu_OnGameFrameUpdate() {
 
     Input* input = &play->state.input[0];
 
-    if (sOpen) {
+    if (MenuIsUp()) {
         // A pending transition would carry the freeze into Play_Init, where it stops
         // GameInteractor_ExecuteOnPlayerUpdate firing and so stops the agent harness ever emitting
         // `ready` again - which kills perf markers, event draining AND command consumption
@@ -1247,15 +1421,34 @@ static void RsMenu_OnGameFrameUpdate() {
         // rendered frames are measured against. Advanced whether or not the probe is on, so
         // switching it on does not start from a stale phase.
         sProbePhase = (sProbePhase + 1) % kProbePeriod;
-        AdvanceSweep();
         RebuildCursorGraph();
         RecordOfferedInput(input);
+
+        // The arrival, driven off the same game tick as everything else. The world stays frozen and
+        // the HUD stays hidden for the whole of both slides - un-freezing halfway down would show
+        // the world moving under a menu that is still on screen.
+        if (sPhase == RS_MENU_PHASE_OPENING) {
+            if (++sEntryTick >= kEntryTicks) {
+                sPhase = RS_MENU_PHASE_OPEN;
+                sEntryTick = 0;
+            }
+            return;
+        }
+        if (sPhase == RS_MENU_PHASE_CLOSING) {
+            if (++sEntryTick >= kEntryTicks) {
+                // The instant close does the restoring; the slide only decides WHEN.
+                RsMenu_Close();
+            }
+            return;
+        }
+
+        AdvanceSweep();
 
         if (startEdge || CHECK_BTN_ALL(input->press.button, BTN_B)) {
             if (startEdge) {
                 sStartConsumed++;
             }
-            RsMenu_Close();
+            RsMenu_BeginClose();
             return;
         }
         // The shoulders roll the scroll. A press arriving mid-sweep is dropped rather than queued:
@@ -1283,7 +1476,7 @@ static void RsMenu_OnGameFrameUpdate() {
 // reference texrect afterwards. Three explicit interpolation nodes, and which is which is the one
 // design decision in this function - see the file header.
 static void RsMenu_OnPlayDrawEnd() {
-    if (!sOpen) {
+    if (!MenuIsUp()) {
         return;
     }
     PlayState* play = gPlayState;
@@ -1308,14 +1501,28 @@ static void RsMenu_OnPlayDrawEnd() {
 
     PushViewportAndOrtho();
 
-    // --- the scroll chrome, on a CONSTANT key so it interpolates through a whole sweep -----------
+    // --- the dim, on a constant key, first so everything else sits on top of it -------------------
+    // It does NOT ride the arrival matrix: the menu slides up over a world that fades down, rather
+    // than a dark rectangle sliding up with it. Its one Matrix_ op is an identity, emitted so the
+    // node records the same single op every frame and so nothing inherits a stale modelview.
+    FrameInterpolation_RecordOpenChild(sNodeDim, 0);
+    PushDimState();
+    Matrix_Push();
+    Matrix_Translate(0.0f, 0.0f, 0.0f, MTXMODE_NEW);
+    PushCurrentMatrix();
+    DrawDim();
+    Matrix_Pop();
+    FrameInterpolation_RecordCloseChild();
+
+    // --- the parchment, on a CONSTANT key so it interpolates through a whole sweep ---------------
+    // Drawn FIRST and alone: it is the backdrop the content sits on and the moving side passes over,
+    // and it is the only piece whose transform is a scale rather than a translate.
     FrameInterpolation_RecordOpenChild(sNodeScroll, 0);
     PushFlatState();
     Matrix_Push();
-    ApplyScrollBodyMatrix();
+    ApplyParchmentMatrix();
     PushCurrentMatrix();
     DrawPanel();
-    DrawRollEnds();
     Matrix_Pop();
     FrameInterpolation_RecordCloseChild();
 
@@ -1328,12 +1535,28 @@ static void RsMenu_OnPlayDrawEnd() {
     FrameInterpolation_RecordOpenChild(sNodeContent, sPage);
     PushTextState();
     Matrix_Push();
-    ApplyScrollBodyMatrix();
+    ApplyBaseMatrix();
     PushCurrentMatrix();
-    if (page->draw != nullptr) {
-        page->draw(play, sPage, page->userData);
-    } else {
-        DrawGreyboxBody(sPage, *page);
+    // 1.0 OF THE CLOSE: the content is simply absent while the scroll is moving. It blinks out the
+    // tick the gesture starts and the new page blinks in when the paper is open again, because
+    // there is no paper under it in between.
+    //
+    // ⚠ This is a branch around GEOMETRY, never around a Matrix_* op - the chain above is emitted
+    // on every frame whatever this decides. Glyph count is invisible to the interpolation recorder,
+    // which records only Matrix_* calls and child open/close (SOH_2D_DRAWING.md, measured at stage
+    // 4 after the opposite was written down first).
+    //
+    // 2.0 replaces this with a scissor: reveal the content up to the moving roll's trailing edge,
+    // so it wipes rather than blinks. The trailing edge matters - a scissor is an immediate value
+    // and steps at 20 Hz while the roll glides, so carving at the smaller of last tick's and this
+    // tick's edge keeps the roll overdrawing the seam instead of uncovering it. Same problem and
+    // same answer as the letterbox's ShrinkWindow_GetSafeVal.
+    if (SweepWidth() > 0.999f) {
+        if (page->draw != nullptr) {
+            page->draw(play, sPage, page->userData);
+        } else {
+            DrawGreyboxBody(sPage, *page);
+        }
     }
     {
         const RsMenuCursorNode* node = RsMenu_CursorAt(sCursorIndex);
@@ -1345,22 +1568,22 @@ static void RsMenu_OnPlayDrawEnd() {
     Matrix_Pop();
     FrameInterpolation_RecordCloseChild();
 
-    // --- the hands, on a constant key ------------------------------------------------------------
-    // Both hands always emit the same matrix chain; only the arguments differ, which is how "the
-    // moving hand follows the shoulder pressed" stays a change of numbers rather than a branch
-    // around a Matrix_* op.
+    // --- the two sides, on a constant key --------------------------------------------------------
+    // A side is a roll end and the hand holding it, under ONE matrix, which is what makes it
+    // impossible for a hand to come apart from its roll. Both sides always emit the same chain;
+    // only the displacement differs, which is how "the side matching the shoulder travels" stays a
+    // change of numbers rather than a branch around a Matrix_* op. Drawn LAST, so the moving side
+    // passes in front of the parchment and the content the way a rolled-up edge would.
     FrameInterpolation_RecordOpenChild(sNodeHands, 0);
     PushFlatState();
-    for (int32_t hand = 0; hand < 2; hand++) {
+    for (int32_t side = 0; side < 2; side++) {
         Matrix_Push();
-        // The scroll's own matrix first, so a hand is welded to the scroll by construction, then
-        // its own twist on top.
-        ApplyScrollBodyMatrix();
-        ApplyHandTwist(hand);
+        ApplySideMatrix(side);
         PushCurrentMatrix();
-        DrawHand(hand);
+        DrawRoll(side);
+        DrawHand(side);
         const RsMenuCursorNode* node = RsMenu_CursorAt(sCursorIndex);
-        if (node != nullptr && node->hand == hand) {
+        if (node != nullptr && node->hand == side) {
             DrawCursorOutline(*node);
         }
         Matrix_Pop();
@@ -1493,7 +1716,25 @@ bool RsMenu_IsEnabled() {
 }
 
 bool RsMenu_IsOpen() {
-    return sOpen;
+    return MenuIsUp();
+}
+
+int32_t RsMenu_Phase() {
+    return sPhase;
+}
+
+const char* RsMenu_PhaseName(int32_t phase) {
+    switch (phase) {
+        case RS_MENU_PHASE_CLOSED:
+            return "closed";
+        case RS_MENU_PHASE_OPENING:
+            return "opening";
+        case RS_MENU_PHASE_OPEN:
+            return "open";
+        case RS_MENU_PHASE_CLOSING:
+            return "closing";
+    }
+    return "unknown";
 }
 
 int32_t RsMenu_CurrentPage() {
@@ -1504,7 +1745,7 @@ RsMenuOpenResult RsMenu_Open() {
     if (!RsMenu_IsEnabled()) {
         return RS_MENU_OPEN_DISABLED;
     }
-    if (sOpen) {
+    if (MenuIsUp()) {
         return RS_MENU_OPEN_ALREADY;
     }
     if (!InNormalPlay()) {
@@ -1538,14 +1779,30 @@ RsMenuOpenResult RsMenu_Open() {
     sStickLatchY = false;
     RebuildCursorGraph();
 
-    sOpen = true;
+    sPhase = RS_MENU_PHASE_OPENING;
+    sEntryTick = 0;
     sOpens++;
     return RS_MENU_OPEN_OK;
 }
 
+bool RsMenu_BeginClose() {
+    if (!MenuIsUp()) {
+        return false;
+    }
+    if (sPhase == RS_MENU_PHASE_CLOSING) {
+        return true; // already on its way down; do not restart the slide
+    }
+    // Reversing out of a half-finished arrival picks up where it got to rather than snapping to the
+    // top first, which is one line and the difference between a slide and a jerk.
+    sEntryTick = sPhase == RS_MENU_PHASE_OPENING ? kEntryTicks - sEntryTick : 0;
+    sPhase = RS_MENU_PHASE_CLOSING;
+    return true;
+}
+
 bool RsMenu_Close() {
-    const bool wasOpen = sOpen;
-    sOpen = false;
+    const bool wasOpen = MenuIsUp();
+    sPhase = RS_MENU_PHASE_CLOSED;
+    sEntryTick = 0;
     if (!wasOpen) {
         // Closing a closed menu is a genuine no-op, and it has to be: this runs from OnSceneInit on
         // EVERY scene load and from the CVar-off path, and `haltAllActors` is the ENGINE's flag -
@@ -1674,8 +1931,8 @@ RsMenuSweepState RsMenu_SweepState() {
     state.toPage = sSweepTo;
     state.movingHand = SweepMovingHand();
     state.env = env;
-    state.dx = (float)sSweepDir * kSweepShift * env;
-    state.angle = (float)sSweepDir * kSweepTilt * env;
+    state.dx = SideDx(SweepMovingHand());
+    state.width = SweepWidth();
     state.sweeps = sSweeps;
     state.loop = sSweepLoop;
     state.hold = sSweepHold;
@@ -1744,7 +2001,12 @@ RsMenuTriggerInfo RsMenu_TriggerInfo() {
 RsMenuStatus RsMenu_Status() {
     RsMenuStatus status;
     status.enabled = RsMenu_IsEnabled();
-    status.open = sOpen;
+    status.open = MenuIsUp();
+    status.phase = sPhase;
+    status.entryTick = sEntryTick;
+    status.entryTicks = kEntryTicks;
+    status.entryProgress = EntryProgress();
+    status.dimAlpha = (int32_t)DimAlpha();
     status.page = sPage;
     status.pages = RsMenu_PageCount();
     status.primary = RsMenu_GetPrimary();

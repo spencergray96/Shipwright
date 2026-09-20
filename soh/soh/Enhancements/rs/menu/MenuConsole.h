@@ -29,9 +29,13 @@
 //                         pause is up (one menu at a time, and this is the one that yields),
 //                         `error=no_play`, `error=no_pages`, `error=disabled`. Opening an already
 //                         open menu is not a refusal - it reports `was_open=1` and rc=0
-//   close                 closes it and restores the freeze and the HUD. Idempotent: closing a
-//                         closed menu reports `was_open=0` and rc=0, because "nothing to do" is
-//                         not a refused operation
+//   close [now]           starts the closing SLIDE, the way B and START do; the freeze and the HUD
+//                         are restored when it finishes, not when it starts, because un-freezing
+//                         halfway down would show the world moving under a menu still on screen.
+//                         `now` skips the slide and restores everything on the spot - which is what
+//                         a run wants when the next command must not race the animation, and what a
+//                         scene load takes internally. Idempotent either way: closing a closed menu
+//                         reports `was_open=0` and rc=0, because "nothing to do" is not a refusal
 //   page <n>              selects page n, 1-based. Out of range is rc=1 and never a clamp - a
 //                         silent clamp would let a run assert a page it never reached. Works while
 //                         closed; the ring is state, not a view

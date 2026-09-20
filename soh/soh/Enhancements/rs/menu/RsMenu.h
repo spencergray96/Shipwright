@@ -84,14 +84,47 @@ enum RsMenuOpenResult {
 const char* RsMenu_OpenResultName(RsMenuOpenResult result);
 
 bool RsMenu_IsEnabled();
+// True from the moment an open is accepted until the closing slide has finished - i.e. whenever the
+// menu is on screen in any form, which is also whenever the world is frozen.
 bool RsMenu_IsOpen();
+
+// --- the arrival -----------------------------------------------------------------------------
+//
+// The menu is not switched on and off, it ARRIVES: the whole assembly rises from below the bottom
+// edge and drops back down, and the world dims behind it as it comes. The rise is one more term in
+// the same Matrix_Translate the probe uses, so it interpolates; the dim is a prim-colour alpha and
+// therefore steps in kEntryTicks levels, which is acceptable for a fade and would not be for a
+// motion (SOH_2D_DRAWING.md).
+//
+// PHASE IS NOT THE SAME QUESTION AS OPEN. `RsMenu_IsOpen` answers "is the menu on screen at all",
+// which is what the freeze and the HUD follow. The phase answers "where is it in its arrival",
+// which is what a screenshot is checked against. A run that closes the menu and asserts `open=0`
+// should not have to wait out the slide, so the console prints both.
+enum RsMenuPhaseId {
+    RS_MENU_PHASE_ID_CLOSED = 0,
+    RS_MENU_PHASE_ID_OPENING,
+    RS_MENU_PHASE_ID_OPEN,
+    RS_MENU_PHASE_ID_CLOSING,
+};
+int32_t RsMenu_Phase();
+const char* RsMenu_PhaseName(int32_t phase);
 // 0-based index into the ring; 0 when nothing is registered. During a sweep this is the OUTGOING
 // page until the midpoint tick and the INCOMING one after it - the swap is the animation's
 // midpoint, not its start or its end.
 int32_t RsMenu_CurrentPage();
 
 RsMenuOpenResult RsMenu_Open();
-// Returns whether it had been open. Clears haltAllActors and restores the HUD either way.
+
+// Starts the closing slide - what B, START and the console's `close` do. Returns false only when
+// the menu was not up. The world stays frozen until the slide finishes, because un-freezing halfway
+// down would show the world moving under a menu that is still on screen. Reversing out of a
+// half-finished arrival picks up where it got to rather than snapping to the top first.
+bool RsMenu_BeginClose();
+
+// Closes INSTANTLY, with no slide: restores haltAllActors and the HUD on the spot. Returns whether
+// it had been up. This is the path a scene load and the CVar-off guard must take - a slide cannot
+// outlive a Play_Init, and the freeze has to be gone before the transition, or the agent harness
+// never emits `ready` again. It is also `menu close now` on the console.
 bool RsMenu_Close();
 // 0-based. False when out of range or nothing is registered. Instant - no sweep; this is the
 // console's page selector, and a run that wants the animation asks for a sweep instead. It also
@@ -100,17 +133,18 @@ bool RsMenu_SetPage(int32_t index);
 
 // --- the sweep (stage 5) -------------------------------------------------------------------------
 //
-// L/R do not cut between pages, they ROLL the scroll: an integer per-tick counter drives a
-// Matrix_Translate + Matrix_RotateZ excursion about the roll end that is NOT being pulled, and the
-// page content swaps at the excursion's midpoint, where the scroll is furthest from rest and the
-// per-tick motion is smallest. `delta` is +1 (R, the right hand pulls) or -1 (L, the left hand).
-// Refused while a sweep is already running, and while the ring has fewer than two pages - there is
-// nothing to roll to.
+// L/R do not cut between pages, they SHUT AND RE-OPEN the scroll. An integer per-tick counter
+// drives one side - its roll end and the hand holding it - horizontally across to meet the other
+// side, which does not move; the parchment between them shrinks to nothing under a Matrix_Scale, so
+// the scroll is genuinely closed at the midpoint; then the same side travels straight back out. The
+// page content changes while it is shut. `delta` is +1 (R, the right side travels) or -1 (L, the
+// left side). Refused while a sweep is already running, and while the ring has fewer than two
+// pages - there is nothing to roll to.
 bool RsMenu_StartSweep(int32_t delta);
 
 // Keep sweeping, alternating direction, until told to stop - THE INSTRUMENT FOR THIS STAGE, and it
-// exists because of the agent loop rather than because of the game. One sweep is ten game ticks,
-// half a second; a command round trip through agent-commands.txt is seconds, so a run can never
+// exists because of the agent loop rather than because of the game. One sweep is well under a
+// second; a command round trip through agent-commands.txt is seconds, so a run can never
 // photograph a chosen tick of a single sweep. Under a loop every capture lands on SOME tick of a
 // live animation, and a burst of them samples the whole excursion - which is what turns "it looks
 // smooth" into a distribution. `RsMenu_StopSweepLoop` also abandons the sweep in flight.
@@ -120,8 +154,8 @@ void RsMenu_StopSweepLoop();
 // Parks the animation AT one tick and leaves it there - the other half of the same agent-loop
 // problem the sweep loop solves, from the other end. The loop makes every capture land somewhere in
 // a live excursion, which is what a DISTRIBUTION needs; a hold makes a capture land on a chosen
-// tick, which is what a LOOK needs - "is the parchment still in register at the peak", "which hand
-// carries the twist when R is pressed". Without it those are a race against half a second.
+// tick, which is what a LOOK needs - "is the paper really gone at the midpoint", "which side is
+// travelling when R is pressed". Without it those are a race against the whole gesture.
 //
 // `tick` is 0..the sweep length, and the page swap is applied as if the sweep had been played to
 // that tick, so a held frame is a frame the animation really produces rather than a pose only the
@@ -139,9 +173,9 @@ struct RsMenuSweepState {
     int32_t fromPage;   // 0-based, the page the sweep left
     int32_t toPage;     // 0-based, the page it is going to
     int32_t movingHand; // 0 = left, 1 = right; which hand the shoulder pressed moves
-    float env;          // the excursion envelope, 0 at rest, 1 at the midpoint
-    float dx;           // game units of translate this tick
-    float angle;        // radians of Matrix_RotateZ this tick
+    float env;          // the gesture's envelope, 0 wide open, 1 fully shut
+    float dx;           // game units the moving side is displaced this tick
+    float width;        // how much parchment is still showing: 1 wide open, 0 shut
     int32_t sweeps;     // how many have run this session
     bool loop;          // sweeping on repeat, alternating direction
     bool hold;          // parked at `tick` rather than advancing
@@ -255,6 +289,13 @@ struct RsMenuStatus {
     // open, and a stage-5 regression here would mean the sweep cannot interpolate either.
     int32_t cameraEpoch;
     int32_t pauseMenuMode;
+    // The arrival. `phase` is an RsMenuPhaseId; `entryProgress` is 0 fully below the screen and 1
+    // settled in place, and `dimAlpha` is what the world is being darkened by right now.
+    int32_t phase;
+    int32_t entryTick;
+    int32_t entryTicks;
+    float entryProgress;
+    int32_t dimAlpha;
     // Freeze and HUD, as actually applied to the live PlayState.
     bool halt;           // play->haltAllActors right now
     bool haltPrev;       // what it was when the menu opened, and what close restores

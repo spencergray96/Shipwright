@@ -19,7 +19,8 @@ using ConsoleSink::Addf;
 std::string Describe() {
     const RsMenuStatus status = RsMenu_Status();
     const RsMenuPage* page = RsMenu_PageAt(status.page);
-    return "open=" + std::to_string(status.open ? 1 : 0) + " page=" + std::to_string(status.page + 1) +
+    return "open=" + std::to_string(status.open ? 1 : 0) + " phase=" + RsMenu_PhaseName(status.phase) +
+           " page=" + std::to_string(status.page + 1) +
            " pages=" + std::to_string(status.pages) + " primary=" + RsMenu_PrimaryName(status.primary) +
            " enabled=" + std::to_string(status.enabled ? 1 : 0) + " title=\"" + (page != nullptr ? page->title : "") +
            "\"";
@@ -51,9 +52,19 @@ int32_t Open(std::vector<std::string>& lines) {
     return 0;
 }
 
-int32_t Close(std::vector<std::string>& lines) {
-    const bool wasOpen = RsMenu_Close();
-    Addf(lines, "op=close result=ok was_open=%d %s", wasOpen ? 1 : 0, Describe().c_str());
+// `close` mirrors the button and starts the SLIDE; `close now` skips it. Both are here because the
+// two answer different questions: the slide is the path a player takes and the one a screenshot
+// should be taken of, and the instant close is the one a run reaches for when the next command must
+// not race a half-second animation. Neither is a refusal, so both are rc=0.
+int32_t Close(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    const bool instant = args.size() >= 2 && args[1] == "now";
+    if (args.size() >= 2 && !instant) {
+        Addf(lines, "op=close result=error error=arg %s", Describe().c_str());
+        return 1;
+    }
+    const bool wasOpen = instant ? RsMenu_Close() : RsMenu_BeginClose();
+    Addf(lines, "op=close result=ok was_open=%d instant=%d %s", wasOpen ? 1 : 0, instant ? 1 : 0,
+         Describe().c_str());
     return 0;
 }
 
@@ -93,18 +104,18 @@ int32_t Primary(const std::vector<std::string>& args, std::vector<std::string>& 
 // cannot leave the owner's config on a debug setting the way `primary` can.
 //
 // The sweep's fields, formatted once because three lines report them. `tick=`/`of=` is what makes a
-// mid-sweep screenshot self-describing: it says which of the eleven positions the animation itself
+// mid-sweep screenshot self-describing: it says which of the seventeen poses the animation itself
 // could have drawn this frame belongs to, so a measured position that is not one of them came from
-// the renderer rather than from the game tick. Angles are radians, printed to four places because
-// the whole excursion is only about 0.055 of one.
+// the renderer rather than from the game tick. `width` is how much parchment is still showing -
+// 1 wide open, 0 shut - which is the channel a pixel scan measures.
 std::string DescribeSweep(const RsMenuSweepState& sweep) {
     char buf[192];
     std::snprintf(buf, sizeof(buf),
                   "sweep=%d loop=%d hold=%d tick=%d of=%d dir=%d from=%d to=%d hand=%s env=%.3f dx=%.2f "
-                  "angle=%.4f sweeps=%d",
+                  "width=%.3f sweeps=%d",
                   sweep.active ? 1 : 0, sweep.loop ? 1 : 0, sweep.hold ? 1 : 0, sweep.tick, sweep.ticks, sweep.dir,
                   sweep.fromPage + 1,
-                  sweep.toPage + 1, sweep.movingHand == 0 ? "left" : "right", sweep.env, sweep.dx, sweep.angle,
+                  sweep.toPage + 1, sweep.movingHand == 0 ? "left" : "right", sweep.env, sweep.dx, sweep.width,
                   sweep.sweeps);
     return buf;
 }
@@ -269,6 +280,12 @@ int32_t Dump(std::vector<std::string>& lines) {
     const RsMenuTriggerInfo trigger = RsMenu_TriggerInfo();
 
     Addf(lines, "op=dump result=ok %s", Describe().c_str());
+    // The arrival, which is the half of the menu's presentation a `dump` could not otherwise show:
+    // `phase` says where it is, `progress` how far (0 below the screen, 1 settled) and `dim` how
+    // dark the world is behind it this frame.
+    Addf(lines, "op=dump section=entry phase=%s tick=%d of=%d progress=%.3f dim=%d",
+         RsMenu_PhaseName(status.phase), status.entryTick, status.entryTicks, status.entryProgress,
+         status.dimAlpha);
     Addf(lines, "op=dump section=freeze halt=%d halt_prev=%d hud_hidden=%d hud_prev=%d hud_now=%d kaleido=%d",
          status.halt ? 1 : 0, status.haltPrev ? 1 : 0, status.hudHidden ? 1 : 0, status.hudPrev, status.hudNow,
          status.kaleido);
@@ -346,7 +363,7 @@ int32_t RsMenuConsole_Run(const std::vector<std::string>& args, std::vector<std:
         return Open(lines);
     }
     if (sub == "close") {
-        return Close(lines);
+        return Close(args, lines);
     }
     if (sub == "page") {
         return Page(args, lines);
