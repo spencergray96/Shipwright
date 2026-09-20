@@ -40,12 +40,33 @@
 //                         With no argument it only reports. This is the console's job because SoH
 //                         has no `set` command, so a CVar the agent loop must change needs a
 //                         subcommand of its own
+//   view [ownvp|bracket|inherit]
+//                         STAGE-4 DIAGNOSTIC. How the scroll geometry gets a viewport and a
+//                         projection. `ownvp` is what ships - our own Vp + guOrtho in the pool.
+//                         `bracket` adds the level-2 `View` bracket research recommended, and
+//                         `inherit` is that bracket ALONE. The two exist so the rejected
+//                         alternative can be run rather than argued about: `inherit` draws
+//                         pixel-identically to `ownvp`, which is how "the bracket never reaches
+//                         OVERLAY_DISP" was measured rather than only read. NOT a CVar (see
+//                         RsMenuViewMode in RsMenu.h) - it resets to `ownvp` every launch
+//   probe [on|off]        STAGE-4 INSTRUMENT. Drives one stepped per-tick offset into BOTH the
+//                         scroll geometry (through a Matrix_ op, which frame-interpolates) and a
+//                         green probe string (through a texture rectangle's baked y, which does
+//                         not), and recolours the rolls magenta so a pixel scan cannot pick up the
+//                         world. Reports `step=`/`phase=`/`dy=`, which is the 20 Hz lattice a
+//                         screenshot is measured against: a drawn position that is not a whole
+//                         multiple of `step` from the park position came from the renderer.
+//                         SOH_2D_DRAWING.md's "two-channel probe". Also not a CVar
 //   dump                  EVERYTHING a marker can carry: open/closed, current page, page count,
 //                         which menu `primary` selects, the live freeze and HUD state, the
 //                         trigger's binding count, the counters, and one line per registered page.
 //                         `stick_frames=` is the stage-2 evidence - it counts frames on which the
 //                         menu was OFFERED stick input while the world was frozen, which is what
-//                         turns "Link did not move" from an untested negative into a challenged one
+//                         turns "Link did not move" from an untested negative into a challenged one.
+//                         `section=view` adds the two above plus `epoch=` - frame interpolation's
+//                         camera epoch, the one number that says whether something has quietly
+//                         switched interpolation off for the rest of the frame - and `pause_mode=`,
+//                         the register that would have exempted it
 //
 // Returns 0 when the operation succeeded (or for read-only subcommands), 1 otherwise - so `rc=` on
 // the agent loop's cmd marker is the pass/fail bit.

@@ -72,6 +72,40 @@ bool RsMenu_SetPage(int32_t index);
 // The ring: wraps modulo the page count, in both directions. No-op with nothing registered.
 void RsMenu_CyclePage(int32_t delta);
 
+// How the scroll geometry gets a viewport and a projection (stage 4). Research § C.1 named three
+// levels and recommended level 2 - an own `View` applied with func_800AAA50(&myView, 127) and
+// restored with func_800AAA50(&play->view, 15). Level 2 is NOT what shipped, for three measured
+// reasons spelled out in RsMenu.cpp's "THE PROJECTION" block; these modes exist so the rejected
+// alternative can be SEEN rather than argued about, and each of those three findings came out of
+// running one of them. Diagnostic only: deliberately NOT a CVar, so nothing a run sets here can be
+// left behind in the owner's shipofharkinian.json the way `primary` can.
+enum RsMenuViewMode {
+    // What ships: our own Vp + guOrtho emitted straight into the menu's own pool, the letterbox
+    // pattern (z_rcp.c:1632-1706). `play->view` is never touched, so there is nothing to restore.
+    RS_MENU_VIEW_OWN_VP = 0,
+    // The same, plus the level-2 View bracket wrapped around it. The geometry still draws (our own
+    // viewport wins); what this isolates is what the bracket COSTS.
+    RS_MENU_VIEW_BRACKET = 1,
+    // Level 2 on its own: the View bracket and no viewport of our own, with kaleido's own eye. This
+    // is what research § C.1 recommended, applied to the pool the menu actually lives in - and the
+    // fact that it draws IDENTICALLY to `ownvp` is the photograph of the bracket being inert here.
+    RS_MENU_VIEW_INHERIT = 2,
+};
+int32_t RsMenu_GetViewMode();
+void RsMenu_SetViewMode(int32_t mode);
+const char* RsMenu_ViewModeName(int32_t mode);
+bool RsMenu_ParseViewMode(const std::string& word, int32_t* mode);
+
+// The interpolation probe. Off by default; on, it drives a stepped per-tick vertical offset into
+// BOTH halves of the menu at once - the scroll geometry through Matrix_Translate, a probe string
+// through its texture rectangle's y - and recolours the scroll's centre columns magenta so a pixel
+// scan cannot confuse them with the scene. The two halves therefore disagree in a single frame
+// exactly when the matrix half interpolates and the texrect half does not, which is the measurement
+// stage 4 owes stage 5. See SOH_2D_DRAWING.md § "Verifying smoothness". There is no getter beside
+// this one: the probe's whole live state, lattice included, is on RsMenuStatus below, which is the
+// single place the console reads menu state from.
+void RsMenu_SetProbe(bool on);
+
 // Which menu START opens. Flipped live from the console so either is reachable mid-session.
 enum RsMenuPrimary {
     RS_MENU_PRIMARY_VANILLA = 0,
@@ -105,6 +139,19 @@ struct RsMenuStatus {
     int32_t page;        // 0-based
     int32_t pages;
     int32_t primary;
+    int32_t viewMode;
+    // The probe's live lattice. `probeStep` is how far one game tick moves both halves, so a
+    // measured position that is not a whole number of steps from the park position cannot have come
+    // from the 20 Hz animation and is therefore an interpolated frame.
+    bool probe;
+    int32_t probePhase;
+    float probeStep;
+    float probeDy;
+    // Frame interpolation's camera epoch, and the register that exempts vanilla pause from the
+    // jump heuristic that bumps it. Both are here because stage 4's view-mode question turned out
+    // to be answerable only by watching them.
+    int32_t cameraEpoch;
+    int32_t pauseMenuMode;
     // Freeze and HUD, as actually applied to the live PlayState.
     bool halt;           // play->haltAllActors right now
     bool haltPrev;       // what it was when the menu opened, and what close restores

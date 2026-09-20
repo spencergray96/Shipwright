@@ -1,9 +1,14 @@
 /*
- * RsMenu.cpp - the mod-owned pause interface (sturdy-bassoon#111), stages 1-3.
+ * RsMenu.cpp - the mod-owned pause interface (sturdy-bassoon#111), stages 1-4.
  *
- * What it is at this stage: a full-screen greybox panel that opens on N64 L, hard-freezes the
- * world, hides the HUD, draws one of N registered pages, cycles on L/R, and closes on B or START -
- * fully drivable and assertable from the console (MenuConsole.h) with nobody at the keyboard.
+ * What it is at this stage: a greybox panel with the scroll's two roll ends drawn as real
+ * vertex-coloured triangles over it, that opens on N64 L, hard-freezes the world, hides the HUD,
+ * draws one of N registered pages, cycles on L/R, and closes on B or START - fully drivable and
+ * assertable from the console (MenuConsole.h) with nobody at the keyboard.
+ *
+ * Stage 4's own answer is in the "THE PROJECTION" block further down: the geometry gets its own Vp
+ * and guOrtho in the pool (level 3), NOT the own-`View` level 2 research recommended, and the
+ * reason is as much about frame interpolation as it is about which pool View_Apply writes to.
  *
  * The three mechanisms it rests on, each of which has a trap attached:
  *
@@ -97,6 +102,37 @@ constexpr float kSubScale = 0.8f;
 constexpr int16_t kTitleY = 96;
 constexpr int16_t kSubY = 130;
 
+// The two roll ends, from the same option-A measurement as the panel above: SVG 45,108,18,134 and
+// 297,108,18,134, converted with game = (svg - origin) / 0.875 where the origin is (40, 70). Each
+// roll is three COLUMNS wide rather than two, so the middle one can carry a lighter vertex colour
+// and the thing reads as a cylinder instead of a stripe - that is the whole point of drawing it as
+// vertex-coloured triangles rather than as two more fill rectangles.
+constexpr int32_t kRollCount = 2;
+constexpr int32_t kRollColumns = 3; // left edge, lit centre, right edge
+constexpr int32_t kRollRows = 2;    // top, bottom
+constexpr int32_t kVtxPerRoll = kRollColumns * kRollRows;
+constexpr int32_t kScrollVtxCount = kRollCount * kVtxPerRoll; // 12 vertices, 8 triangles
+constexpr int16_t kRollTopY = 43;
+constexpr int16_t kRollBottomY = 196;
+constexpr int16_t kRollX[kRollCount][kRollColumns] = { { 6, 16, 26 }, { 294, 304, 314 } };
+
+// The interpolation probe's lattice. One game tick moves both halves by kProbeStep, up for ten
+// ticks and back down for ten, so every position the 20 Hz animation can produce is a whole
+// multiple of kProbeStep from the park position. 4 units is ~17 px on a 1039-high window, which is
+// far enough apart that a pixel scan cannot mistake one lattice point for its neighbour.
+constexpr float kProbeStep = 4.0f;
+constexpr int32_t kProbeHalfPeriod = 10;
+constexpr int32_t kProbePeriod = kProbeHalfPeriod * 2;
+constexpr int16_t kProbeTextX = kPanelX0 + 24;
+constexpr int16_t kProbeTextY = 134;
+
+// The roll's three columns, dark - light - dark, which is what makes it read as a cylinder rather
+// than a stripe. The centre column is the only thing the probe recolours: magenta is a colour no
+// OoT scene produces, so a pixel scan looking for the roll cannot pick up the world behind it.
+constexpr u8 kRollEdgeColour[3] = { 92, 62, 30 };
+constexpr u8 kRollLightColour[3] = { 214, 178, 120 };
+constexpr u8 kProbeLightColour[3] = { 255, 0, 255 };
+
 // How many greybox pages stage 3 registers. This is a REGISTRATION-SITE count and nothing else -
 // no table is sized to it, the ring wraps modulo RsMenu_PageCount(), and deleting this constant
 // would cost exactly one loop bound. See RsMenu.h's invariant.
@@ -125,6 +161,18 @@ static bool sStartEdge = false;
 
 static bool sBootLineWritten = false;
 static bool sGreyboxRegistered = false;
+
+// Stage 4. Diagnostic state, deliberately NOT CVar-backed: `primary` is saved to the owner's
+// shipofharkinian.json and a wedged session can leave it there, which has already cost one cleanup
+// pass. These reset to the shipping values every launch.
+static int32_t sViewMode = RS_MENU_VIEW_OWN_VP;
+static bool sProbe = false;
+static int32_t sProbePhase = 0;
+
+// The menu's own View, used only by the two diagnostic view modes. Initialised lazily because
+// View_Init needs a GraphicsContext and there is none at ShipInit time.
+static View sMenuView;
+static bool sMenuViewInited = false;
 
 static int32_t sOpens = 0;
 static int32_t sCloses = 0;
@@ -231,6 +279,203 @@ static void DrawGreyboxBody(PlayState* play, int32_t pageIndex, const RsMenuPage
     char ring[64];
     std::snprintf(ring, sizeof(ring), "%d of %d", pageIndex + 1, RsMenu_PageCount());
     DrawMenuTextCentred(play, ring, kPanelCentreX, kSubY, kSubScale, 190, 190, 200, 255);
+}
+
+// --- the scroll ----------------------------------------------------------------------------------
+//
+// THE PROJECTION, and why this is not what research § C.1 recommended.
+//
+// § C.1 names three levels for drawing real 3D over a 2D screen and recommends LEVEL 2: give the
+// menu its own `View`, apply it with func_800AAA50(&myView, 127), restore with
+// func_800AAA50(&play->view, 15) - the KaleidoScope_Draw pattern
+// (z_kaleido_scope_PAL.c:3499-3545). What ships here is LEVEL 3 instead: our own `Vp` and `guOrtho`
+// emitted straight into the pool, the pattern this repo already owns in the letterbox code
+// (z_rcp.c:1632-1706). Three facts decided it, and all three were MEASURED (2026-09-19 run, the
+// `menu view` and `menu probe` diagnostics below) rather than only read:
+//
+//   1. **Level 2 never reaches OVERLAY_DISP.** View_Apply's perspective path (func_800AAA9C,
+//      z_view.c:294-470) emits its gSPViewport and its projection gSPMatrix into POLY_OPA_DISP and
+//      POLY_XLU_DISP and nowhere else (z_view.c:313-314, :452-455). This menu draws into
+//      OVERLAY_DISP, because stage 3 found the panel rendering UNDER the world's translucent
+//      geometry in any earlier pool. `menu view inherit` applies the bracket with kaleido's own eye
+//      (0, 0, 64) and sets no viewport of its own: under that perspective 240-unit-tall geometry
+//      would draw more than three times too big, and instead the frame comes out PIXEL-IDENTICAL to
+//      `ownvp`. The bracket is inert in this pool.
+//   2. **OVERLAY_DISP already carries a 320x240 ortho, and it is not ours to overwrite.** The
+//      reason `inherit` still draws correctly is that Gfx_SetupFrame's letterbox block
+//      (z_rcp.c:1680-1690) has already put a gSPViewport and a guOrtho(+-160, +-120) into this pool
+//      earlier in the same frame - and that pair is the ONLY projection setup written into
+//      OVERLAY_DISP anywhere in the tree. The vanilla HUD's own OVERLAY quads depend on it and set
+//      no projection themselves: z_lifemeter.c:578-589 places a heart at (-130 + x, -(-94 + y)),
+//      and z_parameter.c:3729 / :4969 / :5777 draw the enemy health bar, the action icon and
+//      kaleido's cursor the same way. So this code sets that same ortho EXPLICITLY (the letterbox
+//      block is gated on `R_PAUSE_MENU_MODE < 2 && gTrnsnUnkState < 2`, so inheriting it would be a
+//      silent dependency on an unrelated feature) and then leaves it - it must NOT hand a
+//      screen-space pool the world's perspective on the way out, which an earlier draft did and
+//      which would have broken every HUD element drawn after this hook.
+//   3. **The level-2 bracket churns the frame-interpolation camera epoch, once per game tick.**
+//      func_800AAA9C runs a jump heuristic over a file-static `old_view` (z_view.c:342-405) and
+//      calls FrameInterpolation_DontInterpolateCamera() when the eye moves further than its
+//      thresholds; a menu View sits hundreds of units from the world camera, so it trips on every
+//      call. That sets camera_epoch = previous_camera_epoch + 1
+//      (frame_interpolation.cpp:486-488), and the epoch is the KEY of the child node opened at
+//      :408, so a key that changes every tick never matches last tick's tree. Measured on
+//      `menu dump`: `epoch=` stands still under `ownvp` and climbs by ~70 per three seconds - one
+//      per tick - under `bracket` and `inherit`, with `pause_mode=0` confirming that the gate which
+//      exempts vanilla kaleido (z_view.c:404) is not available to a menu that must never set
+//      R_PAUSE_MENU_MODE (z_play.c:1602 turns it into the pause prerender capture).
+//      ⚠ What this does NOT do is stop the menu's own geometry interpolating - the probe measured
+//      it interpolating perfectly well under `bracket`. The damage lands on whatever is under the
+//      camera node, i.e. the world, which is frozen while the menu is open and so had nothing to
+//      lose here. It would matter to anything that drew over a LIVE world.
+//
+// Level 3 touches no View, no camera epoch and no global register. The vertex space is the same
+// 320x240 the fill rectangles and glyphs above use: guOrtho at +-160 / +-120 with vscale 640/480 is
+// what View_Init's own 320x240 viewport produces (z_view.c:12-23, :43-46), and the interpreter puts
+// a rect through the identical AdjXForAspectRatio squeeze it puts a vertex through
+// (interpreter.cpp:1635, :2896). So a vertex at game x and a fill rect at game x land on the same
+// pixel, and the roll ends line up with the parchment edge without a correction factor. Geometry
+// that wanted to span the whole WINDOW would still need the letterbox's pre-widening; this does
+// not, because the scroll is inside the 4:3 band by construction.
+
+// This tick's probe offset: a triangle wave, 0 up to kProbeHalfPeriod * kProbeStep and back down.
+// `sProbePhase` advances only while the menu is open, and its one write site already holds it inside
+// [0, kProbePeriod), so no reader reduces it again.
+static float ProbeDy() {
+    if (!sProbe) {
+        return 0.0f;
+    }
+    const int32_t tri = sProbePhase <= kProbeHalfPeriod ? sProbePhase : kProbePeriod - sProbePhase;
+    return (float)tri * kProbeStep;
+}
+
+static void SetScrollVtx(Vtx* v, int16_t gameX, int16_t gameY, const u8* colour) {
+    v->v.ob[0] = (int16_t)(gameX - SCREEN_WIDTH / 2);
+    // Ortho is y-up and centred, screen space is y-down from the top - the same flip View uses.
+    v->v.ob[1] = (int16_t)(SCREEN_HEIGHT / 2 - gameY);
+    v->v.ob[2] = 0;
+    v->v.flag = 0;
+    v->v.tc[0] = v->v.tc[1] = 0;
+    v->v.cn[0] = colour[0];
+    v->v.cn[1] = colour[1];
+    v->v.cn[2] = colour[2];
+    v->v.cn[3] = 255;
+}
+
+// The hand-written scroll: two roll ends, 12 vertices, 8 triangles, untextured and vertex-coloured.
+// The probe's offset is 0 in every shipping frame; the Matrix_Translate carrying it is emitted
+// UNCONDITIONALLY anyway, because ops are matched positionally inside the interpolation node and a
+// branch that sometimes skips one misaligns everything after it (SOH_2D_DRAWING.md).
+//
+// The parchment behind it is still stage 3's two fill rectangles, which cannot interpolate. That is
+// fine while nothing moves and is NOT fine from stage 5 on: the first thing the roll animation needs
+// is the panel converted to Vtx under this same matrix, or the rolls will sweep while the parchment
+// they are supposed to be holding stays put. The probe already photographs exactly that.
+//
+// ⚠ The two diagnostic view modes emit a DIFFERENT number of recorded ops than `ownvp` does
+// (func_800AAA50 records Matrix_ calls of its own), so flipping `menu view` mid-session costs one
+// frame of interpolation on the tick it changes. Acceptable in a diagnostic nothing ships with; it
+// would not be acceptable in a mode the gameplay could enter.
+static void DrawScroll(PlayState* play) {
+    GraphicsContext* gfxCtx = play->state.gfxCtx;
+    const int32_t mode = sViewMode;
+    const float dy = ProbeDy();
+    const u8* light = sProbe ? kProbeLightColour : kRollLightColour;
+
+    OPEN_DISPS(gfxCtx);
+
+    if (mode != RS_MENU_VIEW_OWN_VP) {
+        // The level-2 bracket, a literal copy of KaleidoScope_SetView (z_kaleido_scope_PAL.c:2557)
+        // down to its eye - (0, 0, 64), which vanilla uses for the flat info panel. That eye is
+        // deliberately NOT one that would make the perspective path agree with the ortho path: at
+        // z=64 with View_Init's 60 degree fovy the frustum is only ~74 units tall at z=0, so
+        // 240-unit-tall geometry under it would draw more than three times too big and mostly off
+        // screen. That difference is the DISCRIMINATOR - it is how `menu view inherit` can tell
+        // "the bracket set this pool's projection" apart from "the bracket never reached it".
+        if (!sMenuViewInited) {
+            View_Init(&sMenuView, gfxCtx);
+            sMenuViewInited = true;
+        }
+        sMenuView.gfxCtx = gfxCtx;
+        Vec3f eye = { 0.0f, 0.0f, 64.0f };
+        Vec3f lookAt = { 0.0f, 0.0f, 0.0f };
+        Vec3f up = { 0.0f, 1.0f, 0.0f };
+        func_800AA358(&sMenuView, &eye, &lookAt, &up);
+        func_800AAA50(&sMenuView, 127);
+    }
+
+    Vtx* vtx = (Vtx*)Graph_Alloc(gfxCtx, kScrollVtxCount * sizeof(Vtx));
+    for (int32_t roll = 0; roll < kRollCount; roll++) {
+        for (int32_t row = 0; row < kRollRows; row++) {
+            for (int32_t col = 0; col < kRollColumns; col++) {
+                SetScrollVtx(&vtx[roll * kVtxPerRoll + row * kRollColumns + col], kRollX[roll][col],
+                             row == 0 ? kRollTopY : kRollBottomY, col == 1 ? light : kRollEdgeColour);
+            }
+        }
+    }
+
+    gDPPipeSync(OVERLAY_DISP++);
+    gDPSetCycleType(OVERLAY_DISP++, G_CYC_1CYCLE);
+    gDPSetRenderMode(OVERLAY_DISP++, G_RM_OPA_SURF, G_RM_OPA_SURF2);
+    // Flat vertex colour: shade in, shade out. No texture, no lighting, and no Z - the world has
+    // already written a depth buffer and the menu must never be tested against it.
+    gDPSetCombineMode(OVERLAY_DISP++, G_CC_SHADE, G_CC_SHADE);
+    gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_OFF);
+    gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN |
+                                             G_TEXTURE_GEN_LINEAR);
+    gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
+
+    if (mode != RS_MENU_VIEW_INHERIT) {
+        // SCREEN_WIDTH / SCREEN_HEIGHT, not gScreenWidth / gScreenHeight, and the difference is
+        // deliberate even though the letterbox block this copies uses the globals. These vertices
+        // are authored in the SAME fixed 320x240 space as the fill rectangles and glyphs above, and
+        // the rect path scales against the active framebuffer's own native size rather than against
+        // gScreenWidth. The two are equal here - main.c:14 and :85 initialise the globals to these
+        // constants and only z_vimode.c:236 ever moves them - so the ortho set here is numerically
+        // the letterbox's; naming the authoring constants says which space the vertices are in.
+        Mtx* ortho = (Mtx*)Graph_Alloc(gfxCtx, sizeof(Mtx));
+        Vp* vp = (Vp*)Graph_Alloc(gfxCtx, sizeof(Vp));
+        vp->vp.vscale[0] = SCREEN_WIDTH * 2;
+        vp->vp.vscale[1] = SCREEN_HEIGHT * 2;
+        vp->vp.vscale[2] = G_MAXZ / 2;
+        vp->vp.vscale[3] = 0;
+        vp->vp.vtrans[0] = SCREEN_WIDTH * 2;
+        vp->vp.vtrans[1] = SCREEN_HEIGHT * 2;
+        vp->vp.vtrans[2] = G_MAXZ / 2;
+        vp->vp.vtrans[3] = 0;
+        guOrtho(ortho, -(f32)(SCREEN_WIDTH / 2), (f32)(SCREEN_WIDTH / 2), -(f32)(SCREEN_HEIGHT / 2),
+                (f32)(SCREEN_HEIGHT / 2), -1.0f, 1.0f, 1.0f);
+        gSPViewport(OVERLAY_DISP++, vp);
+        gSPMatrix(OVERLAY_DISP++, ortho, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+    }
+
+    Matrix_Push();
+    Matrix_Translate(0.0f, -dy, 0.0f, MTXMODE_NEW);
+    gSPMatrix(OVERLAY_DISP++, MATRIX_NEWMTX(gfxCtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    gSPVertex(OVERLAY_DISP++, (uintptr_t)vtx, kScrollVtxCount, 0);
+    for (int32_t roll = 0; roll < kRollCount; roll++) {
+        // Top row is b+0..b+2 left to right, bottom row b+3..b+5: two quads sharing the lit centre
+        // column. Winding does not matter here - G_CULL_BOTH is cleared above.
+        const u8 b = (u8)(roll * kVtxPerRoll);
+        gSP2Triangles(OVERLAY_DISP++, b + 0, b + 3, b + 4, 0, b + 0, b + 4, b + 1, 0);
+        gSP2Triangles(OVERLAY_DISP++, b + 1, b + 4, b + 5, 0, b + 1, b + 5, b + 2, 0);
+    }
+    Matrix_Pop();
+
+    if (mode != RS_MENU_VIEW_OWN_VP) {
+        // The level-2 restore, flag 15, exactly as KaleidoScope_Draw does it at
+        // z_kaleido_scope_PAL.c:3543. It is only reachable from the two diagnostic modes, because
+        // `play->view` is otherwise never touched and so there is nothing to put back. Note where
+        // it lands: POLY_OPA and POLY_XLU, never this pool - which is point 1 above.
+        func_800AAA50(&play->view, 15);
+    }
+    // No viewport/projection restore into OVERLAY_DISP, deliberately. Point 2 above: this pool is
+    // screen space from end to end, the ortho set here is numerically the one the letterbox left,
+    // and the HUD elements Play_DrawOverlayElements draws after this hook (z_play.c:1648) set no
+    // projection of their own. Handing them the world's perspective is exactly how to break them.
+    gDPPipeSync(OVERLAY_DISP++);
+
+    CLOSE_DISPS(gfxCtx);
 }
 
 // --- the trigger's binding -----------------------------------------------------------------------
@@ -375,6 +620,10 @@ static void RsMenu_OnGameFrameUpdate() {
         // (z_play.c:538) and vanilla writes it from cutscenes, Sun's Song and the void-out.
         play->haltAllActors = 1;
         sOpenFrames++;
+        // The probe's clock is the GAME tick, which is the whole point: it is the 20 Hz lattice the
+        // rendered frames are measured against. Advanced whether or not the probe is on, so
+        // switching it on does not start from a stale phase.
+        sProbePhase = (sProbePhase + 1) % kProbePeriod;
         RecordOfferedInput(input);
 
         if (startEdge || CHECK_BTN_ALL(input->press.button, BTN_B)) {
@@ -415,17 +664,31 @@ static void RsMenu_OnPlayDrawEnd() {
     sDrawFrames++;
 
     // The panel: a light frame with a dark body, so the greybox reads as a panel rather than as a
-    // rendering fault. Two fills, FILL cycle, no z - cheap, static, and nothing here animates, so
-    // the interpolation rules in SOH_2D_DRAWING.md do not bind yet. They will at stage 5.
+    // rendering fault. Two fills, FILL cycle, no z - cheap and static. Fill-rectangle coordinates
+    // are baked into Gfx words, so these cannot interpolate; that is fine while they do not move.
     FillPanelRect(play, kPanelX0, kPanelY0, kPanelX1, kPanelY1, 150, 140, 110);
     FillPanelRect(play, kPanelX0 + kPanelBorder, kPanelY0 + kPanelBorder, kPanelX1 - kPanelBorder,
              kPanelY1 - kPanelBorder, 46, 42, 38);
 
+    // The scroll's roll ends, over the panel: real triangles under the menu's own projection. This
+    // is chrome rather than page content, so it lives here and not behind a page's draw callback.
+    DrawScroll(play);
+
     // SETUPDL_39 is the HUD/text preset - MODULATEIA_PRIM over XLU_SURF - and it also puts the RDP
-    // back into 1-cycle after the fills above.
+    // back into 1-cycle after the fills and the geometry above.
     OPEN_DISPS(play->state.gfxCtx);
     Gfx_SetupDL_39Overlay(play->state.gfxCtx);
     CLOSE_DISPS(play->state.gfxCtx);
+
+    if (sProbe) {
+        // The other half of the interpolation measurement, offset by the SAME per-tick dy as the
+        // geometry above but carried in a texture rectangle's baked y instead of in a matrix. In
+        // one frame the two therefore read the split directly: they part company by exactly the
+        // fraction of a tick the renderer is interpolating across.
+        char probe[32];
+        std::snprintf(probe, sizeof(probe), "PROBE %d", sProbePhase);
+        DrawMenuText(play, probe, kProbeTextX, (int16_t)(kProbeTextY + ProbeDy()), 1.0f, 0, 255, 0, 255);
+    }
 
     if (page->draw != nullptr) {
         page->draw(play, sPage, page->userData);
@@ -622,6 +885,50 @@ void RsMenu_CyclePage(int32_t delta) {
     sPage = next;
 }
 
+int32_t RsMenu_GetViewMode() {
+    return sViewMode;
+}
+
+void RsMenu_SetViewMode(int32_t mode) {
+    if (mode < RS_MENU_VIEW_OWN_VP || mode > RS_MENU_VIEW_INHERIT) {
+        return;
+    }
+    sViewMode = mode;
+}
+
+const char* RsMenu_ViewModeName(int32_t mode) {
+    switch (mode) {
+        case RS_MENU_VIEW_OWN_VP:
+            return "ownvp";
+        case RS_MENU_VIEW_BRACKET:
+            return "bracket";
+        case RS_MENU_VIEW_INHERIT:
+            return "inherit";
+        default:
+            return "unknown";
+    }
+}
+
+bool RsMenu_ParseViewMode(const std::string& word, int32_t* mode) {
+    if (word == "ownvp") {
+        *mode = RS_MENU_VIEW_OWN_VP;
+        return true;
+    }
+    if (word == "bracket") {
+        *mode = RS_MENU_VIEW_BRACKET;
+        return true;
+    }
+    if (word == "inherit") {
+        *mode = RS_MENU_VIEW_INHERIT;
+        return true;
+    }
+    return false;
+}
+
+void RsMenu_SetProbe(bool on) {
+    sProbe = on;
+}
+
 int32_t RsMenu_GetPrimary() {
     return CVarGetInteger(CVAR_RS_MENU_PRIMARY, RS_MENU_PRIMARY_VANILLA) == RS_MENU_PRIMARY_CUSTOM
                ? RS_MENU_PRIMARY_CUSTOM
@@ -684,6 +991,21 @@ RsMenuStatus RsMenu_Status() {
     status.page = sPage;
     status.pages = RsMenu_PageCount();
     status.primary = RsMenu_GetPrimary();
+    status.viewMode = sViewMode;
+    status.probe = sProbe;
+    status.probePhase = sProbePhase;
+    status.probeStep = kProbeStep;
+    status.probeDy = ProbeDy();
+    // The level-2 bracket's actual side effect, read from the horse's mouth rather than predicted.
+    // func_800AAA9C runs a jump heuristic over a file-static `old_view` and calls
+    // FrameInterpolation_DontInterpolateCamera() when the eye moves further than its thresholds,
+    // which does camera_epoch = previous_camera_epoch + 1. A menu View sits hundreds of units from
+    // the world camera, so if the heuristic bites at all this number climbs by one per game tick
+    // while `view bracket` is selected and stands still while `view ownvp` is. `pauseMenuMode` is
+    // the one gate that would suppress it (z_view.c:404) - vanilla kaleido's exemption, which this
+    // menu cannot use because Play_Draw turns that register into the pause prerender capture.
+    status.cameraEpoch = FrameInterpolation_GetCameraEpoch();
+    status.pauseMenuMode = (int32_t)R_PAUSE_MENU_MODE;
     status.halt = gPlayState != nullptr && gPlayState->haltAllActors != 0;
     status.haltPrev = sHaltPrev != 0;
     status.hudHidden = sHudApplied;

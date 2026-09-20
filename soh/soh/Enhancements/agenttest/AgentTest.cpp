@@ -297,7 +297,7 @@
  *                                          `npc dump`/`npc resolve` print the COMPOSED body, `region
  *                                          set us` followed by one of those asserts what a player
  *                                          would actually read
- *   agenttest menu open|close|page <n>|primary [custom|vanilla]|dump
+ *   agenttest menu open|close|page <n>|primary [custom|vanilla]|view [ownvp|bracket|inherit]|probe [on|off]|dump
  *                                          the mod-owned pause interface (sturdy-bassoon#111) - the
  *                                          RS-style scroll that opens beside vanilla pause rather
  *                                          than inside it. `open`/`close` drive it, `page` selects
@@ -1966,7 +1966,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
-              "menu open|close|page <n>|primary [custom|vanilla]|dump | "
+              "menu open|close|page <n>|primary [custom|vanilla]|view [ownvp|bracket|inherit]|probe [on|off]|dump | "
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|fadein <s>|"
               "baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
             "save <fileNum> | loadsave <fileNum> | mark <text>";
@@ -2000,7 +2000,7 @@ void RegisterAgentTest() {
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
-              "menu open|close|page <n>|primary [custom|vanilla]|dump | "
+              "menu open|close|page <n>|primary [custom|vanilla]|view [ownvp|bracket|inherit]|probe [on|off]|dump | "
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|"
               "fadein <s>|baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
               "save <fileNum> | loadsave <fileNum> | mark <text>. walk/press inject controller 1 for N frames and end "

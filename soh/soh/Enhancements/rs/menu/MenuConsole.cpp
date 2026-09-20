@@ -1,5 +1,6 @@
 #include "MenuConsole.h"
 
+#include <cstdio>
 #include <cstdlib>
 
 #include <ship/debug/Console.h>
@@ -88,6 +89,51 @@ int32_t Primary(const std::vector<std::string>& args, std::vector<std::string>& 
     return 0;
 }
 
+// Stage 4's two diagnostics. Neither writes a CVar - see RsMenuViewMode in RsMenu.h for why - so a
+// session that wedges cannot leave the owner's config on a debug setting the way `primary` can.
+int32_t ViewMode(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() >= 2) {
+        int32_t mode = 0;
+        if (!RsMenu_ParseViewMode(args[1], &mode)) {
+            Addf(lines, "op=view result=error error=arg %s", Describe().c_str());
+            return 1;
+        }
+        RsMenu_SetViewMode(mode);
+    }
+    const int32_t live = RsMenu_GetViewMode();
+    Addf(lines, "op=view result=ok view=%s value=%d %s", RsMenu_ViewModeName(live), live, Describe().c_str());
+    return 0;
+}
+
+// The probe's fields, formatted once, because two lines report them and a drift between the two
+// would silently break whichever grep a run happened to use. `step` and `phase` are what a
+// screenshot is measured against: every position the 20 Hz animation can draw is a whole multiple of
+// `step` from the park position, so anything between two of them came from the renderer. `epoch` is
+// frame interpolation's camera epoch - the number that says whether something has quietly switched
+// interpolation off for the rest of the frame.
+std::string DescribeProbe(const RsMenuStatus& status) {
+    char buf[128];
+    std::snprintf(buf, sizeof(buf), "probe=%d step=%.1f phase=%d dy=%.1f epoch=%d", status.probe ? 1 : 0,
+                  status.probeStep, status.probePhase, status.probeDy, status.cameraEpoch);
+    return buf;
+}
+
+int32_t Probe(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() >= 2) {
+        if (args[1] == "on") {
+            RsMenu_SetProbe(true);
+        } else if (args[1] == "off") {
+            RsMenu_SetProbe(false);
+        } else {
+            Addf(lines, "op=probe result=error error=arg %s", Describe().c_str());
+            return 1;
+        }
+    }
+    const RsMenuStatus status = RsMenu_Status();
+    Addf(lines, "op=probe result=ok %s %s", DescribeProbe(status).c_str(), Describe().c_str());
+    return 0;
+}
+
 int32_t Dump(std::vector<std::string>& lines) {
     const RsMenuStatus status = RsMenu_Status();
     const RsMenuTriggerInfo trigger = RsMenu_TriggerInfo();
@@ -105,6 +151,11 @@ int32_t Dump(std::vector<std::string>& lines) {
     // from a trigger nobody has bound - and on a GameCube pad `bound=0` is the DEFAULT, not a fault.
     Addf(lines, "op=dump section=trigger button=N64_L mask=0x%04X bindings=%d bound=%d", trigger.mask,
          trigger.bindings, trigger.bound ? 1 : 0);
+    // Stage 4. `view` is how the scroll geometry gets a projection; the probe fields are the lattice
+    // a smoothness measurement is read against; `pause_mode` is the register that would have
+    // exempted a View bracket from bumping `epoch`, and which this menu must never set.
+    Addf(lines, "op=dump section=view view=%s value=%d %s pause_mode=%d", RsMenu_ViewModeName(status.viewMode),
+         status.viewMode, DescribeProbe(status).c_str(), status.pauseMenuMode);
     Addf(lines,
          "op=dump section=counters opens=%d closes=%d page_changes=%d open_frames=%d draw_frames=%d "
          "input_frames=%d stick_frames=%d button_frames=%d last_stick=%d,%d last_buttons=0x%04X",
@@ -123,7 +174,8 @@ int32_t Dump(std::vector<std::string>& lines) {
     return 0;
 }
 
-const char* kUsage = "usage: menu open | close | page <n> | primary [custom|vanilla] | dump";
+const char* kUsage = "usage: menu open | close | page <n> | primary [custom|vanilla] | "
+                     "view [ownvp|bracket|inherit] | probe [on|off] | dump";
 
 } // namespace
 
@@ -146,6 +198,12 @@ int32_t RsMenuConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "primary") {
         return Primary(args, lines);
     }
+    if (sub == "view") {
+        return ViewMode(args, lines);
+    }
+    if (sub == "probe") {
+        return Probe(args, lines);
+    }
     if (sub == "dump") {
         return Dump(lines);
     }
@@ -163,11 +221,15 @@ namespace {
 const ConsoleSink::Command menuCommand(
     "menu", RsMenuConsole_Run,
     "The mod-owned pause interface (sturdy-bassoon#111): open | close | page <n> | "
-    "primary [custom|vanilla] | dump. The scroll opens on the N64 L bit and hard-freezes the world; "
-    "primary decides which menu START opens, and is a subcommand because there is no console `set`. "
-    "dump reports open/closed, the page ring, the freeze and HUD state, whether N64 L has a binding "
-    "at all, and how many frames of input arrived while the world was frozen.",
-    { { "open|close|page|primary|dump", Ship::ArgumentType::TEXT },
+    "primary [custom|vanilla] | view [ownvp|bracket|inherit] | probe [on|off] | dump. The scroll "
+    "opens on the N64 L bit and hard-freezes the world; primary decides which menu START opens, and "
+    "is a subcommand because there is no console `set`. view picks how the scroll geometry gets a "
+    "projection and exists so the two rejected alternatives can be seen rather than argued about; "
+    "probe drives a stepped per-tick offset into the geometry and into a string at once, so one "
+    "screenshot shows which of the two frame-interpolates. dump reports open/closed, the page ring, "
+    "the freeze and HUD state, whether N64 L has a binding at all, and how many frames of input "
+    "arrived while the world was frozen.",
+    { { "open|close|page|primary|view|probe|dump", Ship::ArgumentType::TEXT },
       { "argument", Ship::ArgumentType::TEXT, true } });
 
 } // namespace
