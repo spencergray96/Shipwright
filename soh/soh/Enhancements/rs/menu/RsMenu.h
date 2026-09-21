@@ -52,6 +52,29 @@ float RsMenu_TextWidth(const char* text, float scale);
 // to the text state afterwards, so a page can interleave it with text freely.
 void RsMenu_DrawBar(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t r, uint8_t g, uint8_t b);
 
+// STAGE 8 - A TEXTURED QUAD: an item icon, a song note, a digit. Same space, same validity rule as
+// the text calls, and Vtx for the same reason (a texture rectangle steps at 20 Hz while the scroll
+// glides). The WHOLE texture is mapped onto the box `x, y, w, h`, whatever its size - vanilla's quest
+// page squeezes 24x24 stone icons into 20x20 boxes the same way. `texture` is what the game's own
+// tables hold (an `__OTR__` path for gItemIcons and friends). One texture load and one quad each, so
+// an icon costs what a glyph costs: one draw (stage 7). `grey` draws it the way kaleido draws an item
+// the current age cannot use (gSPGrayscale at 109). The list is left in the icon state; the text and
+// bar calls switch back by themselves.
+enum RsMenuTexFormat {
+    RS_MENU_TEX_RGBA32 = 0, // item and quest icons (gItemIcons below the song notes)
+    RS_MENU_TEX_IA8,        // song note, heart pieces, equipped outline, ammo digits
+    RS_MENU_TEX_I8,         // the counter digits (digitTextures)
+};
+void RsMenu_DrawIcon(const void* texture, RsMenuTexFormat format, int16_t texW, int16_t texH, int16_t x, int16_t y,
+                     int16_t w, int16_t h, uint8_t r, uint8_t g, uint8_t b, uint8_t a, bool grey);
+
+// STAGE 8 - LINK'S PORTRAIT: a quad textured from the pause-Link framebuffer, composited onto the
+// parchment under the scroll's matrix, and the request that makes the menu render Link into that
+// framebuffer this frame (PauseLink.cpp). Same validity rule as the text calls. The render goes into
+// WORK_DISP, which the RCP runs before any pool this quad is in, so the framebuffer is always this
+// frame's. Only a page that calls this pays for the render.
+void RsMenu_DrawPauseLink(int16_t x, int16_t y, int16_t w, int16_t h);
+
 // A page's cursor-node contribution, called once per update tick while that page is visible, from
 // between the two hand nodes. A page adds its selectable items with RsMenu_AddCursorNode; the
 // hands are added for it. Null means "this page has no items", which is every page at stage 5 -
@@ -77,6 +100,14 @@ typedef bool (*RsMenuPageSelectFn)(int32_t pageIndex, const RsMenuCursorNode* no
 // a detail view there is no graph and they are the page's to scroll with.
 typedef void (*RsMenuPageInputFn)(int32_t pageIndex, int32_t level, uint16_t press, int32_t navY, void* userData);
 
+// STAGE 8: which D-pad bits are the PAGE's this tick rather than the cursor's, asked once per update
+// tick at level 0, BEFORE the cursor moves - the page's input callback itself runs after the move, as
+// kaleido moves its cursor first and tests the equip buttons second (z_kaleido_item.c:694). The reason:
+// with SoH's DpadEquips on, kaleido gives a D-pad press to equipping rather than to the cursor, and the
+// port has to be able to say the same. `held` is the held mask (the C-up modifier). Bits outside the
+// D-pad are ignored - the stick, A, B and the shoulders stay the menu's.
+typedef uint16_t (*RsMenuPageClaimFn)(int32_t pageIndex, uint16_t held, void* userData);
+
 // One registered page. `id` is the greppable key a console line carries (no spaces); `title` is
 // what the page draws and may contain spaces, so every console line that prints it puts it last and
 // quotes it. Every callback may be null.
@@ -94,6 +125,7 @@ struct RsMenuPage {
     RsMenuPageDrawFn detailDraw = nullptr;
     RsMenuPageInputFn input = nullptr;
     bool ownsItemHighlight = false;
+    RsMenuPageClaimFn claim = nullptr;
 };
 
 // Registers a page at the end of the ring and returns its 0-based index, or -1 if `id` is empty or
@@ -264,6 +296,26 @@ int32_t RsMenu_AddCursorNode(const char* id, int16_t x, int16_t y, int16_t w, in
 // it was on is not on this page - which is how opening the menu lands on the list rather than a hand.
 void RsMenu_SetCursorColumn(int32_t entry);
 
+// STAGE 8 - A GRID WHOSE EDGES THE PAGE WIRES ITSELF. The ported vanilla pages move the cursor by
+// kaleido's own rules (skip empty slots, wrap into the next row, leave the page at an edge), and no
+// row or column captures that - so the page computes every edge from the live inventory and hands
+// them over. Still nothing derives an edge from a coordinate: the page runs vanilla's cursor
+// arithmetic, which is about slots, not pixels.
+//
+// RsMenu_SetCursorGrid switches this rebuild to explicit edges; `entry` is the node a cursor whose id
+// is not on this page lands on (opening the menu), or -1 for the left hand. RsMenu_LinkCursorNode
+// sets one item's four neighbours, each a node index RsMenu_AddCursorNode returned, a hand below, or
+// -1 for none (refused, like every other missing edge). RsMenu_LinkHands sets where the hands lead
+// INTO the page: the left hand's right and the right hand's left - vanilla's "step off the page
+// arrow" scans. A hand's outward and vertical edges stay empty, as on every other page. All three are
+// valid only from inside a nodes callback.
+constexpr int32_t RS_MENU_LINK_NONE = -1;
+constexpr int32_t RS_MENU_LINK_HAND_LEFT = -2;
+constexpr int32_t RS_MENU_LINK_HAND_RIGHT = -3;
+void RsMenu_SetCursorGrid(int32_t entry);
+void RsMenu_LinkCursorNode(int32_t node, int32_t left, int32_t right, int32_t up, int32_t down);
+void RsMenu_LinkHands(int32_t leftHandRight, int32_t rightHandLeft);
+
 int32_t RsMenu_CursorCount();
 // 0-based. Null when out of range.
 const RsMenuCursorNode* RsMenu_CursorAt(int32_t index);
@@ -382,6 +434,7 @@ struct RsMenuViewStats {
     int32_t rows;
     int32_t glyphs;
     int32_t words;
+    int32_t icons; // stage 8: RsMenu_DrawIcon / RsMenu_DrawPauseLink quads the view drew
 };
 RsMenuViewStats RsMenu_ViewStats();
 
@@ -483,6 +536,7 @@ struct RsMenuStatus {
     int32_t drawGlyphs;
     int32_t drawQuads;
     int32_t dlWords;
+    int32_t drawIcons; // stage 8: textured quads (icons and the pause-Link composite)
     // Counters. The stage-2 evidence lives here: `stickFrames` says input REACHED the game while
     // the world was frozen, which is what turns "Link did not move" from an untested negative into
     // a challenged one (a still screenshot proves nothing if the input never arrived).

@@ -8,8 +8,10 @@
 #include <ship/Context.h>
 #include <ship/debug/Console.h>
 
+#include "PauseLink.h"
 #include "QuestPage.h"
 #include "RsMenu.h"
+#include "VanillaPages.h"
 #include "soh/Enhancements/rs/quest/Quest.h"
 #include "soh/Enhancements/console/ConsoleSink.h"
 
@@ -512,8 +514,8 @@ int32_t Dump(std::vector<std::string>& lines) {
     // in. `dl_words` is the heap display list's length: the menu submits one gSPDisplayList, so it
     // no longer spends that budget, but the number is what stage 6's journal has to fit inside and
     // is free to carry here. Zero while the menu is closed - nothing was drawn.
-    Addf(lines, "op=dump section=draw glyphs=%d quads=%d dl_words=%d", status.drawGlyphs, status.drawQuads,
-         status.dlWords);
+    Addf(lines, "op=dump section=draw glyphs=%d quads=%d icons=%d dl_words=%d", status.drawGlyphs, status.drawQuads,
+         status.drawIcons, status.dlWords);
     // Stage 7: the same last frame, counting only the VIEW - the page body, detail body or stress
     // body inside the content node - so chrome and content separate. `drawn_rows` is distinct text
     // lines, `drawn_glyphs` glyphs, `drawn_words` the Gfx words the view appended. `view=none` is a
@@ -521,8 +523,9 @@ int32_t Dump(std::vector<std::string>& lines) {
     // on the counters line when the numbers are this frame's.
     {
         const RsMenuViewStats view = RsMenu_ViewStats();
-        Addf(lines, "op=dump section=view view=%s frame=%d drawn_rows=%d drawn_glyphs=%d drawn_words=%d", view.view,
-             view.frame, view.rows, view.glyphs, view.words);
+        Addf(lines,
+             "op=dump section=view view=%s frame=%d drawn_rows=%d drawn_glyphs=%d drawn_icons=%d drawn_words=%d",
+             view.view, view.frame, view.rows, view.glyphs, view.icons, view.words);
         Addf(lines, "op=dump section=stress %s", DescribeStress(RsMenu_StressState()).c_str());
     }
     Addf(lines,
@@ -570,6 +573,45 @@ int32_t Dump(std::vector<std::string>& lines) {
              quests.selectedToken.empty() ? "-" : quests.selectedToken.c_str(), quests.journalLines,
              quests.journalTop, quests.journalDrawn, quests.journalMaxTop, quests.journalWidth);
     }
+    // Stage 8: the three ported vanilla pages. One `section=port` line per page - its ring position,
+    // the one scale and offset its kaleido table was mapped through, and the drawn extent that mapping
+    // gives - then one `section=slot` line per slot: vanilla's cursor point, the mapped box, the item
+    // (its ITEM_ enum token, so `item=ITEM_HOOKSHOT cursor=1` is "the cursor is on the Hookshot"), and
+    // whether it is owned, a cursor node right now, drawn greyed, and under the cursor. Every page is
+    // listed, visible or not - a slot list is a function of the save, not of what is on screen.
+    // `section=link` is Link's portrait: renders, loads, the framebuffer, and the segment restore.
+    {
+        const RsMenuCursorNode* cursorNode = RsMenu_CursorAt(RsMenu_CursorIndex());
+        const std::string cursorId = cursorNode != nullptr ? cursorNode->id : "";
+        for (const RsMenuPortInfo& port : RsMenuVanillaPages_Describe()) {
+            int32_t nodes = 0;
+            for (const RsMenuSlotInfo& slot : port.slots) {
+                nodes += slot.isNode ? 1 : 0;
+            }
+            Addf(lines,
+                 "op=dump section=port page=%d id=%s current=%d scale=%.2f offset=%d,%d extent=%d,%d,%d,%d slots=%d "
+                 "nodes=%d",
+                 port.pageIndex + 1, port.pageId.c_str(), port.pageIndex == status.page ? 1 : 0, port.scale,
+                 port.offsetX, port.offsetY, port.x0, port.y0, port.x1, port.y1, (int32_t)port.slots.size(), nodes);
+            const bool visible = port.pageIndex == status.page;
+            for (const RsMenuSlotInfo& slot : port.slots) {
+                Addf(lines,
+                     "op=dump section=slot page=%d id=%s slot=%d box=%d,%d,%d,%d item=%s owned=%d node=%d grey=%d "
+                     "cursor=%d",
+                     port.pageIndex + 1, slot.node.c_str(), slot.slot, slot.x, slot.y, slot.w, slot.h,
+                     slot.itemName.c_str(), slot.owned ? 1 : 0, slot.isNode ? 1 : 0, slot.grey ? 1 : 0,
+                     visible && slot.node == cursorId ? 1 : 0);
+            }
+        }
+        const RsPauseLinkStatus link = RsPauseLink_Status();
+        Addf(lines,
+             "op=dump section=link renders=%d loads=%d last_frame=%d fb=%d age=%d load_size=0x%X seg4=0x%llX "
+             "seg4_during=0x%llX seg4_now=0x%llX seg6=0x%llX seg6_during=0x%llX seg6_now=0x%llX",
+             link.renders, link.loads, link.lastRenderFrame, link.frameBuffer, link.age, link.loadSize,
+             (unsigned long long)link.seg4, (unsigned long long)link.seg4Clobbered,
+             (unsigned long long)link.seg4Now, (unsigned long long)link.seg6,
+             (unsigned long long)link.seg6Clobbered, (unsigned long long)link.seg6Now);
+    }
     Addf(lines, "op=dump section=cursor %s", DescribeCursor().c_str());
     for (int32_t i = 0; i < RsMenu_CursorCount(); i++) {
         const RsMenuCursorNode* node = RsMenu_CursorAt(i);
@@ -589,11 +631,59 @@ int32_t Dump(std::vector<std::string>& lines) {
     return 0;
 }
 
+// Stage 8's two read-only probes for the differential tests. Neither writes anything.
+//
+// `kaleido` reads VANILLA pause's live cursor - the other half of every "same inputs, same slot"
+// comparison. `special=` is none, left or right (the page arrows, which the scroll's hands stand in
+// for); `point=` is the cursor point the scroll's node ids carry (`items_09` <-> page=0 point=9).
+int32_t Kaleido(std::vector<std::string>& lines) {
+    const RsMenuKaleidoCursor k = RsMenu_KaleidoCursor();
+    if (!k.valid) {
+        Addf(lines, "op=kaleido result=error error=no_play %s", Describe().c_str());
+        return 1;
+    }
+    static const char* const kSpecial[] = { "none", "left", "right" };
+    Addf(lines, "op=kaleido result=ok state=%d debug=%d page=%d point=%d x=%d y=%d special=%s item=%d slot=%d sub=%d",
+         k.state, k.debugState, k.page, k.point, k.x, k.y, kSpecial[k.special], k.item, k.slot, k.sub);
+    return 0;
+}
+
+// `equips` reads the save fields an equip writes, so a run can compare the scroll's result with
+// vanilla's field for field: the eight button items (B, C-left, C-down, C-right, D-up, D-down, D-left,
+// D-right), the seven C/D slots, the equipment word, the swordless flag and infTable[29], the sword's
+// health and the BGS flag. `dpad=` is SoH's DpadEquips, `done=` how many equips the ported pages have
+// performed this session.
+int32_t Equips(std::vector<std::string>& lines) {
+    const RsMenuEquipState e = RsMenu_EquipState();
+    Addf(lines,
+         "op=equips result=ok buttons=%d,%d,%d,%d,%d,%d,%d,%d slots=%d,%d,%d,%d,%d,%d,%d equipment=0x%04X "
+         "swordless=%d inf29=0x%04X sword_health=%d bgs=%d dpad=%d done=%d",
+         e.buttons[0], e.buttons[1], e.buttons[2], e.buttons[3], e.buttons[4], e.buttons[5], e.buttons[6], e.buttons[7],
+         e.slots[0], e.slots[1], e.slots[2], e.slots[3], e.slots[4], e.slots[5], e.slots[6], e.equipment,
+         e.swordless ? 1 : 0, e.inf29, e.swordHealth, e.bgsFlag, e.dpadEquips ? 1 : 0, e.equipsDone);
+    return 0;
+}
+
+// TEST-ONLY: `inv <item|equip|upgrade|quest> <a> <b>` - the sparse-inventory fixture (VanillaPages.h,
+// RsMenu_TestSetInventory). Writes gSaveContext; never run it on a save anyone cares about.
+int32_t Inv(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    int32_t a = 0;
+    int32_t b = 0;
+    if (args.size() != 4 || !ParseIndex(args[2], &a) || !ParseIndex(args[3], &b) ||
+        !RsMenu_TestSetInventory(args[1], a, b)) {
+        Addf(lines, "op=inv result=error error=arg %s", Describe().c_str());
+        return 1;
+    }
+    Addf(lines, "op=inv result=ok kind=%s a=%d b=%d %s", args[1].c_str(), a, b, Describe().c_str());
+    return 0;
+}
+
 const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custom|vanilla] | "
                      "sweep [l|r|loop|hold <l|r> <tick>|stop] | "
                      "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
                      "stress [<n> [same]|off|memo <on|off>] | "
-                     "cursor [left|right|up|down|select|<id>] | probe [on|off] | dump";
+                     "cursor [left|right|up|down|select|<id>] | probe [on|off] | kaleido | equips | "
+                     "inv <kind> <a> <b> | dump";
 
 } // namespace
 
@@ -634,6 +724,15 @@ int32_t RsMenuConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "probe") {
         return Probe(args, lines);
     }
+    if (sub == "kaleido") {
+        return Kaleido(lines);
+    }
+    if (sub == "equips") {
+        return Equips(lines);
+    }
+    if (sub == "inv") {
+        return Inv(args, lines);
+    }
     if (sub == "dump") {
         return Dump(lines);
     }
@@ -654,7 +753,8 @@ const ConsoleSink::Command menuCommand(
     "primary [custom|vanilla] | sweep [l|r|loop|hold <l|r> <tick>|stop] | "
     "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
     "stress [<n> [same]|off|memo <on|off>] | cursor [left|right|up|down|select|<id>] | "
-    "probe [on|off] | dump. The scroll opens on the N64 L bit (and on START when primary is custom) "
+    "probe [on|off] | kaleido | equips | inv <kind> <a> <b> | dump. The scroll opens on the N64 L bit (and on "
+    "START when primary is custom) "
     "and hard-freezes the world; primary decides which menu START opens, and is a subcommand because "
     "there is no console `set`. sweep rolls the scroll one page the way a shoulder press does, and "
     "reports the tick it is on so a mid-sweep screenshot is self-describing; level goes down into the "
@@ -668,8 +768,11 @@ const ConsoleSink::Command menuCommand(
     "into a string at once, so one screenshot shows which of the two frame-interpolates. dump "
     "reports open/closed, the page ring, the freeze and HUD state, the live sweep, the cursor "
     "graph, what the last frame cost, whether N64 L has a binding at all, and how many frames of "
-    "input arrived while the world was frozen.",
-    { { "open|close|page|primary|sweep|level|filler|stress|cursor|probe|dump", Ship::ArgumentType::TEXT },
+    "input arrived while the world was frozen, plus every slot of the three ported vanilla pages. kaleido "
+    "reads vanilla pause's live cursor and equips the save's equip fields - the two halves of the "
+    "stage-8 differential tests; inv (test-only) writes a sparse inventory for them.",
+    { { "open|close|page|primary|sweep|level|filler|stress|cursor|probe|kaleido|equips|inv|dump",
+        Ship::ArgumentType::TEXT },
       { "argument", Ship::ArgumentType::TEXT, true } });
 
 } // namespace

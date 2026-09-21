@@ -144,6 +144,8 @@
  *   fog mode=override near=<n> far=<n> / fog mode=scene
  *                                        echoed from "agenttest fog"; between these, the perf marker's fog=
  *                                        field carries whatever band is actually live
+ *   kaleidoinput on=<0|1>                from "agenttest kaleidoinput": whether injected frames count while vanilla
+ *                                        pause is up (sturdy-bassoon#111 stage 8)
  *   altassets cvar=<0|1> live=<0|1>      from "agenttest altassets": cvar= is the AltAssets setting, live= is the
  *                                        resource manager's current state. They differ for one frame after a
  *                                        flip - OTRGlobals applies the CVar at the end of the next frame
@@ -243,6 +245,15 @@
  *                                          Environment_Init re-arms scene control on every scene load, so the
  *                                          override must be re-applied after each entrance - which is also the
  *                                          safety net against leaking it into a later run
+ *   agenttest kaleidoinput [on|off]        let injected frames (walk/press) count while vanilla pause (kaleido) is up.
+ *                                          OFF by default and off again at every scene load: normally a frame only
+ *                                          counts when Player reads it, so a `press START` that opens kaleido never
+ *                                          finishes and wedges the command channel. ON, kaleido reads the injected
+ *                                          stick and buttons like a pad (it takes stickRelX/Y from input->rel), so a
+ *                                          run can open vanilla pause, move its cursor and close it again - the
+ *                                          vanilla half of the pause scroll's differential tests (sturdy-bassoon#111
+ *                                          stage 8; `menu kaleido` reads the cursor). Still no frames count mid-
+ *                                          transition. With no argument it only reports
  *   agenttest altassets [on|off]           flip SoH's alt-asset setting (the texture pack, OoT Reloaded here) the
  *                                          way the mods menu's checkbox does; with no argument it only reports.
  *                                          Writes the CVar, so it SURVIVES the session - put it back. Exists so a
@@ -308,7 +319,7 @@
  *                                          would actually read
  *   agenttest menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|
  *                filler [n]|stress [<n> [same]|off|memo <on|off>]|
- *                cursor [left|right|up|down|select|<id>]|probe [on|off]|dump
+ *                cursor [left|right|up|down|select|<id>]|probe [on|off]|kaleido|equips|inv <kind> <a> <b>|dump
  *                                          the mod-owned pause interface (sturdy-bassoon#111) - the
  *                                          RS-style scroll that opens beside vanilla pause rather
  *                                          than inside it. `open`/`close` drive it, `page` selects
@@ -439,6 +450,9 @@ int8_t sInputStickX = 0;
 int8_t sInputStickY = 0;
 uint16_t sInputButtons = 0;
 bool sInputPressPending = false; // first injected frame also sets press.button (a fresh press)
+// `agenttest kaleidoinput on`: injected frames also count while kaleido is up. Session state, cleared on
+// every scene load, so a run that forgets to turn it off cannot carry it into the next test.
+bool sKaleidoInput = false;
 // Mid-walk button press (walk's optional [buttons] [at_frame] args): once sInputFramesLeft counts
 // down to sDeferredAtFramesLeft, these buttons join sInputButtons with a fresh press edge and stay
 // held for the rest of the injection. This is how a roll is driven - A must land while running.
@@ -976,7 +990,8 @@ void OnGameStateMainStartAgentTest() {
         return;
     }
     // Only frames Player_Update will actually read count: paused or mid-transition the stick is ignored.
-    if (gPlayState->pauseCtx.state != 0 || gPlayState->pauseCtx.debugState != 0 ||
+    // `kaleidoinput on` lifts the pause half: kaleido reads the same input struct Player does.
+    if ((!sKaleidoInput && (gPlayState->pauseCtx.state != 0 || gPlayState->pauseCtx.debugState != 0)) ||
         gPlayState->transitionTrigger != TRANS_TRIGGER_OFF) {
         return;
     }
@@ -1129,6 +1144,7 @@ void OnSceneInitAgentTest(int16_t sceneNum) {
     sReady = false;
     sLastRoom = -1;
     CancelInput("scene_change");
+    sKaleidoInput = false;
     if (sAgentMode) {
         WriteMarker("scene_loaded scene=" + Hex(sceneNum) + " entrance=" + Hex(gSaveContext.entranceIndex));
     }
@@ -1597,6 +1613,26 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         }
         return 0;
     }
+    // Opt-in only, and it never outlives the scene: see sKaleidoInput. The stock rule - a frame counts
+    // only while Player reads it - is what stops a walk from being eaten by a pause; this lifts it for
+    // runs that mean to drive the pause itself.
+    if (args.size() >= 2 && args[1] == "kaleidoinput") {
+        if (args.size() >= 3) {
+            if (args[2] != "on" && args[2] != "off") {
+                if (output) {
+                    *output += "kaleidoinput needs on|off, or nothing to report";
+                }
+                return 1;
+            }
+            sKaleidoInput = args[2] == "on";
+        }
+        const std::string line = std::string("kaleidoinput on=") + (sKaleidoInput ? "1" : "0");
+        WriteMarker(line);
+        if (output) {
+            *output += line;
+        }
+        return 0;
+    }
     // The CVar only: OTRGlobals notices the change at the end of the next frame and does the swap itself
     // (SetAltAssetsEnabled, gfx_texture_cache_clear, skeleton patch), exactly as for the menu checkbox.
     if (args.size() >= 2 && args[1] == "altassets") {
@@ -2002,10 +2038,11 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
-              "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|dump | "
+              "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
+              "kaleido|equips|inv <kind> <a> <b>|dump | "
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|fadein <s>|"
               "baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
-            "save <fileNum> | loadsave <fileNum> | mark <text>";
+            "kaleidoinput [on|off] | altassets [on|off] | save <fileNum> | loadsave <fileNum> | mark <text>";
     }
     return 1;
 }
@@ -2037,11 +2074,12 @@ void RegisterAgentTest() {
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
-              "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|dump | "
+              "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
+              "kaleido|equips|inv <kind> <a> <b>|dump | "
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|"
               "fadein <s>|baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
-              "save <fileNum> | loadsave <fileNum> | mark <text>. walk/press inject controller 1 for N frames and end "
-              "with an input_done marker.",
+              "kaleidoinput [on|off] | altassets [on|off] | save <fileNum> | loadsave <fileNum> | mark <text>. "
+              "walk/press inject controller 1 for N frames and end with an input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });
     }
 }

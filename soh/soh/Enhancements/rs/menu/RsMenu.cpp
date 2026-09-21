@@ -1,5 +1,13 @@
 /*
- * RsMenu.cpp - the mod-owned pause interface (sturdy-bassoon#111), stages 1-7.
+ * RsMenu.cpp - the mod-owned pause interface (sturdy-bassoon#111), stages 1-8.
+ *
+ * STAGE 8 ports three vanilla pause pages onto the scroll (VanillaPages.h) and replaces the greybox
+ * pages with them: the ring is the Quest Journal, Items, Equipment and Quest Status. What it adds here
+ * is plumbing, and none of it adds or skips a Matrix_* op inside a menu node: RsMenu_DrawIcon (a
+ * textured Vtx quad beside the glyphs), RsMenu_DrawPauseLink (a quad textured from the pause-Link
+ * framebuffer, plus the request that renders Link into it - PauseLink.cpp, called after every menu
+ * node has closed, inside its own OPEN_DISPS node), a GRID cursor mode whose edges the page wires
+ * from kaleido's rules (RsMenu.h), and a page `claim` callback so a page can take the D-pad for equipping.
  *
  * STAGE 7 is instruments only: `section=view` counters for what the last frame's view drew, a
  * test-only stress body that fills the horizontal page to a chosen glyph count (the console adds a
@@ -107,7 +115,9 @@
  */
 
 #include "RsMenu.h"
+#include "PauseLink.h"
 #include "QuestPage.h"
+#include "VanillaPages.h"
 
 #include <algorithm>
 #include <cmath>
@@ -421,12 +431,8 @@ constexpr int16_t kProbeTextY = 134;
 constexpr int32_t kStickPress = 40;
 constexpr int32_t kStickRelease = 18;
 
-// How many greybox pages stage 3 registers. This is a REGISTRATION-SITE count and nothing else -
-// no table is sized to it, the ring wraps modulo RsMenu_PageCount(), and deleting this constant
-// would cost exactly one loop bound. See RsMenu.h's invariant. Three since stage 6, when the quest
-// page took the first slot: the ring is still four pages, and each greybox page still draws
-// `page <n>` with n its ring position, so `menu page 3` still lands on `title="page 3"`.
-constexpr int32_t kGreyboxPageCount = 3;
+// (Stage 3's greybox pages are gone since stage 8: the three ported vanilla pages took their places.
+// A page registered with no draw callback still gets the greybox body - its title, centred.)
 
 // --- state -------------------------------------------------------------------------------------
 
@@ -487,7 +493,6 @@ static u16 sHudPrev = 0;
 static bool sStartEdge = false;
 
 static bool sBootLineWritten = false;
-static bool sGreyboxRegistered = false;
 
 // Diagnostic state, deliberately NOT CVar-backed: `primary` is saved to the owner's
 // shipofharkinian.json and a wedged session can leave it there, which has already cost one cleanup
@@ -526,6 +531,14 @@ static bool sCursorRebuilding = false;
 // Set by the page, from inside its nodes callback, for the rebuild in progress only.
 static bool sCursorColumn = false;
 static int32_t sCursorEntry = -1;
+// Stage 8's grid mode: the edges the page set, one entry per node in the rebuild (hands included,
+// unused for them), and where the hands lead in. Same lifetime as the column flag.
+struct RsCursorLinks {
+    int32_t left, right, up, down;
+};
+static bool sCursorGrid = false;
+static std::vector<RsCursorLinks> sCursorLinks;
+static int32_t sHandLinkIn[2] = { RS_MENU_LINK_HAND_RIGHT, RS_MENU_LINK_HAND_LEFT };
 static int32_t sCursorMoves = 0;
 static int32_t sCursorSelects = 0;
 static bool sStickLatchX = false;
@@ -538,6 +551,20 @@ static GraphicsContext* sDrawGfxCtx = nullptr;
 static int32_t sDrawGlyphs = 0;
 static int32_t sDrawQuads = 0;
 static int32_t sDlWords = 0;
+// Stage 8: icons drawn (RsMenu_DrawIcon, the pause-Link composite included) and whether a page asked
+// for pause-Link this frame.
+static int32_t sDrawIcons = 0;
+static bool sPauseLinkRequested = false;
+
+// Which render state the heap list is in, so the text and icon calls push theirs only when it
+// changes - an icon after an icon, or a glyph after a glyph, costs no state words. Every Push*State
+// sets it; a draw that finds the wrong state pushes its own.
+enum RsListState {
+    RS_LIST_OTHER = 0,
+    RS_LIST_TEXT,
+    RS_LIST_ICON,
+};
+static int32_t sListState = RS_LIST_OTHER;
 
 // Stage 7's view counters (RsMenu.h § RsMenuViewStats). `sInView` is set only around the content
 // body's call, so RsMenu_DrawText knows which glyphs belong to the view; the row ys are gathered
@@ -549,6 +576,7 @@ static int32_t sViewFrame = -1;
 static int32_t sViewRows = 0;
 static int32_t sViewGlyphs = 0;
 static int32_t sViewWords = 0;
+static int32_t sViewIcons = 0;
 
 // The stress body (RsMenu.h). -1 is off.
 static int32_t sStressGlyphs = -1;
@@ -761,6 +789,10 @@ static float ProbeDy() {
 // the message system ever writes, so a menu opened before any textbox in the session would scale
 // its text by zero and draw nothing.
 
+// Defined with the scroll's other state presets below.
+static void PushTextState();
+static void PushIconState();
+
 float RsMenu_TextWidth(const char* text, float scale) {
     float width = 0.0f;
     if (text == nullptr) {
@@ -815,6 +847,10 @@ void RsMenu_DrawText(const char* text, int16_t x, int16_t y, float scale, uint8_
         sViewRowYs.push_back(y);
     }
 
+    // A page may interleave icons with its text (stage 8); the glyphs need their own state back.
+    if (sListState != RS_LIST_TEXT) {
+        PushTextState();
+    }
     std::vector<Gfx>& dl = MenuDl();
     Vtx* vtx = (Vtx*)Graph_Alloc(sDrawGfxCtx, (size_t)drawn * 4 * sizeof(Vtx));
     const int16_t size = (int16_t)(FONT_CHAR_TEX_WIDTH * scale);
@@ -1029,6 +1065,7 @@ static void SetFlatQuad(Vtx* v, int16_t x0, int16_t y0, int16_t x1, int16_t y1, 
 // The dim's own state: a flat primitive colour over XLU, which is the only translucent thing the
 // menu draws. Everything else is opaque.
 static void PushDimState() {
+    sListState = RS_LIST_OTHER;
     std::vector<Gfx>& dl = MenuDl();
     dl.push_back(gsDPPipeSync());
     dl.push_back(gsDPSetCycleType(G_CYC_1CYCLE));
@@ -1076,6 +1113,7 @@ static void DrawDim() {
 // Flat vertex colour: shade in, shade out. No texture, no lighting, and no Z - the world has
 // already written a depth buffer and the menu must never be tested against it.
 static void PushFlatState() {
+    sListState = RS_LIST_OTHER;
     std::vector<Gfx>& dl = MenuDl();
     dl.push_back(gsDPPipeSync());
     dl.push_back(gsDPSetCycleType(G_CYC_1CYCLE));
@@ -1091,6 +1129,7 @@ static void PushFlatState() {
 // a LoadGeometryMode that clears Z and culling for us. Pushed into the list rather than called as
 // Gfx_SetupDL_39Overlay, because the glyphs live in the list and the state has to arrive with them.
 static void PushTextState() {
+    sListState = RS_LIST_TEXT;
     std::vector<Gfx>& dl = MenuDl();
     dl.push_back(gsDPPipeSync());
     dl.push_back(gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON));
@@ -1098,6 +1137,23 @@ static void PushTextState() {
     dl.push_back(gsDPSetOtherMode(G_AD_DISABLE | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | G_TF_BILERP | G_TT_NONE |
                                       G_TL_TILE | G_TD_CLAMP | G_TP_NONE | G_CYC_1CYCLE | G_PM_NPRIMITIVE,
                                   G_AC_THRESHOLD | G_ZS_PIXEL | G_RM_XLU_SURF | G_RM_XLU_SURF2));
+    dl.push_back(gsSPLoadGeometryMode(G_SHADING_SMOOTH));
+}
+
+// SETUPDL_42 (z_rcp.c), the preset kaleido draws every item icon under (Gfx_SetupDL_42Opa at
+// z_kaleido_item.c:437), with the combiner kaleido then sets over it - G_CC_MODULATEIA_PRIM - and
+// without its back-face culling, because this ortho is y-up and a quad's winding flips with it (the
+// text state has no culling either). Alpha is the texel's times the prim colour's, over XLU_SURF, so
+// an icon's transparent corners stay transparent on the parchment.
+static void PushIconState() {
+    sListState = RS_LIST_ICON;
+    std::vector<Gfx>& dl = MenuDl();
+    dl.push_back(gsDPPipeSync());
+    dl.push_back(gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON));
+    dl.push_back(gsDPSetCombineMode(G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM));
+    dl.push_back(gsDPSetOtherMode(G_AD_NOTPATTERN | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | G_TF_BILERP | G_TT_NONE |
+                                      G_TL_TILE | G_TD_CLAMP | G_TP_PERSP | G_CYC_1CYCLE | G_PM_NPRIMITIVE,
+                                  G_AC_NONE | G_ZS_PIXEL | G_RM_XLU_SURF | G_RM_XLU_SURF2));
     dl.push_back(gsSPLoadGeometryMode(G_SHADING_SMOOTH));
 }
 
@@ -1313,6 +1369,117 @@ void RsMenu_DrawBar(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t r, u
     PushTextState();
 }
 
+// A textured quad over the box, the whole texture mapped onto it: SetGlyphQuad's layout with the
+// texture's own size in the texture coordinates (10.5 fixed point) instead of the glyph cell's.
+static void SetTexturedQuad(Vtx* v, int16_t x, int16_t y, int16_t w, int16_t h, int16_t texW, int16_t texH) {
+    const int16_t ox[4] = { x, (int16_t)(x + w), x, (int16_t)(x + w) };
+    const int16_t oy[4] = { y, y, (int16_t)(y + h), (int16_t)(y + h) };
+    const int16_t s[4] = { 0, (int16_t)(texW << 5), 0, (int16_t)(texW << 5) };
+    const int16_t t[4] = { 0, 0, (int16_t)(texH << 5), (int16_t)(texH << 5) };
+    for (int32_t i = 0; i < 4; i++) {
+        v[i].v.ob[0] = (int16_t)(ox[i] - SCREEN_WIDTH / 2);
+        v[i].v.ob[1] = (int16_t)(SCREEN_HEIGHT / 2 - oy[i]);
+        v[i].v.ob[2] = 0;
+        v[i].v.flag = 0;
+        v[i].v.tc[0] = s[i];
+        v[i].v.tc[1] = t[i];
+        v[i].v.cn[0] = v[i].v.cn[1] = v[i].v.cn[2] = v[i].v.cn[3] = 255;
+    }
+}
+
+static void CountIcon() {
+    sDrawIcons++;
+    if (sInView) {
+        sViewIcons++;
+    }
+}
+
+void RsMenu_DrawIcon(const void* texture, RsMenuTexFormat format, int16_t texW, int16_t texH, int16_t x, int16_t y,
+                     int16_t w, int16_t h, uint8_t r, uint8_t g, uint8_t b, uint8_t a, bool grey) {
+    if (sDrawGfxCtx == nullptr || texture == nullptr) {
+        return;
+    }
+    if (sListState != RS_LIST_ICON) {
+        PushIconState();
+    }
+    Vtx* vtx = (Vtx*)Graph_Alloc(sDrawGfxCtx, 4 * sizeof(Vtx));
+    SetTexturedQuad(vtx, x, y, w, h, texW, texH);
+
+    // The load is built with the packet macros into a scratch array and copied in, because
+    // gDPLoadTextureBlock pastes its size argument into token names (G_IM_SIZ_32b_LOAD_BLOCK...) and so
+    // needs one literal per format. CLAMP rather than kaleido's WRAP: the whole texture is mapped onto
+    // the quad, and bilinear filtering at a wrapped edge would bleed the opposite edge in.
+    Gfx load[16];
+    Gfx* p = load;
+    const uintptr_t tex = reinterpret_cast<uintptr_t>(texture);
+    switch (format) {
+        case RS_MENU_TEX_IA8:
+            gDPLoadTextureBlock(p++, tex, G_IM_FMT_IA, G_IM_SIZ_8b, texW, texH, 0, G_TX_NOMIRROR | G_TX_CLAMP,
+                                G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
+            break;
+        case RS_MENU_TEX_I8:
+            gDPLoadTextureBlock(p++, tex, G_IM_FMT_I, G_IM_SIZ_8b, texW, texH, 0, G_TX_NOMIRROR | G_TX_CLAMP,
+                                G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
+            break;
+        default:
+            gDPLoadTextureBlock(p++, tex, G_IM_FMT_RGBA, G_IM_SIZ_32b, texW, texH, 0, G_TX_NOMIRROR | G_TX_CLAMP,
+                                G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
+            break;
+    }
+
+    std::vector<Gfx>& dl = MenuDl();
+    dl.push_back(gsDPSetPrimColor(0, 0, r, g, b, a));
+    if (grey) {
+        // Kaleido's greyed-for-age draw (z_kaleido_item.c:793-799).
+        dl.push_back(gsDPSetGrayscaleColor(109, 109, 109, 255));
+        dl.push_back(gsSPGrayscale(true));
+    }
+    dl.insert(dl.end(), load, p);
+    dl.push_back(gsSPVertex(vtx, 4, 0));
+    dl.push_back(gsSP1Quadrangle(0, 2, 3, 1, 0));
+    if (grey) {
+        dl.push_back(gsSPGrayscale(false));
+    }
+    CountIcon();
+}
+
+// KaleidoScope_DrawEquipmentImage (z_kaleido_equipment.c:33-103), as one quad. Kaleido names its
+// playerSegment as the texture image, loads a 64 x 32 RGBA16 tile from it, and then swaps the bound
+// texture for the framebuffer with gDPSetTextureImageFB - the interpreter's SelectTextureFb - so what
+// is drawn is the framebuffer, sampled over the tile's normalised 0..1. Its quad is the first 32-row
+// strip stretched 80 further down with its texture coordinates left at 32 rows, which is how one
+// strip covers all 112 rows; this quad does the same. Point filtering, as kaleido sets it.
+void RsMenu_DrawPauseLink(int16_t x, int16_t y, int16_t w, int16_t h) {
+    if (sDrawGfxCtx == nullptr || RsPauseLink_FrameBuffer() < 0) {
+        return;
+    }
+    if (sListState != RS_LIST_ICON) {
+        PushIconState();
+    }
+    constexpr int16_t kTileW = 64; // PAUSE_EQUIP_PLAYER_WIDTH
+    constexpr int16_t kTileH = 32; // 4096 / (64 * 2): the rows of RGBA16 that fit a 4 KB load
+    Vtx* vtx = (Vtx*)Graph_Alloc(sDrawGfxCtx, 4 * sizeof(Vtx));
+    SetTexturedQuad(vtx, x, y, w, h, kTileW, kTileH);
+
+    Gfx cmds[24];
+    Gfx* p = cmds;
+    gDPSetPrimColor(p++, 0, 0, 255, 255, 255, 255);
+    gDPSetTextureFilter(p++, G_TF_POINT);
+    gDPSetTileCustom(p++, G_IM_FMT_RGBA, G_IM_SIZ_16b, kTileW, kTileH, 0, G_TX_NOMIRROR | G_TX_CLAMP,
+                     G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
+    gDPSetTextureImage(p++, G_IM_FMT_RGBA, G_IM_SIZ_16b, kTileW, RsPauseLink_Buffer());
+    gDPLoadSync(p++);
+    gDPLoadTile(p++, G_TX_LOADTILE, 0, 0, (kTileW - 1) << 2, (kTileH - 1) << 2);
+    gDPSetTextureImageFB(p++, G_IM_FMT_RGBA, G_IM_SIZ_16b, kTileW, RsPauseLink_FrameBuffer());
+    gSPVertex(p++, (uintptr_t)vtx, 4, 0);
+    gSP1Quadrangle(p++, 0, 2, 3, 1, 0);
+    gDPPipeSync(p++);
+    gDPSetTextureFilter(p++, G_TF_BILERP);
+    MenuDl().insert(MenuDl().end(), cmds, p);
+    CountIcon();
+    sPauseLinkRequested = true;
+}
+
 // The menu's own viewport and projection, pushed into the list ahead of everything else. Level 3,
 // per the block above: SCREEN_WIDTH / SCREEN_HEIGHT rather than gScreenWidth / gScreenHeight, and
 // the difference is deliberate even though the letterbox block this copies uses the globals. These
@@ -1353,8 +1520,33 @@ int32_t RsMenu_AddCursorNode(const char* id, int16_t x, int16_t y, int16_t w, in
     node.left = node.right = node.up = node.down = -1;
     node.hand = -1;
     CursorNodes().push_back(node);
+    sCursorLinks.push_back({ RS_MENU_LINK_NONE, RS_MENU_LINK_NONE, RS_MENU_LINK_NONE, RS_MENU_LINK_NONE });
     return (int32_t)CursorNodes().size() - 1;
 }
+
+void RsMenu_SetCursorGrid(int32_t entry) {
+    if (!sCursorRebuilding) {
+        return;
+    }
+    sCursorGrid = true;
+    sCursorEntry = entry;
+}
+
+void RsMenu_LinkCursorNode(int32_t node, int32_t left, int32_t right, int32_t up, int32_t down) {
+    if (!sCursorRebuilding || node < 1 || node >= (int32_t)sCursorLinks.size()) {
+        return;
+    }
+    sCursorLinks[(size_t)node] = { left, right, up, down };
+}
+
+void RsMenu_LinkHands(int32_t leftHandRight, int32_t rightHandLeft) {
+    if (!sCursorRebuilding) {
+        return;
+    }
+    sHandLinkIn[0] = leftHandRight;
+    sHandLinkIn[1] = rightHandLeft;
+}
+
 
 static void AddHandNode(int32_t hand) {
     RsMenuCursorNode node;
@@ -1369,6 +1561,7 @@ static void AddHandNode(int32_t hand) {
     node.left = node.right = node.up = node.down = -1;
     node.hand = hand;
     CursorNodes().push_back(node);
+    sCursorLinks.push_back({ RS_MENU_LINK_NONE, RS_MENU_LINK_NONE, RS_MENU_LINK_NONE, RS_MENU_LINK_NONE });
 }
 
 void RsMenu_SetCursorColumn(int32_t entry) {
@@ -1390,8 +1583,12 @@ void RsMenu_SetCursorColumn(int32_t entry) {
 static void RebuildCursorGraph() {
     std::vector<RsMenuCursorNode>& nodes = CursorNodes();
     nodes.clear();
+    sCursorLinks.clear();
     sCursorColumn = false;
+    sCursorGrid = false;
     sCursorEntry = -1;
+    sHandLinkIn[0] = RS_MENU_LINK_HAND_RIGHT;
+    sHandLinkIn[1] = RS_MENU_LINK_HAND_LEFT;
 
     // A detail view has no graph at all. The id the cursor was on is kept (the count-0 case below
     // leaves sCursorId alone), so coming back up lands on the item that was entered.
@@ -1411,13 +1608,43 @@ static void RebuildCursorGraph() {
 
     const int32_t count = (int32_t)nodes.size();
     const int32_t last = count - 1;
-    const bool column = sCursorColumn && count > 2;
-    const int32_t entry = column && sCursorEntry > 0 && sCursorEntry < last ? sCursorEntry : 1;
+    const bool column = sCursorColumn && !sCursorGrid && count > 2;
+    const bool grid = sCursorGrid;
+    // Column mode falls back to the first item; grid mode to the left hand, because a grid's entry is
+    // the page's own choice and -1 there means "nothing to stand on".
+    const int32_t entry = sCursorEntry > 0 && sCursorEntry < last ? sCursorEntry : (grid ? 0 : 1);
+    // A grid edge as the page gave it -> an index in this list. The hands are symbolic because the
+    // right hand's index is not known until the page has added everything.
+    auto resolve = [&](int32_t target) {
+        if (target == RS_MENU_LINK_HAND_LEFT) {
+            return 0;
+        }
+        if (target == RS_MENU_LINK_HAND_RIGHT) {
+            return last;
+        }
+        return target > 0 && target < last ? target : -1;
+    };
     for (int32_t i = 0; i < count; i++) {
         RsMenuCursorNode& node = nodes[(size_t)i];
         node.up = -1;
         node.down = -1;
-        if (!column) {
+        if (grid) {
+            // Stage 8: every edge is the page's. The hands keep their outward and vertical edges empty,
+            // as on every other page; only where they lead in comes from the page.
+            if (i == 0) {
+                node.left = -1;
+                node.right = resolve(sHandLinkIn[0]);
+            } else if (i == last) {
+                node.left = resolve(sHandLinkIn[1]);
+                node.right = -1;
+            } else {
+                const RsCursorLinks& links = sCursorLinks[(size_t)i];
+                node.left = resolve(links.left);
+                node.right = resolve(links.right);
+                node.up = resolve(links.up);
+                node.down = resolve(links.down);
+            }
+        } else if (!column) {
             node.left = i > 0 ? i - 1 : -1;
             node.right = i + 1 < count ? i + 1 : -1;
         } else if (i == 0) {
@@ -1449,7 +1676,7 @@ static void RebuildCursorGraph() {
     }
     if (found >= 0) {
         sCursorIndex = found;
-    } else if (column) {
+    } else if (column || grid) {
         sCursorIndex = entry;
     } else if (sCursorIndex >= count) {
         sCursorIndex = count - 1;
@@ -1747,16 +1974,25 @@ static void ResetLevel() {
 // At level 1 there is no graph: up/down are handed to the page as `navY` (the journal scrolls with
 // them) and left/right/A do nothing. Nothing here runs while the level gesture is moving.
 static void UpdateNavigation(const Input* input) {
+    const RsMenuPage* page = RsMenu_PageAt(sPage);
+    // Stage 8: D-pad bits the page takes for itself (kaleido's DpadEquips gives D-pad presses to
+    // equipping), removed before the cursor can walk on them. Only the cursor loses them - the page's
+    // input callback below still sees the whole press.
+    u16 navPress = input->press.button;
+    if (sLevel == 0 && page != nullptr && page->claim != nullptr) {
+        const u16 claimed = page->claim(sPage, input->cur.button, page->userData);
+        navPress = (u16)(navPress & ~(claimed & (BTN_DUP | BTN_DDOWN | BTN_DLEFT | BTN_DRIGHT)));
+    }
     const u16 press = input->press.button;
     int32_t navX = 0;
     int32_t navY = 0;
-    if (CHECK_BTN_ALL(press, BTN_DLEFT)) {
+    if (CHECK_BTN_ALL(navPress, BTN_DLEFT)) {
         navX = -1;
-    } else if (CHECK_BTN_ALL(press, BTN_DRIGHT)) {
+    } else if (CHECK_BTN_ALL(navPress, BTN_DRIGHT)) {
         navX = 1;
-    } else if (CHECK_BTN_ALL(press, BTN_DUP)) {
+    } else if (CHECK_BTN_ALL(navPress, BTN_DUP)) {
         navY = -1;
-    } else if (CHECK_BTN_ALL(press, BTN_DDOWN)) {
+    } else if (CHECK_BTN_ALL(navPress, BTN_DDOWN)) {
         navY = 1;
     }
 
@@ -1788,7 +2024,6 @@ static void UpdateNavigation(const Input* input) {
     if (sLevelActive || sSweepActive) {
         return;
     }
-    const RsMenuPage* page = RsMenu_PageAt(sPage);
 
     if (sLevel != 0) {
         const int32_t dy = navY != 0 ? navY : stickY;
@@ -1807,7 +2042,9 @@ static void UpdateNavigation(const Input* input) {
     if (stickY != 0) {
         RsMenu_MoveCursor(0, stickY);
     }
-    // The page's own buttons (the quest list pages with C-left/C-right).
+    // The page's own buttons, AFTER the move - kaleido's order: it moves its cursor, then tests the equip
+    // buttons against where the cursor now is (z_kaleido_item.c:694). The quest list pages with
+    // C-left/C-right here; the ported pages equip.
     if (page != nullptr && page->input != nullptr) {
         page->input(sPage, 0, press, 0, page->userData);
     }
@@ -1965,9 +2202,12 @@ static void RsMenu_OnPlayDrawEnd() {
     sDrawGfxCtx = gfxCtx;
     sDrawGlyphs = 0;
     sDrawQuads = 0;
+    sDrawIcons = 0;
+    sPauseLinkRequested = false;
 
     std::vector<Gfx>& dl = MenuDl();
     dl.clear();
+    sListState = RS_LIST_OTHER;
 
     OPEN_DISPS(gfxCtx);
 
@@ -2030,6 +2270,7 @@ static void RsMenu_OnPlayDrawEnd() {
     // Stage 7's view counters bracket exactly the body call, and nothing else in this node.
     sViewName = "none";
     sViewRowYs.clear();
+    sViewIcons = 0;
     const int32_t glyphsBeforeView = sDrawGlyphs;
     const size_t wordsBeforeView = dl.size();
     if (SweepWidth() > 0.999f && !sLevelActive) {
@@ -2091,6 +2332,16 @@ static void RsMenu_OnPlayDrawEnd() {
     }
     FrameInterpolation_RecordCloseChild();
 
+    // --- Link's portrait, rendered into its framebuffer (stage 8) ------------------------------------
+    // Only when a page composited it this frame (RsMenu_DrawPauseLink), and AFTER every menu node has
+    // closed: Player_DrawPause records a skeleton's worth of Matrix_* ops, and inside the content node
+    // they would come and go with the page. PauseLink.cpp wraps them in its own OPEN_DISPS node instead,
+    // which is recorded identically on every frame it draws. The draw goes to WORK_DISP, which the RCP
+    // runs first, so the quad composited above samples this frame's Link wherever it sits in the list.
+    if (sPauseLinkRequested) {
+        RsPauseLink_Render(play);
+    }
+
     dl.push_back(gsSPEndDisplayList());
     sDlWords = (int32_t)dl.size();
     gSPDisplayList(OVERLAY_DISP++, dl.data());
@@ -2126,31 +2377,12 @@ static void RsMenu_OnSceneInit(int16_t sceneNum) {
     RsMenu_Close();
 }
 
-static void RegisterGreyboxPages() {
-    if (sGreyboxRegistered) {
-        return;
-    }
-    sGreyboxRegistered = true;
-    for (int32_t i = 0; i < kGreyboxPageCount; i++) {
-        // Named for the ring position each page lands on, so `menu page 3` still draws `page 3`
-        // whatever registered ahead of it.
-        const int32_t ordinal = RsMenu_PageCount() + 1;
-        char id[32];
-        char title[32];
-        std::snprintf(id, sizeof(id), "greybox-%d", ordinal);
-        std::snprintf(title, sizeof(title), "page %d", ordinal);
-        // No cursor nodes: a greybox page has nothing to select, so the live graph is exactly the
-        // two hands and the "empty middle" the design describes is literal at this stage.
-        RsMenu_RegisterPage(id, title, nullptr, nullptr, nullptr);
-    }
-}
-
 static void RegisterRsMenu() {
-    // The quest page is the ring's first page, and it is registered from HERE rather than from a
-    // ShipInit of its own: ShipInit functions in different translation units run in no promised
-    // order, and the ring's order is what L/R walks.
+    // The Quest Journal is the ring's first page and the three ported vanilla pages follow it, and
+    // all of them are registered from HERE rather than from ShipInits of their own: ShipInit functions
+    // in different translation units run in no promised order, and the ring's order is what L/R walks.
     RsMenuQuestPage_Register();
-    RegisterGreyboxPages();
+    RsMenuVanillaPages_Register();
     // So `menu cursor` answers before the menu has ever been opened. The graph reads no PlayState,
     // so it is safe this early.
     RebuildCursorGraph();
@@ -2331,6 +2563,9 @@ RsMenuOpenResult RsMenu_Open() {
     sCursorId.clear();
     sCursorIndex = 0;
     RebuildCursorGraph();
+    // Link's skeleton loads again on the first Equipment frame of every open, as kaleido loads it on
+    // every pause - so an age change between opens gets the right Link.
+    RsPauseLink_Invalidate();
 
     sPhase = RS_MENU_PHASE_OPENING;
     sEntryTick = 0;
@@ -2673,6 +2908,7 @@ RsMenuViewStats RsMenu_ViewStats() {
     stats.rows = up ? sViewRows : 0;
     stats.glyphs = up ? sViewGlyphs : 0;
     stats.words = up ? sViewWords : 0;
+    stats.icons = up ? sViewIcons : 0;
     return stats;
 }
 
@@ -2738,6 +2974,7 @@ RsMenuStatus RsMenu_Status() {
     status.drawGlyphs = status.open ? sDrawGlyphs : 0;
     status.drawQuads = status.open ? sDrawQuads : 0;
     status.dlWords = status.open ? sDlWords : 0;
+    status.drawIcons = status.open ? sDrawIcons : 0;
     status.opens = sOpens;
     status.closes = sCloses;
     status.pageChanges = sPageChanges;

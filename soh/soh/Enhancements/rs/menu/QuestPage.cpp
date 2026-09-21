@@ -1,6 +1,8 @@
 /*
- * QuestPage.cpp - the pause scroll's quest page (sturdy-bassoon#111 stage 6). QuestPage.h is the
- * contract; this file is the list, its scrolling, the journal detail view and the word wrap.
+ * QuestPage.cpp - the pause scroll's Quest Journal page (sturdy-bassoon#111 stage 6; renamed from
+ * "Quests", id `quests`, at stage 8, so that "quest" never means both this list and vanilla's Quest
+ * Status page, `quest_status`). QuestPage.h is the contract; this file is the list, its scrolling, the
+ * journal detail view and the word wrap.
  *
  * Everything here draws through RsMenu_DrawText / RsMenu_DrawBar from inside the menu's content
  * interpolation node, never through an OPEN_DISPS of its own (RsMenu.h's page seam) - so no Gfx
@@ -272,7 +274,7 @@ static void QuestPageDraw(struct PlayState* play, int32_t pageIndex, void* userD
     sDrawn.clear();
     sListDrawFrame = RsMenu_Status().drawFrames;
 
-    RsMenu_DrawTextCentred("Quests", centreX, kListTitleY, kListTitleScale, kTitleColour[0], kTitleColour[1],
+    RsMenu_DrawTextCentred("Quest Journal", centreX, kListTitleY, kListTitleScale, kTitleColour[0], kTitleColour[1],
                            kTitleColour[2], 255);
     RsMenu_DrawBar((int16_t)(rect.x0 + 8), kListRuleY, (int16_t)(rect.x1 - 8), (int16_t)(kListRuleY + 1),
                    kRuleColour[0], kRuleColour[1], kRuleColour[2]);
@@ -730,8 +732,8 @@ void RsMenuQuestPage_Register() {
     }
     sRegistered = true;
     RsMenuPage page;
-    page.id = "quests";
-    page.title = "Quests";
+    page.id = "quest_journal";
+    page.title = "Quest Journal";
     page.draw = QuestPageDraw;
     page.nodes = QuestPageNodes;
     page.userData = nullptr;

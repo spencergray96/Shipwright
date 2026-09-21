@@ -20,9 +20,10 @@
 // screenshot cannot say which page the ring is on, whether the world is frozen, or whether the
 // trigger has a binding at all. `dump` exists so later stages can assert state from a marker alone.
 //
-// PAGE NUMBERS ON THIS COMMAND ARE 1-BASED and always agree with the page's own title: `menu page 3`
-// selects the page that draws `page 3`, and every line that reports a page prints `page=3` beside
-// `title="page 3"`. (Internally the ring is 0-based; that index is never printed.)
+// PAGE NUMBERS ON THIS COMMAND ARE 1-BASED, and every line that reports a page prints its number beside
+// its `id=`/`title=`. Since stage 8 the ring is 1 `quest_journal` "Quest Journal", 2 `items` "Items",
+// 3 `equipment` "Equipment", 4 `quest_status` "Quest Status" - so `menu page 3` is the Equipment page.
+// (Internally the ring is 0-based; that index is never printed.)
 //
 // `args[0]` is the subcommand:
 //   open                  opens the scroll, always at level 0 of the current page. REFUSALS ARE
@@ -124,10 +125,11 @@
 //                         page and puts the memo back how the first `memo` flip found it. `same`
 //                         repeats one character instead of cycling letters and digits.
 //                         `memo on|off` flips Fast3D's texture-path memo (on from startup since
-//                         the #111 follow-up), which isolates the per-glyph resource-name lookup. The line carries `stress=`,
-//                         `glyphs=` (-1 off), `same=`, `capacity=` (how many fit in that mode),
-//                         `scale=`, `pitch=`, `memo=` and `memo_repaths=` (memo hits that found
-//                         their address rewritten with another path, so re-resolved). rc=1 on `error=range` (more than fit; the
+//                         the #111 follow-up), which isolates the per-glyph resource-name lookup.
+//                         The line carries `stress=`, `glyphs=` (-1 off), `same=`, `capacity=` (how
+//                         many fit in that mode), `scale=`, `pitch=`, `memo=` and `memo_repaths=`
+//                         (memo hits that found their address rewritten with another path, so
+//                         re-resolved). rc=1 on `error=range` (more than fit; the
 //                         line says `max=`), `error=arg`, or `error=no_interpreter`. Not a CVar -
 //                         nothing survives the session - and detail views are never replaced
 //   probe [on|off]        THE INSTRUMENT. Drives one stepped per-tick offset into BOTH halves of
@@ -143,6 +145,22 @@
 //                         the act. Since stage 5 the probe string is the menu's ONLY
 //                         texture rectangle, kept as the deliberate non-interpolating reference
 //                         channel. SOH_2D_DRAWING.md's "two-channel probe". Not a CVar
+//   kaleido               STAGE 8, READ-ONLY. VANILLA pause's live cursor - the vanilla half of the
+//                         movement differential (the scroll half is `cursor`): `state=` (6 is taking
+//                         input), `page=` (kaleido's pageIndex: 0 items, 2 quest status, 3 equipment),
+//                         `point=`, `x=`/`y=`, `special=none|left|right` (the page arrows, which the
+//                         scroll's hands stand in for), `item=`, `slot=` and `sub=` (kaleido's
+//                         unk_1E4). A node id carries the same point: `items_09` <-> page=0 point=9.
+//                         Driving kaleido at all needs `agenttest kaleidoinput on`. rc=1 no_play
+//   equips                STAGE 8, READ-ONLY. The save fields an equip writes, for comparing the
+//                         scroll's equip with vanilla's: `buttons=` (the 8 button items, B then
+//                         C-left/down/right then D-up/down/left/right), `slots=` (the 7 cButtonSlots),
+//                         `equipment=` (equips.equipment), `swordless=`, `inf29=`, `sword_health=`,
+//                         `bgs=`, `dpad=` (SoH's DpadEquips) and `done=` (equips the ported pages did)
+//   inv <kind> <a> <b>    STAGE 8, TEST-ONLY. Writes gSaveContext - a scratch save only. The sparse
+//                         inventory the movement tests need: `item <slot> <ITEM_ id|255>`,
+//                         `equip <bit> <0|1>`, `upgrade <UPG_ type> <value>`, `quest <bit> <0|1>`.
+//                         rc=1 `error=arg` on anything out of range. Nothing refreshes the HUD
 //   dump                  EVERYTHING a marker can carry: open/closed, current page, page count,
 //                         which menu `primary` selects, the live freeze and HUD state, the
 //                         trigger's binding count, the counters, and one line per registered page.
@@ -165,7 +183,18 @@
 //                         (the page, detail or stress body): `view=page|detail|stress|none`,
 //                         `frame=`, `drawn_rows=` (distinct text lines), `drawn_glyphs=` and
 //                         `drawn_words=` (Gfx words it appended) - and `section=stress`, the
-//                         `stress` line's fields
+//                         `stress` line's fields. Stage 8 adds `icons=` to `section=draw` and
+//                         `drawn_icons=` to `section=view` (textured quads: icons, digits, outlines
+//                         and Link's composite), then for each ported page one `section=port` line
+//                         (`page=`, `id=`, `current=`, `scale=`, `offset=x,y`, `extent=x0,y0,x1,y1`,
+//                         `slots=`, `nodes=`) and one `section=slot` line per slot (`id=` the node id,
+//                         `slot=` vanilla's cursor point, `box=`, `item=` the ITEM_ token, `owned=`,
+//                         `node=`, `grey=`, `cursor=` - so `item=ITEM_HOOKSHOT cursor=1` is "the cursor
+//                         is on the Hookshot"), every page listed whether visible or not, and
+//                         `section=link`: Link's renders/loads, `fb=`, `age=`, `load_size=`, and the
+//                         segment witness - `seg4=`/`seg6=` before the last render, `seg4_during=`/
+//                         `seg6_during=` what Player_DrawPause left there, `seg4_now=`/`seg6_now=`
+//                         read live between frames
 //
 // Returns 0 when the operation succeeded (or for read-only subcommands), 1 otherwise - so `rc=` on
 // the agent loop's cmd marker is the pass/fail bit.
