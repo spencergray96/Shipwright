@@ -49,7 +49,7 @@ constexpr int16_t kArrowIndent = 2;  // the arrow, from the rect's left edge
 constexpr int16_t kRowIndent = 14;   // the row text, from the rect's left edge
 constexpr int16_t kMoreMarkInset = 10; // the "more this way" marks, from the rect's right edge
 
-// --- journal layout, inside RsMenu_DetailRect() (x 97-224, y 63-176 at kVerticalSpan 184) --------
+// --- journal layout, inside RsMenu_DetailRect() (x 97-224, y 73-180 at kVerticalSpan 164) --------
 constexpr float kJournalTitleScale = 0.8f;
 constexpr int16_t kJournalTitlePitch = 14;
 constexpr float kJournalScale = 0.6f;

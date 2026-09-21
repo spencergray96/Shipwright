@@ -341,19 +341,31 @@ constexpr float kClosedSpan = kPanelSpan - 2.0f * kLevelTravel;
 // So the vertical page is a pose of its own, resting with each side still translated partway in
 // from its horizontal home, and this is how far.
 //
-// What bounds it: the hands. Rigidly rotated, each hand overhangs its roll 16 units OUTWARD (toward
-// the screen edge it now points at) and 30 INWARD, so the pose's top and bottom extents are
-// kPivotY -/+ (span/2 + 16). At 184 that is game y 11.5 to 227.5 - inside the screen by 11.5 and
-// 12.5, asserted below with an 8-unit floor. The largest span the floor allows is 199; 184 leaves a
-// little air, and the detail text area (RsMenu_DetailRect) grows or shrinks with it automatically.
-constexpr float kVerticalSpan = 184.0f;
+// What bounds it: the hands. Each hand's boxes reach 16 units beyond its roll centre on the side
+// away from the other roll (its thumb, "outboard") and 30 on the side toward it ("inboard"). Turned
+// to vertical:
+//   - the TOP hand (the right side) is rigid, so its outboard 16 points up: its extent is
+//     kPivotY - (span/2 + 16);
+//   - the BOTTOM hand (the left side) SWIVELS the other way on its own grip (kHandSwivel below), so
+//     it ends turned clockwise and its INBOARD 30 points down: its extent is kPivotY + (span/2 + 30).
+// The bottom one binds, asserted below with an 8-unit floor: the largest span it allows is 165. At
+// 164 the pose runs game y 21.5 to 231.5. (It was 184 before the swivel, when both hands overhung by
+// 16; the swivel costs 20 units of span and about 6 of journal height.) The detail text area
+// (RsMenu_DetailRect) is derived from the same numbers and moves with them.
+constexpr float kVerticalSpan = 164.0f;
 constexpr float kVerticalMargin = 8.0f;
 // How far a hand reaches beyond its own roll centre, outward and inward, from the authored boxes.
 constexpr float kHandOutboard = kGripX[0] - (float)kHandBoxX;                // 16
 constexpr float kHandInboard = (float)(kHandBoxX + kHandBoxW) - kGripX[0];   // 30
-static_assert(kPivotY - (kVerticalSpan / 2.0f + kHandOutboard) >= kVerticalMargin,
+// Where each hand reaches in the vertical pose, as distances from its roll centre toward the page
+// (inward) and toward the screen edge (outward). Named, because the two hands differ after the swivel.
+constexpr float kTopHandInward = kHandInboard;      // rigid: the fingers reach down into the page
+constexpr float kTopHandOutward = kHandOutboard;
+constexpr float kBottomHandInward = kHandOutboard;  // swivelled: now the thumb side faces the page
+constexpr float kBottomHandOutward = kHandInboard;
+static_assert(kPivotY - (kVerticalSpan / 2.0f + kTopHandOutward) >= kVerticalMargin,
               "the vertical page's top hand runs off the top of the screen - shrink kVerticalSpan");
-static_assert(kPivotY + (kVerticalSpan / 2.0f + kHandOutboard) <= (float)SCREEN_HEIGHT - kVerticalMargin,
+static_assert(kPivotY + (kVerticalSpan / 2.0f + kBottomHandOutward) <= (float)SCREEN_HEIGHT - kVerticalMargin,
               "the vertical page's bottom hand runs off the bottom of the screen - shrink kVerticalSpan");
 static_assert(kVerticalSpan > kClosedSpan, "the vertical page must open wider than the closed bundle");
 // Counter-clockwise on screen is POSITIVE here: in this menu's y-up ortho, Matrix_RotateZ(+theta)
@@ -1079,6 +1091,31 @@ static void ApplySideMatrix(int32_t side) {
     Matrix_Translate(SideDx(side), 0.0f, 0.0f, MTXMODE_APPLY);
 }
 
+// THE LEFT HAND SWIVELS ON ITS OWN GRIP while the scroll turns (Spencer, after stage 6). Rigidly
+// rotated, both hands ended on the right, so the bottom one reached in from the right - which reads
+// wrong from the player's point of view. The left hand therefore turns back by TWICE the scroll's
+// angle about its own grip point, for a net CLOCKWISE turn equal to the scroll's counter-clockwise
+// one: at vertical it rests on the bottom roll reaching in from the LEFT. The right hand stays rigid
+// and ends on top, reaching in from the right.
+//
+// Accepted for 1.0, knowingly: pivoting about the grip lays the left forearm along the bottom roll,
+// which does not look like a hand that could hold a roll end. Spencer: "I'll accept it for now as the
+// hand is already low-poly." A regrip to the roll's other end is the 2.0 answer.
+static float HandSwivel(int32_t side) {
+    return side == 0 ? -2.0f * LevelAngle(LevelPose()) : 0.0f;
+}
+
+// Applied after ApplySideMatrix, for BOTH hands on every frame - the right hand's angle is always
+// zero, but its chain must record the same ops as the left's, because ops are matched positionally
+// inside the hands' interpolation node. The roll is drawn BEFORE this, so the roll never swivels.
+static void ApplyHandSwivel(int32_t side) {
+    const float gx = kGripX[side] - (float)(SCREEN_WIDTH / 2);
+    const float gy = (float)(SCREEN_HEIGHT / 2) - kGripY;
+    Matrix_Translate(gx, gy, 0.0f, MTXMODE_APPLY);
+    Matrix_RotateZ(HandSwivel(side), MTXMODE_APPLY);
+    Matrix_Translate(-gx, -gy, 0.0f, MTXMODE_APPLY);
+}
+
 // Pushes the matrix the Matrix_* chain above just built. Separate from the chain so the two nodes
 // that need the SAME transform (the chrome and the page content) can each emit their own copy -
 // they are different interpolation nodes and a node interpolates only what it recorded itself.
@@ -1538,6 +1575,18 @@ static void AdvanceSweep() {
     if (sSweepTick == kSweepSwapTick) {
         sPage = sSweepTo;
         sPageChanges++;
+        // The cursor, if it was on an ITEM of the page being left, has nothing to stand on here: hand
+        // it to the hand on the side that was pressed (L the left, R the right). Before this, the
+        // clamp in RebuildCursorGraph always picked the last node - the right hand - whichever
+        // shoulder it was.
+        const RsMenuCursorNode* node = RsMenu_CursorAt(sCursorIndex);
+        if (node == nullptr || node->hand < 0) {
+            sCursorId = SweepMovingHand() == 0 ? "hand_left" : "hand_right";
+        }
+        // And rebuilt NOW, not at the top of the next tick. Otherwise the frame drawn after the swap
+        // pairs the new page with the old page's graph, and the cursor's stale item box draws in
+        // the middle of a page that does not own it - the flicker Spencer caught in game after stage 6.
+        RebuildCursorGraph();
     }
     if (sSweepTick >= kSweepTicks) {
         sSweepActive = false;
@@ -1644,7 +1693,13 @@ static void UpdateNavigation(const Input* input) {
         sStickLatchY = false;
     }
 
-    if (sLevelActive) {
+    // NOTHING NAVIGATES WHILE ANYTHING IS ANIMATING - a roll or a level change. The content is not
+    // on screen then, so a press would move a cursor nobody can see, scroll a list behind a shut
+    // scroll, or select a row that is being blinked out (Spencer, after stage 6: up/down still walked
+    // the quest rows mid-roll). The stick latches above are still updated, so a stick held through
+    // the animation does not fire the moment it ends. B and START are handled by the caller and stay
+    // live on purpose: they are the way out, and closing mid-roll just drops the half-shut scroll.
+    if (sLevelActive || sSweepActive) {
         return;
     }
     const RsMenuPage* page = RsMenu_PageAt(sPage);
@@ -1666,9 +1721,8 @@ static void UpdateNavigation(const Input* input) {
     if (stickY != 0) {
         RsMenu_MoveCursor(0, stickY);
     }
-    // The page's own buttons (the quest list pages with C-left/C-right). Not during a roll - the
-    // page's content is not on screen then, and a page must not move a cursor nobody can see.
-    if (!sSweepActive && page != nullptr && page->input != nullptr) {
+    // The page's own buttons (the quest list pages with C-left/C-right).
+    if (page != nullptr && page->input != nullptr) {
         page->input(sPage, 0, press, 0, page->userData);
     }
 
@@ -1777,8 +1831,14 @@ static void RsMenu_OnGameFrameUpdate() {
         // The shoulders roll the scroll, on the top level only - a detail view is below the ring,
         // not on it. A press arriving mid-animation is dropped rather than queued: a queue would let
         // a run assert a page the animation never actually rolled to.
+        //
+        // Z rolls LEFT as well as L. On a GameCube pad the left trigger IS N64 Z (SoH's default
+        // mapping: lefttrigger -> Z, righttrigger -> R, and N64 L sits on SDL leftshoulder, which no
+        // GC pad has), so without this a GC player could roll right and never left. Vanilla kaleido
+        // pages with exactly this pair - Z left, R right - and never reads N64 L at all. Z has no
+        // other job while the scroll is up: the world, and Z-targeting with it, is frozen.
         if (sLevel == 0 && !sLevelActive) {
-            if (CHECK_BTN_ALL(input->press.button, BTN_L)) {
+            if (CHECK_BTN_ALL(input->press.button, BTN_L) || CHECK_BTN_ALL(input->press.button, BTN_Z)) {
                 RsMenu_StartSweep(-1);
             } else if (CHECK_BTN_ALL(input->press.button, BTN_R)) {
                 RsMenu_StartSweep(1);
@@ -1916,6 +1976,9 @@ static void RsMenu_OnPlayDrawEnd() {
         ApplySideMatrix(side);
         PushCurrentMatrix();
         DrawRoll(side);
+        // The hand gets its own matrix on top of the side's: the swivel (zero for the right hand).
+        ApplyHandSwivel(side);
+        PushCurrentMatrix();
         DrawHand(side);
         const RsMenuCursorNode* node = RsMenu_CursorAt(sCursorIndex);
         if (node != nullptr && node->hand == side) {
@@ -2048,16 +2111,16 @@ RsMenuRect RsMenu_DetailRect() {
     // The vertical parchment at rest, worked from the same constants the matrix chain uses. Turned
     // counter-clockwise about the pivot, the horizontal panel's top edge (game y 48) becomes its
     // LEFT edge and its bottom edge (y 192) its RIGHT edge; the rolls end up kVerticalSpan apart
-    // across y. The hands, both on the right after the turn, reach kHandInboard in from each roll,
-    // so the text band stops short of them at both ends; the margin keeps a glyph off a knuckle.
+    // across y. Each hand reaches some way in from its roll (the top one 30, the swivelled bottom
+    // one 16), so the text band stops short of both; the margin keeps a glyph off a knuckle.
     constexpr float kMargin = 5.0f;
     const float left = kPivotX - (kPivotY - (float)kPanelY0);
     const float right = kPivotX + ((float)kPanelY1 - kPivotY);
     RsMenuRect rect;
     rect.x0 = (int16_t)std::ceil(left + (float)kPanelBorder + kMargin);
     rect.x1 = (int16_t)std::floor(right - (float)kPanelBorder - kMargin);
-    rect.y0 = (int16_t)std::ceil(kPivotY - kVerticalSpan / 2.0f + kHandInboard + kMargin);
-    rect.y1 = (int16_t)std::floor(kPivotY + kVerticalSpan / 2.0f - kHandInboard - kMargin);
+    rect.y0 = (int16_t)std::ceil(kPivotY - kVerticalSpan / 2.0f + kTopHandInward + kMargin);
+    rect.y1 = (int16_t)std::floor(kPivotY + kVerticalSpan / 2.0f - kBottomHandInward - kMargin);
     return rect;
 }
 

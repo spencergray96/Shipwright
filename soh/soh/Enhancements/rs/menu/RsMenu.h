@@ -301,8 +301,10 @@ const char* RsMenu_SelectResultName(RsMenuSelectResult result);
 //      parchment scales about its CENTRE, so its edges stay on the roll centres and nothing is
 //      left in the rolls' trail.
 //   2. TURN. The closed bundle rotates COUNTER-CLOCKWISE to vertical about the rolls' midpoint:
-//      the right roll ends on top, the left on the bottom. The hands are rigid and follow the
-//      rotation exactly, so both end on the RIGHT with their arms pointing right (1.0).
+//      the right roll ends on top, the left on the bottom. The right hand is rigid and ends on top
+//      reaching in from the right; the LEFT hand swivels back on its own grip as the scroll turns,
+//      so it ends on the bottom roll reaching in from the LEFT (Spencer's correction after stage 6 -
+//      rigidly rotated, both hands came in from the right).
 //   3. OPEN VERTICALLY - but only to a separation that fits the screen, which is a named constant
 //      in RsMenu.cpp (kVerticalSpan) and NOT the horizontal 288: the vertical rest pose is its own
 //      pose, not the horizontal one rotated.
