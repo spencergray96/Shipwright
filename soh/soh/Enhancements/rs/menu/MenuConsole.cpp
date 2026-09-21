@@ -356,36 +356,45 @@ int32_t Filler(const std::vector<std::string>& args, std::vector<std::string>& l
 // off; 0 is on with an empty page. `capacity=` is how many glyphs the page holds in the mode shown,
 // so a refusal and a success both say how far a run could have gone.
 //
-// `memo` is Fast3D's opt-in memo of texture-path resolution (Interpreter::
-// SetResolvedResourceCacheEnabled, libultraship #1175). Nothing in this build turns it on, so every
-// glyph's G_SETTIMG goes through ResourceManager::LoadResourceProcess - a std::string built from the
-// path, hashed, looked up under a mutex (twice when alt assets are on: the `alt/` path is tried
-// first). Flipping it isolates how much of a glyph is that lookup. It
-// lives HERE, not in RsMenu.cpp, because fast/interpreter.h's gbi.h collides with z64.h's (C4005
-// GIMMCMD), and this file includes no z64.h. A lever, not a setting: not a CVar, and the renderer's
-// own default (off) comes back on restart, and `stress off` turns it off too. `sResolveMemo` is what
-// this session last set.
-bool sResolveMemo = false;
+// `memo` is Fast3D's memo of texture-path resolution (Interpreter::SetResolvedResourceCacheEnabled,
+// libultraship #1175). OTRGlobals turns it on at startup. Without it every glyph's G_SETTIMG goes
+// through ResourceManager::LoadResourceProcess - a std::string built from the path, hashed, looked up
+// under a mutex (twice when alt assets are on: the `alt/` path is tried first). Flipping it isolates
+// how much of a glyph is that lookup. It lives HERE, not in RsMenu.cpp, because fast/interpreter.h's
+// gbi.h collides with z64.h's (C4005 GIMMCMD), and this file includes no z64.h. A lever, not a
+// setting: not a CVar, startup's value comes back on restart, and `stress off` puts back the value
+// the first `memo` flip found. `memo=` on the line is the interpreter's own state, -1 with none.
+// `memo_repaths=` counts memo hits whose address had been rewritten with another path since it was
+// memoized (the message font's glyph slots do this every message) - the proof the memo's path check
+// is being exercised rather than merely present.
+std::shared_ptr<Fast::Interpreter> GetInterpreter() {
+    auto window = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
+    return window != nullptr ? window->GetInterpreterWeak().lock() : nullptr;
+}
+
+// -1 until a `memo` flip, then the state that flip replaced.
+int32_t sMemoBeforeFlip = -1;
 
 bool SetResolveMemo(bool on) {
-    auto window = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
-    if (window == nullptr) {
-        return false;
-    }
-    std::shared_ptr<Fast::Interpreter> interpreter = window->GetInterpreterWeak().lock();
+    std::shared_ptr<Fast::Interpreter> interpreter = GetInterpreter();
     if (interpreter == nullptr) {
         return false;
     }
+    if (sMemoBeforeFlip < 0) {
+        sMemoBeforeFlip = interpreter->IsResolvedResourceCacheEnabled() ? 1 : 0;
+    }
     interpreter->SetResolvedResourceCacheEnabled(on);
-    sResolveMemo = on;
     return true;
 }
 
 std::string DescribeStress(const RsMenuStressState& stress) {
-    char buf[160];
-    std::snprintf(buf, sizeof(buf), "stress=%d glyphs=%d same=%d capacity=%d scale=%.2f pitch=%d memo=%d",
+    std::shared_ptr<Fast::Interpreter> interpreter = GetInterpreter();
+    char buf[200];
+    std::snprintf(buf, sizeof(buf),
+                  "stress=%d glyphs=%d same=%d capacity=%d scale=%.2f pitch=%d memo=%d memo_repaths=%llu",
                   stress.on ? 1 : 0, stress.glyphs, stress.same ? 1 : 0, stress.capacity, stress.scale, stress.pitch,
-                  sResolveMemo ? 1 : 0);
+                  interpreter == nullptr ? -1 : (interpreter->IsResolvedResourceCacheEnabled() ? 1 : 0),
+                  interpreter == nullptr ? 0ULL : (unsigned long long)interpreter->GetResolvedResourceCacheRepaths());
     return buf;
 }
 
@@ -399,12 +408,15 @@ int32_t Stress(const std::vector<std::string>& args, std::vector<std::string>& l
                 return 1;
             }
             // `off` puts back EVERYTHING stress changed, the memo included - a renderer-wide switch
-            // left on would quietly skew every later perf line in the session.
+            // left flipped would quietly skew every later perf line in the session.
             RsMenu_StopStress();
-            if (sResolveMemo && !SetResolveMemo(false)) {
-                Addf(lines, "op=stress result=error error=no_interpreter %s %s",
-                     DescribeStress(RsMenu_StressState()).c_str(), Describe().c_str());
-                return 1;
+            if (sMemoBeforeFlip >= 0) {
+                if (!SetResolveMemo(sMemoBeforeFlip == 1)) {
+                    Addf(lines, "op=stress result=error error=no_interpreter %s %s",
+                         DescribeStress(RsMenu_StressState()).c_str(), Describe().c_str());
+                    return 1;
+                }
+                sMemoBeforeFlip = -1;
             }
         } else if (word == "memo") {
             if (args.size() != 3 || (args[2] != "on" && args[2] != "off")) {

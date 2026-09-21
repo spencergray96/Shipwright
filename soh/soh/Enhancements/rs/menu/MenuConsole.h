@@ -121,12 +121,13 @@
 //                         laid out row by row across the horizontal page at the journal scale, so a
 //                         run can choose how dense a frame is and read its cost off `agenttest perf`.
 //                         `0` is on with an EMPTY page (the chrome-only bracket), `off` restores the
-//                         page and turns the memo back off. `same` repeats one character instead
-//                         of cycling letters and digits.
-//                         `memo on|off` flips Fast3D's texture-path memo (off in this build), which
-//                         isolates the per-glyph resource-name lookup. The line carries `stress=`,
+//                         page and puts the memo back how the first `memo` flip found it. `same`
+//                         repeats one character instead of cycling letters and digits.
+//                         `memo on|off` flips Fast3D's texture-path memo (on from startup since
+//                         the #111 follow-up), which isolates the per-glyph resource-name lookup. The line carries `stress=`,
 //                         `glyphs=` (-1 off), `same=`, `capacity=` (how many fit in that mode),
-//                         `scale=`, `pitch=` and `memo=`. rc=1 on `error=range` (more than fit; the
+//                         `scale=`, `pitch=`, `memo=` and `memo_repaths=` (memo hits that found
+//                         their address rewritten with another path, so re-resolved). rc=1 on `error=range` (more than fit; the
 //                         line says `max=`), `error=arg`, or `error=no_interpreter`. Not a CVar -
 //                         nothing survives the session - and detail views are never replaced
 //   probe [on|off]        THE INSTRUMENT. Drives one stepped per-tick offset into BOTH halves of

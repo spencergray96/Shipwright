@@ -310,6 +310,17 @@ OTRGlobals::OTRGlobals() {
         std::make_shared<Fast::Fast3dWindow>(std::vector<std::shared_ptr<Ship::GuiWindow>>({ sohInputEditorWindow }));
     context->InitWindow(sohFast3dWindow);
 
+    // Fast3D's texture-path memo (libultraship #1175), off in libultraship by default. Without it every
+    // G_SETTIMG on an `__OTR__` path builds a std::string, hashes it and takes the resource manager's
+    // mutex, every frame. It keys on the path POINTER, and SoH reuses buffers for many paths (the
+    // message font's glyph slots, the textbox segment), so it is only safe with our fork's check that a
+    // hit's address still holds the same path. gfx_texture_cache_clear() empties it, and that is what
+    // an alt-asset toggle calls. What could go stale: sturdy-bassoon ENGINE_BUDGETS.md, "Texture binds
+    // per frame". `menu stress memo off` turns it off for one session.
+    if (auto interpreter = sohFast3dWindow->GetInterpreterWeak().lock()) {
+        interpreter->SetResolvedResourceCacheEnabled(true);
+    }
+
     SohGui::SetupMenu();
 
     if (sohArchiveVersionMatch) {

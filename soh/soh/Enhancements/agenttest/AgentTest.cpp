@@ -144,6 +144,9 @@
  *   fog mode=override near=<n> far=<n> / fog mode=scene
  *                                        echoed from "agenttest fog"; between these, the perf marker's fog=
  *                                        field carries whatever band is actually live
+ *   altassets cvar=<0|1> live=<0|1>      from "agenttest altassets": cvar= is the AltAssets setting, live= is the
+ *                                        resource manager's current state. They differ for one frame after a
+ *                                        flip - OTRGlobals applies the CVar at the end of the next frame
  *   quest <line>                         one line of QuestConsole_Run output per marker, from
  *                                        "agenttest quest ..." (sturdy-bassoon#58 P1): the Describe line
  *                                        `id=<n> name=<s> tier=<s> status=<s> steps=0x<mask>/<count>
@@ -240,6 +243,12 @@
  *                                          Environment_Init re-arms scene control on every scene load, so the
  *                                          override must be re-applied after each entrance - which is also the
  *                                          safety net against leaking it into a later run
+ *   agenttest altassets [on|off]           flip SoH's alt-asset setting (the texture pack, OoT Reloaded here) the
+ *                                          way the mods menu's checkbox does; with no argument it only reports.
+ *                                          Writes the CVar, so it SURVIVES the session - put it back. Exists so a
+ *                                          run can check that an alt-asset toggle still swaps textures with
+ *                                          Fast3D's texture-path memo on (sturdy-bassoon ENGINE_BUDGETS.md,
+ *                                          "Texture binds per frame")
  *   agenttest tiers <near> <mid> <n> [mitb] [drawcull] | off
  *                                          arm the distance-tiered actor update prototype (sturdy-bassoon#6
  *                                          Exp 2): full update inside <near>, every nth frame (staggered per
@@ -345,7 +354,10 @@
 #include <ship/Context.h>
 #include <ship/debug/Console.h>
 #include <fast/PerfCounters.h>
+#include <libultraship/bridge/consolevariablebridge.h>
 #include "soh/OTRGlobals.h"
+#include "soh/ResourceManagerHelpers.h"
+#include "soh/cvar_prefixes.h"
 #include "soh/util.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
@@ -1579,6 +1591,27 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         R_ENV_DISABLE_DBG = false;
         char buf[96];
         std::snprintf(buf, sizeof(buf), "fog mode=override near=%d far=%d", fogNear, fogFar);
+        WriteMarker(buf);
+        if (output) {
+            *output += buf;
+        }
+        return 0;
+    }
+    // The CVar only: OTRGlobals notices the change at the end of the next frame and does the swap itself
+    // (SetAltAssetsEnabled, gfx_texture_cache_clear, skeleton patch), exactly as for the menu checkbox.
+    if (args.size() >= 2 && args[1] == "altassets") {
+        if (args.size() >= 3) {
+            if (args[2] != "on" && args[2] != "off") {
+                if (output) {
+                    *output += "altassets needs on|off, or nothing to report";
+                }
+                return 1;
+            }
+            CVarSetInteger(CVAR_SETTING("AltAssets"), args[2] == "on" ? 1 : 0);
+        }
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "altassets cvar=%d live=%d", CVarGetInteger(CVAR_SETTING("AltAssets"), 1),
+                      ResourceMgr_IsAltAssetsEnabled() ? 1 : 0);
         WriteMarker(buf);
         if (output) {
             *output += buf;
