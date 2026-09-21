@@ -28,7 +28,12 @@
 //   open                  opens the scroll. REFUSALS ARE NAMED: `error=kaleido_open` when vanilla
 //                         pause is up (one menu at a time, and this is the one that yields),
 //                         `error=no_play`, `error=no_pages`, `error=disabled`. Opening an already
-//                         open menu is not a refusal - it reports `was_open=1` and rc=0
+//                         open menu is not a refusal - it reports `was_open=1` and rc=0.
+//                         IT RETURNS WHILE THE MENU IS STILL RISING (`phase=opening`): the scroll
+//                         slides up from below the screen over 8 game ticks and the world dims as
+//                         it comes. A screenshot taken straight after it catches the menu half off
+//                         the bottom edge and reads as a broken layout. There is no `open now` -
+//                         wait about a second, or poll `dump` until `phase=open`
 //   close [now]           starts the closing SLIDE, the way B and START do; the freeze and the HUD
 //                         are restored when it finishes, not when it starts, because un-freezing
 //                         halfway down would show the world moving under a menu still on screen.
