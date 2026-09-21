@@ -1098,11 +1098,25 @@ static void ApplySideMatrix(int32_t side) {
 // one: at vertical it rests on the bottom roll reaching in from the LEFT. The right hand stays rigid
 // and ends on top, reaching in from the right.
 //
-// Accepted for 1.0, knowingly: pivoting about the grip lays the left forearm along the bottom roll,
-// which does not look like a hand that could hold a roll end. Spencer: "I'll accept it for now as the
-// hand is already low-poly." A regrip to the roll's other end is the 2.0 answer.
+// Pivoting about the grip alone laid the left forearm along the bottom roll; HandSlide below moves
+// the grip to the roll's other end at the same time, so the forearm reaches off the roll instead.
+// The mesh is still the left hand's (a mirror of the right), so the pose mirrors the right hand in
+// position, not in handedness - fine for a low-poly placeholder, per Spencer.
 static float HandSwivel(int32_t side) {
     return side == 0 ? -2.0f * LevelAngle(LevelPose()) : 0.0f;
+}
+
+// AND SLIDES ALONG ITS ROLL while it swivels (Spencer, the pass after): swivelling about the grip
+// alone left the left hand gripping the MIDDLE of the bottom roll with its forearm lying along it.
+// The right hand grips its roll kGripY - kPivotY = 37.5 below the rolls' midpoint, which in the
+// vertical pose puts it 37.5 right of centre at the top right. The mirror of that is 37.5 LEFT of
+// centre on the bottom roll, so the left hand travels twice that - 75 - up its own roll (toward the
+// roll's far end), ramped with the turn exactly as the swivel is. From there its forearm reaches off
+// the roll's left end, mirroring the right one reaching off the top roll's right end.
+constexpr float kHandSlide = 2.0f * (kGripY - kPivotY);
+
+static float HandSlide(int32_t side) {
+    return side == 0 ? kHandSlide * (LevelAngle(LevelPose()) / kTurnAngle) : 0.0f;
 }
 
 // Applied after ApplySideMatrix, for BOTH hands on every frame - the right hand's angle is always
@@ -1111,6 +1125,8 @@ static float HandSwivel(int32_t side) {
 static void ApplyHandSwivel(int32_t side) {
     const float gx = kGripX[side] - (float)(SCREEN_WIDTH / 2);
     const float gy = (float)(SCREEN_HEIGHT / 2) - kGripY;
+    // The slide first, in the side's own frame, where "up the roll" is +y (the ortho is y-up).
+    Matrix_Translate(0.0f, HandSlide(side), 0.0f, MTXMODE_APPLY);
     Matrix_Translate(gx, gy, 0.0f, MTXMODE_APPLY);
     Matrix_RotateZ(HandSwivel(side), MTXMODE_APPLY);
     Matrix_Translate(-gx, -gy, 0.0f, MTXMODE_APPLY);
