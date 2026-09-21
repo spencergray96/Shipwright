@@ -1757,6 +1757,14 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // CHECK_BTN_ALL(input->press.button, BTN_START)
+    // ```
+    // #### `args`
+    // - `*PlayState`
+    VB_OPEN_PAUSE_MENU,
+
+    // #### `result`
+    // ```c
     // false
     // ```
     // #### `args`

@@ -17,10 +17,13 @@
 // to avoid, so adding a page later must stay "call RsMenu_RegisterPage once, change nothing else".
 //
 // Coexistence with vanilla pause is two guards over one predicate, and no cross-driving of
-// kaleido's state machine: this menu REFUSES to open while `pauseCtx.state != 0`, and while it is
-// open an OnGameStateMainStart input filter swallows START before KaleidoSetup_Update can see it.
-// (VB_CLOSE_PAUSE_MENU is NOT the hook for that - it governs CLOSING and would trap the player
-// inside vanilla pause. Research D.1.)
+// kaleido's state machine: this menu REFUSES to open while `pauseCtx.state != 0`, and whenever it
+// means to take START (it is up, or `primary` is `custom`) it VETOES vanilla's open through
+// VB_OPEN_PAUSE_MENU, which wraps the bare START check inside KaleidoSetup_Update itself
+// (z_kaleido_setup.c). Since stage 6 that veto is the whole mechanism - the OnGameStateMainStart
+// input filter it replaced lost a hash-bucket race to the agent harness and is gone
+// (docs/decisions/2026-09-19-pause-menu-start-veto.md). (VB_CLOSE_PAUSE_MENU is NOT the hook for
+// this - it governs CLOSING and would trap the player inside vanilla pause. Research D.1.)
 
 struct PlayState;
 
@@ -44,6 +47,10 @@ void RsMenu_DrawText(const char* text, int16_t x, int16_t y, float scale, uint8_
 void RsMenu_DrawTextCentred(const char* text, int16_t centreX, int16_t y, float scale, uint8_t r, uint8_t g, uint8_t b,
                             uint8_t a);
 float RsMenu_TextWidth(const char* text, float scale);
+// A flat, untextured rectangle - a rule under a title, the line through a ticked step. Same space,
+// same validity rule as the text calls. It switches the list to flat colour for the quad and back
+// to the text state afterwards, so a page can interleave it with text freely.
+void RsMenu_DrawBar(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t r, uint8_t g, uint8_t b);
 
 // A page's cursor-node contribution, called once per update tick while that page is visible, from
 // between the two hand nodes. A page adds its selectable items with RsMenu_AddCursorNode; the
@@ -51,15 +58,42 @@ float RsMenu_TextWidth(const char* text, float scale);
 // the four greybox pages have nothing to select, so the live graph is exactly the two hands.
 typedef void (*RsMenuPageNodesFn)(int32_t pageIndex, void* userData);
 
+struct RsMenuCursorNode;
+
+// STAGE 6 - THE SECOND LEVEL. "A enters a detail view, B leaves. Two levels, no third." A page that
+// has detail views supplies `select`, called when A lands on one of its own items (never on a
+// hand): return true and the menu runs the down-a-level animation and then calls `detailDraw`
+// instead of `draw`. What the detail shows is the page's own state - it knows which item it said
+// yes to. `detailDraw` has the same contract as `draw` (inside the content node, through the
+// RsMenu_DrawText helpers), except that it is called under the UNROTATED matrix while the
+// parchment is vertical, so its text stays upright; RsMenu_DetailRect says where the vertical
+// parchment has room for it.
+typedef bool (*RsMenuPageSelectFn)(int32_t pageIndex, const RsMenuCursorNode* node, void* userData);
+
+// A page's own buttons, once per update tick while the menu is settled and nothing is animating.
+// `level` is 0 on the page itself and 1 in its detail view. `press` is the raw press mask, for
+// what the menu does not claim (C-left/C-right paging, say). `navY` is -1/0/+1 from the D-pad or the
+// latched stick, and is only ever non-zero at level 1: at level 0 up/down walk the cursor graph, in
+// a detail view there is no graph and they are the page's to scroll with.
+typedef void (*RsMenuPageInputFn)(int32_t pageIndex, int32_t level, uint16_t press, int32_t navY, void* userData);
+
 // One registered page. `id` is the greppable key a console line carries (no spaces); `title` is
 // what the page draws and may contain spaces, so every console line that prints it puts it last and
-// quotes it.
+// quotes it. Every callback may be null.
+//
+// `ownsItemHighlight`: the page draws its own marker on the item the cursor is on (the quest
+// list's arrow), so the menu does not draw its yellow box around that item. The box still draws
+// around a HAND, which the page does not own.
 struct RsMenuPage {
     std::string id;
     std::string title;
-    RsMenuPageDrawFn draw;
-    RsMenuPageNodesFn nodes;
-    void* userData;
+    RsMenuPageDrawFn draw = nullptr;
+    RsMenuPageNodesFn nodes = nullptr;
+    void* userData = nullptr;
+    RsMenuPageSelectFn select = nullptr;
+    RsMenuPageDrawFn detailDraw = nullptr;
+    RsMenuPageInputFn input = nullptr;
+    bool ownsItemHighlight = false;
 };
 
 // Registers a page at the end of the ring and returns its 0-based index, or -1 if `id` is empty or
@@ -67,6 +101,20 @@ struct RsMenuPage {
 // since ShipInit functions re-run on every config and preset load. `nodes` may be null.
 int32_t RsMenu_RegisterPage(const char* id, const char* title, RsMenuPageDrawFn draw, RsMenuPageNodesFn nodes,
                             void* userData);
+// The same, from one struct - which is the invariant's "adding a page is registering one struct"
+// read literally. The short form above is this with the stage-6 fields left at their defaults.
+int32_t RsMenu_RegisterPageStruct(const RsMenuPage& page);
+
+// Where a page may draw, in the 320x240 game space. RsMenu_PageRect is the horizontal parchment's
+// inside, less the strips the two hands cover; RsMenu_DetailRect is the VERTICAL parchment's inside
+// at rest, less the bands the hands cover at either end - roughly 128 wide, which is about twenty
+// characters of journal text at the detail scale. Both are derived from the geometry constants in
+// RsMenu.cpp, so re-tuning the vertical separation moves the detail layout with it.
+struct RsMenuRect {
+    int16_t x0, y0, x1, y1;
+};
+RsMenuRect RsMenu_PageRect();
+RsMenuRect RsMenu_DetailRect();
 
 int32_t RsMenu_PageCount();
 // 0-based. Null when `index` is out of range, and null whenever the count is 0.
@@ -191,9 +239,14 @@ RsMenuSweepState RsMenu_SweepState();
 // where to draw.
 //
 // The node list is rebuilt every update tick as [left hand] + [the page's own items] + [right
-// hand] and wired left-to-right in that order. At stage 5 no page contributes items, so the graph
-// is exactly the two hands and the "empty middle" is literal. A page that needs 2-D adjacency is
-// stage 6's problem and will supply it; the linear wiring is the default, not a limit.
+// hand]. By default it is wired left-to-right in that order - a ROW, which is what the hands-only
+// greybox pages need. A page whose items are a list declares a COLUMN instead
+// (RsMenu_SetCursorColumn, stage 6), and then the VERTICAL EDGES COME FROM THE PAGE'S ITEM ORDER:
+// each item's up/down is the item added before/after it, the first item has no up and the last no
+// down (refused, not wrapped), every item's left is the left hand and its right the right hand, and
+// both hands lead back into the column at the page's `entry` item. Still nothing derives an edge
+// from a coordinate. Outside the page's own ring level (in a detail view) the graph is EMPTY: a
+// detail has nothing to select, and up/down belong to the page there (RsMenuPageInputFn).
 struct RsMenuCursorNode {
     std::string id;
     int16_t x, y, w, h;               // where the highlight draws, in the same 320x240 game space
@@ -204,11 +257,22 @@ struct RsMenuCursorNode {
 // Called by a page's RsMenuPageNodesFn, and valid only from inside it. Returns the new node's
 // index, or -1 outside a rebuild. Neighbours are wired by the menu afterwards.
 int32_t RsMenu_AddCursorNode(const char* id, int16_t x, int16_t y, int16_t w, int16_t h);
+// Called from inside the same RsMenuPageNodesFn: wire this page's items as a column (see above).
+// `entry` is the index RsMenu_AddCursorNode returned for the item the hands lead to - the quest list
+// passes the row the cursor last stood on (or its top visible row, when that one has scrolled away),
+// so stepping off a hand lands on something on screen. It is also where the cursor goes when the id
+// it was on is not on this page - which is how opening the menu lands on the list rather than a hand.
+void RsMenu_SetCursorColumn(int32_t entry);
 
 int32_t RsMenu_CursorCount();
 // 0-based. Null when out of range.
 const RsMenuCursorNode* RsMenu_CursorAt(int32_t index);
 int32_t RsMenu_CursorIndex();
+// The id the cursor is on - the thing that PERSISTS across rebuilds. Valid inside a page's nodes
+// callback too, where it is how a list keeps the cursor's row on screen: it is the id the cursor
+// was on when the rebuild started, and the menu rebuilds again straight after any move, so a page
+// never lags its own cursor by a tick. Empty before the first rebuild.
+const std::string& RsMenu_CursorId();
 // Moves one step along the graph. False when that direction has no neighbour - refused rather than
 // clamped silently, so a run cannot report reaching a node it never reached.
 bool RsMenu_MoveCursor(int32_t dx, int32_t dy);
@@ -216,16 +280,74 @@ bool RsMenu_MoveCursor(int32_t dx, int32_t dy);
 bool RsMenu_SetCursorById(const char* id);
 
 // What A did. A hand starts the sweep its side implies, which is the design's "selecting a hand
-// does what L/R does"; an ordinary item has nothing to enter until stage 6's detail views exist.
+// does what L/R does"; an item whose page says yes goes down a level into its detail view.
 enum RsMenuSelectResult {
     RS_MENU_SELECT_NONE = 0,    // no node under the cursor at all
     RS_MENU_SELECT_HAND_LEFT,   // rolled back a page
     RS_MENU_SELECT_HAND_RIGHT,  // rolled forward a page
-    RS_MENU_SELECT_BUSY,        // a sweep is already running; the press was dropped
-    RS_MENU_SELECT_ITEM,        // an ordinary item - nothing to do until stage 6
+    RS_MENU_SELECT_BUSY,        // something is already animating; the press was dropped
+    RS_MENU_SELECT_ITEM,        // an item its page has no detail view for - nothing happened
+    RS_MENU_SELECT_DESCEND,     // an item with a detail view: the down-a-level animation started
 };
 RsMenuSelectResult RsMenu_SelectCursor();
 const char* RsMenu_SelectResultName(RsMenuSelectResult result);
+
+// --- levels: going down into a detail view and back (stage 6) ------------------------------------
+//
+// GOING DOWN A LEVEL IS CLOSE -> TURN -> OPEN (#111 comment 10, Spencer's spec):
+//
+//   1. CLOSE TO THE CENTRE. Both sides - roll end and hand together, exactly as L/R moves one -
+//      travel inward and meet in the middle, each covering half the one-hand L/R travel. The
+//      parchment scales about its CENTRE, so its edges stay on the roll centres and nothing is
+//      left in the rolls' trail.
+//   2. TURN. The closed bundle rotates COUNTER-CLOCKWISE to vertical about the rolls' midpoint:
+//      the right roll ends on top, the left on the bottom. The hands are rigid and follow the
+//      rotation exactly, so both end on the RIGHT with their arms pointing right (1.0).
+//   3. OPEN VERTICALLY - but only to a separation that fits the screen, which is a named constant
+//      in RsMenu.cpp (kVerticalSpan) and NOT the horizontal 288: the vertical rest pose is its own
+//      pose, not the horizontal one rotated.
+//
+// Going back up (B) plays exactly the same path in reverse. The level itself changes at the middle
+// of the turn, where the scroll is shut; the content blinks out when the animation starts and the
+// other level's content blinks in when it ends - Spencer's 1.0, the same as a page roll.
+//
+// One MATRIX CHAIN carries all of it, every frame, whatever is animating: base * rotate(theta about
+// the pivot) * the side's own local translate * geometry, with theta = 0 whenever the scroll is
+// horizontal. So the L/R chains carry the rotation ops too, at zero - ops are matched positionally
+// inside an interpolation node, and a chain that only sometimes has a rotation would break it.
+int32_t RsMenu_Level(); // 0 = the page, 1 = its detail view
+
+// A at level 0, through the page's `select`. False when a detail view cannot be entered from here:
+// not settled, something already animating, not at level 0, or the page said no.
+bool RsMenu_Descend();
+// B at level 1. False when not at level 1 or something is already animating.
+bool RsMenu_Ascend();
+
+// The same two agent-loop instruments `sweep` has, for the same reason: the whole gesture is 1.2 s
+// and a command round trip is seconds. The LOOP runs down, up, down, up... until stopped, so a
+// burst of captures samples every phase; a HOLD parks the animation at one tick (0..ticks) of the
+// way down (`dir` +1) or the way up (-1), the level swap applied as if it had been played there.
+// Both refuse on a page with no detail view. RsMenu_StopLevelLoop releases either, and lands on
+// whichever level the animation had reached.
+bool RsMenu_StartLevelLoop();
+bool RsMenu_HoldLevel(int32_t dir, int32_t tick);
+void RsMenu_StopLevelLoop();
+
+struct RsMenuLevelState {
+    int32_t level;
+    bool active;
+    int32_t tick;    // 0..ticks along the direction of travel
+    int32_t ticks;   // the whole gesture
+    int32_t dir;     // +1 down, -1 up; retained after the animation ends
+    int32_t pose;    // 0..ticks along the DOWNWARD path, i.e. where the scroll is: 0 flat, ticks vertical
+    const char* phase; // "rest", "close", "turn" or "open" - the phase the pose is in
+    float separation; // game units between the two roll centres, in the scroll's own frame
+    float angle;      // degrees counter-clockwise, 0 horizontal, 90 vertical
+    int32_t swaps;    // how many level changes have happened this session
+    bool loop;
+    bool hold;
+};
+RsMenuLevelState RsMenu_LevelState();
 
 // --- the interpolation probe ---------------------------------------------------------------------
 //
@@ -243,7 +365,8 @@ const char* RsMenu_SelectResultName(RsMenuSelectResult result);
 // reference channel. See SOH_2D_DRAWING.md § "Verifying smoothness".
 void RsMenu_SetProbe(bool on);
 
-// Which menu START opens. Flipped live from the console so either is reachable mid-session.
+// Which menu START opens. Flipped live from the console so either is reachable mid-session. The
+// default is `custom` since stage 6; a value already saved in the config wins over it.
 enum RsMenuPrimary {
     RS_MENU_PRIMARY_VANILLA = 0,
     RS_MENU_PRIMARY_CUSTOM = 1,
@@ -323,9 +446,13 @@ struct RsMenuStatus {
     int32_t lastStickX;
     int32_t lastStickY;
     uint16_t lastButtons;
-    // The START filter's witness, and the same discipline as `stickFrames`: a filter that swallowed
-    // nothing and a filter that was never offered anything leave the menu in identical states.
-    // `kaleido` is `pauseCtx.state`, which says outright whether vanilla pause got in.
+    // The START veto's witness, and the same discipline as `stickFrames`: a veto that took nothing
+    // and a veto that was never offered anything leave the menu in identical states. The field
+    // names are the stage-1 filter's, kept on purpose (the ADR says so): `filterArmedFrames` counts
+    // VB_OPEN_PAUSE_MENU calls on which the menu meant to take START, `startSwallowed` the START
+    // edges it vetoed, `filterPressSeen` every press bit the veto has seen - and because the veto
+    // runs inside KaleidoSetup_Update, after every hook, a harness-injected press now shows up in
+    // it. `kaleido` is `pauseCtx.state`, which says outright whether vanilla pause got in.
     int32_t kaleido;
     int32_t filterArmedFrames;
     int32_t startSwallowed;

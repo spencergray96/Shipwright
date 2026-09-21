@@ -93,6 +93,17 @@ const char* QuestJournal_StyleName(QuestRunStyle style);   // "plain", "item", "
 QuestRunEmphasis QuestJournal_StyleEmphasis(QuestRunStyle style);
 const char* QuestJournal_EmphasisName(QuestRunEmphasis emphasis); // "none", "key", "guide"
 
+// THE EMPHASIS-TO-COLOUR TABLE (D23), as 8-bit RGB. ONE table for every renderer: the ImGui overlay
+// (QuestOverlay.cpp) and the pause menu's journal page (rs/menu/QuestPage.cpp) both read it, so
+// KEY and GUIDE cannot come to share a colour in one and not the other. `struck` wins over the
+// emphasis - a ticked step reads as done whatever its runs were tagged. The meta colour is for text
+// the journal did not author: status lines, "nothing yet".
+struct QuestJournalColour {
+    uint8_t r, g, b;
+};
+QuestJournalColour QuestJournal_RunColour(QuestRunEmphasis emphasis, bool struck);
+QuestJournalColour QuestJournal_MetaColour();
+
 // --- the resolved journal ------------------------------------------------------------------------
 
 enum QuestJournalLineKind {

@@ -25,9 +25,10 @@
 // `title="page 3"`. (Internally the ring is 0-based; that index is never printed.)
 //
 // `args[0]` is the subcommand:
-//   open                  opens the scroll. REFUSALS ARE NAMED: `error=kaleido_open` when vanilla
-//                         pause is up (one menu at a time, and this is the one that yields),
-//                         `error=no_play`, `error=no_pages`, `error=disabled`. Opening an already
+//   open                  opens the scroll, always at level 0 of the current page. REFUSALS ARE
+//                         NAMED: `error=kaleido_open` when vanilla pause is up (one menu at a time,
+//                         and this is the one that yields), `error=no_play`, `error=no_pages`,
+//                         `error=disabled`. Opening an already
 //                         open menu is not a refusal - it reports `was_open=1` and rc=0.
 //                         IT RETURNS WHILE THE MENU IS STILL RISING (`phase=opening`): the scroll
 //                         slides up from below the screen over 8 game ticks and the world dims as
@@ -48,17 +49,23 @@
 //                         which menu START opens, written to a CVar so it survives the session.
 //                         With no argument it only reports. This is the console's job because SoH
 //                         has no `set` command, so a CVar the agent loop must change needs a
-//                         subcommand of its own
+//                         subcommand of its own. THE DEFAULT IS `custom` SINCE STAGE 6, and vanilla
+//                         pause is reachable only through `primary vanilla` - but a value already
+//                         SAVED in the config beats the default, so a config that ever stored 0
+//                         still reads `primary=vanilla` until `primary custom` is run once
 //   sweep [l|r|loop|hold <l|r> <tick>|stop]
 //                         STAGE 5. Rolls the scroll one page, the way a shoulder press does: the
-//                         hand on that side pulls, the scroll swings about the other roll end, and
-//                         the page content swaps at the midpoint. `l` rolls back, `r` forward; with
-//                         no argument it only reports. rc=1 while a sweep is already running and
-//                         when the ring has fewer than two pages - dropped rather than queued,
-//                         because a queued press would let a run assert a page the animation never
-//                         rolled to. It exists beside `agenttest press L|R` because a mid-sweep
-//                         screenshot has to be taken at a known tick: the line carries
-//                         `tick=`/`of=`/`dx=`/`angle=`, so a capture is self-describing.
+//                         side on that shoulder - roll end and hand - travels in until the hands
+//                         meet, the scroll is shut, the page content swaps, and the same side
+//                         travels back out. `l` rolls back, `r` forward; with no argument it only
+//                         reports. Refused (rc=1, dropped rather than queued, because a queued press
+//                         would let a run assert a page the animation never rolled to) with a named
+//                         kind: `error=busy` while a roll is running, `error=level` in a detail
+//                         view or while going between levels (the ring is the top level's), and
+//                         `error=no_ring` when the ring has fewer than two pages. It exists beside
+//                         `agenttest press L|R` because a mid-sweep screenshot has to be taken at a
+//                         known tick: the line carries `tick=`/`of=`/`dx=`/`width=`, so a capture is
+//                         self-describing. `dx=` is the roll's own displacement only.
 //                         `loop` keeps sweeping, alternating direction, until `stop`, and IT IS THE
 //                         INSTRUMENT FOR THIS STAGE rather than a convenience: one sweep is half a
 //                         second and a command round trip is seconds, so no run can photograph a
@@ -77,12 +84,38 @@
 //                         that direction has no neighbour - refused rather than clamped, so a run
 //                         cannot report reaching a node it never reached. `select` is what A does:
 //                         on a hand it starts the sweep that hand implies ("selecting a hand does
-//                         what L/R does"), on an ordinary item it reports `select=item` and does
-//                         nothing, because detail views are stage 6. Anything else is taken as a
-//                         node id and is rc=1 when no node carries it.
+//                         what L/R does"), on an item whose page has a detail view (a quest row) it
+//                         goes down a level and reports `select=descend`, and on any other item it
+//                         reports `select=item` and does nothing. Anything else is taken as a node
+//                         id and is rc=1 when no node carries it. There is NO graph in a detail
+//                         view (`node=none nodes=0`); up/down scroll the journal there instead.
+//                         ⚠ The INPUT path (D-pad, stick) does not log a refused move - only this
+//                         command prints `error=no_neighbour` - so a run asserting a refusal from
+//                         real input reads the node back
 //                         THIS IS THE ONLY WAY TO ASSERT THE CURSOR. A screenshot shows a highlight
 //                         box; it cannot say which node the graph thinks the cursor is on, and
 //                         adjacency here is the graph's rather than the pixels'
+//   level [down|up|loop|hold <down|up> <tick>|stop]
+//                         STAGE 6. Going down into a detail view and back: close to the centre,
+//                         turn counter-clockwise to vertical, open vertically - and the same path
+//                         reversed going up. `down` is what A on a quest row does (it goes into the
+//                         row the cursor is on), `up` what B does in a detail; with no argument it
+//                         only reports. The line carries `level=` (0 the page, 1 its detail),
+//                         `moving=`, `tick=`/`of=`, `pose=` (where the scroll is along the DOWNWARD
+//                         path, 0 flat to `of` vertical, whichever way it travels), `phase=`
+//                         (rest/close/turn/open), `sep=` (roll centre to roll centre in the scroll's
+//                         own frame) and `angle=` (degrees counter-clockwise). All refusals are one
+//                         kind, `error=refused` - not settled, already moving, wrong level, cursor on
+//                         a hand, or a page with no detail view; the state on the line says which.
+//                         `loop` and `hold` are `sweep`'s two instruments for the same reason: the
+//                         gesture is 1.2 s and a round trip is seconds. `hold` refuses a bad tick
+//                         as `error=range`; `stop` releases either and lands on whichever level the
+//                         animation had reached. Every level change a hold plays through counts in
+//                         `swaps=`, so that field counts holds as well as real gestures
+//   filler [n]            STAGE 6, TEST-ONLY. Appends n synthetic rows (0-60) to the quest list after
+//                         the real ones, so it has more rows than fit and scrolling can be driven;
+//                         each has a synthetic journal long enough to scroll. `filler 0` removes
+//                         them. Not a CVar - nothing survives the session. rc=1 on `error=range`
 //   probe [on|off]        THE INSTRUMENT. Drives one stepped per-tick offset into BOTH halves of
 //                         the menu at once - the WHOLE scroll (parchment, rolls, hands and text)
 //                         through the same Matrix_ chain the sweep uses, and a green probe string
@@ -107,7 +140,13 @@
 //                         number that says whether something has quietly switched interpolation off
 //                         for the rest of the frame - and `pause_mode=`, the register that would
 //                         have exempted it. `section=draw` is what the last drawn frame cost in
-//                         glyphs, quads and Gfx words, and one `section=cursor` line per node
+//                         glyphs, quads and Gfx words, and one `section=cursor` line per node.
+//                         Stage 6 adds `section=level` (the `level` line's fields),
+//                         `section=quests` (rows, visible, top, `cursor_row=`, `debug_tier=`), one
+//                         `section=row` line per row THE LAST FRAME DREW - screen position, quest,
+//                         status and the colour it was drawn in, which is what a screenshot of the
+//                         list is asserted against - and `section=journal` (the detail view's last
+//                         frame: wrapped `lines=`, `top=`, `drawn=`, `max_top=`, `width=`)
 //
 // Returns 0 when the operation succeeded (or for read-only subcommands), 1 otherwise - so `rc=` on
 // the agent loop's cmd marker is the pass/fail bit.

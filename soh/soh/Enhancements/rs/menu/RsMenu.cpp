@@ -1,5 +1,12 @@
 /*
- * RsMenu.cpp - the mod-owned pause interface (sturdy-bassoon#111), stages 1-5.
+ * RsMenu.cpp - the mod-owned pause interface (sturdy-bassoon#111), stages 1-6.
+ *
+ * STAGE 6 in one paragraph: START opens it too (by default - `menu primary`), through a
+ * VB_OPEN_PAUSE_MENU veto inside KaleidoSetup_Update rather than an input filter; the ring's first
+ * page is the quest list (QuestPage.cpp); and pages can have a SECOND LEVEL, a detail view reached
+ * by going down - close to the centre, turn counter-clockwise to vertical, open vertically (RsMenu.h
+ * § levels). The turn adds a rotation to every scroll and hand chain, always, at zero while the
+ * scroll is flat; the page content stays upright on the unrotated base matrix.
  *
  * What it is at this stage: an RS-style scroll - parchment, two roll ends and two blocky hands, all
  * real vertex-coloured geometry - that opens on N64 L, hard-freezes the world, hides the HUD, and
@@ -96,6 +103,7 @@
  */
 
 #include "RsMenu.h"
+#include "QuestPage.h"
 
 #include <algorithm>
 #include <cmath>
@@ -311,6 +319,58 @@ static_assert(kGripX[0] == (float)kPanelX0 && kGripX[1] == (float)kPanelX1,
 // no direct include of and only reaches transitively.
 constexpr float kPi = 3.14159265f;
 
+// --- going down a level (stage 6) ----------------------------------------------------------------
+//
+// Close to the centre, turn counter-clockwise to vertical, open vertically - RsMenu.h has the
+// gesture. The numbers, each derived rather than typed where it can be:
+//
+// THE PIVOT is the rolls' midpoint, game (160, 119.5), so the scroll stays centred as it turns.
+// 119.5 rather than 120 because the rolls run 43-196, and pivoting anywhere else would walk the
+// bundle a half-unit sideways through the turn.
+constexpr float kPivotX = (float)(SCREEN_WIDTH / 2);
+constexpr float kPivotY = (float)(kRollTopY + kRollBottomY) / 2.0f;
+// EACH SIDE TRAVELS HALF THE ONE-HAND L/R TRAVEL: 114, where L/R's single moving side goes 228. Both
+// sides moving 114 inward puts the two hands' inner edges together at x 160 - the same "hands meet"
+// stopping rule as L/R, reached symmetrically. That is Spencer's "just halfway", derived from the
+// hand box through kSweepTravel rather than written as a number.
+constexpr float kLevelTravel = kSweepTravel / 2.0f;
+// Roll centre to roll centre, fully closed: 288 - 2 * 114 = 60. The bundle that turns.
+constexpr float kClosedSpan = kPanelSpan - 2.0f * kLevelTravel;
+// THE VERTICAL REST POSE'S SEPARATION, roll centre to roll centre - the first number Spencer is
+// expected to tune. It cannot be 288: that is the horizontal open width and the screen is 240 tall.
+// So the vertical page is a pose of its own, resting with each side still translated partway in
+// from its horizontal home, and this is how far.
+//
+// What bounds it: the hands. Rigidly rotated, each hand overhangs its roll 16 units OUTWARD (toward
+// the screen edge it now points at) and 30 INWARD, so the pose's top and bottom extents are
+// kPivotY -/+ (span/2 + 16). At 184 that is game y 11.5 to 227.5 - inside the screen by 11.5 and
+// 12.5, asserted below with an 8-unit floor. The largest span the floor allows is 199; 184 leaves a
+// little air, and the detail text area (RsMenu_DetailRect) grows or shrinks with it automatically.
+constexpr float kVerticalSpan = 184.0f;
+constexpr float kVerticalMargin = 8.0f;
+// How far a hand reaches beyond its own roll centre, outward and inward, from the authored boxes.
+constexpr float kHandOutboard = kGripX[0] - (float)kHandBoxX;                // 16
+constexpr float kHandInboard = (float)(kHandBoxX + kHandBoxW) - kGripX[0];   // 30
+static_assert(kPivotY - (kVerticalSpan / 2.0f + kHandOutboard) >= kVerticalMargin,
+              "the vertical page's top hand runs off the top of the screen - shrink kVerticalSpan");
+static_assert(kPivotY + (kVerticalSpan / 2.0f + kHandOutboard) <= (float)SCREEN_HEIGHT - kVerticalMargin,
+              "the vertical page's bottom hand runs off the bottom of the screen - shrink kVerticalSpan");
+static_assert(kVerticalSpan > kClosedSpan, "the vertical page must open wider than the closed bundle");
+// Counter-clockwise on screen is POSITIVE here: in this menu's y-up ortho, Matrix_RotateZ(+theta)
+// writes xx = cos, xy = -sin (sys_matrix.c:265-266), which is the standard counter-clockwise
+// rotation. Verified on the first held screenshot rather than trusted.
+constexpr float kTurnAngle = kPi / 2.0f;
+// Eight ticks a phase: the close matches half an L/R roll (kSweepTicks / 2), so the two gestures
+// move at the same speed, and the whole descent is 1.2 s. Each phase eases in AND out, so the scroll
+// comes to rest for an instant between phases - three motions, which is how Spencer described it,
+// rather than one blended swoop.
+constexpr int32_t kLevelCloseTicks = kSweepTicks / 2;
+constexpr int32_t kLevelTurnTicks = 8;
+constexpr int32_t kLevelOpenTicks = 8;
+constexpr int32_t kLevelTicks = kLevelCloseTicks + kLevelTurnTicks + kLevelOpenTicks;
+// The level changes halfway through the turn, when the scroll is shut and nothing is drawn on it.
+constexpr int32_t kLevelSwapTick = kLevelCloseTicks + kLevelTurnTicks / 2;
+
 // --- the entry ------------------------------------------------------------------------------------
 //
 // The menu is not switched on and off, it ARRIVES: the whole assembly rises from below the bottom
@@ -347,8 +407,10 @@ constexpr int32_t kStickRelease = 18;
 
 // How many greybox pages stage 3 registers. This is a REGISTRATION-SITE count and nothing else -
 // no table is sized to it, the ring wraps modulo RsMenu_PageCount(), and deleting this constant
-// would cost exactly one loop bound. See RsMenu.h's invariant.
-constexpr int32_t kGreyboxPageCount = 4;
+// would cost exactly one loop bound. See RsMenu.h's invariant. Three since stage 6, when the quest
+// page took the first slot: the ring is still four pages, and each greybox page still draws
+// `page <n>` with n its ring position, so `menu page 3` still lands on `title="page 3"`.
+constexpr int32_t kGreyboxPageCount = 3;
 
 // --- state -------------------------------------------------------------------------------------
 
@@ -402,9 +464,10 @@ static u8 sHaltPrev = 0;
 static bool sHudApplied = false;
 static u16 sHudPrev = 0;
 
-// Set by the OnGameStateMainStart filter, consumed by the update. The filter has to run there -
-// before Play_Update reaches KaleidoSetup_Update - but the decision belongs with the rest of the
-// update logic.
+// Set by the VB_OPEN_PAUSE_MENU veto, consumed by the update. The veto runs inside
+// KaleidoSetup_Update (Play_Update, from gameState->main), and OnGameFrameUpdate fires after
+// gameState->main returns (game.c:356), so an edge set by the veto is consumed on the same frame.
+// The decision about what START MEANS (open, or close) belongs with the rest of the update logic.
 static bool sStartEdge = false;
 
 static bool sBootLineWritten = false;
@@ -427,12 +490,26 @@ static int32_t sSweeps = 0;
 static bool sSweepLoop = false;
 static bool sSweepHold = false;
 
+// The level, and the animation between the two. `sLevel` is the logical answer and changes at the
+// middle of the turn; `sLevelActive` is whether the scroll is moving between them. Same split, same
+// reasons, as sPage and sSweepActive.
+static int32_t sLevel = 0;
+static bool sLevelActive = false;
+static int32_t sLevelTick = 0;
+static int32_t sLevelDir = 1;
+static int32_t sLevelSwaps = 0;
+static bool sLevelLoop = false;
+static bool sLevelHold = false;
+
 // The cursor. `sCursorId` rather than the index is the thing that persists: the graph is rebuilt
 // every tick, and a page whose item list changes must not silently move the cursor onto a different
 // thing that happens to sit at the same index.
 static std::string sCursorId = "hand_left";
 static int32_t sCursorIndex = 0;
 static bool sCursorRebuilding = false;
+// Set by the page, from inside its nodes callback, for the rebuild in progress only.
+static bool sCursorColumn = false;
+static int32_t sCursorEntry = -1;
 static int32_t sCursorMoves = 0;
 static int32_t sCursorSelects = 0;
 static bool sStickLatchX = false;
@@ -468,15 +545,17 @@ static int32_t sLastStickX = 0;
 static int32_t sLastStickY = 0;
 static u16 sLastButtons = 0;
 
-// The START filter's own witness. Without these there is no way to tell "the filter swallowed it"
-// from "no START ever arrived" - the two produce an identical outcome when the menu simply stays
-// as it was. Same discipline as stick_frames above: record what the mechanism was OFFERED.
+// The START veto's own witness. Without these there is no way to tell "the veto took it" from "no
+// START ever arrived" - the two produce an identical outcome when the menu simply stays as it was.
+// Same discipline as stick_frames above: record what the mechanism was OFFERED. The names are the
+// stage-1 filter's, kept per the ADR so older run notes still grep.
 static int32_t sFilterArmedFrames = 0;
 static int32_t sStartSwallowed = 0;
 static int32_t sStartConsumed = 0;
-// Every press bit the filter has EVER seen, OR-ed together. This is the discriminator for "did the
-// filter run before or after whoever set the bit": if a button the harness injected never appears
-// here, this hook ran first and cannot swallow anything the harness sends.
+// Every press bit the veto has EVER seen, OR-ed together. Under the old filter this read 0x0000
+// after a delivered `agenttest press A`, which is how the hook-order race was caught; the veto runs
+// inside KaleidoSetup_Update, after every OnGameStateMainStart hook, so an injected press must now
+// appear here - a zero would mean the veto is not being consulted at all.
 static uint32_t sFilterPressSeen = 0;
 
 static bool InNormalPlay() {
@@ -537,19 +616,79 @@ static int32_t SweepMovingHand() {
     return sSweepDir > 0 ? 1 : 0;
 }
 
-// The side that does not move. The parchment scales about ITS edge, so it is also the anchor of the
-// whole gesture.
-static int32_t SweepAnchorSide() {
-    return sSweepDir > 0 ? 0 : 1;
+// --- the level gesture's live numbers --------------------------------------------------------------
+
+// Eased in AND out, per phase: 0 -> 1 with zero velocity at both ends, so each phase starts and
+// stops rather than handing its speed to the next. See kLevelCloseTicks for why.
+static float EaseInOut(float t) {
+    return 0.5f - 0.5f * std::cos(kPi * t);
 }
 
-// How far this side is displaced this tick. Zero for the anchor side on every frame of every sweep;
-// for the moving side, the full travel scaled by the envelope, signed toward the anchor.
-static float SideDx(int32_t side) {
+// Where the scroll is along the DOWNWARD path, in ticks: 0 flat and open, kLevelTicks vertical and
+// open. Going up plays the same path backwards, which is all "the same sequence reversed" means -
+// one function of one number, so up cannot drift from down.
+static int32_t LevelPose() {
+    if (!sLevelActive) {
+        return sLevel == 1 ? kLevelTicks : 0;
+    }
+    return sLevelDir > 0 ? sLevelTick : kLevelTicks - sLevelTick;
+}
+
+// Roll centre to roll centre, in the scroll's own (unrotated) frame: 288 open, 60 shut, then
+// kVerticalSpan open again after the turn.
+static float LevelSeparation(int32_t pose) {
+    if (pose <= kLevelCloseTicks) {
+        return kPanelSpan - (kPanelSpan - kClosedSpan) * EaseInOut((float)pose / (float)kLevelCloseTicks);
+    }
+    if (pose <= kLevelCloseTicks + kLevelTurnTicks) {
+        return kClosedSpan;
+    }
+    const float t = (float)(pose - kLevelCloseTicks - kLevelTurnTicks) / (float)kLevelOpenTicks;
+    return kClosedSpan + (kVerticalSpan - kClosedSpan) * EaseInOut(t);
+}
+
+// Radians counter-clockwise. Zero for the whole close, so everything horizontal - including every
+// L/R roll - runs through the rotation ops at an identity angle.
+static float LevelAngle(int32_t pose) {
+    if (pose <= kLevelCloseTicks) {
+        return 0.0f;
+    }
+    if (pose >= kLevelCloseTicks + kLevelTurnTicks) {
+        return kTurnAngle;
+    }
+    return kTurnAngle * EaseInOut((float)(pose - kLevelCloseTicks) / (float)kLevelTurnTicks);
+}
+
+// A pose ON a phase boundary is labelled with the phase that has just finished in the direction of
+// travel: going down, pose 8 is the end of the close; going up, pose 16 is the end of the re-close.
+static const char* LevelPhaseName(int32_t pose) {
+    if (!sLevelActive) {
+        return "rest";
+    }
+    const int32_t turnStart = kLevelCloseTicks;
+    const int32_t turnEnd = kLevelCloseTicks + kLevelTurnTicks;
+    if (sLevelDir > 0) {
+        return pose <= turnStart ? "close" : pose <= turnEnd ? "turn" : "open";
+    }
+    return pose >= turnEnd ? "open" : pose >= turnStart ? "turn" : "close";
+}
+
+// How far this side is displaced this tick, in the scroll's own frame. Two independent terms that
+// never overlap in practice (a roll is refused off level 0, a level change is refused mid-roll):
+//   - the L/R roll: zero for the anchor side on every frame; for the moving side, the full travel
+//     scaled by the envelope, signed toward the anchor;
+//   - the level gesture: both sides symmetrically, by however far the separation has shrunk from
+//     the horizontal 288 - which is zero at level 0 rest and so vanishes from every L/R frame.
+static float SweepDx(int32_t side) {
     if (!sSweepActive || side != SweepMovingHand()) {
         return 0.0f;
     }
     return (side == 0 ? 1.0f : -1.0f) * kSweepTravel * SweepEnv();
+}
+
+static float SideDx(int32_t side) {
+    const float inward = side == 0 ? 1.0f : -1.0f;
+    return inward * (kPanelSpan - LevelSeparation(LevelPose())) / 2.0f + SweepDx(side);
 }
 
 // How much of the parchment is still showing, as a fraction of its open width: 1 wide open, about
@@ -880,12 +1019,12 @@ static void PushTextState() {
     dl.push_back(gsSPLoadGeometryMode(G_SHADING_SMOOTH));
 }
 
-// THE MATRIX CHAIN, and the rule it exists to obey: the SAME three Matrix_* ops are emitted every
-// frame, in the same order, whatever the menu is doing. Ops are matched positionally inside an
+// THE MATRIX CHAIN, and the rule it exists to obey: the SAME Matrix_* ops are emitted every frame,
+// in the same order, whatever the menu is doing. Ops are matched positionally inside an
 // interpolation node, so a branch around one misaligns everything after it and kills interpolation
-// for the rest of the node (SOH_2D_DRAWING.md). At rest every argument is zero, the pivot cancels
-// against itself because the rotation is the identity, and the chain costs three ops and nothing
-// else.
+// for the rest of the node (SOH_2D_DRAWING.md). At rest every argument is zero or the identity and
+// the chain costs its ops and nothing else. Since stage 6 the scroll and hand chains are
+// base -> turn (three ops) -> the side's own ops; the content chain is base alone.
 //
 // Everything is in the ortho's centred, y-up space, so a game-space pivot comes in already
 // converted. `dy` is the probe's offset and is folded into the first translate rather than added as
@@ -897,22 +1036,46 @@ static void ApplyBaseMatrix() {
     Matrix_Translate(0.0f, -(ProbeDy() + EntryDy()), 0.0f, MTXMODE_NEW);
 }
 
-// The parchment shrinks toward the side that is NOT moving. Scaling about that edge is what puts
-// the parchment's moving edge exactly on the moving roll's centre at every value of the envelope -
-// no separate number to keep in step, and no paper left behind the roll.
-static void ApplyParchmentMatrix() {
-    const float ax = kGripX[SweepAnchorSide()] - (float)(SCREEN_WIDTH / 2);
+// THE TURN, and the rule it obeys (stage 6): the rotation about the pivot is in EVERY chain that
+// draws the scroll or its hands, EVERY frame - three ops at an identity angle whenever the scroll is
+// horizontal, which is every L/R frame there has ever been. Ops are matched positionally inside an
+// interpolation node, so a chain that grew a rotation only while going down a level would break
+// interpolation for everything after it in the node. The page content does NOT get this: it stays
+// upright on the unrotated base matrix, which is what the design asks of the journal text.
+static void ApplyTurnMatrix() {
+    // The pivot, in the ortho's centred y-up space. x is exactly 0; y is +0.5 (game 119.5).
+    const float py = (float)(SCREEN_HEIGHT / 2) - kPivotY;
     ApplyBaseMatrix();
-    Matrix_Translate(ax, 0.0f, 0.0f, MTXMODE_APPLY);
-    Matrix_Scale(SweepWidth(), 1.0f, 1.0f, MTXMODE_APPLY);
-    Matrix_Translate(-ax, 0.0f, 0.0f, MTXMODE_APPLY);
+    Matrix_Translate(kPivotX - (float)(SCREEN_WIDTH / 2), py, 0.0f, MTXMODE_APPLY);
+    Matrix_RotateZ(LevelAngle(LevelPose()), MTXMODE_APPLY);
+    Matrix_Translate((float)(SCREEN_WIDTH / 2) - kPivotX, -py, 0.0f, MTXMODE_APPLY);
+}
+
+// The parchment, stretched so its two edges sit on the two roll centres wherever the sides are.
+// One formula for both gestures, from the two sides' displacements alone:
+//   left edge  -> -144 + dxL        (the left roll centre)
+//   right edge -> +144 + dxR        (the right roll centre)
+// i.e. translate the left edge to its roll, scale by the new span over the old, about the left
+// edge. For an L/R roll one of the two is zero and this is exactly stage 5's "scale about the
+// stationary edge"; for the level gesture they are equal and opposite and it is a scale about the
+// CENTRE. Either way the paper cannot detach from a roll - the identity stage 5 rested on, now
+// holding by construction for any pair of displacements.
+static void ApplyParchmentMatrix() {
+    const float dxL = SideDx(0);
+    const float dxR = SideDx(1);
+    const float half = kPanelSpan / 2.0f;
+    ApplyTurnMatrix();
+    Matrix_Translate(dxL - half, 0.0f, 0.0f, MTXMODE_APPLY);
+    Matrix_Scale((kPanelSpan + dxR - dxL) / kPanelSpan, 1.0f, 1.0f, MTXMODE_APPLY);
+    Matrix_Translate(half, 0.0f, 0.0f, MTXMODE_APPLY);
 }
 
 // One side of the scroll - its roll end and its hand, welded by sharing this one matrix. Emitted
-// for BOTH sides every frame with a zero displacement on the anchor: ops are matched positionally
-// inside a node, so the two sides must record the same chain whichever of them is travelling.
+// for BOTH sides every frame, whatever is moving: ops are matched positionally inside a node, so
+// the two sides must record the same chain whichever of them is travelling. The translate is in the
+// scroll's own frame (after the turn), which is what makes "open vertically" the same op as "open".
 static void ApplySideMatrix(int32_t side) {
-    ApplyBaseMatrix();
+    ApplyTurnMatrix();
     Matrix_Translate(SideDx(side), 0.0f, 0.0f, MTXMODE_APPLY);
 }
 
@@ -1012,6 +1175,21 @@ static void DrawCursorOutline(const RsMenuCursorNode& node) {
     }
 }
 
+void RsMenu_DrawBar(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t r, uint8_t g, uint8_t b) {
+    if (sDrawGfxCtx == nullptr) {
+        return;
+    }
+    const u8 colour[3] = { r, g, b };
+    Vtx* vtx = (Vtx*)Graph_Alloc(sDrawGfxCtx, 4 * sizeof(Vtx));
+    SetFlatQuad(vtx, x0, y0, x1, y1, colour);
+    PushFlatState();
+    std::vector<Gfx>& dl = MenuDl();
+    dl.push_back(gsSPVertex(vtx, 4, 0));
+    dl.push_back(gsSP1Quadrangle(0, 2, 3, 1, 0));
+    sDrawQuads++;
+    PushTextState();
+}
+
 // The menu's own viewport and projection, pushed into the list ahead of everything else. Level 3,
 // per the block above: SCREEN_WIDTH / SCREEN_HEIGHT rather than gScreenWidth / gScreenHeight, and
 // the difference is deliberate even though the letterbox block this copies uses the globals. These
@@ -1070,9 +1248,18 @@ static void AddHandNode(int32_t hand) {
     CursorNodes().push_back(node);
 }
 
+void RsMenu_SetCursorColumn(int32_t entry) {
+    if (!sCursorRebuilding) {
+        return;
+    }
+    sCursorColumn = true;
+    sCursorEntry = entry;
+}
+
 // Rebuilt every update tick, cheaply, because the alternative is an invalidation rule and there is
-// nothing here expensive enough to earn one. [left hand] + [the visible page's items] + [right
-// hand], wired left-to-right in that order.
+// nothing here expensive enough to earn one - and again straight after any cursor move, so a page
+// that scrolls to follow its cursor never draws a tick behind it. [left hand] + [the visible page's
+// items] + [right hand], wired as a row by default or as a column when the page asks.
 //
 // ADJACENCY IS NOT DERIVED FROM POSITION. Nothing in this function looks at x or y. That is the
 // settled design's claim and the reason option A's full-width parchment costs nothing: the leftmost
@@ -1080,6 +1267,15 @@ static void AddHandNode(int32_t hand) {
 static void RebuildCursorGraph() {
     std::vector<RsMenuCursorNode>& nodes = CursorNodes();
     nodes.clear();
+    sCursorColumn = false;
+    sCursorEntry = -1;
+
+    // A detail view has no graph at all. The id the cursor was on is kept (the count-0 case below
+    // leaves sCursorId alone), so coming back up lands on the item that was entered.
+    if (sLevel != 0) {
+        sCursorIndex = 0;
+        return;
+    }
 
     sCursorRebuilding = true;
     AddHandNode(0);
@@ -1091,15 +1287,36 @@ static void RebuildCursorGraph() {
     sCursorRebuilding = false;
 
     const int32_t count = (int32_t)nodes.size();
+    const int32_t last = count - 1;
+    const bool column = sCursorColumn && count > 2;
+    const int32_t entry = column && sCursorEntry > 0 && sCursorEntry < last ? sCursorEntry : 1;
     for (int32_t i = 0; i < count; i++) {
-        nodes[(size_t)i].left = i > 0 ? i - 1 : -1;
-        nodes[(size_t)i].right = i + 1 < count ? i + 1 : -1;
-        nodes[(size_t)i].up = -1;
-        nodes[(size_t)i].down = -1;
+        RsMenuCursorNode& node = nodes[(size_t)i];
+        node.up = -1;
+        node.down = -1;
+        if (!column) {
+            node.left = i > 0 ? i - 1 : -1;
+            node.right = i + 1 < count ? i + 1 : -1;
+        } else if (i == 0) {
+            node.left = -1;
+            node.right = entry;
+        } else if (i == last) {
+            node.left = entry;
+            node.right = -1;
+        } else {
+            // An item: the hands either side, its neighbours in the page's order above and below.
+            // The ends of the column REFUSE up/down rather than wrapping - a list that wrapped would
+            // jump the view from the last row to the first, which a discrete-scrolling list must not.
+            node.left = 0;
+            node.right = last;
+            node.up = i > 1 ? i - 1 : -1;
+            node.down = i + 1 < last ? i + 1 : -1;
+        }
     }
 
     // The cursor follows its ID, not its index. A page change rebuilds the whole list, and landing
-    // on "whatever is at index 3 now" would be a different thing every page.
+    // on "whatever is at index 3 now" would be a different thing every page. On a column page an id
+    // that is not here lands on the entry item instead of on a clamped index.
     int32_t found = -1;
     for (int32_t i = 0; i < count; i++) {
         if (nodes[(size_t)i].id == sCursorId) {
@@ -1109,6 +1326,8 @@ static void RebuildCursorGraph() {
     }
     if (found >= 0) {
         sCursorIndex = found;
+    } else if (column) {
+        sCursorIndex = entry;
     } else if (sCursorIndex >= count) {
         sCursorIndex = count - 1;
     }
@@ -1136,6 +1355,10 @@ int32_t RsMenu_CursorIndex() {
     return sCursorIndex;
 }
 
+const std::string& RsMenu_CursorId() {
+    return sCursorId;
+}
+
 bool RsMenu_MoveCursor(int32_t dx, int32_t dy) {
     const RsMenuCursorNode* node = RsMenu_CursorAt(sCursorIndex);
     if (node == nullptr) {
@@ -1157,6 +1380,9 @@ bool RsMenu_MoveCursor(int32_t dx, int32_t dy) {
     sCursorIndex = next;
     sCursorId = CursorNodes()[(size_t)next].id;
     sCursorMoves++;
+    // Rebuilt now rather than next tick, so a page that scrolls to follow its cursor (the quest
+    // list) has already scrolled by the time anything draws or a console line reads the graph.
+    RebuildCursorGraph();
     return true;
 }
 
@@ -1170,6 +1396,7 @@ bool RsMenu_SetCursorById(const char* id) {
             sCursorIndex = i;
             sCursorId = nodes[(size_t)i].id;
             sCursorMoves++;
+            RebuildCursorGraph(); // `nodes` is not touched after this - the rebuild replaces it
             return true;
         }
     }
@@ -1188,6 +1415,8 @@ const char* RsMenu_SelectResultName(RsMenuSelectResult result) {
             return "sweeping";
         case RS_MENU_SELECT_ITEM:
             return "item";
+        case RS_MENU_SELECT_DESCEND:
+            return "descend";
     }
     return "unknown";
 }
@@ -1197,9 +1426,16 @@ RsMenuSelectResult RsMenu_SelectCursor() {
     if (node == nullptr) {
         return RS_MENU_SELECT_NONE;
     }
+    if (sSweepActive || sLevelActive) {
+        return RS_MENU_SELECT_BUSY;
+    }
     if (node->hand < 0) {
-        // Stage 6's detail views are what an item leads to; there is nothing behind one yet.
-        return RS_MENU_SELECT_ITEM;
+        // An item leads down a level if its page has a detail view for it - and only then.
+        if (!RsMenu_Descend()) {
+            return RS_MENU_SELECT_ITEM;
+        }
+        sCursorSelects++;
+        return RS_MENU_SELECT_DESCEND;
     }
     sCursorSelects++;
     // "Selecting a hand does what L/R does" - the settled design, verbatim. The left hand rolls
@@ -1240,46 +1476,31 @@ static void WriteBootLineOnce() {
 
 // --- hooks ---------------------------------------------------------------------------------------
 
-// Fires at game.c:268, immediately before gameState->main -> Play_Update -> KaleidoSetup_Update
-// (z_play.c:1143). That ordering is the whole point: KaleidoSetup_Update reads a bare
-// CHECK_BTN_ALL(input->press.button, BTN_START) at z_kaleido_setup.c:26 and has no VB_ hook, so an
-// input filter here is the only non-invasive way to stop vanilla pause opening.
+// THE START VETO (stage 6; docs/decisions/2026-09-19-pause-menu-start-veto.md). VB_OPEN_PAUSE_MENU
+// wraps the bare START check at z_kaleido_setup.c:26, so this is consulted INSIDE
+// KaleidoSetup_Update - after every OnGameStateMainStart hook has run, AgentTest's injection
+// included - and there is no hook order left to lose. It replaces the stage-1 input filter, which
+// cleared BTN_START out of the input struct from an OnGameStateMainStart hook and lost a
+// hash-bucket race to the harness: GameInteractor runs a hook type's callbacks in unordered_map
+// order (GameInteractor.h:226), the filter ran first, and an injected START was put back after it
+// had been wiped. That filter is deleted rather than left as a second mechanism.
 //
-// Gated on `pauseCtx.state == 0`, without which this also breaks the save prompt's START
-// (z_kaleido_scope_PAL.c:4437) and the continue prompt's (:4707).
-//
-// ⚠️ KNOWN LIMITATION, observed rather than reasoned (2026-09-19): this filter does NOT beat the
-// agent harness's injected START. AgentTest ORs its buttons into press.button from its own
-// OnGameStateMainStart hook (AgentTest.cpp:948), and GameInteractor runs hooks by iterating an
-// `unordered_map<HOOK_ID, fn>` (GameInteractor.h:226, executed :279) - so the order is HASH-BUCKET
-// order, not registration order, and nothing a mod does decides it. On this build AgentTest's hook
-// runs second and puts START back, so with `menu primary custom` an `agenttest press START` opens
-// vanilla pause and wedges the command channel exactly as a bare `press START` always has.
-//
-// It is not a regression and it does not affect a player: a REAL pad press is already in the input
-// struct before any hook runs, so it is always filtered. Spencer's call (2026-09-19,
-// docs/decisions/2026-09-19-pause-menu-start-veto.md) is that the order-independent replacement -
-// a VB_OPEN_PAUSE_MENU wrapped around the bare CHECK_BTN_ALL in z_kaleido_setup.c:26 - lands at
-// stage 6, when `primary` flips its default to `custom`. Until then this filter is inert, because
-// `primary` is `vanilla`.
-static void RsMenu_OnGameStateMainStart() {
+// Called only when KaleidoSetup_Update's own guard has already passed, which requires
+// `pauseCtx.state == 0` - so the save prompt's and the continue prompt's START
+// (z_kaleido_scope_PAL.c:4437, :4707) never reach this, which is what the old filter had to gate on
+// by hand. `*should` arrives as "START was pressed this frame".
+static void RsMenu_OnShouldOpenPauseMenu(bool* should) {
     if (!InNormalPlay()) {
         return;
     }
-    PlayState* play = gPlayState;
-    if (VanillaPauseIsUp(play)) {
-        return;
-    }
-    const bool swallow = MenuIsUp() || (RsMenu_IsEnabled() && RsMenu_GetPrimary() == RS_MENU_PRIMARY_CUSTOM);
-    if (!swallow) {
+    const bool take = MenuIsUp() || (RsMenu_IsEnabled() && RsMenu_GetPrimary() == RS_MENU_PRIMARY_CUSTOM);
+    if (!take) {
         return;
     }
     sFilterArmedFrames++;
-    Input* input = &play->state.input[0];
-    sFilterPressSeen |= (uint32_t)input->press.button;
-    if (CHECK_BTN_ALL(input->press.button, BTN_START)) {
-        input->press.button &= ~BTN_START;
-        input->cur.button &= ~BTN_START;
+    sFilterPressSeen |= (uint32_t)gPlayState->state.input[0].press.button;
+    if (*should) {
+        *should = false;
         sStartEdge = true;
         sStartSwallowed++;
     }
@@ -1331,25 +1552,85 @@ static void AdvanceSweep() {
     }
 }
 
+static bool PageHasDetail() {
+    const RsMenuPage* page = RsMenu_PageAt(sPage);
+    return page != nullptr && page->detailDraw != nullptr;
+}
+
+// Starts the level gesture from the level it has to start from. Refused while anything is
+// animating, and while the ring is on a page with no detail view - there is nothing to go down to.
+static bool StartLevel(int32_t dir) {
+    if (sLevelActive || sSweepActive || !PageHasDetail()) {
+        return false;
+    }
+    if ((dir > 0 && sLevel != 0) || (dir < 0 && sLevel != 1)) {
+        return false;
+    }
+    sLevelActive = true;
+    sLevelTick = 0;
+    sLevelDir = dir > 0 ? 1 : -1;
+    return true;
+}
+
+// One game tick of the level gesture. The level changes in the middle of the turn, where the scroll
+// is shut - the same rule as the page swap in the middle of a roll, and for the same reason: there
+// is nothing drawn on the paper to smear.
+static void AdvanceLevel() {
+    if (!sLevelActive || sLevelHold) {
+        return;
+    }
+    sLevelTick++;
+    if (sLevelTick == kLevelSwapTick) {
+        sLevel = sLevelDir > 0 ? 1 : 0;
+        sLevelSwaps++;
+        // The graph belongs to the level: empty in a detail, the page's items back on the way up.
+        RebuildCursorGraph();
+    }
+    if (sLevelTick >= kLevelTicks) {
+        sLevelActive = false;
+        sLevelTick = 0;
+        if (sLevelLoop) {
+            StartLevel(-sLevelDir);
+        }
+    }
+}
+
+// Straight back to the top level with nothing moving - what opening, closing and an instant page
+// change all want. Not an animation and not counted as a swap.
+static void ResetLevel() {
+    sLevel = 0;
+    sLevelActive = false;
+    sLevelTick = 0;
+    sLevelLoop = false;
+    sLevelHold = false;
+}
+
 // The cursor's own input, kept apart from the page ring's because they answer different buttons:
 // the shoulders roll the scroll directly, the D-pad and the stick walk the graph, and A selects.
 // The stick needs an edge of its own - a held stick would otherwise walk the cursor once per tick.
-static void UpdateCursorInput(const Input* input) {
+//
+// At level 1 there is no graph: up/down are handed to the page as `navY` (the journal scrolls with
+// them) and left/right/A do nothing. Nothing here runs while the level gesture is moving.
+static void UpdateNavigation(const Input* input) {
     const u16 press = input->press.button;
+    int32_t navX = 0;
+    int32_t navY = 0;
     if (CHECK_BTN_ALL(press, BTN_DLEFT)) {
-        RsMenu_MoveCursor(-1, 0);
+        navX = -1;
     } else if (CHECK_BTN_ALL(press, BTN_DRIGHT)) {
-        RsMenu_MoveCursor(1, 0);
+        navX = 1;
     } else if (CHECK_BTN_ALL(press, BTN_DUP)) {
-        RsMenu_MoveCursor(0, -1);
+        navY = -1;
     } else if (CHECK_BTN_ALL(press, BTN_DDOWN)) {
-        RsMenu_MoveCursor(0, 1);
+        navY = 1;
     }
 
     const int32_t sx = input->cur.stick_x;
     const int32_t sy = input->cur.stick_y;
+    int32_t stickX = 0;
+    int32_t stickY = 0;
     if (!sStickLatchX && (sx > kStickPress || sx < -kStickPress)) {
-        RsMenu_MoveCursor(sx > 0 ? 1 : -1, 0);
+        stickX = sx > 0 ? 1 : -1;
         sStickLatchX = true;
     } else if (sStickLatchX && sx < kStickRelease && sx > -kStickRelease) {
         sStickLatchX = false;
@@ -1357,10 +1638,38 @@ static void UpdateCursorInput(const Input* input) {
     // The stick is y-UP on this pad (forward is positive), and the graph's `up` is the screen's, so
     // the sign flips here rather than at every call site.
     if (!sStickLatchY && (sy > kStickPress || sy < -kStickPress)) {
-        RsMenu_MoveCursor(0, sy > 0 ? -1 : 1);
+        stickY = sy > 0 ? -1 : 1;
         sStickLatchY = true;
     } else if (sStickLatchY && sy < kStickRelease && sy > -kStickRelease) {
         sStickLatchY = false;
+    }
+
+    if (sLevelActive) {
+        return;
+    }
+    const RsMenuPage* page = RsMenu_PageAt(sPage);
+
+    if (sLevel != 0) {
+        const int32_t dy = navY != 0 ? navY : stickY;
+        if (page != nullptr && page->input != nullptr) {
+            page->input(sPage, 1, press, dy, page->userData);
+        }
+        return;
+    }
+
+    if (navX != 0 || navY != 0) {
+        RsMenu_MoveCursor(navX, navY);
+    }
+    if (stickX != 0) {
+        RsMenu_MoveCursor(stickX, 0);
+    }
+    if (stickY != 0) {
+        RsMenu_MoveCursor(0, stickY);
+    }
+    // The page's own buttons (the quest list pages with C-left/C-right). Not during a roll - the
+    // page's content is not on screen then, and a page must not move a cursor nobody can see.
+    if (!sSweepActive && page != nullptr && page->input != nullptr) {
+        page->input(sPage, 0, press, 0, page->userData);
     }
 
     if (CHECK_BTN_ALL(press, BTN_A)) {
@@ -1443,22 +1752,39 @@ static void RsMenu_OnGameFrameUpdate() {
         }
 
         AdvanceSweep();
+        AdvanceLevel();
 
-        if (startEdge || CHECK_BTN_ALL(input->press.button, BTN_B)) {
-            if (startEdge) {
-                sStartConsumed++;
-            }
+        // START closes from anywhere, at either level - it is the "get me out" button.
+        if (startEdge) {
+            sStartConsumed++;
             RsMenu_BeginClose();
             return;
         }
-        // The shoulders roll the scroll. A press arriving mid-sweep is dropped rather than queued:
-        // a queue would let a run assert a page the animation never actually rolled to.
-        if (CHECK_BTN_ALL(input->press.button, BTN_L)) {
-            RsMenu_StartSweep(-1);
-        } else if (CHECK_BTN_ALL(input->press.button, BTN_R)) {
-            RsMenu_StartSweep(1);
+        // B is "back": up a level from a detail view, and out of the menu from the top. Dropped
+        // while the level gesture is moving, like every other press that would start an animation
+        // on top of one - otherwise a B landing mid-descent would close a menu that was on its way
+        // down into something.
+        if (CHECK_BTN_ALL(input->press.button, BTN_B)) {
+            if (sLevelActive) {
+                // dropped
+            } else if (sLevel != 0) {
+                RsMenu_Ascend();
+            } else {
+                RsMenu_BeginClose();
+                return;
+            }
         }
-        UpdateCursorInput(input);
+        // The shoulders roll the scroll, on the top level only - a detail view is below the ring,
+        // not on it. A press arriving mid-animation is dropped rather than queued: a queue would let
+        // a run assert a page the animation never actually rolled to.
+        if (sLevel == 0 && !sLevelActive) {
+            if (CHECK_BTN_ALL(input->press.button, BTN_L)) {
+                RsMenu_StartSweep(-1);
+            } else if (CHECK_BTN_ALL(input->press.button, BTN_R)) {
+                RsMenu_StartSweep(1);
+            }
+        }
+        UpdateNavigation(input);
         return;
     }
 
@@ -1526,13 +1852,14 @@ static void RsMenu_OnPlayDrawEnd() {
     Matrix_Pop();
     FrameInterpolation_RecordCloseChild();
 
-    // --- the page content, on a key CARRYING THE PAGE INDEX --------------------------------------
+    // --- the page content, on a key CARRYING THE PAGE INDEX AND THE LEVEL -------------------------
     // The tick the content changes, this key no longer matches last tick's tree, so the node
     // interpolates against itself and renders at its exact tick position instead of lerping between
     // two different pages' glyphs (frame_interpolation.cpp:300-307). That is the whole anti-smear
     // mechanism, and it is the case vanilla's single `state + pageIndex * 100` node does not have -
-    // vanilla's content changes BETWEEN frames, this one changes MID-SWEEP.
-    FrameInterpolation_RecordOpenChild(sNodeContent, sPage);
+    // vanilla's content changes BETWEEN frames, this one changes MID-SWEEP. The level is in the key
+    // for the same reason: the list and a journal are different content on the same page.
+    FrameInterpolation_RecordOpenChild(sNodeContent, sPage * 2 + sLevel);
     PushTextState();
     Matrix_Push();
     ApplyBaseMatrix();
@@ -1551,16 +1878,24 @@ static void RsMenu_OnPlayDrawEnd() {
     // and steps at 20 Hz while the roll glides, so carving at the smaller of last tick's and this
     // tick's edge keeps the roll overdrawing the seam instead of uncovering it. Same problem and
     // same answer as the letterbox's ShrinkWindow_GetSafeVal.
-    if (SweepWidth() > 0.999f) {
-        if (page->draw != nullptr) {
+    //
+    // The level gesture follows the same 1.0 rule: the list blinks out when the close starts and the
+    // journal blinks in when the vertical open has finished, and back again on the way up.
+    if (SweepWidth() > 0.999f && !sLevelActive) {
+        if (sLevel != 0) {
+            if (page->detailDraw != nullptr) {
+                page->detailDraw(play, sPage, page->userData);
+            }
+        } else if (page->draw != nullptr) {
             page->draw(play, sPage, page->userData);
         } else {
             DrawGreyboxBody(sPage, *page);
         }
     }
     {
+        // An item's yellow box - unless its page draws its own marker (the quest list's arrow).
         const RsMenuCursorNode* node = RsMenu_CursorAt(sCursorIndex);
-        if (node != nullptr && node->hand < 0) {
+        if (node != nullptr && node->hand < 0 && !page->ownsItemHighlight) {
             PushFlatState();
             DrawCursorOutline(*node);
         }
@@ -1631,10 +1966,13 @@ static void RegisterGreyboxPages() {
     }
     sGreyboxRegistered = true;
     for (int32_t i = 0; i < kGreyboxPageCount; i++) {
+        // Named for the ring position each page lands on, so `menu page 3` still draws `page 3`
+        // whatever registered ahead of it.
+        const int32_t ordinal = RsMenu_PageCount() + 1;
         char id[32];
         char title[32];
-        std::snprintf(id, sizeof(id), "greybox-%d", i + 1);
-        std::snprintf(title, sizeof(title), "page %d", i + 1);
+        std::snprintf(id, sizeof(id), "greybox-%d", ordinal);
+        std::snprintf(title, sizeof(title), "page %d", ordinal);
         // No cursor nodes: a greybox page has nothing to select, so the live graph is exactly the
         // two hands and the "empty middle" the design describes is literal at this stage.
         RsMenu_RegisterPage(id, title, nullptr, nullptr, nullptr);
@@ -1642,6 +1980,10 @@ static void RegisterGreyboxPages() {
 }
 
 static void RegisterRsMenu() {
+    // The quest page is the ring's first page, and it is registered from HERE rather than from a
+    // ShipInit of its own: ShipInit functions in different translation units run in no promised
+    // order, and the ring's order is what L/R walks.
+    RsMenuQuestPage_Register();
     RegisterGreyboxPages();
     // So `menu cursor` answers before the menu has ever been opened. The graph reads no PlayState,
     // so it is safe this early.
@@ -1651,9 +1993,11 @@ static void RegisterRsMenu() {
     // and the CVar is read inside them: SoH has no console `set`, so a CVar the console writes
     // would never take effect if it were baked into a COND_HOOK condition at ShipInit time.
     COND_HOOK(OnGameFrameUpdate, true, RsMenu_OnGameFrameUpdate);
-    COND_HOOK(OnGameStateMainStart, true, RsMenu_OnGameStateMainStart);
     COND_HOOK(OnPlayDrawEnd, true, RsMenu_OnPlayDrawEnd);
     COND_HOOK(OnSceneInit, true, RsMenu_OnSceneInit);
+    // The START veto. Same unconditional registration and in-handler CVar read, for the same
+    // reason: `menu primary` writes a CVar mid-session and nothing re-runs ShipInit when it does.
+    COND_VB_SHOULD(VB_OPEN_PAUSE_MENU, true, { RsMenu_OnShouldOpenPauseMenu(should); });
 }
 
 static RegisterShipInitFunc rsMenuInitFunc(RegisterRsMenu);
@@ -1662,14 +2006,8 @@ static RegisterShipInitFunc rsMenuInitFunc(RegisterRsMenu);
 
 int32_t RsMenu_RegisterPage(const char* id, const char* title, RsMenuPageDrawFn draw, RsMenuPageNodesFn nodes,
                             void* userData) {
-    if (id == nullptr || *id == '\0' || title == nullptr) {
+    if (id == nullptr || title == nullptr) {
         return -1;
-    }
-    std::vector<RsMenuPage>& pages = Pages();
-    for (const RsMenuPage& page : pages) {
-        if (page.id == id) {
-            return -1;
-        }
     }
     RsMenuPage page;
     page.id = id;
@@ -1677,8 +2015,50 @@ int32_t RsMenu_RegisterPage(const char* id, const char* title, RsMenuPageDrawFn 
     page.draw = draw;
     page.nodes = nodes;
     page.userData = userData;
+    return RsMenu_RegisterPageStruct(page);
+}
+
+int32_t RsMenu_RegisterPageStruct(const RsMenuPage& page) {
+    if (page.id.empty()) {
+        return -1;
+    }
+    std::vector<RsMenuPage>& pages = Pages();
+    for (const RsMenuPage& existing : pages) {
+        if (existing.id == page.id) {
+            return -1;
+        }
+    }
     pages.push_back(page);
     return (int32_t)pages.size() - 1;
+}
+
+RsMenuRect RsMenu_PageRect() {
+    // The horizontal parchment's inside, less the hands: they cover the panel's bottom corners out
+    // to x 46 and in from x 274, so a page that stays between them never draws under a finger.
+    constexpr int16_t kHandClear = 6;
+    RsMenuRect rect;
+    rect.x0 = (int16_t)(kHandBoxX + kHandBoxW + kHandClear);
+    rect.x1 = (int16_t)(SCREEN_WIDTH - (kHandBoxX + kHandBoxW + kHandClear));
+    rect.y0 = (int16_t)(kPanelY0 + kPanelBorder);
+    rect.y1 = (int16_t)(kPanelY1 - kPanelBorder);
+    return rect;
+}
+
+RsMenuRect RsMenu_DetailRect() {
+    // The vertical parchment at rest, worked from the same constants the matrix chain uses. Turned
+    // counter-clockwise about the pivot, the horizontal panel's top edge (game y 48) becomes its
+    // LEFT edge and its bottom edge (y 192) its RIGHT edge; the rolls end up kVerticalSpan apart
+    // across y. The hands, both on the right after the turn, reach kHandInboard in from each roll,
+    // so the text band stops short of them at both ends; the margin keeps a glyph off a knuckle.
+    constexpr float kMargin = 5.0f;
+    const float left = kPivotX - (kPivotY - (float)kPanelY0);
+    const float right = kPivotX + ((float)kPanelY1 - kPivotY);
+    RsMenuRect rect;
+    rect.x0 = (int16_t)std::ceil(left + (float)kPanelBorder + kMargin);
+    rect.x1 = (int16_t)std::floor(right - (float)kPanelBorder - kMargin);
+    rect.y0 = (int16_t)std::ceil(kPivotY - kVerticalSpan / 2.0f + kHandInboard + kMargin);
+    rect.y1 = (int16_t)std::floor(kPivotY + kVerticalSpan / 2.0f - kHandInboard - kMargin);
+    return rect;
 }
 
 int32_t RsMenu_PageCount() {
@@ -1777,6 +2157,13 @@ RsMenuOpenResult RsMenu_Open() {
     sSweepTick = 0;
     sStickLatchX = false;
     sStickLatchY = false;
+    // It always opens on the page itself, never in a detail, with the cursor on the page's own entry
+    // item - the quest list's last-visited row if it is still on screen, else its top visible row -
+    // rather than on whatever node it was left on. An empty id is one no node carries, so the
+    // rebuild's not-found rule places it.
+    ResetLevel();
+    sCursorId.clear();
+    sCursorIndex = 0;
     RebuildCursorGraph();
 
     sPhase = RS_MENU_PHASE_OPENING;
@@ -1819,6 +2206,7 @@ bool RsMenu_Close() {
     sSweepTick = 0;
     sSweepLoop = false;
     sSweepHold = false;
+    ResetLevel();
     if (gPlayState != nullptr) {
         gPlayState->haltAllActors = sHaltPrev;
     }
@@ -1851,6 +2239,8 @@ bool RsMenu_SetPage(int32_t index) {
     sSweepTick = 0;
     sSweepLoop = false;
     sSweepHold = false;
+    // And back to the top level: a detail view belongs to the page it was entered from.
+    ResetLevel();
     // The graph belongs to the visible page, and `menu page` works while the menu is CLOSED - so
     // without this a cursor line read after a closed page change would describe the previous page.
     RebuildCursorGraph();
@@ -1858,7 +2248,9 @@ bool RsMenu_SetPage(int32_t index) {
 }
 
 bool RsMenu_StartSweep(int32_t delta) {
-    if (sSweepActive) {
+    // The ring is the top level's; a detail view is below it, and a roll never starts on top of the
+    // level gesture.
+    if (sSweepActive || sLevelActive || sLevel != 0) {
         return false;
     }
     const int32_t count = RsMenu_PageCount();
@@ -1920,6 +2312,110 @@ void RsMenu_StopSweepLoop() {
     sSweepTick = 0;
 }
 
+int32_t RsMenu_Level() {
+    return sLevel;
+}
+
+bool RsMenu_Descend() {
+    if (!MenuIsSettled() || sSweepActive || sLevelActive || sLevel != 0) {
+        return false;
+    }
+    const RsMenuPage* page = RsMenu_PageAt(sPage);
+    const RsMenuCursorNode* node = RsMenu_CursorAt(sCursorIndex);
+    if (page == nullptr || node == nullptr || node->hand >= 0 || page->select == nullptr ||
+        page->detailDraw == nullptr) {
+        return false;
+    }
+    if (!page->select(sPage, node, page->userData)) {
+        return false;
+    }
+    return StartLevel(1);
+}
+
+bool RsMenu_Ascend() {
+    if (!MenuIsSettled() || sLevelActive || sLevel != 1) {
+        return false;
+    }
+    return StartLevel(-1);
+}
+
+// The loop and the hold go down into the row the CURSOR is on, through the page's own `select`,
+// exactly as A does - otherwise a held or looped journal would show whatever was selected last and
+// differ from what real input produces. On a hand (or an empty graph) there is no row to select and
+// the page keeps its previous selection.
+static void SelectCursorItemQuietly() {
+    const RsMenuPage* page = RsMenu_PageAt(sPage);
+    const RsMenuCursorNode* node = RsMenu_CursorAt(sCursorIndex);
+    if (page != nullptr && page->select != nullptr && node != nullptr && node->hand < 0) {
+        page->select(sPage, node, page->userData);
+    }
+}
+
+bool RsMenu_StartLevelLoop() {
+    if (!sLevelActive && sLevel == 0) {
+        SelectCursorItemQuietly();
+    }
+    sLevelHold = false;
+    if (!sLevelActive && !StartLevel(sLevel == 0 ? 1 : -1)) {
+        return false;
+    }
+    sLevelLoop = true;
+    return true;
+}
+
+bool RsMenu_HoldLevel(int32_t dir, int32_t tick) {
+    if (tick < 0 || tick > kLevelTicks || dir == 0 || sSweepActive || !PageHasDetail()) {
+        return false;
+    }
+    if (sLevel == 0) {
+        SelectCursorItemQuietly();
+    }
+    sLevelLoop = false;
+    sLevelHold = false;
+    sLevelActive = false;
+    sLevelTick = 0;
+    // From the level that direction starts at, then played forward - so a held frame is one the
+    // animation really produces, level swap included, exactly as RsMenu_HoldSweep does it.
+    sLevel = dir > 0 ? 0 : 1;
+    if (!StartLevel(dir)) {
+        return false;
+    }
+    for (int32_t i = 0; i < tick; i++) {
+        AdvanceLevel();
+    }
+    sLevelHold = true;
+    sLevelActive = true;
+    sLevelTick = tick;
+    RebuildCursorGraph();
+    return true;
+}
+
+void RsMenu_StopLevelLoop() {
+    sLevelLoop = false;
+    sLevelHold = false;
+    sLevelActive = false;
+    sLevelTick = 0;
+    RebuildCursorGraph();
+}
+
+RsMenuLevelState RsMenu_LevelState() {
+    RsMenuLevelState state;
+    const int32_t pose = LevelPose();
+    state.level = sLevel;
+    state.active = sLevelActive;
+    state.tick = sLevelTick;
+    state.ticks = kLevelTicks;
+    state.dir = sLevelDir;
+    state.pose = pose;
+    state.phase = LevelPhaseName(pose);
+    state.separation = LevelSeparation(pose);
+    state.angle = LevelAngle(pose) * 180.0f / kPi;
+    state.swaps = sLevelSwaps;
+    state.loop = sLevelLoop;
+    state.hold = sLevelHold;
+    return state;
+}
+
 RsMenuSweepState RsMenu_SweepState() {
     RsMenuSweepState state;
     const float env = SweepEnv();
@@ -1931,7 +2427,7 @@ RsMenuSweepState RsMenu_SweepState() {
     state.toPage = sSweepTo;
     state.movingHand = SweepMovingHand();
     state.env = env;
-    state.dx = SideDx(SweepMovingHand());
+    state.dx = SweepDx(SweepMovingHand()); // the roll's own term only, not the level gesture's
     state.width = SweepWidth();
     state.sweeps = sSweeps;
     state.loop = sSweepLoop;
@@ -1943,10 +2439,14 @@ void RsMenu_SetProbe(bool on) {
     sProbe = on;
 }
 
+// THE DEFAULT IS `custom` SINCE STAGE 6 (#111): START opens the scroll, and vanilla pause is
+// reachable only by `menu primary vanilla` on the console - no button (#111 comment 10). A SAVED
+// value beats this default, so a config that has ever stored `RsMenuPrimary: 0` keeps opening vanilla
+// until `menu primary custom` is run once; the flip changes what a fresh config does, nothing else.
 int32_t RsMenu_GetPrimary() {
-    return CVarGetInteger(CVAR_RS_MENU_PRIMARY, RS_MENU_PRIMARY_VANILLA) == RS_MENU_PRIMARY_CUSTOM
-               ? RS_MENU_PRIMARY_CUSTOM
-               : RS_MENU_PRIMARY_VANILLA;
+    return CVarGetInteger(CVAR_RS_MENU_PRIMARY, RS_MENU_PRIMARY_CUSTOM) == RS_MENU_PRIMARY_VANILLA
+               ? RS_MENU_PRIMARY_VANILLA
+               : RS_MENU_PRIMARY_CUSTOM;
 }
 
 void RsMenu_SetPrimary(int32_t primary) {

@@ -5,7 +5,9 @@
 
 #include <ship/debug/Console.h>
 
+#include "QuestPage.h"
 #include "RsMenu.h"
+#include "soh/Enhancements/rs/quest/Quest.h"
 #include "soh/Enhancements/console/ConsoleSink.h"
 
 namespace {
@@ -20,7 +22,7 @@ std::string Describe() {
     const RsMenuStatus status = RsMenu_Status();
     const RsMenuPage* page = RsMenu_PageAt(status.page);
     return "open=" + std::to_string(status.open ? 1 : 0) + " phase=" + RsMenu_PhaseName(status.phase) +
-           " page=" + std::to_string(status.page + 1) +
+           " page=" + std::to_string(status.page + 1) + " level=" + std::to_string(RsMenu_Level()) +
            " pages=" + std::to_string(status.pages) + " primary=" + RsMenu_PrimaryName(status.primary) +
            " enabled=" + std::to_string(status.enabled ? 1 : 0) + " title=\"" + (page != nullptr ? page->title : "") +
            "\"";
@@ -120,13 +122,25 @@ std::string DescribeSweep(const RsMenuSweepState& sweep) {
     return buf;
 }
 
+// Why a roll was refused, named once for every path that can refuse one. `level` when the scroll is
+// in a detail view or moving between levels: the ring belongs to the top level, and `no_ring` there
+// would send a run looking for a page problem. `fallback` is the path's own kind (a bad tick is
+// `range`, a one-page ring is `no_ring`).
+const char* SweepRefusal(const char* fallback) {
+    const RsMenuLevelState level = RsMenu_LevelState();
+    if (level.level != 0 || level.active) {
+        return "level";
+    }
+    return RsMenu_SweepState().active ? "busy" : fallback;
+}
+
 int32_t Sweep(const std::vector<std::string>& args, std::vector<std::string>& lines) {
     if (args.size() >= 2) {
         int32_t delta = 0;
         if (args[1] == "loop") {
             if (!RsMenu_StartSweepLoop()) {
-                Addf(lines, "op=sweep result=error error=no_ring %s %s", DescribeSweep(RsMenu_SweepState()).c_str(),
-                     Describe().c_str());
+                Addf(lines, "op=sweep result=error error=%s %s %s", SweepRefusal("no_ring"),
+                     DescribeSweep(RsMenu_SweepState()).c_str(), Describe().c_str());
                 return 1;
             }
             Addf(lines, "op=sweep result=ok %s %s", DescribeSweep(RsMenu_SweepState()).c_str(), Describe().c_str());
@@ -142,7 +156,7 @@ int32_t Sweep(const std::vector<std::string>& args, std::vector<std::string>& li
             }
             held = (args[2] == "l" || args[2] == "left") ? -1 : 1;
             if (!RsMenu_HoldSweep(held, tick)) {
-                Addf(lines, "op=sweep result=error error=range asked=%d %s %s", tick,
+                Addf(lines, "op=sweep result=error error=%s asked=%d %s %s", SweepRefusal("range"), tick,
                      DescribeSweep(RsMenu_SweepState()).c_str(), Describe().c_str());
                 return 1;
             }
@@ -166,7 +180,7 @@ int32_t Sweep(const std::vector<std::string>& args, std::vector<std::string>& li
             // Dropped, not queued. Named rather than silent, because "the sweep never started" and
             // "the sweep started and finished before you looked" leave identical state behind.
             const RsMenuSweepState live = RsMenu_SweepState();
-            Addf(lines, "op=sweep result=error error=%s %s %s", live.active ? "busy" : "no_ring",
+            Addf(lines, "op=sweep result=error error=%s %s %s", SweepRefusal("no_ring"),
                  DescribeSweep(live).c_str(), Describe().c_str());
             return 1;
         }
@@ -245,6 +259,96 @@ int32_t Cursor(const std::vector<std::string>& args, std::vector<std::string>& l
     return 0;
 }
 
+// The level gesture's fields, formatted once because four lines report them. `pose=` is where the
+// scroll is along the DOWNWARD path (0 flat, `of` vertical) whichever way it is travelling, which
+// is what a held screenshot is checked against; `phase=` names which of close / turn / open that
+// pose is in; `sep=` is roll centre to roll centre in the scroll's own frame and `angle=` its turn in
+// degrees counter-clockwise - the two numbers Spencer tunes, printed so a capture carries them.
+std::string DescribeLevel(const RsMenuLevelState& level) {
+    char buf[224];
+    std::snprintf(buf, sizeof(buf),
+                  "level=%d moving=%d loop=%d hold=%d tick=%d of=%d dir=%d pose=%d phase=%s sep=%.1f angle=%.1f "
+                  "swaps=%d",
+                  level.level, level.active ? 1 : 0, level.loop ? 1 : 0, level.hold ? 1 : 0, level.tick, level.ticks,
+                  level.dir, level.pose, level.phase, level.separation, level.angle, level.swaps);
+    return buf;
+}
+
+bool ParseLevelDir(const std::string& word, int32_t* dir) {
+    if (word == "down") {
+        *dir = 1;
+        return true;
+    }
+    if (word == "up") {
+        *dir = -1;
+        return true;
+    }
+    return false;
+}
+
+int32_t Level(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() >= 2) {
+        const std::string& word = args[1];
+        bool ok = true;
+        const char* error = "refused";
+        if (word == "down") {
+            ok = RsMenu_Descend();
+        } else if (word == "up") {
+            ok = RsMenu_Ascend();
+        } else if (word == "loop") {
+            ok = RsMenu_StartLevelLoop();
+        } else if (word == "stop") {
+            RsMenu_StopLevelLoop();
+        } else if (word == "hold") {
+            int32_t dir = 0;
+            int32_t tick = 0;
+            if (args.size() < 4 || !ParseLevelDir(args[2], &dir) || !ParseIndex(args[3], &tick)) {
+                Addf(lines, "op=level result=error error=arg %s", Describe().c_str());
+                return 1;
+            }
+            // `range` is a bad tick and nothing else; a hold refused for any other reason (a roll in
+            // flight, a page with no detail view) is `refused`, like every other level refusal.
+            if (tick > RsMenu_LevelState().ticks) {
+                Addf(lines, "op=level result=error error=range asked=%d %s %s", tick,
+                     DescribeLevel(RsMenu_LevelState()).c_str(), Describe().c_str());
+                return 1;
+            }
+            ok = RsMenu_HoldLevel(dir, tick);
+        } else {
+            Addf(lines, "op=level result=error error=arg %s", Describe().c_str());
+            return 1;
+        }
+        if (!ok) {
+            // One kind for "cannot from here" - not settled, already moving, wrong level, the cursor
+            // on a hand, or a page with no detail view. The state on the same line says which.
+            Addf(lines, "op=level result=error error=%s %s %s", error, DescribeLevel(RsMenu_LevelState()).c_str(),
+                 Describe().c_str());
+            return 1;
+        }
+    }
+    Addf(lines, "op=level result=ok %s %s", DescribeLevel(RsMenu_LevelState()).c_str(), Describe().c_str());
+    return 0;
+}
+
+int32_t Filler(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() >= 2) {
+        int32_t count = 0;
+        if (!ParseIndex(args[1], &count)) {
+            Addf(lines, "op=filler result=error error=arg %s", Describe().c_str());
+            return 1;
+        }
+        if (!RsMenuQuestPage_SetFiller(count)) {
+            Addf(lines, "op=filler result=error error=range asked=%d max=%d %s", count, RsMenuQuestPage_MaxFiller(),
+                 Describe().c_str());
+            return 1;
+        }
+    }
+    const RsMenuQuestPageStatus quests = RsMenuQuestPage_Status();
+    Addf(lines, "op=filler result=ok filler=%d rows=%d real=%d visible=%d %s", quests.fillerRows, quests.rows,
+         quests.realRows, quests.visible, Describe().c_str());
+    return 0;
+}
+
 // The probe's fields, formatted once, because two lines report them and a drift between the two
 // would silently break whichever grep a run happened to use. `step` and `phase` are what a
 // screenshot is measured against: every position the 20 Hz animation can draw is a whole multiple of
@@ -302,6 +406,7 @@ int32_t Dump(std::vector<std::string>& lines) {
     // mid-sweep screenshot is asserted against; `hand=` is the half of "the moving hand follows the
     // shoulder pressed" that a screenshot alone cannot prove it MEANT to do.
     Addf(lines, "op=dump section=sweep %s", DescribeSweep(RsMenu_SweepState()).c_str());
+    Addf(lines, "op=dump section=level %s", DescribeLevel(RsMenu_LevelState()).c_str());
     // The probe's lattice, plus `epoch` - the one number that says whether something has quietly
     // switched interpolation off for the rest of the frame - and `pause_mode`, the register that
     // would have exempted a View bracket from bumping it and which this menu must never set.
@@ -331,6 +436,32 @@ int32_t Dump(std::vector<std::string>& lines) {
     // ADJACENCY, which is the thing no screenshot can show and the thing the settled design is
     // actually making a claim about. At stage 5 that is two lines, and the empty middle between
     // them is the point: no page contributes items yet.
+    // The quest page (stage 6): what the list is, and - one `section=row` line each - exactly which
+    // rows the LAST DRAWN FRAME put on screen, top to bottom, with the colour each was drawn in.
+    // That is what a screenshot of the list is asserted against. `cursor_row=-1` means the cursor
+    // is on a hand (or the ring is on another page). `section=journal` is the detail view's last
+    // frame: `lines` wrapped lines in all, `top` the first on screen, `drawn` how many fitted, and
+    // `max_top` how far it can scroll - 0 means the whole journal fits.
+    {
+        const RsMenuQuestPageStatus quests = RsMenuQuestPage_Status();
+        Addf(lines,
+             "op=dump section=quests rows=%d real=%d filler=%d visible=%d top=%d cursor_row=%d drawn=%d "
+             "debug_tier=%d",
+             quests.rows, quests.realRows, quests.fillerRows, quests.visible, quests.top, quests.cursorRow,
+             (int32_t)quests.drawn.size(), quests.showsDebugTier ? 1 : 0);
+        for (size_t i = 0; i < quests.drawn.size(); i++) {
+            const RsMenuQuestRowInfo& row = quests.drawn[i];
+            Addf(lines, "op=dump section=row pos=%d row=%d quest=%d token=%s status=%s colour=%s cursor=%d",
+                 (int32_t)i + 1, row.row, row.questId, row.token.c_str(), Quest_StatusName(row.status),
+                 RsMenuQuestPage_StatusColourName(row.status), row.row == quests.cursorRow ? 1 : 0);
+        }
+        Addf(lines,
+             "op=dump section=journal selected_row=%d quest=%d token=%s lines=%d top=%d drawn=%d max_top=%d "
+             "width=%d",
+             quests.selectedRow, quests.selectedQuestId,
+             quests.selectedToken.empty() ? "-" : quests.selectedToken.c_str(), quests.journalLines,
+             quests.journalTop, quests.journalDrawn, quests.journalMaxTop, quests.journalWidth);
+    }
     Addf(lines, "op=dump section=cursor %s", DescribeCursor().c_str());
     for (int32_t i = 0; i < RsMenu_CursorCount(); i++) {
         const RsMenuCursorNode* node = RsMenu_CursorAt(i);
@@ -339,15 +470,20 @@ int32_t Dump(std::vector<std::string>& lines) {
         }
         const RsMenuCursorNode* left = RsMenu_CursorAt(node->left);
         const RsMenuCursorNode* right = RsMenu_CursorAt(node->right);
-        Addf(lines, "op=dump section=node index=%d current=%d id=%s hand=%d box=%d,%d,%d,%d left=%s right=%s", i,
-             i == RsMenu_CursorIndex() ? 1 : 0, node->id.c_str(), node->hand, node->x, node->y, node->w, node->h,
-             left != nullptr ? left->id.c_str() : "-", right != nullptr ? right->id.c_str() : "-");
+        const RsMenuCursorNode* up = RsMenu_CursorAt(node->up);
+        const RsMenuCursorNode* down = RsMenu_CursorAt(node->down);
+        Addf(lines,
+             "op=dump section=node index=%d current=%d id=%s hand=%d box=%d,%d,%d,%d left=%s right=%s up=%s down=%s",
+             i, i == RsMenu_CursorIndex() ? 1 : 0, node->id.c_str(), node->hand, node->x, node->y, node->w, node->h,
+             left != nullptr ? left->id.c_str() : "-", right != nullptr ? right->id.c_str() : "-",
+             up != nullptr ? up->id.c_str() : "-", down != nullptr ? down->id.c_str() : "-");
     }
     return 0;
 }
 
-const char* kUsage = "usage: menu open | close | page <n> | primary [custom|vanilla] | "
+const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custom|vanilla] | "
                      "sweep [l|r|loop|hold <l|r> <tick>|stop] | "
+                     "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
                      "cursor [left|right|up|down|select|<id>] | probe [on|off] | dump";
 
 } // namespace
@@ -377,6 +513,12 @@ int32_t RsMenuConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "cursor") {
         return Cursor(args, lines);
     }
+    if (sub == "level") {
+        return Level(args, lines);
+    }
+    if (sub == "filler") {
+        return Filler(args, lines);
+    }
     if (sub == "probe") {
         return Probe(args, lines);
     }
@@ -396,20 +538,24 @@ namespace {
 
 const ConsoleSink::Command menuCommand(
     "menu", RsMenuConsole_Run,
-    "The mod-owned pause interface (sturdy-bassoon#111): open | close | page <n> | "
+    "The mod-owned pause interface (sturdy-bassoon#111): open | close [now] | page <n> | "
     "primary [custom|vanilla] | sweep [l|r|loop|hold <l|r> <tick>|stop] | "
+    "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
     "cursor [left|right|up|down|select|<id>] | "
-    "probe [on|off] | dump. The scroll opens on the N64 L bit and hard-freezes the world; primary "
-    "decides which menu START opens, and is a subcommand because there is no console `set`. sweep "
-    "rolls the scroll one page the way a shoulder press does, and reports the tick it is on so a "
-    "mid-sweep screenshot is self-describing; cursor walks the node graph whose end nodes are the "
-    "two hands, and is the only way to assert which node the cursor is on, because a screenshot "
-    "shows a box and not an adjacency. probe drives a stepped per-tick offset into the geometry and "
+    "probe [on|off] | dump. The scroll opens on the N64 L bit (and on START when primary is custom) "
+    "and hard-freezes the world; primary decides which menu START opens, and is a subcommand because "
+    "there is no console `set`. sweep rolls the scroll one page the way a shoulder press does, and "
+    "reports the tick it is on so a mid-sweep screenshot is self-describing; level goes down into the "
+    "quest under the cursor (close, turn, open) or back up, with the same loop and hold instruments; "
+    "filler adds n test-only rows to the quest list so it has more rows than fit; cursor walks the "
+    "node graph whose end nodes are the two hands, and is the only way to assert which node the "
+    "cursor is on, because a screenshot shows a box and not an adjacency. probe drives a stepped "
+    "per-tick offset into the geometry and "
     "into a string at once, so one screenshot shows which of the two frame-interpolates. dump "
     "reports open/closed, the page ring, the freeze and HUD state, the live sweep, the cursor "
     "graph, what the last frame cost, whether N64 L has a binding at all, and how many frames of "
     "input arrived while the world was frozen.",
-    { { "open|close|page|primary|sweep|cursor|probe|dump", Ship::ArgumentType::TEXT },
+    { { "open|close|page|primary|sweep|level|filler|cursor|probe|dump", Ship::ArgumentType::TEXT },
       { "argument", Ship::ArgumentType::TEXT, true } });
 
 } // namespace

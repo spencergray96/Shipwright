@@ -302,6 +302,26 @@ QuestRunEmphasis QuestJournal_StyleEmphasis(QuestRunStyle style) {
     }
 }
 
+QuestJournalColour QuestJournal_RunColour(QuestRunEmphasis emphasis, bool struck) {
+    // Moved here from QuestOverlay.cpp at #111 stage 6, byte-for-byte what its ImVec4 floats were
+    // (0.92 -> 235, 0.82 -> 209, 0.25 -> 64, 0.55 -> 140, 0.85 -> 217).
+    if (struck) {
+        return { 140, 140, 140 };
+    }
+    switch (emphasis) {
+        case QUEST_EMPHASIS_KEY:
+            return { 255, 209, 64 }; // `item`: a thing to get or hold
+        case QUEST_EMPHASIS_GUIDE:
+            return { 140, 217, 255 }; // `hint` (and the npc/place tags that alias it)
+        default:
+            return { 235, 235, 235 };
+    }
+}
+
+QuestJournalColour QuestJournal_MetaColour() {
+    return { 179, 179, 179 };
+}
+
 const char* QuestJournal_EmphasisName(QuestRunEmphasis emphasis) {
     switch (emphasis) {
         case QUEST_EMPHASIS_NONE:

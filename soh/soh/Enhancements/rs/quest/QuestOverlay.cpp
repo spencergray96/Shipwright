@@ -36,27 +36,19 @@ int32_t sDrawnLines = 0;
 // window - so the "##" has no ImGui meaning here; it just follows the "Console##SoH" convention.
 const char* const kWindowKey = "Quest Overlay##RS";
 
-const ImVec4 kPlain = ImVec4(0.92f, 0.92f, 0.92f, 1.0f);
-const ImVec4 kKey = ImVec4(1.0f, 0.82f, 0.25f, 1.0f);   // `item`: a thing to get or hold
-const ImVec4 kGuide = ImVec4(0.55f, 0.85f, 1.0f, 1.0f); // `hint` (and the npc/place tags that alias it)
-const ImVec4 kStruck = ImVec4(0.55f, 0.55f, 0.55f, 1.0f);
-const ImVec4 kMeta = ImVec4(0.70f, 0.70f, 0.70f, 1.0f); // status, the "nothing yet" line
-
-// The emphasis-to-colour table. This is the whole reason the overlay exists: KEY and GUIDE must
-// never share a colour (D23), and until now nothing rendered them at all.
-ImVec4 ColourFor(QuestRunEmphasis emphasis, bool struck) {
-    if (struck) {
-        return kStruck;
-    }
-    switch (emphasis) {
-        case QUEST_EMPHASIS_KEY:
-            return kKey;
-        case QUEST_EMPHASIS_GUIDE:
-            return kGuide;
-        default:
-            return kPlain;
-    }
+ImVec4 ToImVec4(QuestJournalColour c) {
+    return ImVec4(c.r / 255.0f, c.g / 255.0f, c.b / 255.0f, 1.0f);
 }
+
+// The emphasis-to-colour table is QuestJournal_RunColour's since #111 stage 6, so the pause menu's
+// journal page draws the same colours this overlay does. This overlay is still the reason it
+// exists: KEY and GUIDE must never share a colour (D23), and until the overlay nothing rendered them.
+ImVec4 ColourFor(QuestRunEmphasis emphasis, bool struck) {
+    return ToImVec4(QuestJournal_RunColour(emphasis, struck));
+}
+
+const ImVec4 kStruck = ToImVec4(QuestJournal_RunColour(QUEST_EMPHASIS_NONE, true));
+const ImVec4 kMeta = ToImVec4(QuestJournal_MetaColour()); // status, the "nothing yet" line
 
 // One rendered line: the runs side by side, each in its own colour. A struck line is drawn grey with
 // a rule through every run - ImGui has no strike-through, so it is a line over each item rect.
