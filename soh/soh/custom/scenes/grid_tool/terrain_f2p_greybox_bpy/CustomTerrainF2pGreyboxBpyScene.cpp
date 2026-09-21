@@ -99,6 +99,14 @@ static void InitScene(PlayState* play, s32 spawn) {
     play->objectCtx.subKeepIndex = Object_Spawn(&play->objectCtx, OBJECT_GAMEPLAY_FIELD_KEEP);
 
     play->skyboxId = SKYBOX_NORMAL_SKY;
+    // What SCENE_CMD_SKYBOX_SETTINGS and SCENE_CMD_SKYBOX_DISABLES set in a normal scene: a clear
+    // sky, outdoors, sky and sun drawn. PlayState is re-allocated for each scene without being
+    // cleared, so skipping them left the previous scene's values in place - Hyrule Field's storm,
+    // Link's house's indoor lighting (sturdy-bassoon#122).
+    play->envCtx.unk_17 = play->envCtx.unk_18 = 0;
+    play->envCtx.indoors         = 0;
+    play->envCtx.skyboxDisabled  = 0;
+    play->envCtx.sunMoonDisabled = 0;
     play->sequenceCtx.seqId            = NA_BGM_FIELD_LOGIC;
     play->sequenceCtx.natureAmbienceId = 0xFF;
 
