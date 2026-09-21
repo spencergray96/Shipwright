@@ -3,6 +3,9 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include <fast/Fast3dWindow.h>
+#include <fast/interpreter.h>
+#include <ship/Context.h>
 #include <ship/debug/Console.h>
 
 #include "QuestPage.h"
@@ -349,6 +352,88 @@ int32_t Filler(const std::vector<std::string>& args, std::vector<std::string>& l
     return 0;
 }
 
+// Stage 7's stress mode, formatted once because `stress` and `dump` both print it. `glyphs=-1` is
+// off; 0 is on with an empty page. `capacity=` is how many glyphs the page holds in the mode shown,
+// so a refusal and a success both say how far a run could have gone.
+//
+// `memo` is Fast3D's opt-in memo of texture-path resolution (Interpreter::
+// SetResolvedResourceCacheEnabled, libultraship #1175). Nothing in this build turns it on, so every
+// glyph's G_SETTIMG goes through ResourceManager::LoadResourceProcess - a std::string built from the
+// path, hashed, looked up under a mutex (twice when alt assets are on: the `alt/` path is tried
+// first). Flipping it isolates how much of a glyph is that lookup. It
+// lives HERE, not in RsMenu.cpp, because fast/interpreter.h's gbi.h collides with z64.h's (C4005
+// GIMMCMD), and this file includes no z64.h. A lever, not a setting: not a CVar, and the renderer's
+// own default (off) comes back on restart, and `stress off` turns it off too. `sResolveMemo` is what
+// this session last set.
+bool sResolveMemo = false;
+
+bool SetResolveMemo(bool on) {
+    auto window = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
+    if (window == nullptr) {
+        return false;
+    }
+    std::shared_ptr<Fast::Interpreter> interpreter = window->GetInterpreterWeak().lock();
+    if (interpreter == nullptr) {
+        return false;
+    }
+    interpreter->SetResolvedResourceCacheEnabled(on);
+    sResolveMemo = on;
+    return true;
+}
+
+std::string DescribeStress(const RsMenuStressState& stress) {
+    char buf[160];
+    std::snprintf(buf, sizeof(buf), "stress=%d glyphs=%d same=%d capacity=%d scale=%.2f pitch=%d memo=%d",
+                  stress.on ? 1 : 0, stress.glyphs, stress.same ? 1 : 0, stress.capacity, stress.scale, stress.pitch,
+                  sResolveMemo ? 1 : 0);
+    return buf;
+}
+
+int32_t Stress(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() >= 2) {
+        const std::string& word = args[1];
+        // Every form has a fixed arity, and a stray word is refused rather than ignored.
+        if (word == "off") {
+            if (args.size() != 2) {
+                Addf(lines, "op=stress result=error error=arg %s", Describe().c_str());
+                return 1;
+            }
+            // `off` puts back EVERYTHING stress changed, the memo included - a renderer-wide switch
+            // left on would quietly skew every later perf line in the session.
+            RsMenu_StopStress();
+            if (sResolveMemo && !SetResolveMemo(false)) {
+                Addf(lines, "op=stress result=error error=no_interpreter %s %s",
+                     DescribeStress(RsMenu_StressState()).c_str(), Describe().c_str());
+                return 1;
+            }
+        } else if (word == "memo") {
+            if (args.size() != 3 || (args[2] != "on" && args[2] != "off")) {
+                Addf(lines, "op=stress result=error error=arg %s", Describe().c_str());
+                return 1;
+            }
+            if (!SetResolveMemo(args[2] == "on")) {
+                Addf(lines, "op=stress result=error error=no_interpreter %s %s",
+                     DescribeStress(RsMenu_StressState()).c_str(), Describe().c_str());
+                return 1;
+            }
+        } else {
+            int32_t glyphs = 0;
+            const bool same = args.size() >= 3 && args[2] == "same";
+            if (!ParseIndex(word, &glyphs) || args.size() > 3 || (args.size() == 3 && !same)) {
+                Addf(lines, "op=stress result=error error=arg %s", Describe().c_str());
+                return 1;
+            }
+            if (!RsMenu_SetStress(glyphs, same)) {
+                Addf(lines, "op=stress result=error error=range asked=%d max=%d %s %s", glyphs,
+                     RsMenu_StressCapacity(same), DescribeStress(RsMenu_StressState()).c_str(), Describe().c_str());
+                return 1;
+            }
+        }
+    }
+    Addf(lines, "op=stress result=ok %s %s", DescribeStress(RsMenu_StressState()).c_str(), Describe().c_str());
+    return 0;
+}
+
 // The probe's fields, formatted once, because two lines report them and a drift between the two
 // would silently break whichever grep a run happened to use. `step` and `phase` are what a
 // screenshot is measured against: every position the 20 Hz animation can draw is a whole multiple of
@@ -417,6 +502,17 @@ int32_t Dump(std::vector<std::string>& lines) {
     // is free to carry here. Zero while the menu is closed - nothing was drawn.
     Addf(lines, "op=dump section=draw glyphs=%d quads=%d dl_words=%d", status.drawGlyphs, status.drawQuads,
          status.dlWords);
+    // Stage 7: the same last frame, counting only the VIEW - the page body, detail body or stress
+    // body inside the content node - so chrome and content separate. `drawn_rows` is distinct text
+    // lines, `drawn_glyphs` glyphs, `drawn_words` the Gfx words the view appended. `view=none` is a
+    // frame that drew no content (a roll or a level change in flight). `frame=` equals `draw_frames=`
+    // on the counters line when the numbers are this frame's.
+    {
+        const RsMenuViewStats view = RsMenu_ViewStats();
+        Addf(lines, "op=dump section=view view=%s frame=%d drawn_rows=%d drawn_glyphs=%d drawn_words=%d", view.view,
+             view.frame, view.rows, view.glyphs, view.words);
+        Addf(lines, "op=dump section=stress %s", DescribeStress(RsMenu_StressState()).c_str());
+    }
     Addf(lines,
          "op=dump section=counters opens=%d closes=%d page_changes=%d open_frames=%d draw_frames=%d "
          "input_frames=%d stick_frames=%d button_frames=%d last_stick=%d,%d last_buttons=0x%04X",
@@ -484,6 +580,7 @@ int32_t Dump(std::vector<std::string>& lines) {
 const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custom|vanilla] | "
                      "sweep [l|r|loop|hold <l|r> <tick>|stop] | "
                      "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
+                     "stress [<n> [same]|off|memo <on|off>] | "
                      "cursor [left|right|up|down|select|<id>] | probe [on|off] | dump";
 
 } // namespace
@@ -519,6 +616,9 @@ int32_t RsMenuConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "filler") {
         return Filler(args, lines);
     }
+    if (sub == "stress") {
+        return Stress(args, lines);
+    }
     if (sub == "probe") {
         return Probe(args, lines);
     }
@@ -541,13 +641,15 @@ const ConsoleSink::Command menuCommand(
     "The mod-owned pause interface (sturdy-bassoon#111): open | close [now] | page <n> | "
     "primary [custom|vanilla] | sweep [l|r|loop|hold <l|r> <tick>|stop] | "
     "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
-    "cursor [left|right|up|down|select|<id>] | "
+    "stress [<n> [same]|off|memo <on|off>] | cursor [left|right|up|down|select|<id>] | "
     "probe [on|off] | dump. The scroll opens on the N64 L bit (and on START when primary is custom) "
     "and hard-freezes the world; primary decides which menu START opens, and is a subcommand because "
     "there is no console `set`. sweep rolls the scroll one page the way a shoulder press does, and "
     "reports the tick it is on so a mid-sweep screenshot is self-describing; level goes down into the "
     "quest under the cursor (close, turn, open) or back up, with the same loop and hold instruments; "
-    "filler adds n test-only rows to the quest list so it has more rows than fit; cursor walks the "
+    "filler adds n test-only rows to the quest list so it has more rows than fit; stress (test-only) "
+    "replaces the page with n glyphs to measure what a dense horizontal page costs, and memo flips "
+    "Fast3D's texture-path memo to isolate the per-glyph resource lookup; cursor walks the "
     "node graph whose end nodes are the two hands, and is the only way to assert which node the "
     "cursor is on, because a screenshot shows a box and not an adjacency. probe drives a stepped "
     "per-tick offset into the geometry and "
@@ -555,7 +657,7 @@ const ConsoleSink::Command menuCommand(
     "reports open/closed, the page ring, the freeze and HUD state, the live sweep, the cursor "
     "graph, what the last frame cost, whether N64 L has a binding at all, and how many frames of "
     "input arrived while the world was frozen.",
-    { { "open|close|page|primary|sweep|level|filler|cursor|probe|dump", Ship::ArgumentType::TEXT },
+    { { "open|close|page|primary|sweep|level|filler|stress|cursor|probe|dump", Ship::ArgumentType::TEXT },
       { "argument", Ship::ArgumentType::TEXT, true } });
 
 } // namespace

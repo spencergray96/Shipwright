@@ -1,5 +1,9 @@
 /*
- * RsMenu.cpp - the mod-owned pause interface (sturdy-bassoon#111), stages 1-6.
+ * RsMenu.cpp - the mod-owned pause interface (sturdy-bassoon#111), stages 1-7.
+ *
+ * STAGE 7 is instruments only: `section=view` counters for what the last frame's view drew, a
+ * test-only stress body that fills the horizontal page to a chosen glyph count (the console adds a
+ * switch for Fast3D's texture-path memo). None of it adds or skips a Matrix_* op.
  *
  * STAGE 6 in one paragraph: START opens it too (by default - `menu primary`), through a
  * VB_OPEN_PAUSE_MENU veto inside KaleidoSetup_Update rather than an input filter; the ring's first
@@ -535,6 +539,27 @@ static int32_t sDrawGlyphs = 0;
 static int32_t sDrawQuads = 0;
 static int32_t sDlWords = 0;
 
+// Stage 7's view counters (RsMenu.h § RsMenuViewStats). `sInView` is set only around the content
+// body's call, so RsMenu_DrawText knows which glyphs belong to the view; the row ys are gathered
+// there. Plain counters and a vector - invisible to the interpolation recorder.
+static bool sInView = false;
+static std::vector<int16_t> sViewRowYs;
+static const char* sViewName = "none";
+static int32_t sViewFrame = -1;
+static int32_t sViewRows = 0;
+static int32_t sViewGlyphs = 0;
+static int32_t sViewWords = 0;
+
+// The stress body (RsMenu.h). -1 is off.
+static int32_t sStressGlyphs = -1;
+static bool sStressSame = false;
+constexpr float kStressScale = 0.6f; // the journal's scale, the smallest real text in the menu
+constexpr int16_t kStressPitch = 10; // and its line pitch
+// Cycled through so neighbouring glyphs are different textures, the way real text is.
+constexpr char kStressChars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+// A mid-width letter, so `same` fits roughly as many as the cycle does and the two compare at 400.
+constexpr char kStressSameChar = 'e';
+
 // The three explicit interpolation-node keys. FrameInterpolation's label is {const void*, int}, so
 // taking the address of a file-static gives a key that cannot collide with vanilla's (which pass
 // NULL) or with OPEN_DISPS's (which passes __FILE__). The int carries the page index on the content
@@ -786,6 +811,9 @@ void RsMenu_DrawText(const char* text, int16_t x, int16_t y, float scale, uint8_
     if (drawn == 0) {
         return;
     }
+    if (sInView && std::find(sViewRowYs.begin(), sViewRowYs.end(), y) == sViewRowYs.end()) {
+        sViewRowYs.push_back(y);
+    }
 
     std::vector<Gfx>& dl = MenuDl();
     Vtx* vtx = (Vtx*)Graph_Alloc(sDrawGfxCtx, (size_t)drawn * 4 * sizeof(Vtx));
@@ -878,6 +906,48 @@ static void DrawGreyboxBody(int32_t pageIndex, const RsMenuPage& page) {
     char ring[64];
     std::snprintf(ring, sizeof(ring), "%d of %d", pageIndex + 1, RsMenu_PageCount());
     RsMenu_DrawTextCentred(ring, kPanelCentreX, kSubY, kSubScale, r, g, b, 255);
+}
+
+// The stress body's layout, shared by the draw and by the capacity check so the two cannot disagree
+// on what fits: glyphs left to right across RsMenu_PageRect(), a new row when the next glyph's CELL
+// (not just its advance) would cross the right edge, and a stop when a row's cell would cross the
+// bottom. Fills `rows` (may be null) with one string per row and returns how many glyphs it placed,
+// which is `want` unless the page ran out first.
+static int32_t StressLayout(int32_t want, bool same, std::vector<std::string>* rows) {
+    const RsMenuRect rect = RsMenu_PageRect();
+    const int16_t size = (int16_t)(FONT_CHAR_TEX_WIDTH * kStressScale);
+    constexpr int32_t kCycle = (int32_t)sizeof(kStressChars) - 1;
+    int32_t placed = 0;
+    int16_t y = rect.y0;
+    while (placed < want && y + size <= rect.y1) {
+        std::string row;
+        float pen = (float)rect.x0;
+        while (placed < want) {
+            const char ch = same ? kStressSameChar : kStressChars[placed % kCycle];
+            if (pen + size > (float)rect.x1) {
+                break;
+            }
+            row += ch;
+            pen += Ship_GetCharFontWidth((u8)ch) * kStressScale;
+            placed++;
+        }
+        if (rows != nullptr) {
+            rows->push_back(row);
+        }
+        y = (int16_t)(y + kStressPitch);
+    }
+    return placed;
+}
+
+// One RsMenu_DrawText per row, so each row costs one SetPrimColor the way a real line of text does.
+static void DrawStressBody() {
+    std::vector<std::string> rows;
+    StressLayout(sStressGlyphs, sStressSame, &rows);
+    const RsMenuRect rect = RsMenu_PageRect();
+    for (size_t i = 0; i < rows.size(); i++) {
+        RsMenu_DrawText(rows[i].c_str(), rect.x0, (int16_t)(rect.y0 + (int32_t)i * kStressPitch), kStressScale, 240,
+                        232, 210, 255);
+    }
 }
 
 // --- the scroll ----------------------------------------------------------------------------------
@@ -1957,17 +2027,34 @@ static void RsMenu_OnPlayDrawEnd() {
     //
     // The level gesture follows the same 1.0 rule: the list blinks out when the close starts and the
     // journal blinks in when the vertical open has finished, and back again on the way up.
+    // Stage 7's view counters bracket exactly the body call, and nothing else in this node.
+    sViewName = "none";
+    sViewRowYs.clear();
+    const int32_t glyphsBeforeView = sDrawGlyphs;
+    const size_t wordsBeforeView = dl.size();
     if (SweepWidth() > 0.999f && !sLevelActive) {
+        sInView = true;
         if (sLevel != 0) {
             if (page->detailDraw != nullptr) {
+                sViewName = "detail";
                 page->detailDraw(play, sPage, page->userData);
             }
+        } else if (sStressGlyphs >= 0) {
+            sViewName = "stress";
+            DrawStressBody();
         } else if (page->draw != nullptr) {
+            sViewName = "page";
             page->draw(play, sPage, page->userData);
         } else {
+            sViewName = "page";
             DrawGreyboxBody(sPage, *page);
         }
+        sInView = false;
     }
+    sViewFrame = sDrawFrames;
+    sViewRows = (int32_t)sViewRowYs.size();
+    sViewGlyphs = sDrawGlyphs - glyphsBeforeView;
+    sViewWords = (int32_t)(dl.size() - wordsBeforeView);
     {
         // An item's yellow box - unless its page draws its own marker (the quest list's arrow).
         const RsMenuCursorNode* node = RsMenu_CursorAt(sCursorIndex);
@@ -2577,6 +2664,47 @@ RsMenuTriggerInfo RsMenu_TriggerInfo() {
     return info;
 }
 
+RsMenuViewStats RsMenu_ViewStats() {
+    // The same rule as `section=draw`: closed, the last frame drew no view at all.
+    const bool up = MenuIsUp();
+    RsMenuViewStats stats;
+    stats.view = up ? sViewName : "none";
+    stats.frame = sViewFrame;
+    stats.rows = up ? sViewRows : 0;
+    stats.glyphs = up ? sViewGlyphs : 0;
+    stats.words = up ? sViewWords : 0;
+    return stats;
+}
+
+int32_t RsMenu_StressCapacity(bool same) {
+    return StressLayout(INT32_MAX, same, nullptr);
+}
+
+bool RsMenu_SetStress(int32_t glyphs, bool same) {
+    if (glyphs < 0 || glyphs > RsMenu_StressCapacity(same)) {
+        return false;
+    }
+    sStressGlyphs = glyphs;
+    sStressSame = same;
+    return true;
+}
+
+void RsMenu_StopStress() {
+    sStressGlyphs = -1;
+    sStressSame = false;
+}
+
+RsMenuStressState RsMenu_StressState() {
+    RsMenuStressState state;
+    state.on = sStressGlyphs >= 0;
+    state.glyphs = sStressGlyphs;
+    state.same = sStressSame;
+    state.capacity = RsMenu_StressCapacity(sStressSame);
+    state.scale = kStressScale;
+    state.pitch = kStressPitch;
+    return state;
+}
+
 RsMenuStatus RsMenu_Status() {
     RsMenuStatus status;
     status.enabled = RsMenu_IsEnabled();
@@ -2606,9 +2734,10 @@ RsMenuStatus RsMenu_Status() {
     status.hudHidden = sHudApplied;
     status.hudPrev = (int32_t)sHudPrev;
     status.hudNow = (int32_t)gSaveContext.hudVisibilityMode;
-    status.drawGlyphs = sDrawGlyphs;
-    status.drawQuads = sDrawQuads;
-    status.dlWords = sDlWords;
+    // Zero while the menu is closed: the last frame drew nothing, whatever the last OPEN frame did.
+    status.drawGlyphs = status.open ? sDrawGlyphs : 0;
+    status.drawQuads = status.open ? sDrawQuads : 0;
+    status.dlWords = status.open ? sDlWords : 0;
     status.opens = sOpens;
     status.closes = sCloses;
     status.pageChanges = sPageChanges;

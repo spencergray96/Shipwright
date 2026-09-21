@@ -367,6 +367,54 @@ RsMenuLevelState RsMenu_LevelState();
 // reference channel. See SOH_2D_DRAWING.md § "Verifying smoothness".
 void RsMenu_SetProbe(bool on);
 
+// --- stage 7: what the last frame's view drew, and a dense horizontal page to measure -----------
+//
+// `section=draw` counts the whole frame; this counts only the VIEW - whatever drew inside the
+// content node this frame: a page's `draw`, its `detailDraw`, the greybox body, or the stress body
+// below. `rows` is how many distinct text lines it put down (distinct y among the text calls that
+// drew at least one glyph, so a row's arrow and its title are one row), `glyphs` how many glyphs,
+// and `words` how many Gfx words it appended to the heap list. `view` is "page", "detail", "stress"
+// or "none" - none when the last frame drew no content at all, which is every frame of a roll or a
+// level change (the 1.0 blink). `frame` is the draw frame it belongs to (RsMenuStatus::drawFrames).
+struct RsMenuViewStats {
+    const char* view;
+    int32_t frame;
+    int32_t rows;
+    int32_t glyphs;
+    int32_t words;
+};
+RsMenuViewStats RsMenu_ViewStats();
+
+// THE STRESS BODY - TEST-ONLY, and the reason it is not a page: a registered page would change the
+// ring every other run walks (`pages=`, which page L lands on), and the ring has no unregister. So
+// it is a MODE: while it is on, the visible page's level-0 body is replaced by `glyphs` glyphs laid
+// out row by row across RsMenu_PageRect() at the journal scale, on any page. Detail views are left
+// alone (#111 comment 12 scopes stage 7 to the horizontal page). ONLY THE DRAW is replaced: the page's
+// cursor graph, input and `select` stay live underneath, so A on the quest page still goes into the
+// quest the cursor is on. That is fine for a measurement and is the point of it being test-only.
+// `drawn_rows` counts exact y, so text that should read as one row must share its y (the quest list's
+// arrow and title do). Reachable only from the console -
+// no CVar, nothing persists past the session, off at boot - so it cannot ship visible to a player.
+//
+// `glyphs` 0 is a real setting, not off: the menu open with an EMPTY page, which is the bracket that
+// separates what the chrome costs from what the text costs. `same` draws one character repeated
+// instead of cycling through letters and digits - it asks whether a run of identical glyphs is any
+// cheaper (Fast3D's GPU cache is keyed by pointer, but every load still marks the texture changed).
+// False when `glyphs` is negative or more than the page can hold; RsMenu_StressCapacity says how many.
+bool RsMenu_SetStress(int32_t glyphs, bool same);
+void RsMenu_StopStress();
+int32_t RsMenu_StressCapacity(bool same);
+
+struct RsMenuStressState {
+    bool on;
+    int32_t glyphs;
+    bool same;
+    int32_t capacity;     // for the mode currently chosen
+    float scale;
+    int16_t pitch;
+};
+RsMenuStressState RsMenu_StressState();
+
 // Which menu START opens. Flipped live from the console so either is reachable mid-session. The
 // default is `custom` since stage 6; a value already saved in the config wins over it.
 enum RsMenuPrimary {
@@ -427,7 +475,8 @@ struct RsMenuStatus {
     bool hudHidden;
     int32_t hudPrev;     // gSaveContext.hudVisibilityMode at open; what close restores
     int32_t hudNow;
-    // What the last drawn frame cost, in the units the OVERLAY_DISP budget is denominated in.
+    // What the last drawn frame cost, in the units the OVERLAY_DISP budget is denominated in - and
+    // zero while the menu is closed, because then the last frame drew nothing.
     // `dlWords` is the heap display list's length - OVERLAY_DISP itself holds only 2048 Gfx words
     // (z64.h:107-112), which the menu no longer spends because it submits ONE gSPDisplayList, but
     // the number is the measurement stage 7 needs and it is free to keep here.

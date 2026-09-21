@@ -116,6 +116,19 @@
 //                         the real ones, so it has more rows than fit and scrolling can be driven;
 //                         each has a synthetic journal long enough to scroll. `filler 0` removes
 //                         them. Not a CVar - nothing survives the session. rc=1 on `error=range`
+//   stress [<n> [same]|off|memo <on|off>]
+//                         STAGE 7, TEST-ONLY. Replaces the visible page's level-0 body with n glyphs
+//                         laid out row by row across the horizontal page at the journal scale, so a
+//                         run can choose how dense a frame is and read its cost off `agenttest perf`.
+//                         `0` is on with an EMPTY page (the chrome-only bracket), `off` restores the
+//                         page and turns the memo back off. `same` repeats one character instead
+//                         of cycling letters and digits.
+//                         `memo on|off` flips Fast3D's texture-path memo (off in this build), which
+//                         isolates the per-glyph resource-name lookup. The line carries `stress=`,
+//                         `glyphs=` (-1 off), `same=`, `capacity=` (how many fit in that mode),
+//                         `scale=`, `pitch=` and `memo=`. rc=1 on `error=range` (more than fit; the
+//                         line says `max=`), `error=arg`, or `error=no_interpreter`. Not a CVar -
+//                         nothing survives the session - and detail views are never replaced
 //   probe [on|off]        THE INSTRUMENT. Drives one stepped per-tick offset into BOTH halves of
 //                         the menu at once - the WHOLE scroll (parchment, rolls, hands and text)
 //                         through the same Matrix_ chain the sweep uses, and a green probe string
@@ -146,7 +159,12 @@
 //                         `section=row` line per row THE LAST FRAME DREW - screen position, quest,
 //                         status and the colour it was drawn in, which is what a screenshot of the
 //                         list is asserted against - and `section=journal` (the detail view's last
-//                         frame: wrapped `lines=`, `top=`, `drawn=`, `max_top=`, `width=`)
+//                         frame: wrapped `lines=`, `top=`, `drawn=`, `max_top=`, `width=`).
+//                         Stage 7 adds `section=view` - the same last frame counting only the VIEW
+//                         (the page, detail or stress body): `view=page|detail|stress|none`,
+//                         `frame=`, `drawn_rows=` (distinct text lines), `drawn_glyphs=` and
+//                         `drawn_words=` (Gfx words it appended) - and `section=stress`, the
+//                         `stress` line's fields
 //
 // Returns 0 when the operation succeeded (or for read-only subcommands), 1 otherwise - so `rc=` on
 // the agent loop's cmd marker is the pass/fail bit.
