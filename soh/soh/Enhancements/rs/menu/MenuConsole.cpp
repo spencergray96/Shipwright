@@ -489,8 +489,11 @@ int32_t Dump(std::vector<std::string>& lines) {
     Addf(lines, "op=dump section=entry phase=%s tick=%d of=%d progress=%.3f dim=%d",
          RsMenu_PhaseName(status.phase), status.entryTick, status.entryTicks, status.entryProgress,
          status.dimAlpha);
-    Addf(lines, "op=dump section=freeze halt=%d halt_prev=%d hud_hidden=%d hud_prev=%d hud_now=%d kaleido=%d",
+    Addf(lines,
+         "op=dump section=freeze halt=%d halt_prev=%d hud_hidden=%d hud_prev=%d hud_now=%d hud_reasserts=%d "
+         "kaleido=%d",
          status.halt ? 1 : 0, status.haltPrev ? 1 : 0, status.hudHidden ? 1 : 0, status.hudPrev, status.hudNow,
+         status.hudReasserts,
          status.kaleido);
     // The START filter's witness. `filter_armed` counts the frames it was entitled to swallow on,
     // `start_swallowed` the edges it actually took, and `kaleido=` above says whether vanilla pause

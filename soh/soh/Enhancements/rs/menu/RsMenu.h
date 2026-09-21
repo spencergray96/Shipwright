@@ -77,8 +77,8 @@ void RsMenu_DrawPauseLink(int16_t x, int16_t y, int16_t w, int16_t h);
 
 // A page's cursor-node contribution, called once per update tick while that page is visible, from
 // between the two hand nodes. A page adds its selectable items with RsMenu_AddCursorNode; the
-// hands are added for it. Null means "this page has no items", which is every page at stage 5 -
-// the four greybox pages have nothing to select, so the live graph is exactly the two hands.
+// hands are added for it. Null means "this page has no items", and then the live graph is exactly
+// the two hands (the stage-5 greybox pages were this; since stage 8 every registered page has items).
 typedef void (*RsMenuPageNodesFn)(int32_t pageIndex, void* userData);
 
 struct RsMenuCursorNode;
@@ -272,7 +272,7 @@ RsMenuSweepState RsMenu_SweepState();
 //
 // The node list is rebuilt every update tick as [left hand] + [the page's own items] + [right
 // hand]. By default it is wired left-to-right in that order - a ROW, which is what the hands-only
-// greybox pages need. A page whose items are a list declares a COLUMN instead
+// stage-5 greybox pages needed. A page whose items are a list declares a COLUMN instead
 // (RsMenu_SetCursorColumn, stage 6), and then the VERTICAL EDGES COME FROM THE PAGE'S ITEM ORDER:
 // each item's up/down is the item added before/after it, the first item has no up and the last no
 // down (refused, not wrapped), every item's left is the left hand and its right the right hand, and
@@ -528,6 +528,7 @@ struct RsMenuStatus {
     bool hudHidden;
     int32_t hudPrev;     // gSaveContext.hudVisibilityMode at open; what close restores
     int32_t hudNow;
+    int32_t hudReasserts; // stage 8: times the hidden HUD was put back while the menu was up
     // What the last drawn frame cost, in the units the OVERLAY_DISP budget is denominated in - and
     // zero while the menu is closed, because then the last frame drew nothing.
     // `dlWords` is the heap display list's length - OVERLAY_DISP itself holds only 2048 Gfx words

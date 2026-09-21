@@ -199,7 +199,7 @@ constexpr int16_t kRollX[kRollCount][kRollColumns] = { { 6, 16, 26 }, { 294, 304
 // in from the bottom edge and close over the roll ends, which is option A's "hands low, POV from
 // the bottom edge". They are RIGID DISPLAY LISTS UNDER AN ANIMATED MATRIX, never rigged skeletons -
 // and each is reached through kHand below rather than inlined, so the equipment-reactive swap
-// stages 8-9 want stays a one-line change.
+// a later stage wants stays a one-line change.
 //
 // Authored ONCE, for the left hand; the right is this mirrored about x = 160, which is why every
 // box is written left-to-right and the mirror is a subtraction rather than a second table.
@@ -485,6 +485,8 @@ static bool MenuIsSettled() {
 static u8 sHaltPrev = 0;
 static bool sHudApplied = false;
 static u16 sHudPrev = 0;
+// Times the hidden HUD had to be put back while the menu was up (see the re-assert in the update).
+static int32_t sHudReasserts = 0;
 
 // Set by the VB_OPEN_PAUSE_MENU veto, consumed by the update. The veto runs inside
 // KaleidoSetup_Update (Play_Update, from gameState->main), and OnGameFrameUpdate fires after
@@ -1307,7 +1309,7 @@ static void DrawRoll(int32_t side) {
 
 // One hand, as a rigid display list: five boxes, 20 vertices, 10 triangles. `hand` is 0 for the
 // left and 1 for the right, and the right is the left mirrored about x = 160 rather than a second
-// table - so re-authoring the hand, or swapping in an equipment-reactive one at stage 9, is one
+// table - so re-authoring the hand, or swapping in an equipment-reactive one later, is one
 // table and no second edit.
 static void DrawHand(int32_t hand) {
     Vtx* vtx = (Vtx*)Graph_Alloc(sDrawGfxCtx, kHandVtxCount * sizeof(Vtx));
@@ -2102,6 +2104,16 @@ static void RsMenu_OnGameFrameUpdate() {
         // Re-asserted every frame rather than set once: the flag is cleared per scene
         // (z_play.c:538) and vanilla writes it from cutscenes, Sun's Song and the void-out.
         play->haltAllActors = 1;
+        // The hidden HUD is re-asserted the same way, since stage 8 made it necessary: equipping from a
+        // ported page can flip a C button between enabled and disabled (Fire Arrows or boots indoors,
+        // say), and the interface's per-frame button check answers a flip by forcing the HUD back on
+        // (func_80083108, z_parameter.c:1320) - over the scroll. Vanilla never meets it because the
+        // check does not run while kaleido is up. At most the one frame the check ran shows the HUD's
+        // fade starting; `hud_reasserts=` on `section=freeze` counts every time this fired.
+        if (sHudApplied && gSaveContext.hudVisibilityMode != HUD_VISIBILITY_NOTHING_INSTANT) {
+            Interface_ChangeHudVisibilityMode(HUD_VISIBILITY_NOTHING_INSTANT);
+            sHudReasserts++;
+        }
         sOpenFrames++;
         // The probe's clock is the GAME tick, which is the whole point: it is the 20 Hz lattice the
         // rendered frames are measured against. Advanced whether or not the probe is on, so
@@ -2970,6 +2982,7 @@ RsMenuStatus RsMenu_Status() {
     status.hudHidden = sHudApplied;
     status.hudPrev = (int32_t)sHudPrev;
     status.hudNow = (int32_t)gSaveContext.hudVisibilityMode;
+    status.hudReasserts = sHudReasserts;
     // Zero while the menu is closed: the last frame drew nothing, whatever the last OPEN frame did.
     status.drawGlyphs = status.open ? sDrawGlyphs : 0;
     status.drawQuads = status.open ? sDrawQuads : 0;
