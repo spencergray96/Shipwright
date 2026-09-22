@@ -489,7 +489,10 @@ static void AssignToButton(PlayState* play, uint16_t press, int32_t point, int32
             break;
     }
     if (GameInteractor_Should(VB_EQUIP_ITEM_TO_C_BUTTON, true, play, slot, (u16)cursorItem)) {
-        RsVanilla_EquipToButton(play, press, (u16)cursorItem, slot);
+        // From the cell's drawn top-left (kaleido's equipVtx[cursorSlot * 4], z_kaleido_equipment.c:682-684).
+        const int16_t x = kMap.X(SlotLeft(point));
+        const int16_t y = kMap.Y(SlotTop(point));
+        RsVanilla_BeginEquip(press, (u16)cursorItem, slot, x, y, x, y);
     }
 }
 
@@ -535,6 +538,13 @@ static void EquipmentPageInput(int32_t pageIndex, int32_t level, uint16_t press,
     }
 }
 
+// #125: the HUD buttons vanilla shows on this page.
+static void EquipmentPageHud(int32_t pageIndex, uint8_t status[9], void* userData) {
+    (void)pageIndex;
+    (void)userData;
+    RsVanilla_HudButtons(PAUSE_EQUIP, status);
+}
+
 int32_t RsMenuEquipmentPage_Register() {
     RsMenuPage page;
     page.id = "equipment";
@@ -544,6 +554,7 @@ int32_t RsMenuEquipmentPage_Register() {
     page.input = EquipmentPageInput;
     page.claim = RsVanilla_ClaimEquipDpad;
     page.stickModel = RS_MENU_STICK_KALEIDO_SEQUENTIAL;
+    page.hud = EquipmentPageHud;
     page.ownsItemHighlight = false;
     sPageIndex = RsMenu_RegisterPageStruct(page);
     return sPageIndex;

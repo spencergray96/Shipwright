@@ -62,6 +62,9 @@ DEFINE_HOOK(OnDeleteFile, (int32_t fileNum));
 DEFINE_HOOK(OnDialogMessage, ());
 DEFINE_HOOK(OnPresentTitleCard, ());
 DEFINE_HOOK(OnInterfaceUpdate, ());
+// Inside Interface_Draw, right after the item buttons and kaleido's equip effects - the point to draw
+// something over the HUD's buttons (the rs/ pause scroll's flying equip icon).
+DEFINE_HOOK(OnInterfaceDrawItemButtonsEnd, ());
 DEFINE_HOOK(OnKaleidoscopeUpdate, (int16_t inDungeonScene));
 DEFINE_HOOK(OnMinimapDrawCompassIcons, ());
 

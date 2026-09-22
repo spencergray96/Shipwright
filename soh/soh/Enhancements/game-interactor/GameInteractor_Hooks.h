@@ -67,6 +67,7 @@ void GameInteractor_ExecuteOnDeleteFile(int32_t fileNum);
 void GameInteractor_ExecuteOnDialogMessage();
 void GameInteractor_ExecuteOnPresentTitleCard();
 void GameInteractor_ExecuteOnInterfaceUpdate();
+void GameInteractor_ExecuteOnInterfaceDrawItemButtonsEnd();
 void GameInteractor_ExecuteOnKaleidoscopeUpdate(int16_t inDungeonScene);
 void GameInteractor_ExecuteOnMinimapDrawCompassIcons();
 

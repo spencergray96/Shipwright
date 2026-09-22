@@ -792,7 +792,7 @@ void Minimap_Draw(PlayState* play) {
         !(CVarGetInteger(CVAR_DEVELOPER_TOOLS("DebugEnabled"), 0) || CVarGetInteger(CVAR_CHEAT("MoonJumpOnL"), 0)) ||
         CVarGetInteger(CVAR_DEVELOPER_TOOLS("EnableMapToggle"), 0);
 
-    if (play->pauseCtx.state < 4) {
+    if (GameInteractor_Should(VB_DRAW_UNPAUSED_HUD, play->pauseCtx.state < 4, play)) {
         // Minimap margins
         s16 X_Margins_Minimap;
         s16 Y_Margins_Minimap;

@@ -32,13 +32,23 @@ std::string RsVanilla_ItemToken(int32_t item);
 // (z_kaleido_item.c:446, z_kaleido_equipment.c:205).
 bool RsVanilla_PauseAnyCursor();
 
-// Kaleido's C-button (and D-pad slot) assignment, KaleidoScope_SetupItemEquip plus the end of
-// KaleidoScope_UpdateItemEquip, with the flying-item animation taken out: which button the press
-// names, the magic-arrow -> bow fixup, the swap with a button that already holds the slot, the
-// equip-dupe fix, the write and Interface_LoadItemIcon1. Returns false when `press` names no button
-// (so the caller knows nothing happened). The caller has already done the age and sold-out checks
-// and fired VB_EQUIP_ITEM_TO_C_BUTTON, exactly where kaleido does.
-bool RsVanilla_EquipToButton(PlayState* play, uint16_t press, uint16_t item, uint16_t slot);
+// Kaleido's C-button (and D-pad slot) equip, flying icon included (EquipFlight.cpp, #125). Begin is
+// KaleidoScope_SetupItemEquip: the button the press names, the sound and the flight - nothing is written
+// until the icon lands, a few ticks later, when the write is kaleido's own (the magic-arrow -> bow
+// fixup, the swap, the equip-dupe fix, Interface_LoadItemIcon1). `slotX/slotY` is the slot's top-left
+// in the menu's 320x240 space as it is drawn now, `bowX/bowY` the Bow slot's (a magic arrow's first
+// stop). False when `press` names no button or a flight is already up. The caller has already done the
+// age and sold-out checks and fired VB_EQUIP_ITEM_TO_C_BUTTON, exactly where kaleido does.
+bool RsVanilla_BeginEquip(uint16_t press, uint16_t item, uint16_t slot, int16_t slotX, int16_t slotY, int16_t bowX,
+                          int16_t bowY);
+// One game tick of the flight (KaleidoScope_UpdateItemEquip); the menu calls it while it is up.
+void RsVanilla_UpdateEquipFlight(PlayState* play);
+// While true the menu takes no input, as kaleido takes none in its sub-state 3.
+bool RsVanilla_EquipFlightActive();
+// Lands a flight at once (the menu is closing under it), or does nothing.
+void RsVanilla_FinishEquipFlight(PlayState* play);
+// The OnInterfaceDrawItemButtonsEnd callback: the flying icon, over the HUD's buttons.
+void RsVanilla_DrawEquipFlight(void* play);
 
 // The buttons that equip on these pages this tick: C-left/C-down/C-right, plus the D-pad when SoH's
 // DpadEquips is on and either DPadOnPause is off or C-up is held - kaleido's `buttonsToCheck`
@@ -48,6 +58,12 @@ uint16_t RsVanilla_EquipButtons(uint16_t cur);
 // The ported pages' `claim` callback: when the D-pad is an equip button (above), it is the page's and
 // the cursor does not walk on it - kaleido's DpadEquips never moves the cursor with it.
 uint16_t RsVanilla_ClaimEquipDpad(int32_t pageIndex, uint16_t held, void* userData);
+
+// The HUD button states vanilla pause shows on a page (RsMenuPageHudFn), measured on vanilla pause
+// (sturdy-bassoon docs/test-runs/2026-09-22-issue-125-pause-hud) and matching D_8082AB6C
+// (z_kaleido_scope_PAL.c:906-919) as KaleidoScope_SwitchPage applies it, AssignableTunicsAndBoots
+// included (:1274-1284). `kaleidoPage` is PAUSE_ITEM, PAUSE_QUEST or PAUSE_EQUIP.
+void RsVanilla_HudButtons(int32_t kaleidoPage, uint8_t status[9]);
 
 // Counts an equip the pages performed, for `menu equips`' `done=`.
 void RsVanilla_CountEquip();

@@ -81,6 +81,49 @@ struct RsMenuKaleidoCursor {
 };
 RsMenuKaleidoCursor RsMenu_KaleidoCursor();
 
+// #125: the gameplay HUD as the interface sees it this tick, read live under either menu - what a
+// screenshot of the HUD is asserted against. `mode`/`prevMode` are gSaveContext.hudVisibilityMode and
+// prevHudVisibilityMode; `status` is buttonStatus[0..8] (B, C-left, C-down, C-right, A, D-up, D-down,
+// D-left, D-right; 0 enabled, 255 disabled, anything else a temp-B item); `alpha` is the interface's
+// per-element alpha, the thing that actually decides what draws: B, A, C-left, C-down, C-right, D-up,
+// D-down, D-left, D-right, hearts, magic (and rupees and keys), minimap, START. `bLabel` is the B
+// button's loaded action label (DO_ACTION_*) and `bLabelShown` whether B draws it instead of its item
+// (vanilla pause loads DO_ACTION_SAVE and shows it). `valid` is false with no PlayState.
+struct RsMenuHudState {
+    bool valid;
+    int32_t mode;
+    int32_t prevMode;
+    int32_t status[9];
+    int32_t alpha[13];
+    int32_t bLabel;
+    int32_t bLabelShown;
+};
+RsMenuHudState RsMenu_HudState();
+
+// #125: the flying equip icon (EquipFlight.cpp). `state` is kaleido's sEquipState (0 a magic arrow's
+// fade-in, 1 its flight to the Bow, 2 its flash, 3 the flight to the button); `item` the ITEM_ id it
+// draws (0xBF+ while a magic arrow's effect plays); `target` 0-2 C-left/down/right, 3-6 the D-pad
+// slots; `x/y` its top-left, screen-centred (x - 160, 120 - y); `size` its edge in pixels; `flights`
+// and `landings` count this session's. Landings lag flights by one while a flight is up.
+struct RsMenuEquipFlightState {
+    bool active;
+    int32_t state;
+    int32_t item;
+    int32_t target;
+    int32_t x, y;
+    int32_t alpha;
+    int32_t size;
+    int32_t moveTimer;
+    int32_t flights;
+    int32_t landings;
+    int32_t ticks;  // update ticks the current (or last) flight has taken
+    int32_t holdAt; // the test-only hold, -1 off
+};
+RsMenuEquipFlightState RsVanilla_EquipFlightState();
+// TEST-ONLY: stop a flight advancing once it has taken `tick` ticks (-1 lets it go), so a run can read
+// and screenshot one pose of a half-second animation. `menu flight hold <n>|release`.
+void RsVanilla_SetEquipFlightHold(int32_t tick);
+
 // The save fields equipping writes, read live - what the half-2 comparison compares. `buttons` is
 // equips.buttonItems (B, C-left, C-down, C-right, then the four D-pad slots), `slots` cButtonSlots,
 // `equipment` equips.equipment (sword | shield << 4 | tunic << 8 | boots << 12), `swordless` the

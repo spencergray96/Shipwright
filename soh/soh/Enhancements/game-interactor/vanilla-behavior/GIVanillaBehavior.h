@@ -1765,6 +1765,38 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // true
+    // ```
+    // Whether the interface runs its per-frame button check (func_80083108), which enables and
+    // disables the item buttons for the current situation. Vanilla skips it while kaleido is up; the
+    // rs/ pause scroll answers false while it is up, so its per-page button states hold.
+    // #### `args`
+    // - `*PlayState`
+    VB_UPDATE_HUD_BUTTON_STATUS,
+
+    // #### `result`
+    // ```c
+    // (play->pauseCtx.state != 0) || (play->pauseCtx.debugState != 0)
+    // ```
+    // Whether Interface_Draw draws the START button and its label, which vanilla shows only while
+    // paused. The rs/ pause scroll answers true while it is up.
+    // #### `args`
+    // - `*PlayState`
+    VB_DRAW_PAUSE_START_BUTTON,
+
+    // #### `result`
+    // ```c
+    // the call site's own "not paused" test on play->pauseCtx
+    // ```
+    // Whether a HUD piece vanilla draws only while unpaused draws now: the minimap (Minimap_Draw) and
+    // the horse carrots and minigame scores (Interface_Draw). The rs/ pause scroll answers false while
+    // it is up, so they hide under it as they hide under kaleido.
+    // #### `args`
+    // - `*PlayState`
+    VB_DRAW_UNPAUSED_HUD,
+
+    // #### `result`
+    // ```c
     // false
     // ```
     // #### `args`

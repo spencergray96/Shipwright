@@ -300,6 +300,10 @@ void GameInteractor_ExecuteOnInterfaceUpdate() {
     GameInteractor::Instance->ExecuteHooks<GameInteractor::OnInterfaceUpdate>();
 }
 
+void GameInteractor_ExecuteOnInterfaceDrawItemButtonsEnd() {
+    GameInteractor::Instance->ExecuteHooks<GameInteractor::OnInterfaceDrawItemButtonsEnd>();
+}
+
 void GameInteractor_ExecuteOnKaleidoscopeUpdate(int16_t inDungeonScene) {
     GameInteractor::Instance->ExecuteHooks<GameInteractor::OnKaleidoscopeUpdate>(inDungeonScene);
 }

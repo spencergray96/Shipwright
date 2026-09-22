@@ -236,6 +236,13 @@ static void QuestStatusPageDraw(struct PlayState* play, int32_t pageIndex, void*
     }
 }
 
+// #125: the HUD buttons vanilla shows on this page.
+static void QuestStatusPageHud(int32_t pageIndex, uint8_t status[9], void* userData) {
+    (void)pageIndex;
+    (void)userData;
+    RsVanilla_HudButtons(PAUSE_QUEST, status);
+}
+
 int32_t RsMenuQuestStatusPage_Register() {
     RsMenuPage page;
     page.id = "quest_status";
@@ -244,6 +251,7 @@ int32_t RsMenuQuestStatusPage_Register() {
     page.nodes = QuestStatusPageNodes;
     page.ownsItemHighlight = false;
     page.stickModel = RS_MENU_STICK_KALEIDO_ORIGIN;
+    page.hud = QuestStatusPageHud;
     sPageIndex = RsMenu_RegisterPageStruct(page);
     return sPageIndex;
 }

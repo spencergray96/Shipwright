@@ -1,6 +1,11 @@
 /*
  * RsMenu.cpp - the mod-owned pause interface (sturdy-bassoon#111), stages 1-8.
  *
+ * #125 keeps the gameplay HUD up the way vanilla pause shows it - the page's buttons live or dimmed,
+ * B "Save", A "Decide", the START button, the minimap hidden - and flies an equipped icon to its button
+ * (EquipFlight.cpp), drawn over the HUD from a hook inside Interface_Draw. Three VB_ entries and one hook
+ * in the engine carry it; none of it touches a Matrix_* op in a menu node.
+ *
  * #126 gives the ported pages kaleido's stick (RsMenuStickModel, RsMenu.h): kaleido's hold-to-repeat
  * filter on `input->rel` and each page's own way of resolving a diagonal, where the journal keeps the
  * one-step latch. Input only - no Matrix_* op changes.
@@ -122,6 +127,7 @@
 #include "PauseLink.h"
 #include "QuestPage.h"
 #include "VanillaPages.h"
+#include "VanillaPagesInternal.h"
 
 #include <algorithm>
 #include <cmath>
@@ -136,6 +142,7 @@
 
 #include "soh/Enhancements/agenttest/AgentTest.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
+#include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/OTRGlobals.h"
 #include "soh/ShipInit.hpp"
 #include "soh/ShipUtils.h"
@@ -474,8 +481,8 @@ static int32_t sEntryTick = 0;
 static int32_t sPage = 0;
 
 // "The menu is on screen in some form." Everything that used to test sOpen tests this: the world
-// stays frozen and the HUD stays hidden for the whole of both slides, because un-freezing halfway
-// down would show the world moving under a menu that is still there.
+// stays frozen and the HUD stays in its pause configuration for the whole of both slides, because
+// un-freezing halfway down would show the world moving under a menu that is still there.
 static bool MenuIsUp() {
     return sPhase != RS_MENU_PHASE_CLOSED;
 }
@@ -489,7 +496,27 @@ static bool MenuIsSettled() {
 static u8 sHaltPrev = 0;
 static bool sHudApplied = false;
 static u16 sHudPrev = 0;
-// Times the hidden HUD had to be put back while the menu was up (see the re-assert in the update).
+// #125: the button states the menu found on open, put back on close - kaleido's sButtonStatusSave
+// (z_kaleido_scope_PAL.c:3871-3873, :4869-4871).
+static u8 sButtonStatusSave[9];
+// B's "Save" label, waiting for A's label change to finish (RsMenu_Open says why).
+static bool sBLabelPending = false;
+// Whether the menu shows the HUD (#125) or, opened over an already-hidden one (a cutscene, say), keeps
+// it hidden: the mode it holds is HUD_VISIBILITY_ALL or HUD_VISIBILITY_NOTHING_INSTANT.
+static bool sHudShown = false;
+
+// The HUD mode the menu holds while it is up.
+static u16 HeldHudMode() {
+    return sHudShown ? HUD_VISIBILITY_ALL : HUD_VISIBILITY_NOTHING_INSTANT;
+}
+
+// Sets the HUD mode through 0 first, as kaleido does (z_kaleido_scope_PAL.c:1288-1289, :4879-4880), so
+// the interface re-tweens the alphas even when the mode does not change.
+static void RetweenHud(u16 mode) {
+    gSaveContext.hudVisibilityMode = HUD_VISIBILITY_NO_CHANGE;
+    Interface_ChangeHudVisibilityMode(mode);
+}
+// Times the HUD's mode had to be put back to ALL while the menu was up (the re-assert in the update).
 static int32_t sHudReasserts = 0;
 
 // Set by the VB_OPEN_PAUSE_MENU veto, consumed by the update. The veto runs inside
@@ -2039,6 +2066,32 @@ static void ResetLevel() {
     sLevelHold = false;
 }
 
+// #125: the button states for the page on show - the roll's target from the moment it starts - written
+// into gSaveContext.buttonStatus. When they change (and on open, `force`) the HUD mode is taken to 0 and
+// back to ALL, which is how kaleido makes the interface re-tween the button alphas on a page switch
+// (KaleidoScope_SwitchPage, z_kaleido_scope_PAL.c:1288-1289): enabled buttons rise to 255, disabled
+// ones settle at 70. A page with no `hud` callback gets the Quest Journal's buttons: B, A, and C-left
+// and C-right, which page its list.
+static void ApplyPageHud(bool force) {
+    const int32_t pageIndex = sSweepActive ? sSweepTo : sPage;
+    const RsMenuPage* page = RsMenu_PageAt(pageIndex);
+    u8 status[9] = { BTN_ENABLED,  BTN_ENABLED,  BTN_DISABLED, BTN_ENABLED, BTN_ENABLED,
+                     BTN_DISABLED, BTN_DISABLED, BTN_DISABLED, BTN_DISABLED };
+    if (page != nullptr && page->hud != nullptr) {
+        page->hud(pageIndex, status, page->userData);
+    }
+    bool changed = force;
+    for (int32_t i = 0; i < 9; i++) {
+        if (gSaveContext.buttonStatus[i] != status[i]) {
+            gSaveContext.buttonStatus[i] = status[i];
+            changed = true;
+        }
+    }
+    if (changed) {
+        RetweenHud(HeldHudMode());
+    }
+}
+
 // One axis of kaleido's stick filter (z_kaleido_scope_PAL.c:1538-1588), verbatim but for returning the
 // step instead of zeroing stickRel: a push past 30 steps at once, then holds for XREG(8) ticks, then
 // steps every XREG(6) + 1 ticks (10 and 2 by default, z_construct.c:327-329: ticks 0, 11, 14, 17...).
@@ -2132,7 +2185,7 @@ static void UpdateNavigation(const Input* input) {
     // the animation does not fire the moment it ends, and a ported page's filter keeps counting, so a
     // held stick repeats on kaleido's schedule once it does. B and START are handled by the caller and stay
     // live on purpose: they are the way out, and closing mid-roll just drops the half-shut scroll.
-    if (sLevelActive || sSweepActive) {
+    if (sLevelActive || sSweepActive || RsVanilla_EquipFlightActive()) {
         return;
     }
 
@@ -2217,16 +2270,31 @@ static void RsMenu_OnGameFrameUpdate() {
         // Re-asserted every frame rather than set once: the flag is cleared per scene
         // (z_play.c:538) and vanilla writes it from cutscenes, Sun's Song and the void-out.
         play->haltAllActors = 1;
-        // The hidden HUD is re-asserted the same way, since stage 8 made it necessary: equipping from a
-        // ported page can flip a C button between enabled and disabled (Fire Arrows or boots indoors,
-        // say), and the interface's per-frame button check answers a flip by forcing the HUD back on
-        // (func_80083108, z_parameter.c:1320) - over the scroll. Vanilla never meets it because the
-        // check does not run while kaleido is up. At most the one frame the check ran shows the HUD's
-        // fade starting; `hud_reasserts=` on `section=freeze` counts every time this fired.
-        if (sHudApplied && gSaveContext.hudVisibilityMode != HUD_VISIBILITY_NOTHING_INSTANT) {
-            Interface_ChangeHudVisibilityMode(HUD_VISIBILITY_NOTHING_INSTANT);
-            sHudReasserts++;
+        // #125: the HUD, re-asserted the same way. The page's button states follow the page (the roll's
+        // target from the moment it starts, as kaleido switches them when its turn starts), and the mode
+        // stays HUD_VISIBILITY_ALL. The interface's per-frame button check (func_80083108) would
+        // otherwise rewrite the states and the mode - it forced the HUD back on over the stage-8 scroll -
+        // and it stands down through VB_UPDATE_HUD_BUTTON_STATUS while the menu is up, as vanilla skips it
+        // under kaleido. So `hud_reasserts=` counts something else changing the mode, and should stay 0.
+        if (sHudApplied) {
+            ApplyPageHud(false);
+            if (gSaveContext.hudVisibilityMode != HeldHudMode()) {
+                RetweenHud(HeldHudMode());
+                sHudReasserts++;
+            }
+            // The START button fades with the entry slide, as kaleido fades it over its open and close.
+            const float shown = sPhase == RS_MENU_PHASE_OPENING   ? (float)sEntryTick / (float)kEntryTicks
+                                : sPhase == RS_MENU_PHASE_CLOSING ? 1.0f - (float)sEntryTick / (float)kEntryTicks
+                                                                  : 1.0f;
+            play->interfaceCtx.startAlpha = sHudShown ? (s16)(255.0f * shown) : 0;
+            if (sBLabelPending && play->interfaceCtx.unk_1EC == 0) {
+                Interface_LoadActionLabelB(play, DO_ACTION_SAVE);
+                sBLabelPending = false;
+            }
         }
+        // The flying equip icon moves on the game tick, before any input: kaleido's UpdateItemEquip runs
+        // in its update, and the flight a press starts first moves on the next tick.
+        RsVanilla_UpdateEquipFlight(play);
         sOpenFrames++;
         // The probe's clock is the GAME tick, which is the whole point: it is the 20 Hz lattice the
         // rendered frames are measured against. Advanced whether or not the probe is on, so
@@ -2236,8 +2304,8 @@ static void RsMenu_OnGameFrameUpdate() {
         RecordOfferedInput(input);
 
         // The arrival, driven off the same game tick as everything else. The world stays frozen and
-        // the HUD stays hidden for the whole of both slides - un-freezing halfway down would show
-        // the world moving under a menu that is still on screen.
+        // the HUD stays in its pause configuration for the whole of both slides - un-freezing halfway
+        // down would show the world moving under a menu that is still on screen.
         if (sPhase == RS_MENU_PHASE_OPENING) {
             if (++sEntryTick >= kEntryTicks) {
                 sPhase = RS_MENU_PHASE_OPEN;
@@ -2255,6 +2323,14 @@ static void RsMenu_OnGameFrameUpdate() {
 
         AdvanceSweep();
         AdvanceLevel();
+
+        // #125: while an equipped icon is flying to its button nothing else is taken - kaleido is in its
+        // sub-state 3 then, and its cursor, L/R, B and START all wait for 0 (z_kaleido_scope_PAL.c:4261).
+        // UpdateNavigation still runs, so the stick state keeps counting, but moves nothing.
+        if (RsVanilla_EquipFlightActive()) {
+            UpdateNavigation(input);
+            return;
+        }
 
         // START closes from anywhere, at either level - it is the "get me out" button.
         if (startEdge) {
@@ -2516,6 +2592,10 @@ static void RsMenu_OnSceneInit(int16_t sceneNum) {
     CloseMenu(false);
 }
 
+static void RsMenu_OnInterfaceDrawItemButtonsEnd() {
+    RsVanilla_DrawEquipFlight(gPlayState);
+}
+
 static void RegisterRsMenu() {
     // The Quest Journal is the ring's first page and the three ported vanilla pages follow it, and
     // all of them are registered from HERE rather than from ShipInits of their own: ShipInit functions
@@ -2535,6 +2615,26 @@ static void RegisterRsMenu() {
     // The START veto. Same unconditional registration and in-handler CVar read, for the same
     // reason: `menu primary` writes a CVar mid-session and nothing re-runs ShipInit when it does.
     COND_VB_SHOULD(VB_OPEN_PAUSE_MENU, true, { RsMenu_OnShouldOpenPauseMenu(should); });
+    // #125: while the menu is up the interface's button check stands down (its per-page button states
+    // hold), the START button draws, and the flying equip icon draws over the HUD's buttons.
+    COND_VB_SHOULD(VB_UPDATE_HUD_BUTTON_STATUS, true, {
+        if (MenuIsUp()) {
+            *should = false;
+        }
+    });
+    COND_VB_SHOULD(VB_DRAW_PAUSE_START_BUTTON, true, {
+        if (MenuIsUp() && sHudShown) {
+            *should = true;
+        }
+    });
+    // ...and the pieces vanilla draws only while unpaused (the minimap, horse carrots, minigame scores)
+    // hide, as they hide under kaleido.
+    COND_VB_SHOULD(VB_DRAW_UNPAUSED_HUD, true, {
+        if (MenuIsUp()) {
+            *should = false;
+        }
+    });
+    COND_HOOK(OnInterfaceDrawItemButtonsEnd, true, RsMenu_OnInterfaceDrawItemButtonsEnd);
 }
 
 static RegisterShipInitFunc rsMenuInitFunc(RegisterRsMenu);
@@ -2684,9 +2784,30 @@ RsMenuOpenResult RsMenu_Open() {
     sHaltPrev = play->haltAllActors;
     play->haltAllActors = 1;
 
+    // #125 (Spencer: the whole HUD, as vanilla): the gameplay HUD stays up with the page's buttons live
+    // or dimmed, B reads "Save" and A "Decide", and the START button fades in with the entry slide - what
+    // kaleido does as it opens (z_kaleido_scope_PAL.c:3563-3584, :3981, :4237-4244). The button states
+    // it found are put back on close.
     sHudPrev = gSaveContext.hudVisibilityMode;
-    Interface_ChangeHudVisibilityMode(HUD_VISIBILITY_NOTHING_INSTANT);
+    for (int32_t i = 0; i < 9; i++) {
+        sButtonStatusSave[i] = gSaveContext.buttonStatus[i];
+    }
     sHudApplied = true;
+    // Opened over a HUD that something else had hidden (a cutscene, say), the menu keeps it hidden:
+    // revealing it would be the menu breaking something it did not set, the close path's rule.
+    sHudShown = sHudPrev != HUD_VISIBILITY_NOTHING && sHudPrev != HUD_VISIBILITY_NOTHING_ALT &&
+                sHudPrev != HUD_VISIBILITY_NOTHING_INSTANT;
+    // The page ring is settled here (no sweep yet), so this is the opening page's buttons.
+    ApplyPageHud(true);
+    // A's label now, B's once A's label change has finished - kaleido's order, which sets A while opening
+    // (:3981) and loads B's label only once open (:3584). Both pass through doActionSegment[1], so B
+    // loaded first gets A's "Decide" drawn over it (the first s1 run: `b_label=14` and "Decide" on
+    // screen), and B loaded straight after would show on A mid-turn. The update loads it.
+    if (sHudShown) {
+        Interface_SetDoAction(play, DO_ACTION_DECIDE);
+        sBLabelPending = true;
+    }
+    play->interfaceCtx.startAlpha = 0;
 
     // A menu that opens mid-sweep would draw a scroll frozen off-centre. Opening is the one place
     // the animation is reset rather than played out.
@@ -2757,16 +2878,32 @@ static bool CloseMenu(bool syncPlayer) {
     if (gPlayState != nullptr) {
         gPlayState->haltAllActors = sHaltPrev;
     }
+    // An icon still in the air lands now, so the equip the press started is not lost - except from scene
+    // init, where the old interface is gone (`syncPlayer` false) and it is dropped.
+    RsVanilla_FinishEquipFlight(syncPlayer ? gPlayState : nullptr);
     if (sHudApplied) {
-        // Restore what was there, with ONE rewrite: HUD_VISIBILITY_NO_CHANGE is 0, so restoring it
-        // verbatim does nothing at all and would leave the HUD hidden for good. The NOTHING modes
-        // restore as-is on purpose - the menu opened over an already-hidden HUD (a cutscene, say),
-        // and revealing it on close would be the menu breaking something it did not set.
+        // Vanilla's close (z_kaleido_scope_PAL.c:4869-4880): the button states back as they were, the
+        // rando's swordless temp-B hook, B's label and the START button gone, then the HUD mode.
+        for (int32_t i = 0; i < 9; i++) {
+            gSaveContext.buttonStatus[i] = sButtonStatusSave[i];
+        }
+        GameInteractor_Should(VB_TEMP_B_RESTORE_SWORDLESS, true);
+        sBLabelPending = false;
+        if (syncPlayer && gPlayState != nullptr) {
+            // unk_1FA: B draws its label rather than its item; unk_1FC: that label (z_parameter.c:2872-2878).
+            gPlayState->interfaceCtx.unk_1FA = gPlayState->interfaceCtx.unk_1FC = 0;
+            gPlayState->interfaceCtx.startAlpha = 0;
+        }
+        // Restore the mode that was there, with ONE rewrite: HUD_VISIBILITY_NO_CHANGE is 0, so restoring
+        // it verbatim does nothing at all. The NOTHING modes restore as-is on purpose - the menu opened
+        // over an already-hidden HUD (a cutscene, say), and revealing it on close would be the menu
+        // breaking something it did not set. The mode is zeroed first, as vanilla does, so the change
+        // always takes (the menu has held ALL, which may be the mode being restored).
         u16 restore = sHudPrev;
         if (restore == HUD_VISIBILITY_NO_CHANGE) {
             restore = HUD_VISIBILITY_ALL;
         }
-        Interface_ChangeHudVisibilityMode(restore);
+        RetweenHud(restore);
         sHudApplied = false;
     }
     // Last, as in vanilla's close (:4882): the equipment pages wrote the save, and this is where Link
@@ -3118,7 +3255,7 @@ RsMenuStatus RsMenu_Status() {
     status.pauseMenuMode = (int32_t)R_PAUSE_MENU_MODE;
     status.halt = gPlayState != nullptr && gPlayState->haltAllActors != 0;
     status.haltPrev = sHaltPrev != 0;
-    status.hudHidden = sHudApplied;
+    status.hudHeld = sHudApplied;
     status.hudPrev = (int32_t)sHudPrev;
     status.hudNow = (int32_t)gSaveContext.hudVisibilityMode;
     status.hudReasserts = sHudReasserts;

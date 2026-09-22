@@ -4189,7 +4189,8 @@ void Interface_DrawItemButtons(PlayState* play) {
                             R_ITEM_BTN_DD(3) << 1, R_ITEM_BTN_DD(3) << 1);
 
     if ((pauseCtx->state < 8) || (pauseCtx->state >= 18)) {
-        if ((play->pauseCtx.state != 0) || (play->pauseCtx.debugState != 0)) {
+        if (GameInteractor_Should(VB_DRAW_PAUSE_START_BUTTON,
+                                  (play->pauseCtx.state != 0) || (play->pauseCtx.debugState != 0), play)) {
             // Start Button Texture, Color & Label
             gDPPipeSync(OVERLAY_DISP++);
 
@@ -5806,9 +5807,12 @@ void Interface_Draw(PlayState* play) {
             gSP1Quadrangle(OVERLAY_DISP++, 0, 2, 3, 1, 0);
         }
 
+        GameInteractor_ExecuteOnInterfaceDrawItemButtonsEnd();
+
         Gfx_SetupDL_39Overlay(play->state.gfxCtx);
 
-        if ((play->pauseCtx.state == 0) && (play->pauseCtx.debugState == 0)) {
+        if (GameInteractor_Should(VB_DRAW_UNPAUSED_HUD,
+                                  (play->pauseCtx.state == 0) && (play->pauseCtx.debugState == 0), play)) {
             if (gSaveContext.minigameState != 1) {
                 // Carrots rendering if the action corresponds to riding a horse
                 if (interfaceCtx->unk_1EE == 8 && GameInteractor_Should(VB_DRAW_EPONA_BOOST_CARROTS, true)) {
@@ -6548,7 +6552,8 @@ void Interface_Update(PlayState* play) {
             ((play->sceneNum == SCENE_LON_LON_RANCH) && (gSaveContext.sceneLayer == 4))) {
             if ((msgCtx->msgMode == MSGMODE_NONE) ||
                 ((msgCtx->msgMode != MSGMODE_NONE) && (play->sceneNum == SCENE_BOMBCHU_BOWLING_ALLEY))) {
-                if (play->gameOverCtx.state == GAMEOVER_INACTIVE) {
+                if (play->gameOverCtx.state == GAMEOVER_INACTIVE &&
+                    GameInteractor_Should(VB_UPDATE_HUD_BUTTON_STATUS, true, play)) {
                     func_80083108(play);
                 }
             }

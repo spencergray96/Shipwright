@@ -1,9 +1,10 @@
 /*
  * VanillaPages.cpp - what the three ported vanilla pause pages share (sturdy-bassoon#111 stage 8):
- * registration in ring order, the item-name tokens `menu dump` prints, the PauseAnyCursor read,
- * kaleido's C-button assignment with the animation taken out, and two read-only probes for the
- * differential tests - kaleido's live cursor and the save's equip fields. VanillaPages.h is the
- * contract; the pages themselves are ItemsPage.cpp, EquipmentPage.cpp and QuestStatusPage.cpp.
+ * registration in ring order, the item-name tokens `menu dump` prints, the PauseAnyCursor read, each
+ * page's HUD button states (#125), and read-only probes for the differential tests - kaleido's live
+ * cursor, the save's equip fields and the HUD. VanillaPages.h is the contract; the pages themselves are
+ * ItemsPage.cpp, EquipmentPage.cpp and QuestStatusPage.cpp, and the C-button equip with its flying icon
+ * is EquipFlight.cpp.
  *
  * Author: Spencer (with Claude)
  * Created: 2026-09-21
@@ -105,85 +106,6 @@ uint16_t RsVanilla_EquipButtons(uint16_t cur) {
     return buttons;
 }
 
-// KaleidoScope_SetupItemEquip's button choice (z_kaleido_item.c:830-846) and the tail of
-// KaleidoScope_UpdateItemEquip (:1187-1247), which is where kaleido actually writes the save once the
-// icon has flown to its button. The animation in between only moves a picture and, for a magic arrow,
-// renames the item to its bow form on the way - which the "skipping the arrow animation" branch below
-// does anyway, so both of kaleido's paths end in the same write and this is it.
-bool RsVanilla_EquipToButton(PlayState* play, uint16_t press, uint16_t item, uint16_t slot) {
-    int32_t target = -1; // 0-2 C-left/down/right, 3-6 D-pad up/down/left/right
-    if (CHECK_BTN_ALL(press, BTN_CLEFT)) {
-        target = 0;
-    } else if (CHECK_BTN_ALL(press, BTN_CDOWN)) {
-        target = 1;
-    } else if (CHECK_BTN_ALL(press, BTN_CRIGHT)) {
-        target = 2;
-    } else if (CVarGetInteger(CVAR_ENHANCEMENT("DpadEquips"), 0)) {
-        if (CHECK_BTN_ALL(press, BTN_DUP)) {
-            target = 3;
-        } else if (CHECK_BTN_ALL(press, BTN_DDOWN)) {
-            target = 4;
-        } else if (CHECK_BTN_ALL(press, BTN_DLEFT)) {
-            target = 5;
-        } else if (CHECK_BTN_ALL(press, BTN_DRIGHT)) {
-            target = 6;
-        }
-    }
-    if (target < 0) {
-        return false;
-    }
-    // The sound kaleido plays when the equip STARTS (KaleidoScope_SetupItemEquip); the arrow-specific
-    // "set fire arrow" sounds belong to the animation, which is not ported.
-    Audio_PlaySoundGeneral(NA_SE_SY_DECIDE, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
-                           &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
-
-    // A magic arrow goes on the button as the bow loaded with it, and - unless SoH's SeparateArrows is
-    // on - takes the bow's slot, so the two are one equip (z_kaleido_item.c:1114-1117, :1189-1205).
-    if (item == ITEM_ARROW_FIRE || item == ITEM_ARROW_ICE || item == ITEM_ARROW_LIGHT) {
-        item = item == ITEM_ARROW_FIRE ? ITEM_BOW_ARROW_FIRE : item == ITEM_ARROW_ICE ? ITEM_BOW_ARROW_ICE
-                                                                                      : ITEM_BOW_ARROW_LIGHT;
-        if (!CVarGetInteger(CVAR_ENHANCEMENT("SeparateArrows"), 0)) {
-            slot = SLOT_BOW;
-        }
-    }
-
-    // If the slot is on another button already, that button takes the target's old item: a swap.
-    // Kaleido's own loop, including its commented-out `break` - it assumes one pre-existing equip.
-    const uint16_t targetButton = (uint16_t)(target + 1);
-    for (uint16_t other = 0; other < ARRAY_COUNT(gSaveContext.equips.cButtonSlots); other++) {
-        const uint16_t otherButton = (uint16_t)(other + 1);
-        if (other == target) {
-            continue;
-        }
-        if (slot == gSaveContext.equips.cButtonSlots[other]) {
-            if (gSaveContext.equips.buttonItems[targetButton] != ITEM_NONE) {
-                gSaveContext.equips.buttonItems[otherButton] = gSaveContext.equips.buttonItems[targetButton];
-                gSaveContext.equips.cButtonSlots[other] = gSaveContext.equips.cButtonSlots[target];
-                Interface_LoadItemIcon2(play, otherButton);
-            } else {
-                gSaveContext.equips.buttonItems[otherButton] = ITEM_NONE;
-                gSaveContext.equips.cButtonSlots[other] = SLOT_NONE;
-            }
-        }
-        // SoH's "fix for equip dupe": equipping the plain bow over a button that holds a loaded bow.
-        if (item == ITEM_BOW) {
-            if (gSaveContext.equips.buttonItems[otherButton] >= ITEM_BOW_ARROW_FIRE &&
-                gSaveContext.equips.buttonItems[otherButton] <= ITEM_BOW_ARROW_LIGHT &&
-                !CVarGetInteger(CVAR_ENHANCEMENT("SeparateArrows"), 0)) {
-                gSaveContext.equips.buttonItems[otherButton] = gSaveContext.equips.buttonItems[targetButton];
-                gSaveContext.equips.cButtonSlots[other] = gSaveContext.equips.cButtonSlots[target];
-                Interface_LoadItemIcon2(play, otherButton);
-            }
-        }
-    }
-
-    gSaveContext.equips.buttonItems[targetButton] = (u8)item;
-    gSaveContext.equips.cButtonSlots[target] = (u8)slot;
-    Interface_LoadItemIcon1(play, targetButton);
-    RsVanilla_CountEquip();
-    return true;
-}
-
 RsMenuKaleidoCursor RsMenu_KaleidoCursor() {
     RsMenuKaleidoCursor cursor = {};
     if (gPlayState == nullptr) {
@@ -207,6 +129,44 @@ RsMenuKaleidoCursor RsMenu_KaleidoCursor() {
     cursor.slot = pauseCtx->cursorSlot[page];
     cursor.sub = pauseCtx->unk_1E4;
     return cursor;
+}
+
+void RsVanilla_HudButtons(int32_t kaleidoPage, uint8_t status[9]) {
+    // What vanilla pause leaves on each page (v1-out.txt): B always; Select Item the C buttons and the
+    // D-pad slots but not A; Quest Status and Equipment A only - unless AssignableTunicsAndBoots, which
+    // turns every button on for Equipment.
+    const bool items = kaleidoPage == PAUSE_ITEM;
+    const bool allOn =
+        kaleidoPage == PAUSE_EQUIP && CVarGetInteger(CVAR_ENHANCEMENT("AssignableTunicsAndBoots"), 0) != 0;
+    status[0] = BTN_ENABLED;
+    for (int32_t i = 1; i < 9; i++) {
+        status[i] = (allOn || items) ? BTN_ENABLED : BTN_DISABLED;
+    }
+    status[4] = (allOn || !items) ? BTN_ENABLED : BTN_DISABLED;
+}
+
+RsMenuHudState RsMenu_HudState() {
+    RsMenuHudState hud = {};
+    if (gPlayState == nullptr) {
+        return hud;
+    }
+    const InterfaceContext* ic = &gPlayState->interfaceCtx;
+    hud.valid = true;
+    hud.mode = gSaveContext.hudVisibilityMode;
+    hud.prevMode = gSaveContext.prevHudVisibilityMode;
+    for (int32_t i = 0; i < 9; i++) {
+        hud.status[i] = gSaveContext.buttonStatus[i];
+    }
+    const int32_t alpha[13] = { ic->bAlpha,         ic->aAlpha,          ic->cLeftAlpha,     ic->cDownAlpha,
+                                ic->cRightAlpha,    ic->dpadUpAlpha,     ic->dpadDownAlpha,  ic->dpadLeftAlpha,
+                                ic->dpadRightAlpha, ic->healthAlpha,     ic->magicAlpha,     ic->minimapAlpha,
+                                ic->startAlpha };
+    for (int32_t i = 0; i < 13; i++) {
+        hud.alpha[i] = alpha[i];
+    }
+    hud.bLabel = ic->unk_1FC;      // Interface_LoadActionLabelB (z_parameter.c:2872)
+    hud.bLabelShown = ic->unk_1FA; // 1: B draws that label, not its item (:5455)
+    return hud;
 }
 
 bool RsMenu_TestSetInventory(const std::string& kind, int32_t a, int32_t b) {

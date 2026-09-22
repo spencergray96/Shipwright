@@ -127,6 +127,24 @@ std::string DescribeSweep(const RsMenuSweepState& sweep) {
     return buf;
 }
 
+// The HUD line's fields (#125), shared by `hud` and `dump`'s `section=hud`, with the flying equip icon
+// last: `flight=` is active, state, item, target, x, y, alpha, size, move timer (RsMenuEquipFlightState).
+std::string DescribeHud() {
+    const RsMenuHudState h = RsMenu_HudState();
+    const RsMenuEquipFlightState f = RsVanilla_EquipFlightState();
+    char buf[384];
+    std::snprintf(buf, sizeof(buf),
+                  "valid=%d mode=%d prev=%d status=%d,%d,%d,%d,%d,%d,%d,%d,%d "
+                  "alpha=%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d b_label=%d b_label_shown=%d "
+                  "flight=%d,%d,%d,%d,%d,%d,%d,%d,%d flight_ticks=%d flight_hold=%d flights=%d landings=%d",
+                  h.valid ? 1 : 0, h.mode, h.prevMode, h.status[0], h.status[1], h.status[2], h.status[3],
+                  h.status[4], h.status[5], h.status[6], h.status[7], h.status[8], h.alpha[0], h.alpha[1],
+                  h.alpha[2], h.alpha[3], h.alpha[4], h.alpha[5], h.alpha[6], h.alpha[7], h.alpha[8], h.alpha[9],
+                  h.alpha[10], h.alpha[11], h.alpha[12], h.bLabel, h.bLabelShown, f.active ? 1 : 0, f.state, f.item,
+                  f.target, f.x, f.y, f.alpha, f.size, f.moveTimer, f.ticks, f.holdAt, f.flights, f.landings);
+    return buf;
+}
+
 // Why a roll was refused, named once for every path that can refuse one. `level` when the scroll is
 // in a detail view or moving between levels: the ring belongs to the top level, and `no_ring` there
 // would send a run looking for a page problem. `fallback` is the path's own kind (a bad tick is
@@ -490,9 +508,9 @@ int32_t Dump(std::vector<std::string>& lines) {
          RsMenu_PhaseName(status.phase), status.entryTick, status.entryTicks, status.entryProgress,
          status.dimAlpha);
     Addf(lines,
-         "op=dump section=freeze halt=%d halt_prev=%d hud_hidden=%d hud_prev=%d hud_now=%d hud_reasserts=%d "
+         "op=dump section=freeze halt=%d halt_prev=%d hud_held=%d hud_prev=%d hud_now=%d hud_reasserts=%d "
          "kaleido=%d",
-         status.halt ? 1 : 0, status.haltPrev ? 1 : 0, status.hudHidden ? 1 : 0, status.hudPrev, status.hudNow,
+         status.halt ? 1 : 0, status.haltPrev ? 1 : 0, status.hudHeld ? 1 : 0, status.hudPrev, status.hudNow,
          status.hudReasserts,
          status.kaleido);
     // The START filter's witness. `filter_armed` counts the frames it was entitled to swallow on,
@@ -520,6 +538,7 @@ int32_t Dump(std::vector<std::string>& lines) {
     // cost: whether that frame drew the cursor box (#124), 0 through a roll or a level change.
     Addf(lines, "op=dump section=draw glyphs=%d quads=%d icons=%d dl_words=%d cursor_drawn=%d", status.drawGlyphs,
          status.drawQuads, status.drawIcons, status.dlWords, status.cursorDrawn ? 1 : 0);
+    Addf(lines, "op=dump section=hud %s", DescribeHud().c_str());
     // Stage 7: the same last frame, counting only the VIEW - the page body, detail body or stress
     // body inside the content node - so chrome and content separate. `drawn_rows` is distinct text
     // lines, `drawn_glyphs` glyphs, `drawn_words` the Gfx words the view appended. `view=none` is a
@@ -652,6 +671,37 @@ int32_t Kaleido(std::vector<std::string>& lines) {
     return 0;
 }
 
+// `hud` (#125): the gameplay HUD as the interface sees it, under either menu (VanillaPages.h,
+// RsMenuHudState) - the other half of every "the scroll shows what vanilla pause shows" comparison.
+// `status=` is buttonStatus B, C-left, C-down, C-right, A, D-up, D-down, D-left, D-right; `alpha=` is
+// B, A, C-left, C-down, C-right, D-up, D-down, D-left, D-right, hearts, magic, minimap, START.
+int32_t Hud(std::vector<std::string>& lines) {
+    const RsMenuHudState hud = RsMenu_HudState();
+    if (!hud.valid) {
+        Addf(lines, "op=hud result=error error=no_play %s", Describe().c_str());
+        return 1;
+    }
+    Addf(lines, "op=hud result=ok %s", DescribeHud().c_str());
+    return 0;
+}
+
+// TEST-ONLY `flight hold <n>|release` (#125): parks the flying equip icon once it has taken n ticks,
+// so a run can read one pose and screenshot it (the flight is ten ticks, half a second - shorter than a
+// console round trip). The reply is the `hud` line.
+int32_t Flight(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    int32_t tick = 0;
+    if (args.size() == 3 && args[1] == "hold" && ParseIndex(args[2], &tick)) {
+        RsVanilla_SetEquipFlightHold(tick);
+    } else if (args.size() == 2 && args[1] == "release") {
+        RsVanilla_SetEquipFlightHold(-1);
+    } else {
+        Addf(lines, "op=flight result=error error=arg %s", Describe().c_str());
+        return 1;
+    }
+    Addf(lines, "op=flight result=ok %s", DescribeHud().c_str());
+    return 0;
+}
+
 // `equips` reads the save fields an equip writes, so a run can compare the scroll's result with
 // vanilla's field for field: the eight button items (B, C-left, C-down, C-right, D-up, D-down, D-left,
 // D-right), the seven C/D slots, the equipment word, the swordless flag and infTable[29], the sword's
@@ -697,7 +747,8 @@ const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custo
                      "sweep [l|r|loop|hold <l|r> <tick>|stop] | "
                      "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
                      "stress [<n> [same]|off|memo <on|off>] | "
-                     "cursor [left|right|up|down|select|<id>] | probe [on|off] | kaleido | equips | "
+                     "cursor [left|right|up|down|select|<id>] | probe [on|off] | kaleido | equips | hud | "
+                     "flight hold <n>|release | "
                      "inv <kind> <a> <b> | dump";
 
 } // namespace
@@ -745,6 +796,12 @@ int32_t RsMenuConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "equips") {
         return Equips(lines);
     }
+    if (sub == "hud") {
+        return Hud(lines);
+    }
+    if (sub == "flight") {
+        return Flight(args, lines);
+    }
     if (sub == "inv") {
         return Inv(args, lines);
     }
@@ -768,7 +825,8 @@ const ConsoleSink::Command menuCommand(
     "primary [custom|vanilla] | sweep [l|r|loop|hold <l|r> <tick>|stop] | "
     "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
     "stress [<n> [same]|off|memo <on|off>] | cursor [left|right|up|down|select|<id>] | "
-    "probe [on|off] | kaleido | equips | inv <kind> <a> <b> | dump. The scroll opens on the N64 L bit (and on "
+    "probe [on|off] | kaleido | equips | hud | flight hold <n>|release | inv <kind> <a> <b> | dump. "
+    "The scroll opens on the N64 L bit (and on "
     "START when primary is custom) "
     "and hard-freezes the world; primary decides which menu START opens, and is a subcommand because "
     "there is no console `set`. sweep rolls the scroll one page the way a shoulder press does, and "
@@ -787,7 +845,7 @@ const ConsoleSink::Command menuCommand(
     "reads vanilla pause's live cursor and equips the save's equip fields plus what Link in the world "
     "is wearing - the two halves of the stage-8 differential tests; inv (test-only) writes a sparse "
     "inventory for them, and can set the Biggoron flags or switch Link's age.",
-    { { "open|close|page|primary|sweep|level|filler|stress|cursor|probe|kaleido|equips|inv|dump",
+    { { "open|close|page|primary|sweep|level|filler|stress|cursor|probe|kaleido|equips|hud|flight|inv|dump",
         Ship::ArgumentType::TEXT },
       { "argument", Ship::ArgumentType::TEXT, true } });
 

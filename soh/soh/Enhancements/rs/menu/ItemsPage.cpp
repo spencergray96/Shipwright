@@ -8,7 +8,8 @@
  *
  * NOT PORTED, on purpose: the cursor's own look (the menu's yellow box stands in for kaleido's corners
  * and its 2-unit icon zoom), the name plate, SoH's item-cycling extras (mask select, rando trade
- * cycling, Roc's Feather) and the flying-icon equip animation - the equip itself happens at once.
+ * cycling, Roc's Feather). The flying-icon equip animation IS ported since #125 (EquipFlight.cpp): the
+ * equip lands, and the save changes, when the icon reaches its button.
  * Also kaleido's `cursorItem == PAUSE_ITEM_NONE` -> `stickRelX = 40` (z_kaleido_item.c:460-461), which
  * walks the cursor right with no input: that value only marks the page arrows, which here are hands.
  *
@@ -344,12 +345,22 @@ static void ItemsPageInput(int32_t pageIndex, int32_t level, uint16_t press, int
     const u16 item = gSaveContext.inventory.items[slot];
     if (CHECK_AGE_REQ_SLOT(slot) && item != ITEM_SOLD_OUT && item != ITEM_NONE) {
         if (GameInteractor_Should(VB_EQUIP_ITEM_TO_C_BUTTON, true, gPlayState, (u16)slot, item)) {
-            RsVanilla_EquipToButton(gPlayState, press, item, (u16)slot);
+            // From the slot's drawn top-left - kaleido's itemVtx corner, inset 2 like it - and via the
+            // Bow's slot (3, kaleido's itemVtx[12]) if a magic arrow's effect runs.
+            RsVanilla_BeginEquip(press, item, (u16)slot, kMap.X(SlotLeft(slot)), kMap.Y(SlotTop(slot)),
+                                 kMap.X(SlotLeft(SLOT_BOW)), kMap.Y(SlotTop(SLOT_BOW)));
         }
     } else {
         Audio_PlaySoundGeneral(NA_SE_SY_ERROR, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
                                &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
     }
+}
+
+// #125: the HUD buttons vanilla shows on this page.
+static void ItemsPageHud(int32_t pageIndex, uint8_t status[9], void* userData) {
+    (void)pageIndex;
+    (void)userData;
+    RsVanilla_HudButtons(PAUSE_ITEM, status);
 }
 
 int32_t RsMenuItemsPage_Register() {
@@ -361,6 +372,7 @@ int32_t RsMenuItemsPage_Register() {
     page.input = ItemsPageInput;
     page.claim = RsVanilla_ClaimEquipDpad;
     page.stickModel = RS_MENU_STICK_KALEIDO_SEQUENTIAL;
+    page.hud = ItemsPageHud;
     page.ownsItemHighlight = false; // the menu's yellow box, not kaleido's corner cursor
     sPageIndex = RsMenu_RegisterPageStruct(page);
     return sPageIndex;

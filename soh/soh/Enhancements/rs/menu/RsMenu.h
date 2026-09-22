@@ -7,8 +7,9 @@
 
 // The mod-owned pause interface (sturdy-bassoon#111) - the RS-style scroll, built BESIDE kaleido
 // rather than inside it. It never touches `pauseCtx`: it updates on OnGameFrameUpdate, draws on
-// OnPlayDrawEnd, freezes the world with `play->haltAllActors` and hides the HUD with
-// Interface_ChangeHudVisibilityMode. Research: docs/notes/2026-09-17-pause-menu-research.md.
+// OnPlayDrawEnd, freezes the world with `play->haltAllActors` and, since #125, holds the gameplay HUD
+// the way vanilla pause shows it (per-page button states, B "Save", A "Decide", the START button).
+// Research: docs/notes/2026-09-17-pause-menu-research.md.
 //
 // THE ONE STRUCTURAL INVARIANT: the page set is open-ended. Pages register into the runtime list
 // below, the ring wraps modulo `RsMenu_PageCount()`, and NOTHING anywhere is sized to the number of
@@ -126,6 +127,13 @@ typedef uint16_t (*RsMenuPageClaimFn)(int32_t pageIndex, uint16_t held, void* us
 //   KALEIDO_ORIGIN     - the same, but the Quest Status page's diagonal: both steps from the ORIGINAL
 //                        point, the vertical target winning unless the horizontal one reached a hand
 //                        (z_kaleido_collect.c:106-152).
+// #125: the gameplay HUD stays up while the scroll is (vanilla parity), and each page says which of
+// the buttons are live on it, the way kaleido sets gSaveContext.buttonStatus per page: fill `status`
+// in buttonStatus order (B, C-left, C-down, C-right, A, D-up, D-down, D-left, D-right) with
+// BTN_ENABLED (0) or BTN_DISABLED (255); a disabled button draws dimmed. Null takes the menu's default,
+// which is the Quest Journal's: B and A, and C-left/C-right for its paging.
+typedef void (*RsMenuPageHudFn)(int32_t pageIndex, uint8_t status[9], void* userData);
+
 enum RsMenuStickModel {
     RS_MENU_STICK_LATCH = 0,
     RS_MENU_STICK_KALEIDO_SEQUENTIAL,
@@ -144,6 +152,7 @@ struct RsMenuPage {
     bool ownsItemHighlight = false;
     RsMenuPageClaimFn claim = nullptr;
     RsMenuStickModel stickModel = RS_MENU_STICK_LATCH;
+    RsMenuPageHudFn hud = nullptr;
 };
 
 // Registers a page at the end of the ring and returns its 0-based index, or -1 if `id` is empty or
@@ -543,10 +552,10 @@ struct RsMenuStatus {
     // Freeze and HUD, as actually applied to the live PlayState.
     bool halt;           // play->haltAllActors right now
     bool haltPrev;       // what it was when the menu opened, and what close restores
-    bool hudHidden;
+    bool hudHeld;        // the menu holds the HUD (shown, since #125; `hud_hidden=` before it)
     int32_t hudPrev;     // gSaveContext.hudVisibilityMode at open; what close restores
     int32_t hudNow;
-    int32_t hudReasserts; // stage 8: times the hidden HUD was put back while the menu was up
+    int32_t hudReasserts; // stage 8: times the HUD mode was put back while up (ALL since #125; 0 expected)
     // What the last drawn frame cost, in the units the OVERLAY_DISP budget is denominated in - and
     // zero while the menu is closed, because then the last frame drew nothing.
     // `dlWords` is the heap display list's length - OVERLAY_DISP itself holds only 2048 Gfx words
