@@ -134,6 +134,31 @@ typedef uint16_t (*RsMenuPageClaimFn)(int32_t pageIndex, uint16_t held, void* us
 // which is the Quest Journal's: B and A, and C-left/C-right for its paging.
 typedef void (*RsMenuPageHudFn)(int32_t pageIndex, uint8_t status[9], void* userData);
 
+// #127: a page with its own running state (the Quest Status page's song playback).
+//   `tick`  - once per update tick while the page is visible, settled at level 0 and nothing animates,
+//             AFTER the cursor has moved (kaleido's order). `press` is the raw press;
+//             RsMenu_StickStepped() says whether the stick stepped.
+//   `hold`  - asked before anything acts on the tick's input, so it describes the state that input arrived
+//             in: which of the menu's own reactions the page is taking this tick (RsMenuHold flags).
+//             HOLD_ALL stands the whole menu down (the cursor, START, B, A, L/R), as kaleido takes no
+//             input while a song demo plays.
+//   `reset` - when the page stops being the one on show (a roll or page change away) and when the menu
+//             closes, on every page: drop any running state. Idempotent.
+enum RsMenuHold : uint32_t {
+    RS_MENU_HOLD_NONE = 0,
+    RS_MENU_HOLD_START = 1u << 0, // the menu does not close on START
+    RS_MENU_HOLD_B = 1u << 1,     // the menu does not act on B (the page's tick did)
+    RS_MENU_HOLD_ROLL = 1u << 2,  // L/R/Z do not roll
+    RS_MENU_HOLD_CURSOR = 1u << 3, // the cursor does not move
+    RS_MENU_HOLD_A = 1u << 4,      // A does not select
+    RS_MENU_HOLD_ALL = 0x1F,
+};
+typedef void (*RsMenuPageTickFn)(int32_t pageIndex, uint16_t press, void* userData);
+// Whether kaleido's stick filter stepped this tick on the page on show (the ported pages' stick, #126).
+bool RsMenu_StickStepped();
+typedef uint32_t (*RsMenuPageHoldFn)(int32_t pageIndex, void* userData);
+typedef void (*RsMenuPageResetFn)(int32_t pageIndex, void* userData);
+
 enum RsMenuStickModel {
     RS_MENU_STICK_LATCH = 0,
     RS_MENU_STICK_KALEIDO_SEQUENTIAL,
@@ -153,6 +178,9 @@ struct RsMenuPage {
     RsMenuPageClaimFn claim = nullptr;
     RsMenuStickModel stickModel = RS_MENU_STICK_LATCH;
     RsMenuPageHudFn hud = nullptr;
+    RsMenuPageTickFn tick = nullptr;
+    RsMenuPageHoldFn hold = nullptr;
+    RsMenuPageResetFn reset = nullptr;
 };
 
 // Registers a page at the end of the ring and returns its 0-based index, or -1 if `id` is empty or

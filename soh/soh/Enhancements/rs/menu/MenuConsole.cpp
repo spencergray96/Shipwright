@@ -702,6 +702,21 @@ int32_t Flight(const std::vector<std::string>& args, std::vector<std::string>& l
     return 0;
 }
 
+// `song` (#127, read-only): the Quest Status page's song playback and the ocarina's two staves
+// (VanillaPages.h, RsMenuSongState). The staves are global, so under vanilla pause this line reads the
+// same demo and attempt kaleido is running - the vanilla half of the comparison.
+int32_t Song(std::vector<std::string>& lines) {
+    const RsMenuSongState s = RsMenu_SongState();
+    Addf(lines,
+         "op=song result=ok state=%d point=%d song=%d count=%d notes=%d,%d,%d,%d,%d,%d,%d,%d muted=%d "
+         "playback=%d,%d,%d playing=%d,%d,%d bgm_muted=%d previews=%d demos=%d hits=%d misses=%d %s",
+         s.state, s.point, s.songIdx, s.count, s.notes[0], s.notes[1], s.notes[2], s.notes[3], s.notes[4],
+         s.notes[5], s.notes[6], s.notes[7], s.muted ? 1 : 0, s.playbackPos, s.playbackState, s.playbackButton,
+         s.playingPos, s.playingState, s.playingButton, s.bgmMutedByAudio, s.previews, s.demos, s.hits, s.misses,
+         Describe().c_str());
+    return 0;
+}
+
 // `equips` reads the save fields an equip writes, so a run can compare the scroll's result with
 // vanilla's field for field: the eight button items (B, C-left, C-down, C-right, D-up, D-down, D-left,
 // D-right), the seven C/D slots, the equipment word, the swordless flag and infTable[29], the sword's
@@ -748,7 +763,7 @@ const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custo
                      "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
                      "stress [<n> [same]|off|memo <on|off>] | "
                      "cursor [left|right|up|down|select|<id>] | probe [on|off] | kaleido | equips | hud | "
-                     "flight hold <n>|release | "
+                     "flight hold <n>|release | song | "
                      "inv <kind> <a> <b> | dump";
 
 } // namespace
@@ -802,6 +817,9 @@ int32_t RsMenuConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "flight") {
         return Flight(args, lines);
     }
+    if (sub == "song") {
+        return Song(lines);
+    }
     if (sub == "inv") {
         return Inv(args, lines);
     }
@@ -825,7 +843,7 @@ const ConsoleSink::Command menuCommand(
     "primary [custom|vanilla] | sweep [l|r|loop|hold <l|r> <tick>|stop] | "
     "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
     "stress [<n> [same]|off|memo <on|off>] | cursor [left|right|up|down|select|<id>] | "
-    "probe [on|off] | kaleido | equips | hud | flight hold <n>|release | inv <kind> <a> <b> | dump. "
+    "probe [on|off] | kaleido | equips | hud | flight hold <n>|release | song | inv <kind> <a> <b> | dump. "
     "The scroll opens on the N64 L bit (and on "
     "START when primary is custom) "
     "and hard-freezes the world; primary decides which menu START opens, and is a subcommand because "
@@ -845,7 +863,7 @@ const ConsoleSink::Command menuCommand(
     "reads vanilla pause's live cursor and equips the save's equip fields plus what Link in the world "
     "is wearing - the two halves of the stage-8 differential tests; inv (test-only) writes a sparse "
     "inventory for them, and can set the Biggoron flags or switch Link's age.",
-    { { "open|close|page|primary|sweep|level|filler|stress|cursor|probe|kaleido|equips|hud|flight|inv|dump",
+    { { "open|close|page|primary|sweep|level|filler|stress|cursor|probe|kaleido|equips|hud|flight|song|inv|dump",
         Ship::ArgumentType::TEXT },
       { "argument", Ship::ArgumentType::TEXT, true } });
 

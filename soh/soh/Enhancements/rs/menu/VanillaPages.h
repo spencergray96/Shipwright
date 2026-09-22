@@ -120,6 +120,27 @@ struct RsMenuEquipFlightState {
     int32_t holdAt; // the test-only hold, -1 off
 };
 RsMenuEquipFlightState RsVanilla_EquipFlightState();
+// #127: song playback on the Quest Status page (QuestStatusPage.cpp). `state` is kaleido's song
+// sub-state (0 none, 8 preview, 9 lead-in, 2 demo, 4 armed, 5 playing, 6 result); `point` the song's
+// cursor point, `songIdx` the ocarina song; `notes` the notes shown so far (255 past the last), `count`
+// how many. The two staves are the ocarina's globals, read live, so this reads true under vanilla pause
+// too: `playback*` is the game's demo, `playing*` the player's attempt (state = the song index on a hit,
+// 255 on a miss). `muted` is the page's own mute, `bgmMutedByAudio` the audio thread's flag on the BGM
+// player itself. Counters: previews started, demos played, hits, misses.
+struct RsMenuSongState {
+    int32_t state;
+    int32_t point;
+    int32_t songIdx;
+    int32_t count;
+    int32_t notes[8];
+    bool muted;
+    int32_t playbackPos, playbackState, playbackButton;
+    int32_t playingPos, playingState, playingButton;
+    int32_t bgmMutedByAudio;
+    int32_t previews, demos, hits, misses;
+};
+RsMenuSongState RsMenu_SongState();
+
 // TEST-ONLY: stop a flight advancing once it has taken `tick` ticks (-1 lets it go), so a run can read
 // and screenshot one pose of a half-second animation. `menu flight hold <n>|release`.
 void RsVanilla_SetEquipFlightHold(int32_t tick);

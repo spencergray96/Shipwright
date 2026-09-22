@@ -156,7 +156,20 @@
 //                         scroll's equip with vanilla's: `buttons=` (the 8 button items, B then
 //                         C-left/down/right then D-up/down/left/right), `slots=` (the 7 cButtonSlots),
 //                         `equipment=` (equips.equipment), `swordless=`, `inf29=`, `sword_health=`,
-//                         `bgs=`, `dpad=` (SoH's DpadEquips) and `done=` (equips the ported pages did)
+//                         `bgs=`, `dpad=` (SoH's DpadEquips) and `done=` (equips the ported pages did).
+//                         #123 adds a second line, `section=player`: Link in the world
+//   hud                   #125, READ-ONLY. The gameplay HUD as the interface sees it, under either menu:
+//                         `mode=`/`prev=`, `status=` (the nine buttonStatus), `alpha=` (thirteen
+//                         alphas), `b_label=`/`b_label_shown=`, and the flying equip icon (`flight=`,
+//                         `flight_ticks=`, `flight_hold=`, `flights=`, `landings=`)
+//   flight hold <n>|release
+//                         #125, TEST-ONLY. Parks the flying equip icon once it has taken n ticks, so
+//                         one pose of a half-second flight can be read and screenshot; replies `hud`
+//   song                  #127, READ-ONLY. The Quest Status page's song playback (`state=` kaleido's
+//                         song sub-state, `point=`, `song=`, `count=`, `notes=`, `muted=`) and the
+//                         ocarina's two global staves (`playback=` and `playing=`, each pos,state,
+//                         button), `bgm_muted=` (the audio thread's own flag on the BGM player) and
+//                         counters; the staves read true under vanilla pause as well
 //   inv <kind> <a> <b>    STAGE 8, TEST-ONLY. Writes gSaveContext - a scratch save only. The sparse
 //                         inventory the movement tests need: `item <slot> <ITEM_ id|255>`,
 //                         `equip <bit> <0|1>`, `upgrade <UPG_ type> <value>`, `quest <bit> <0|1>`.

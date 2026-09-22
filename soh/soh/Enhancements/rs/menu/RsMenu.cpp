@@ -1,6 +1,10 @@
 /*
  * RsMenu.cpp - the mod-owned pause interface (sturdy-bassoon#111), stages 1-8.
  *
+ * #127 lets a page run state of its own (RsMenu.h: `tick`, `hold`, `reset`) - the Quest Status page's song
+ * playback - and hold back the menu's own reactions to START, B, A, L/R and the cursor while it does.
+ * Input only; no Matrix_* op changes.
+ *
  * #125 keeps the gameplay HUD up the way vanilla pause shows it - the page's buttons live or dimmed,
  * B "Save", A "Decide", the START button, the minimap hidden - and flies an equipped icon to its button
  * (EquipFlight.cpp), drawn over the HUD from a hook inside Interface_Draw. Three VB_ entries and one hook
@@ -576,6 +580,9 @@ static int32_t sCursorMoves = 0;
 static int32_t sCursorSelects = 0;
 static bool sStickLatchX = false;
 static bool sStickLatchY = false;
+// #127: kaleido's stick filter stepped this tick (RsMenu_StickStepped) - a song's play-along ends on it.
+static bool sStickStepped = false;
+static void ResetPage(int32_t index);
 // #126: kaleido's per-axis repeat state (D_8082AD4C/D_8082AD44 for x, D_8082AD50/D_8082AD48 for y,
 // z_kaleido_scope_PAL.c:1444-1449) - the held direction and the ticks until it fires again.
 struct KaleidoStickAxisState {
@@ -1779,6 +1786,10 @@ static void JumpCursor(int32_t next) {
     RebuildCursorGraph();
 }
 
+bool RsMenu_StickStepped() {
+    return sStickStepped;
+}
+
 bool RsMenu_MoveCursor(int32_t dx, int32_t dy) {
     const int32_t next = CursorEdge(RsMenu_CursorAt(sCursorIndex), dx, dy);
     if (next < 0) {
@@ -1985,6 +1996,7 @@ static void AdvanceSweep() {
     }
     sSweepTick++;
     if (sSweepTick == kSweepSwapTick) {
+        ResetPage(sPage); // #127: the page being rolled away drops any running state
         sPage = sSweepTo;
         sPageChanges++;
         // The cursor, if it was on an ITEM of the page being left, has nothing to stand on here: hand
@@ -2065,6 +2077,17 @@ static void ResetLevel() {
     sLevelLoop = false;
     sLevelHold = false;
 }
+
+// #127: tells a page it is no longer the one on show, or that the menu is closing (RsMenu.h, `reset`).
+static void ResetPage(int32_t index) {
+    const RsMenuPage* page = RsMenu_PageAt(index);
+    if (page != nullptr && page->reset != nullptr) {
+        page->reset(index, page->userData);
+    }
+}
+
+// #127: what the page on show is holding this tick (RsMenuHold), set by the update before navigation.
+static uint32_t sPageHold = RS_MENU_HOLD_NONE;
 
 // #125: the button states for the page on show - the roll's target from the moment it starts - written
 // into gSaveContext.buttonStatus. When they change (and on open, `force`) the HUD mode is taken to 0 and
@@ -2175,6 +2198,7 @@ static void UpdateNavigation(const Input* input) {
     // latch and the filter both run every tick, whichever page is up and whether or not it animates.
     const int32_t kx = KaleidoStickAxis(input->rel.stick_x, &sKaleidoX);
     const int32_t ky = KaleidoStickAxis(input->rel.stick_y, &sKaleidoY);
+    sStickStepped = kx != 0 || ky != 0;
     const RsMenuStickModel stickModel =
         sLevel == 0 && page != nullptr ? page->stickModel : RS_MENU_STICK_LATCH;
 
@@ -2185,7 +2209,7 @@ static void UpdateNavigation(const Input* input) {
     // the animation does not fire the moment it ends, and a ported page's filter keeps counting, so a
     // held stick repeats on kaleido's schedule once it does. B and START are handled by the caller and stay
     // live on purpose: they are the way out, and closing mid-roll just drops the half-shut scroll.
-    if (sLevelActive || sSweepActive || RsVanilla_EquipFlightActive()) {
+    if (sLevelActive || sSweepActive || RsVanilla_EquipFlightActive() || (sPageHold & RS_MENU_HOLD_CURSOR)) {
         return;
     }
 
@@ -2217,7 +2241,7 @@ static void UpdateNavigation(const Input* input) {
         page->input(sPage, 0, press, 0, page->userData);
     }
 
-    if (CHECK_BTN_ALL(press, BTN_A)) {
+    if (CHECK_BTN_ALL(press, BTN_A) && !(sPageHold & RS_MENU_HOLD_A)) {
         RsMenu_SelectCursor();
     }
 }
@@ -2233,6 +2257,11 @@ static void RsMenu_OnGameFrameUpdate() {
             sEntryTick = 0;
             sCloses++;
             sHudApplied = false;
+            // #127: but the pages still drop their state - a song's BGM mute is the audio thread's, and
+            // it would outlast the menu otherwise.
+            for (int32_t i = 0; i < RsMenu_PageCount(); i++) {
+                ResetPage(i);
+            }
         }
         sStartEdge = false;
         return;
@@ -2332,8 +2361,20 @@ static void RsMenu_OnGameFrameUpdate() {
             return;
         }
 
+        // #127: what the page on show is holding, asked BEFORE anything acts on this tick's input, so it
+        // describes the state that input arrived in: a B the page spends leaving a song must not also
+        // reach the menu once the song has gone (the first p1 run: B in the play-along left the song,
+        // then closed the scroll). The page's own tick runs at the end, after the cursor has moved, as
+        // kaleido moves its cursor before its song logic looks at it.
+        sPageHold = RS_MENU_HOLD_NONE;
+        const RsMenuPage* holdPage = RsMenu_PageAt(sPage);
+        const bool pageSettled = holdPage != nullptr && sLevel == 0 && !sSweepActive && !sLevelActive;
+        if (pageSettled && holdPage->hold != nullptr) {
+            sPageHold = holdPage->hold(sPage, holdPage->userData);
+        }
+
         // START closes from anywhere, at either level - it is the "get me out" button.
-        if (startEdge) {
+        if (startEdge && !(sPageHold & RS_MENU_HOLD_START)) {
             sStartConsumed++;
             RsMenu_BeginClose();
             return;
@@ -2342,7 +2383,7 @@ static void RsMenu_OnGameFrameUpdate() {
         // while the level gesture is moving, like every other press that would start an animation
         // on top of one - otherwise a B landing mid-descent would close a menu that was on its way
         // down into something.
-        if (CHECK_BTN_ALL(input->press.button, BTN_B)) {
+        if (CHECK_BTN_ALL(input->press.button, BTN_B) && !(sPageHold & RS_MENU_HOLD_B)) {
             if (sLevelActive) {
                 // dropped
             } else if (sLevel != 0) {
@@ -2361,7 +2402,7 @@ static void RsMenu_OnGameFrameUpdate() {
         // GC pad has), so without this a GC player could roll right and never left. Vanilla kaleido
         // pages with exactly this pair - Z left, R right - and never reads N64 L at all. Z has no
         // other job while the scroll is up: the world, and Z-targeting with it, is frozen.
-        if (sLevel == 0 && !sLevelActive) {
+        if (sLevel == 0 && !sLevelActive && !(sPageHold & RS_MENU_HOLD_ROLL)) {
             if (CHECK_BTN_ALL(input->press.button, BTN_L) || CHECK_BTN_ALL(input->press.button, BTN_Z)) {
                 RsMenu_StartSweep(-1);
             } else if (CHECK_BTN_ALL(input->press.button, BTN_R)) {
@@ -2369,6 +2410,11 @@ static void RsMenu_OnGameFrameUpdate() {
             }
         }
         UpdateNavigation(input);
+        // Still the same page, still settled (a roll started this tick is not): the page's tick.
+        if (pageSettled && RsMenu_PageAt(sPage) == holdPage && !sSweepActive && !sLevelActive &&
+            holdPage->tick != nullptr && MenuIsUp() && sPhase != RS_MENU_PHASE_CLOSING) {
+            holdPage->tick(sPage, input->press.button, holdPage->userData);
+        }
         return;
     }
 
@@ -2842,6 +2888,11 @@ bool RsMenu_BeginClose() {
     if (sPhase == RS_MENU_PHASE_CLOSING) {
         return true; // already on its way down; do not restart the slide
     }
+    // #127: a page's running state ends when the close begins, not after the slide - a song stops and its
+    // mute lifts at once, as vanilla's START turns the instrument off at once (z_kaleido_scope_PAL.c:4313).
+    for (int32_t i = 0; i < RsMenu_PageCount(); i++) {
+        ResetPage(i);
+    }
     // Reversing out of a half-finished arrival picks up where it got to rather than snapping to the
     // top first, which is one line and the difference between a slide and a jerk.
     sEntryTick = sPhase == RS_MENU_PHASE_OPENING ? kEntryTicks - sEntryTick : 0;
@@ -2878,6 +2929,11 @@ static bool CloseMenu(bool syncPlayer) {
     if (gPlayState != nullptr) {
         gPlayState->haltAllActors = sHaltPrev;
     }
+    // #127: every page drops its running state (a song stops, its mute lifts).
+    for (int32_t i = 0; i < RsMenu_PageCount(); i++) {
+        ResetPage(i);
+    }
+    sPageHold = RS_MENU_HOLD_NONE;
     // An icon still in the air lands now, so the equip the press started is not lost - except from scene
     // init, where the old interface is gone (`syncPlayer` false) and it is dropped.
     RsVanilla_FinishEquipFlight(syncPlayer ? gPlayState : nullptr);
@@ -2920,6 +2976,7 @@ bool RsMenu_SetPage(int32_t index) {
     }
     if (index != sPage) {
         sPageChanges++;
+        ResetPage(sPage);
     }
     sPage = index;
     // An instant page change abandons any sweep in flight rather than letting it swap again on a
