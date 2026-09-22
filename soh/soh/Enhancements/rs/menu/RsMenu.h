@@ -115,6 +115,23 @@ typedef uint16_t (*RsMenuPageClaimFn)(int32_t pageIndex, uint16_t held, void* us
 // `ownsItemHighlight`: the page draws its own marker on the item the cursor is on (the quest
 // list's arrow), so the menu does not draw its yellow box around that item. The box still draws
 // around a HAND, which the page does not own.
+//
+// `stickModel`: how the stick walks the page's cursor (#126).
+//   LATCH              - one step per push, one axis at a time; what the Quest Journal wants.
+//   KALEIDO_SEQUENTIAL - a port of kaleido's Select Item / Equipment pages: kaleido's threshold on
+//                        `input->rel`, its hold-to-repeat (a step on the first tick, then on ticks
+//                        11, 14, 17...), and its diagonal - the horizontal step, then the vertical one
+//                        from where that landed, with no vertical at all on a tick that starts on a
+//                        hand (kaleido's page arrow).
+//   KALEIDO_ORIGIN     - the same, but the Quest Status page's diagonal: both steps from the ORIGINAL
+//                        point, the vertical target winning unless the horizontal one reached a hand
+//                        (z_kaleido_collect.c:106-152).
+enum RsMenuStickModel {
+    RS_MENU_STICK_LATCH = 0,
+    RS_MENU_STICK_KALEIDO_SEQUENTIAL,
+    RS_MENU_STICK_KALEIDO_ORIGIN,
+};
+
 struct RsMenuPage {
     std::string id;
     std::string title;
@@ -126,6 +143,7 @@ struct RsMenuPage {
     RsMenuPageInputFn input = nullptr;
     bool ownsItemHighlight = false;
     RsMenuPageClaimFn claim = nullptr;
+    RsMenuStickModel stickModel = RS_MENU_STICK_LATCH;
 };
 
 // Registers a page at the end of the ring and returns its 0-based index, or -1 if `id` is empty or

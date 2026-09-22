@@ -1,6 +1,10 @@
 /*
  * RsMenu.cpp - the mod-owned pause interface (sturdy-bassoon#111), stages 1-8.
  *
+ * #126 gives the ported pages kaleido's stick (RsMenuStickModel, RsMenu.h): kaleido's hold-to-repeat
+ * filter on `input->rel` and each page's own way of resolving a diagonal, where the journal keeps the
+ * one-step latch. Input only - no Matrix_* op changes.
+ *
  * STAGE 8 ports three vanilla pause pages onto the scroll (VanillaPages.h) and replaces the greybox
  * pages with them: the ring is the Quest Journal, Items, Equipment and Quest Status. What it adds here
  * is plumbing, and none of it adds or skips a Matrix_* op inside a menu node: RsMenu_DrawIcon (a
@@ -545,6 +549,14 @@ static int32_t sCursorMoves = 0;
 static int32_t sCursorSelects = 0;
 static bool sStickLatchX = false;
 static bool sStickLatchY = false;
+// #126: kaleido's per-axis repeat state (D_8082AD4C/D_8082AD44 for x, D_8082AD50/D_8082AD48 for y,
+// z_kaleido_scope_PAL.c:1444-1449) - the held direction and the ticks until it fires again.
+struct KaleidoStickAxisState {
+    int16_t dir = 0;   // the held direction, -1, 0 or +1
+    int16_t timer = 0; // ticks until it fires again
+};
+static KaleidoStickAxisState sKaleidoX;
+static KaleidoStickAxisState sKaleidoY;
 
 // Set for the duration of one draw. RsMenu_DrawText is a public entry point a page's draw callback
 // calls, and this is how it knows there is a frame to append to - null means "not inside a draw",
@@ -1713,10 +1725,10 @@ const std::string& RsMenu_CursorId() {
     return sCursorId;
 }
 
-bool RsMenu_MoveCursor(int32_t dx, int32_t dy) {
-    const RsMenuCursorNode* node = RsMenu_CursorAt(sCursorIndex);
+// The node one step from `node` in one direction (dx wins if both are set), or -1.
+static int32_t CursorEdge(const RsMenuCursorNode* node, int32_t dx, int32_t dy) {
     if (node == nullptr) {
-        return false;
+        return -1;
     }
     int32_t next = -1;
     if (dx < 0) {
@@ -1728,16 +1740,72 @@ bool RsMenu_MoveCursor(int32_t dx, int32_t dy) {
     } else if (dy > 0) {
         next = node->down;
     }
-    if (next < 0 || next >= RsMenu_CursorCount()) {
-        return false;
-    }
+    return next >= 0 && next < RsMenu_CursorCount() ? next : -1;
+}
+
+static void JumpCursor(int32_t next) {
     sCursorIndex = next;
     sCursorId = CursorNodes()[(size_t)next].id;
     sCursorMoves++;
     // Rebuilt now rather than next tick, so a page that scrolls to follow its cursor (the quest
     // list) has already scrolled by the time anything draws or a console line reads the graph.
     RebuildCursorGraph();
+}
+
+bool RsMenu_MoveCursor(int32_t dx, int32_t dy) {
+    const int32_t next = CursorEdge(RsMenu_CursorAt(sCursorIndex), dx, dy);
+    if (next < 0) {
+        return false;
+    }
+    JumpCursor(next);
     return true;
+}
+
+// #126: one tick of stick on a ported vanilla page, both axes at once, the way that page's kaleido
+// code resolves them (RsMenu.h, RsMenuStickModel). A tick that starts on a hand - kaleido's page
+// arrow - only steps off it. On Select Item that is because the step-off leaves the local cursorItem
+// at PAUSE_ITEM_NONE, which skips the vertical branch (z_kaleido_item.c:626); on Equipment the
+// vertical branch sits inside the not-on-an-arrow block (z_kaleido_equipment.c:212-361). A
+// SEQUENTIAL diagonal is two moves, so it counts two in `moves=`.
+static void KaleidoStickMove(RsMenuStickModel model, int32_t dx, int32_t dy) {
+    const RsMenuCursorNode* start = RsMenu_CursorAt(sCursorIndex);
+    if (start == nullptr || (dx == 0 && dy == 0)) {
+        return;
+    }
+    if (start->hand >= 0) {
+        if (dx != 0) {
+            RsMenu_MoveCursor(dx, 0);
+        }
+        return;
+    }
+    if (model == RS_MENU_STICK_KALEIDO_SEQUENTIAL) {
+        // Horizontal, then vertical from where it landed - unless it landed on a hand.
+        if (dx != 0) {
+            RsMenu_MoveCursor(dx, 0);
+        }
+        const RsMenuCursorNode* mid = RsMenu_CursorAt(sCursorIndex);
+        if (dy != 0 && mid != nullptr && mid->hand < 0) {
+            RsMenu_MoveCursor(0, dy);
+        }
+        return;
+    }
+    // KALEIDO_ORIGIN: both targets from the start; a hand wins, then the vertical target, then the
+    // horizontal one (z_kaleido_collect.c:106-152 - the vertical write lands last, but a page arrow is
+    // a special position the point write does not leave).
+    const int32_t x = dx != 0 ? CursorEdge(start, dx, 0) : -1;
+    const int32_t y = dy != 0 ? CursorEdge(start, 0, dy) : -1;
+    const RsMenuCursorNode* xNode = RsMenu_CursorAt(x);
+    int32_t next = -1;
+    if (xNode != nullptr && xNode->hand >= 0) {
+        next = x;
+    } else if (y >= 0) {
+        next = y;
+    } else {
+        next = x;
+    }
+    if (next >= 0) {
+        JumpCursor(next);
+    }
 }
 
 bool RsMenu_SetCursorById(const char* id) {
@@ -1971,6 +2039,38 @@ static void ResetLevel() {
     sLevelHold = false;
 }
 
+// One axis of kaleido's stick filter (z_kaleido_scope_PAL.c:1538-1588), verbatim but for returning the
+// step instead of zeroing stickRel: a push past 30 steps at once, then holds for XREG(8) ticks, then
+// steps every XREG(6) + 1 ticks (10 and 2 by default, z_construct.c:327-329: ticks 0, 11, 14, 17...).
+// Back inside 30, or a push the other way, starts over. Returns -1, 0 or +1 in the stick's own sign.
+//
+// Kaleido runs this every frame in state 6, a page turn included, on the live `input->rel`
+// (KaleidoScope_Draw reloads stickRel at :3506 before KaleidoScope_DrawPages filters it), and the
+// cursor code ignores the result while the page turns (unk_1E4 != 0). The menu does the same: the
+// filter runs every tick and UpdateNavigation drops its step while anything animates.
+//
+// NOT PORTED, around it: kaleido's D-pad repeat (:1492-1535), which exists only under SoH's
+// DpadHoldChange + DPadOnPause - the scroll's D-pad walks the cursor whatever DPadOnPause says, one
+// step per press; and holding the stick on a page arrow for ten frames to turn the page
+// (pageSwitchTimer, :1319-1336) - a hand refuses an outward push instead.
+static int32_t KaleidoStickAxis(int32_t rel, KaleidoStickAxisState* axis) {
+    const int16_t want = rel < -30 ? -1 : rel > 30 ? 1 : 0;
+    if (want == 0) {
+        axis->dir = 0;
+        return 0;
+    }
+    if (axis->dir != want) {
+        axis->timer = XREG(8);
+        axis->dir = want;
+        return want;
+    }
+    if (--axis->timer < 0) {
+        axis->timer = XREG(6);
+        return want;
+    }
+    return 0;
+}
+
 // The cursor's own input, kept apart from the page ring's because they answer different buttons:
 // the shoulders roll the scroll directly, the D-pad and the stick walk the graph, and A selects.
 // The stick needs an edge of its own - a held stick would otherwise walk the cursor once per tick.
@@ -2018,12 +2118,19 @@ static void UpdateNavigation(const Input* input) {
     } else if (sStickLatchY && sy < kStickRelease && sy > -kStickRelease) {
         sStickLatchY = false;
     }
+    // A ported vanilla page walks on kaleido's filter instead (#126, Spencer: port the repeat). The
+    // latch and the filter both run every tick, whichever page is up and whether or not it animates.
+    const int32_t kx = KaleidoStickAxis(input->rel.stick_x, &sKaleidoX);
+    const int32_t ky = KaleidoStickAxis(input->rel.stick_y, &sKaleidoY);
+    const RsMenuStickModel stickModel =
+        sLevel == 0 && page != nullptr ? page->stickModel : RS_MENU_STICK_LATCH;
 
     // NOTHING NAVIGATES WHILE ANYTHING IS ANIMATING - a roll or a level change. The content is not
     // on screen then, so a press would move a cursor nobody can see, scroll a list behind a shut
     // scroll, or select a row that is being blinked out (Spencer, after stage 6: up/down still walked
-    // the quest rows mid-roll). The stick latches above are still updated, so a stick held through
-    // the animation does not fire the moment it ends. B and START are handled by the caller and stay
+    // the quest rows mid-roll). The stick state above is still updated: a latched stick held through
+    // the animation does not fire the moment it ends, and a ported page's filter keeps counting, so a
+    // held stick repeats on kaleido's schedule once it does. B and START are handled by the caller and stay
     // live on purpose: they are the way out, and closing mid-roll just drops the half-shut scroll.
     if (sLevelActive || sSweepActive) {
         return;
@@ -2040,11 +2147,15 @@ static void UpdateNavigation(const Input* input) {
     if (navX != 0 || navY != 0) {
         RsMenu_MoveCursor(navX, navY);
     }
-    if (stickX != 0) {
-        RsMenu_MoveCursor(stickX, 0);
-    }
-    if (stickY != 0) {
-        RsMenu_MoveCursor(0, stickY);
+    if (stickModel != RS_MENU_STICK_LATCH) {
+        KaleidoStickMove(stickModel, kx, -ky); // the stick is y-up, the graph's `up` is the screen's
+    } else {
+        if (stickX != 0) {
+            RsMenu_MoveCursor(stickX, 0);
+        }
+        if (stickY != 0) {
+            RsMenu_MoveCursor(0, stickY);
+        }
     }
     // The page's own buttons, AFTER the move - kaleido's order: it moves its cursor, then tests the equip
     // buttons against where the cursor now is (z_kaleido_item.c:694). The quest list pages with
@@ -2583,6 +2694,8 @@ RsMenuOpenResult RsMenu_Open() {
     sSweepTick = 0;
     sStickLatchX = false;
     sStickLatchY = false;
+    sKaleidoX = KaleidoStickAxisState();
+    sKaleidoY = KaleidoStickAxisState();
     // It always opens on the page itself, never in a detail, with the cursor on the page's own entry
     // item - the quest list's last-visited row if it is still on screen, else its top visible row -
     // rather than on whatever node it was left on. An empty id is one no node carries, so the

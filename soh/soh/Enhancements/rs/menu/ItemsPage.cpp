@@ -9,6 +9,8 @@
  * NOT PORTED, on purpose: the cursor's own look (the menu's yellow box stands in for kaleido's corners
  * and its 2-unit icon zoom), the name plate, SoH's item-cycling extras (mask select, rando trade
  * cycling, Roc's Feather) and the flying-icon equip animation - the equip itself happens at once.
+ * Also kaleido's `cursorItem == PAUSE_ITEM_NONE` -> `stickRelX = 40` (z_kaleido_item.c:460-461), which
+ * walks the cursor right with no input: that value only marks the page arrows, which here are hands.
  *
  * Author: Spencer (with Claude)
  * Created: 2026-09-21
@@ -358,6 +360,7 @@ int32_t RsMenuItemsPage_Register() {
     page.nodes = ItemsPageNodes;
     page.input = ItemsPageInput;
     page.claim = RsVanilla_ClaimEquipDpad;
+    page.stickModel = RS_MENU_STICK_KALEIDO_SEQUENTIAL;
     page.ownsItemHighlight = false; // the menu's yellow box, not kaleido's corner cursor
     sPageIndex = RsMenu_RegisterPageStruct(page);
     return sPageIndex;

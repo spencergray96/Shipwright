@@ -243,6 +243,7 @@ int32_t RsMenuQuestStatusPage_Register() {
     page.draw = QuestStatusPageDraw;
     page.nodes = QuestStatusPageNodes;
     page.ownsItemHighlight = false;
+    page.stickModel = RS_MENU_STICK_KALEIDO_ORIGIN;
     sPageIndex = RsMenu_RegisterPageStruct(page);
     return sPageIndex;
 }

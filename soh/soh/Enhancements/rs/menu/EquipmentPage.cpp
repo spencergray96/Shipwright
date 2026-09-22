@@ -8,7 +8,10 @@
  *
  * NOT PORTED: the cursor's own look, the name plate, the A-button hint drawn over the strength slot
  * under SoH's ToggleStrength (the toggle itself is ported), and kaleido's ten-tick input lockout after
- * an equip (unk_1E4 = 7) - an equip here takes effect at once and the cursor stays live.
+ * an equip (unk_1E4 = 7, sEquipTimer = 10, z_kaleido_equipment.c:643/:709-717) - an equip here takes
+ * effect at once and the cursor stays live. Dropped on purpose (Spencer, #126). In kaleido those ten
+ * ticks freeze input and hold the cursor in its equip colour (cursorColorSet 8); the scroll's cursor
+ * is one yellow box with no colour sets, so there is nothing for the ticks to show.
  *
  * Author: Spencer (with Claude)
  * Created: 2026-09-21
@@ -540,6 +543,7 @@ int32_t RsMenuEquipmentPage_Register() {
     page.nodes = EquipmentPageNodes;
     page.input = EquipmentPageInput;
     page.claim = RsVanilla_ClaimEquipDpad;
+    page.stickModel = RS_MENU_STICK_KALEIDO_SEQUENTIAL;
     page.ownsItemHighlight = false;
     sPageIndex = RsMenu_RegisterPageStruct(page);
     return sPageIndex;
