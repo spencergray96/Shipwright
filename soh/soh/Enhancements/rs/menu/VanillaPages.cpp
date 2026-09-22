@@ -18,6 +18,7 @@
 
 #include <libultraship/bridge/consolevariablebridge.h>
 
+#include "soh/Enhancements/SwitchAge.h"
 #include "soh/SohGui/ImGuiUtils.h"
 #include "soh/cvar_prefixes.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
@@ -33,6 +34,7 @@ extern PlayState* gPlayState;
 
 static bool sRegistered = false;
 static int32_t sEquipsDone = 0;
+static int32_t sPlayerSyncs = 0;
 
 // The ports, in ring order - one entry each, so adding a port is one line here and nothing else in
 // this file. (Vanilla's cube turns Select Item, Map, Quest Status, Equipment; the map is not ported -
@@ -233,6 +235,23 @@ bool RsMenu_TestSetInventory(const std::string& kind, int32_t a, int32_t b) {
         Inventory_ChangeUpgrade(a, b);
         return true;
     }
+    if (kind == "sword") {
+        if ((a != 0 && a != 1) || b < 0 || b > 8) {
+            return false;
+        }
+        gSaveContext.bgsFlag = (u8)a;
+        gSaveContext.swordHealth = (s16)b;
+        return true;
+    }
+    if (kind == "age") {
+        if ((a != LINK_AGE_ADULT && a != LINK_AGE_CHILD) || b != 0 || gPlayState == nullptr) {
+            return false;
+        }
+        if (gSaveContext.linkAge != a) {
+            SwitchAge();
+        }
+        return true;
+    }
     if (kind == "quest") {
         if (a < 0 || a >= 24 || (b != 0 && b != 1)) {
             return false;
@@ -262,5 +281,30 @@ RsMenuEquipState RsMenu_EquipState() {
     state.bgsFlag = gSaveContext.bgsFlag;
     state.dpadEquips = CVarGetInteger(CVAR_ENHANCEMENT("DpadEquips"), 0) != 0;
     state.equipsDone = sEquipsDone;
+    const Player* player = gPlayState != nullptr ? GET_PLAYER(gPlayState) : nullptr;
+    state.player = player != nullptr;
+    state.playerSword = player != nullptr ? player->currentSwordItemId : -1;
+    state.playerShield = player != nullptr ? player->currentShield : -1;
+    state.playerTunic = player != nullptr ? player->currentTunic : -1;
+    state.playerBoots = player != nullptr ? player->currentBoots : -1;
+    state.modelGroup = player != nullptr ? player->modelGroup : -1;
+    state.modelAnimType = player != nullptr ? player->modelAnimType : -1;
+    state.leftHandType = player != nullptr ? player->leftHandType : -1;
+    state.rightHandType = player != nullptr ? player->rightHandType : -1;
+    state.sheathType = player != nullptr ? player->sheathType : -1;
+    state.linkAge = gSaveContext.linkAge;
+    state.playerSyncs = sPlayerSyncs;
     return state;
+}
+
+void RsMenuVanillaPages_SyncPlayer(PlayState* play) {
+    Player* player = play != nullptr ? GET_PLAYER(play) : nullptr;
+    if (player == nullptr) {
+        return;
+    }
+    // Unconditional, as vanilla's close is: the one guard is inside it (a csAction of 0x56 keeps the
+    // Player's own gear). Vanilla's close tail also restores buttonStatus and the rando's swordless
+    // temp-B (:4869-4874); the scroll never dims a button, so it has neither to restore.
+    Player_SetEquipmentData(play, player);
+    sPlayerSyncs++;
 }

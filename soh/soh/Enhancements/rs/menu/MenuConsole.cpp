@@ -656,6 +656,11 @@ int32_t Kaleido(std::vector<std::string>& lines) {
 // D-right), the seven C/D slots, the equipment word, the swordless flag and infTable[29], the sword's
 // health and the BGS flag. `dpad=` is SoH's DpadEquips, `done=` how many equips the ported pages have
 // performed this session.
+//
+// A second line, `op=equips section=player`, is Link in the world (#123): the live Player's sword item,
+// shield, tunic and boots, the model group and hand/sheath types Player_SetModelGroup derived from them,
+// the save's age, and `syncs=` - how many times the scroll's close has handed the save to the Player.
+// The save line changing while this one does not is exactly the #123 bug.
 int32_t Equips(std::vector<std::string>& lines) {
     const RsMenuEquipState e = RsMenu_EquipState();
     Addf(lines,
@@ -664,11 +669,17 @@ int32_t Equips(std::vector<std::string>& lines) {
          e.buttons[0], e.buttons[1], e.buttons[2], e.buttons[3], e.buttons[4], e.buttons[5], e.buttons[6], e.buttons[7],
          e.slots[0], e.slots[1], e.slots[2], e.slots[3], e.slots[4], e.slots[5], e.slots[6], e.equipment,
          e.swordless ? 1 : 0, e.inf29, e.swordHealth, e.bgsFlag, e.dpadEquips ? 1 : 0, e.equipsDone);
+    Addf(lines,
+         "op=equips section=player valid=%d sword=%d shield=%d tunic=%d boots=%d model_group=%d anim_type=%d "
+         "left_hand=%d right_hand=%d sheath=%d age=%d syncs=%d",
+         e.player ? 1 : 0, e.playerSword, e.playerShield, e.playerTunic, e.playerBoots, e.modelGroup,
+         e.modelAnimType, e.leftHandType, e.rightHandType, e.sheathType, e.linkAge, e.playerSyncs);
     return 0;
 }
 
-// TEST-ONLY: `inv <item|equip|upgrade|quest> <a> <b>` - the sparse-inventory fixture (VanillaPages.h,
-// RsMenu_TestSetInventory). Writes gSaveContext; never run it on a save anyone cares about.
+// TEST-ONLY: `inv <item|equip|upgrade|quest|sword|age> <a> <b>` - the sparse-inventory fixture (VanillaPages.h,
+// RsMenu_TestSetInventory). Writes gSaveContext (and `age` reloads the scene); never run it on a save
+// anyone cares about.
 int32_t Inv(const std::vector<std::string>& args, std::vector<std::string>& lines) {
     int32_t a = 0;
     int32_t b = 0;
@@ -772,8 +783,9 @@ const ConsoleSink::Command menuCommand(
     "reports open/closed, the page ring, the freeze and HUD state, the live sweep, the cursor "
     "graph, what the last frame cost, whether N64 L has a binding at all, and how many frames of "
     "input arrived while the world was frozen, plus every slot of the three ported vanilla pages. kaleido "
-    "reads vanilla pause's live cursor and equips the save's equip fields - the two halves of the "
-    "stage-8 differential tests; inv (test-only) writes a sparse inventory for them.",
+    "reads vanilla pause's live cursor and equips the save's equip fields plus what Link in the world "
+    "is wearing - the two halves of the stage-8 differential tests; inv (test-only) writes a sparse "
+    "inventory for them, and can set the Biggoron flags or switch Link's age.",
     { { "open|close|page|primary|sweep|level|filler|stress|cursor|probe|kaleido|equips|inv|dump",
         Ship::ArgumentType::TEXT },
       { "argument", Ship::ArgumentType::TEXT, true } });

@@ -95,14 +95,33 @@ struct RsMenuEquipState {
     int32_t bgsFlag;
     bool dpadEquips; // SoH's DpadEquips CVar, which decides whether the D-pad slots exist
     int32_t equipsDone; // equips the ported pages have performed this session (C, D-pad and A)
+    // The LIVE Player - what Link in the world is wearing, which the save fields above do not say
+    // (#123: the save changed and Link did not). Player_SetEquipmentData's four writes, and what its
+    // Player_SetModelGroup derives from them. `player` is false with no Player; the rest are then -1.
+    bool player;
+    int32_t playerSword; // currentSwordItemId, an ITEM_ id
+    int32_t playerShield, playerTunic, playerBoots; // PLAYER_SHIELD_/TUNIC_/BOOTS_
+    int32_t modelGroup, modelAnimType, leftHandType, rightHandType, sheathType;
+    int32_t linkAge; // gSaveContext.linkAge: 0 adult, 1 child
+    int32_t playerSyncs; // times the scroll's close has run Player_SetEquipmentData this session
 };
 RsMenuEquipState RsMenu_EquipState();
 
+// Vanilla's close hands the save's equipment to the live Player (z_kaleido_scope_PAL.c:4882,
+// Player_SetEquipmentData); the scroll's close does the same, through this. Equipping from the pages
+// writes only the save, as kaleido does, so without it Link keeps what he wore when the menu opened.
+struct PlayState;
+void RsMenuVanillaPages_SyncPlayer(struct PlayState* play);
+
 // TEST-ONLY: the fixture the movement tests need - a SPARSE inventory, because the debug save owns
-// nearly everything and a full grid never exercises kaleido's skip-empty-slots rules. Writes
-// gSaveContext directly and nothing else (no save, no HUD refresh), so run it on a scratch save:
+// nearly everything and a full grid never exercises kaleido's skip-empty-slots rules. Every kind but
+// `age` writes gSaveContext directly and nothing else (no save, no HUD refresh); `age` reloads the
+// scene. Run it on a scratch save:
 //   `item <slot> <ITEM_ id | 255>`, `equip <bit 0-15> <0|1>` (the owned-equipment bits),
-//   `upgrade <UPG_ type 0-7> <value>`, `quest <QUEST_ bit 0-23> <0|1>`.
+//   `upgrade <UPG_ type 0-7> <value>`, `quest <QUEST_ bit 0-23> <0|1>`,
+//   `sword <bgsFlag 0|1> <swordHealth 0-8>` (the Biggoron/broken-knife cases; the knife's owned bit is
+//   `equip 3 1`), `age <0|1> 0` (0 adult, 1 child: SoH's own SwitchAge, a scene reload, so wait for
+//   the next `ready` - and a no-op when Link is that age already).
 // False on an unknown kind or an out-of-range argument.
 bool RsMenu_TestSetInventory(const std::string& kind, int32_t a, int32_t b);
 

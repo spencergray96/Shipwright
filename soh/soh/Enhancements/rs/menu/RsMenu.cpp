@@ -2384,9 +2384,14 @@ static void RsMenu_OnPlayDrawEnd() {
     sDrawGfxCtx = nullptr;
 }
 
+static bool CloseMenu(bool syncPlayer);
+
 static void RsMenu_OnSceneInit(int16_t sceneNum) {
     (void)sceneNum;
-    RsMenu_Close();
+    // No Player sync here: OnSceneInit fires from Play_SpawnScene (z_play.c:486), before
+    // Actor_InitContext (:595), so GET_PLAYER still reads the new PlayState's unset actor list. The
+    // Player this scene spawns reads the save itself (Player_Init, z_player.c:10821).
+    CloseMenu(false);
 }
 
 static void RegisterRsMenu() {
@@ -2600,6 +2605,11 @@ bool RsMenu_BeginClose() {
 }
 
 bool RsMenu_Close() {
+    return CloseMenu(true);
+}
+
+// The instant close. `syncPlayer` is false only from scene init, where there is no Player yet.
+static bool CloseMenu(bool syncPlayer) {
     const bool wasOpen = MenuIsUp();
     sPhase = RS_MENU_PHASE_CLOSED;
     sEntryTick = 0;
@@ -2634,6 +2644,11 @@ bool RsMenu_Close() {
         }
         Interface_ChangeHudVisibilityMode(restore);
         sHudApplied = false;
+    }
+    // Last, as in vanilla's close (:4882): the equipment pages wrote the save, and this is where Link
+    // in the world puts it on. The portrait never needed it - it draws from the save every frame.
+    if (syncPlayer) {
+        RsMenuVanillaPages_SyncPlayer(gPlayState);
     }
     return true;
 }
