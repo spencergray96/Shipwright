@@ -17,7 +17,7 @@
  * VB_OPEN_PAUSE_MENU veto inside KaleidoSetup_Update rather than an input filter; the ring's first
  * page is the quest list (QuestPage.cpp); and pages can have a SECOND LEVEL, a detail view reached
  * by going down - close to the centre, turn counter-clockwise to vertical, open vertically (RsMenu.h
- * § levels). The turn adds a rotation to every scroll and hand chain, always, at zero while the
+ * Â§ levels). The turn adds a rotation to every scroll and hand chain, always, at zero while the
  * scroll is flat; the page content stays upright on the unrotated base matrix.
  *
  * What it is at this stage: an RS-style scroll - parchment, two roll ends and two blocky hands, all
@@ -556,6 +556,8 @@ static int32_t sDlWords = 0;
 // Stage 8: icons drawn (RsMenu_DrawIcon, the pause-Link composite included) and whether a page asked
 // for pause-Link this frame.
 static int32_t sDrawIcons = 0;
+// #124: whether the last frame drew the cursor box (on an item or a hand).
+static bool sCursorDrawn = false;
 static bool sPauseLinkRequested = false;
 
 // Which render state the heap list is in, so the text and icon calls push theirs only when it
@@ -568,7 +570,7 @@ enum RsListState {
 };
 static int32_t sListState = RS_LIST_OTHER;
 
-// Stage 7's view counters (RsMenu.h § RsMenuViewStats). `sInView` is set only around the content
+// Stage 7's view counters (RsMenu.h Â§ RsMenuViewStats). `sInView` is set only around the content
 // body's call, so RsMenu_DrawText knows which glyphs belong to the view; the row ys are gathered
 // there. Plain counters and a vector - invisible to the interpolation recorder.
 static bool sInView = false;
@@ -990,9 +992,9 @@ static void DrawStressBody() {
 
 // --- the scroll ----------------------------------------------------------------------------------
 //
-// THE PROJECTION, and why this is not what research § C.1 recommended.
+// THE PROJECTION, and why this is not what research Â§ C.1 recommended.
 //
-// § C.1 names three levels for drawing real 3D over a 2D screen and recommends LEVEL 2: give the
+// Â§ C.1 names three levels for drawing real 3D over a 2D screen and recommends LEVEL 2: give the
 // menu its own `View`, apply it with func_800AAA50(&myView, 127), restore with
 // func_800AAA50(&play->view, 15) - the KaleidoScope_Draw pattern
 // (z_kaleido_scope_PAL.c:3499-3545). What ships here is LEVEL 3 instead: our own `Vp` and `guOrtho`
@@ -1081,7 +1083,7 @@ static void PushDimState() {
 
 // One quad over the whole WINDOW, darkening the frozen world so the menu reads as foreground.
 //
-// ⚠ It is authored in ORTHO units directly rather than through SetFlatQuad's game-space conversion,
+// âš  It is authored in ORTHO units directly rather than through SetFlatQuad's game-space conversion,
 // because it is the one piece of this menu that must span the whole window rather than the 4:3
 // band. The renderer multiplies every vertex's post-projection x by (4:3 / window aspect)
 // (AdjXForAspectRatio), so a quad authored to +-160 leaves the pillarbox bright on a wide window;
@@ -2215,6 +2217,7 @@ static void RsMenu_OnPlayDrawEnd() {
     sDrawGlyphs = 0;
     sDrawQuads = 0;
     sDrawIcons = 0;
+    sCursorDrawn = false;
     sPauseLinkRequested = false;
 
     std::vector<Gfx>& dl = MenuDl();
@@ -2266,7 +2269,7 @@ static void RsMenu_OnPlayDrawEnd() {
     // tick the gesture starts and the new page blinks in when the paper is open again, because
     // there is no paper under it in between.
     //
-    // ⚠ This is a branch around GEOMETRY, never around a Matrix_* op - the chain above is emitted
+    // âš  This is a branch around GEOMETRY, never around a Matrix_* op - the chain above is emitted
     // on every frame whatever this decides. Glyph count is invisible to the interpolation recorder,
     // which records only Matrix_* calls and child open/close (SOH_2D_DRAWING.md, measured at stage
     // 4 after the opposite was written down first).
@@ -2285,7 +2288,13 @@ static void RsMenu_OnPlayDrawEnd() {
     sViewIcons = 0;
     const int32_t glyphsBeforeView = sDrawGlyphs;
     const size_t wordsBeforeView = dl.size();
-    if (SweepWidth() > 0.999f && !sLevelActive) {
+    // The cursor is stricter (#124, Spencer's call): no box, on an item or on a hand, for the whole of a
+    // roll or a level change. The content's width test alone would leave it up on a roll's tick 0,
+    // where the paper is still fully open. It comes back once the gesture is over, on whichever node
+    // the gesture left it - the hand, after a roll.
+    const bool contentShown = SweepWidth() > 0.999f && !sLevelActive;
+    const bool cursorShown = contentShown && !sSweepActive;
+    if (contentShown) {
         sInView = true;
         if (sLevel != 0) {
             if (page->detailDraw != nullptr) {
@@ -2311,9 +2320,10 @@ static void RsMenu_OnPlayDrawEnd() {
     {
         // An item's yellow box - unless its page draws its own marker (the quest list's arrow).
         const RsMenuCursorNode* node = RsMenu_CursorAt(sCursorIndex);
-        if (node != nullptr && node->hand < 0 && !page->ownsItemHighlight) {
+        if (cursorShown && node != nullptr && node->hand < 0 && !page->ownsItemHighlight) {
             PushFlatState();
             DrawCursorOutline(*node);
+            sCursorDrawn = true;
         }
     }
     Matrix_Pop();
@@ -2337,8 +2347,9 @@ static void RsMenu_OnPlayDrawEnd() {
         PushCurrentMatrix();
         DrawHand(side);
         const RsMenuCursorNode* node = RsMenu_CursorAt(sCursorIndex);
-        if (node != nullptr && node->hand == side) {
+        if (cursorShown && node != nullptr && node->hand == side) {
             DrawCursorOutline(*node);
+            sCursorDrawn = true;
         }
         Matrix_Pop();
     }
@@ -3003,6 +3014,7 @@ RsMenuStatus RsMenu_Status() {
     status.drawQuads = status.open ? sDrawQuads : 0;
     status.dlWords = status.open ? sDlWords : 0;
     status.drawIcons = status.open ? sDrawIcons : 0;
+    status.cursorDrawn = status.open && sCursorDrawn;
     status.opens = sOpens;
     status.closes = sCloses;
     status.pageChanges = sPageChanges;

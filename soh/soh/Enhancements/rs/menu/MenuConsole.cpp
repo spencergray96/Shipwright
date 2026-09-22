@@ -516,9 +516,10 @@ int32_t Dump(std::vector<std::string>& lines) {
     // What the LAST DRAWN FRAME cost, in the units OVERLAY_DISP's 2048-word budget is denominated
     // in. `dl_words` is the heap display list's length: the menu submits one gSPDisplayList, so it
     // no longer spends that budget, but the number is what stage 6's journal has to fit inside and
-    // is free to carry here. Zero while the menu is closed - nothing was drawn.
-    Addf(lines, "op=dump section=draw glyphs=%d quads=%d icons=%d dl_words=%d", status.drawGlyphs, status.drawQuads,
-         status.drawIcons, status.dlWords);
+    // is free to carry here. Zero while the menu is closed - nothing was drawn. `cursor_drawn=` is not a
+    // cost: whether that frame drew the cursor box (#124), 0 through a roll or a level change.
+    Addf(lines, "op=dump section=draw glyphs=%d quads=%d icons=%d dl_words=%d cursor_drawn=%d", status.drawGlyphs,
+         status.drawQuads, status.drawIcons, status.dlWords, status.cursorDrawn ? 1 : 0);
     // Stage 7: the same last frame, counting only the VIEW - the page body, detail body or stress
     // body inside the content node - so chrome and content separate. `drawn_rows` is distinct text
     // lines, `drawn_glyphs` glyphs, `drawn_words` the Gfx words the view appended. `view=none` is a

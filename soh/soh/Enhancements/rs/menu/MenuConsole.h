@@ -194,7 +194,9 @@
 //                         `section=link`: Link's renders/loads, `fb=`, `age=`, `load_size=`, and the
 //                         segment witness - `seg4=`/`seg6=` before the last render, `seg4_during=`/
 //                         `seg6_during=` what Player_DrawPause left there, `seg4_now=`/`seg6_now=`
-//                         read live between frames
+//                         read live between frames. #124 adds `cursor_drawn=` to `section=draw`:
+//                         1 when the last frame drew the cursor box, 0 through a roll or a level
+//                         change (the box hides with the content)
 //
 // Returns 0 when the operation succeeded (or for read-only subcommands), 1 otherwise - so `rc=` on
 // the agent loop's cmd marker is the pass/fail bit.

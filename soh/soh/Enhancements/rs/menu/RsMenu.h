@@ -538,6 +538,7 @@ struct RsMenuStatus {
     int32_t drawQuads;
     int32_t dlWords;
     int32_t drawIcons; // stage 8: textured quads (icons and the pause-Link composite)
+    bool cursorDrawn;  // #124: the cursor box was drawn (never during a roll or a level change)
     // Counters. The stage-2 evidence lives here: `stickFrames` says input REACHED the game while
     // the world was frozen, which is what turns "Link did not move" from an untested negative into
     // a challenged one (a still screenshot proves nothing if the input never arrived).
