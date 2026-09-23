@@ -338,20 +338,17 @@ bool RsVanilla_BeginEquip(uint16_t press, uint16_t item, uint16_t slot, int16_t 
     sFlight.moveTimer = 10;
     if (MagicArrowIndex(item) >= 0) {
         if (CVarGetInteger(CVAR_ENHANCEMENT("SkipArrowAnimation"), 0)) {
-            Audio_PlaySoundGeneral(NA_SE_SY_DECIDE, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
-                                   &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+            RsMenu_PlaySfxId(NA_SE_SY_DECIDE);
         } else {
             const u16 index = (u16)MagicArrowIndex(item);
-            Audio_PlaySoundGeneral(NA_SE_SY_SET_FIRE_ARROW + index, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
-                                   &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+            RsMenu_PlaySfxId(NA_SE_SY_SET_FIRE_ARROW + index);
             sFlight.item = (u16)(kArrowEffectBase + index);
             sFlight.state = 0;
             sFlight.alpha = 0;
             sFlight.moveTimer = 6;
         }
     } else {
-        Audio_PlaySoundGeneral(NA_SE_SY_DECIDE, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
-                               &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+        RsMenu_PlaySfxId(NA_SE_SY_DECIDE);
     }
     sFlights++;
     return true;
@@ -395,8 +392,7 @@ void RsVanilla_UpdateEquipFlight(PlayState* play) {
             f.moveTimer = 6;
             ResetFlightSize();
             f.state++;
-            Audio_PlaySoundGeneral(NA_SE_SY_SYNTH_MAGIC_ARROW, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
-                                   &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+            RsMenu_PlaySfxId(NA_SE_SY_SYNTH_MAGIC_ARROW);
         }
         return;
     }

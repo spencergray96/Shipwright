@@ -335,11 +335,6 @@ static bool IsSongPoint(int32_t point) {
     return point >= QUEST_SONG_MINUET && point < QUEST_KOKIRI_EMERALD && CHECK_QUEST_ITEM(point);
 }
 
-static void PlaySfx(u16 sfxId) {
-    Audio_PlaySoundGeneral(sfxId, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale, &gSfxDefaultFreqAndVolScale,
-                           &gSfxDefaultReverb);
-}
-
 // The player's turn: armed, listening, or holding the result (kaleido's 4, 5 and 6).
 static bool IsPlayAlong(int32_t state) {
     return state == SONG_ARM || state == SONG_PLAY || state == SONG_RESULT;
@@ -372,7 +367,7 @@ static void QuestStatusPageTick(int32_t pageIndex, uint16_t press, void* userDat
     // take no B at all in 9, 2, 4 and 6. The menu is holding B then, so it does not also close.
     if (IsSongRunning(s.state) && CHECK_BTN_ALL(press, BTN_B)) {
         LeaveSong();
-        PlaySfx(NA_SE_SY_DECIDE);
+        RsMenu_PlaySfxId(NA_SE_SY_DECIDE);
         return;
     }
 
@@ -385,13 +380,13 @@ static void QuestStatusPageTick(int32_t pageIndex, uint16_t press, void* userDat
     } else if (s.state == SONG_PLAY) {
         const OcarinaStaff* staff = AudioOcarina_GetPlayingStaff();
         if (staff->state == s.songIdx) {
-            PlaySfx(NA_SE_SY_TRE_BOX_APPEAR);
+            RsMenu_PlaySfxId(NA_SE_SY_TRE_BOX_APPEAR);
             s.after = SONG_IDLE;
             s.timer = 30;
             s.state = SONG_RESULT;
             sSongHits++;
         } else if (staff->state == 0xFF) {
-            PlaySfx(NA_SE_SY_OCARINA_ERROR);
+            RsMenu_PlaySfxId(NA_SE_SY_OCARINA_ERROR);
             s.after = SONG_ARM;
             s.timer = 20;
             s.state = SONG_RESULT;

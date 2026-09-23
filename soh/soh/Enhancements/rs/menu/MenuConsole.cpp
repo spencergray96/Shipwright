@@ -539,6 +539,19 @@ int32_t Dump(std::vector<std::string>& lines) {
     Addf(lines, "op=dump section=draw glyphs=%d quads=%d icons=%d dl_words=%d cursor_drawn=%d", status.drawGlyphs,
          status.drawQuads, status.drawIcons, status.dlWords, status.cursorDrawn ? 1 : 0);
     Addf(lines, "op=dump section=hud %s", DescribeHud().c_str());
+    // #131: THE HARNESS CANNOT HEAR, so every sound the menu plays is counted and a run asserts the
+    // counts. One field per event, named by RsMenu_SfxEventName so adding an event adds a field and
+    // nothing here changes. A count proves the call was made, NOT that anything came out of the
+    // speaker - Spencer's listening pass is the other half, and neither is sufficient alone.
+    {
+        // No state suffix: not one other `section=` line carries one, and adding it here put a second
+        // `open=` on the line - which is what the first #131 run read as a sound count.
+        std::string sfx = "op=dump section=sfx";
+        for (int32_t i = 0; i < RS_MENU_SFX_COUNT; i++) {
+            sfx += " " + std::string(RsMenu_SfxEventName(i)) + "=" + std::to_string(RsMenu_SfxCount(i));
+        }
+        lines.push_back(sfx);
+    }
     // Stage 7: the same last frame, counting only the VIEW - the page body, detail body or stress
     // body inside the content node - so chrome and content separate. `drawn_rows` is distinct text
     // lines, `drawn_glyphs` glyphs, `drawn_words` the Gfx words the view appended. `view=none` is a

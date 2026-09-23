@@ -694,6 +694,57 @@ static bool VanillaPauseIsUp(const PlayState* play) {
     return play->pauseCtx.state != 0 || play->pauseCtx.debugState != 0;
 }
 
+// --- #131: the menu's sounds ---------------------------------------------------------------------
+//
+// THE one table. An event's sound is changed here and nowhere else, which is what makes the planned
+// parchment shuffle a two-line edit rather than a hunt through the call sites.
+static const u16 sSfxIds[RS_MENU_SFX_COUNT] = {
+    NA_SE_SY_CURSOR,           // RS_MENU_SFX_CURSOR
+    NA_SE_SY_DECIDE,           // RS_MENU_SFX_HAND - vanilla's page arrows, MoveCursorToSpecialPos
+    NA_SE_SY_WIN_SCROLL_LEFT,  // RS_MENU_SFX_ROLL_LEFT  - placeholder
+    NA_SE_SY_WIN_SCROLL_RIGHT, // RS_MENU_SFX_ROLL_RIGHT - placeholder
+    NA_SE_SY_WIN_OPEN,         // RS_MENU_SFX_OPEN
+    NA_SE_SY_WIN_CLOSE,        // RS_MENU_SFX_CLOSE
+};
+// PREFIXED, and it is not decoration. Every console line ends with Describe(), which carries its own
+// `open=`; `section=cursor` carries `hand=`, and `section=slot` carries `cursor=`. Unprefixed counters
+// would put two `open=` on one line and collide with two other sections besides - and the field
+// contract every acceptance grep leans on (MenuConsole.h) is that a key means one thing. The first
+// #131 run read a slot's `cursor=` and the menu's open flag as sound counts, and scored 8/17 for it.
+static const char* const sSfxNames[RS_MENU_SFX_COUNT] = {
+    "sfx_cursor", "sfx_hand", "sfx_roll_left", "sfx_roll_right", "sfx_open", "sfx_close",
+};
+static int32_t sSfxCounts[RS_MENU_SFX_COUNT] = {};
+
+// Vanilla's own six arguments, unchanged from every call kaleido makes - the default position,
+// priority 4, the default freq/volume scale twice and the default reverb - and now the only copy of
+// them in this directory.
+void RsMenu_PlaySfxId(uint16_t sfxId) {
+    Audio_PlaySoundGeneral(sfxId, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale, &gSfxDefaultFreqAndVolScale,
+                           &gSfxDefaultReverb);
+}
+
+void RsMenu_PlaySfx(int32_t event) {
+    if (event < 0 || event >= RS_MENU_SFX_COUNT) {
+        return;
+    }
+    sSfxCounts[event]++;
+    RsMenu_PlaySfxId(sSfxIds[event]);
+}
+
+int32_t RsMenu_SfxCount(int32_t event) {
+    return event >= 0 && event < RS_MENU_SFX_COUNT ? sSfxCounts[event] : 0;
+}
+
+const char* RsMenu_SfxEventName(int32_t event) {
+    return event >= 0 && event < RS_MENU_SFX_COUNT ? sSfxNames[event] : "unknown";
+}
+
+// The three must stay in lockstep across the enum and these two tables, and nothing else would say so:
+// a short initializer zero-fills, which would play sfx id 0 and hand a null name to the console.
+static_assert(sizeof(sSfxIds) / sizeof(sSfxIds[0]) == RS_MENU_SFX_COUNT, "sSfxIds is not one per event");
+static_assert(sizeof(sSfxNames) / sizeof(sSfxNames[0]) == RS_MENU_SFX_COUNT, "sSfxNames is not one per event");
+
 // --- the sweep's live numbers --------------------------------------------------------------------
 
 // The excursion envelope: 0 at rest, 1 at the midpoint. See the constants block for why it is a
@@ -1809,8 +1860,16 @@ static void JumpCursor(int32_t next) {
     // hand rolls at once (the timer is -1, reset by PageSwitchOutward while nothing pushes outward), and a
     // stick held across the page onto the far hand does not. Without this the scroll rolled again about
     // ten ticks early on a long hold, which is what the first #129 run caught at 45 frames.
+    // #131: and the same arrival is the one vanilla gives its own sound to - MoveCursorToSpecialPos
+    // plays DECIDE rather than the CURSOR every other step gets. EVERY cursor move funnels through
+    // here - the ported grids, the Quest Journal's list, and its C-left/C-right paging through
+    // RsMenu_SetCursorById - and a step the graph refuses never gets here, which is why an edge is
+    // silent, as vanilla is.
     if (CursorNodes()[(size_t)next].hand >= 0) {
         ArmPageSwitchTimer();
+        RsMenu_PlaySfx(RS_MENU_SFX_HAND);
+    } else {
+        RsMenu_PlaySfx(RS_MENU_SFX_CURSOR);
     }
     // Rebuilt now rather than next tick, so a page that scrolls to follow its cursor (the quest
     // list) has already scrolled by the time anything draws or a console line reads the graph.
@@ -1884,17 +1943,12 @@ bool RsMenu_SetCursorById(const char* id) {
     const std::vector<RsMenuCursorNode>& nodes = CursorNodes();
     for (int32_t i = 0; i < (int32_t)nodes.size(); i++) {
         if (nodes[(size_t)i].id == id) {
-            sCursorIndex = i;
-            sCursorId = nodes[(size_t)i].id;
-            sCursorMoves++;
-            // #129: an arrival is an arrival, whichever door it came through, so this arms the
-            // page-switch timer the way JumpCursor does. It matters only for a run that jumps the
-            // cursor onto a hand with the stick ALREADY pushed outward: the first stickless tick puts
-            // the timer back to -1 by itself, so the ordinary console-then-push sequence is unaffected.
-            if (nodes[(size_t)i].hand >= 0) {
-                ArmPageSwitchTimer();
-            }
-            RebuildCursorGraph(); // `nodes` is not touched after this - the rebuild replaces it
+            // THROUGH JumpCursor, not beside it. This used to hand-copy its body, and every time
+            // JumpCursor grew something the copy silently did not: #129's page-switch arming had to be
+            // added here by hand, and #131's sound was missed outright - which made the Quest Journal's
+            // C-left/C-right paging, which is this function, the one highlight move in the menu that
+            // made no noise. An arrival is an arrival, whichever door it came through.
+            JumpCursor(i);
             return true;
         }
     }
@@ -2995,6 +3049,10 @@ RsMenuOpenResult RsMenu_Open() {
     sPhase = RS_MENU_PHASE_OPENING;
     sEntryTick = 0;
     sOpens++;
+    // #131: after every refusal above, so a refused open is silent. The rebuild just above does NOT
+    // move the cursor through JumpCursor, so opening plays this and nothing else - vanilla likewise
+    // has no cursor sound as its menu comes up.
+    RsMenu_PlaySfx(RS_MENU_SFX_OPEN);
     return RS_MENU_OPEN_OK;
 }
 
@@ -3014,6 +3072,10 @@ bool RsMenu_BeginClose() {
     // top first, which is one line and the difference between a slide and a jerk.
     sEntryTick = sPhase == RS_MENU_PHASE_OPENING ? kEntryTicks - sEntryTick : 0;
     sPhase = RS_MENU_PHASE_CLOSING;
+    // #131: the SLIDE plays it, and the instant RsMenu_Close does not - that path is a scene load or
+    // the CVar going off, not a player leaving, and it also runs at the END of this slide, where a
+    // second sound would double every close.
+    RsMenu_PlaySfx(RS_MENU_SFX_CLOSE);
     return true;
 }
 
@@ -3137,6 +3199,10 @@ bool RsMenu_StartSweep(int32_t delta) {
     sSweepFrom = sPage;
     sSweepTo = next;
     sSweeps++;
+    // #131: ON THE PRESS, not at the swap tick - vanilla plays it inside KaleidoScope_SwitchPage,
+    // which is the frame the shoulder went down, half a gesture before the page actually changes.
+    // Every roll cause funnels through here, so all five get it from one line.
+    RsMenu_PlaySfx(dir > 0 ? RS_MENU_SFX_ROLL_RIGHT : RS_MENU_SFX_ROLL_LEFT);
     return true;
 }
 

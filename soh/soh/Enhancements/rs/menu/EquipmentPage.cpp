@@ -405,8 +405,7 @@ static void EquipWithA(PlayState* play, int32_t point, int32_t cursorItem) {
             }
             if (removed) {
                 // kaleido's RESUME_EQUIPMENT, which for these rows is only the sound.
-                Audio_PlaySoundGeneral(NA_SE_SY_DECIDE, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
-                                       &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+                RsMenu_PlaySfxId(NA_SE_SY_DECIDE);
                 RsVanilla_CountEquip();
                 return;
             }
@@ -414,8 +413,7 @@ static void EquipWithA(PlayState* play, int32_t point, int32_t cursorItem) {
     }
     if (!swordButtonOnly) {
         if (!CHECK_OWNED_EQUIP(y, x - 1)) {
-            Audio_PlaySoundGeneral(NA_SE_SY_ERROR, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
-                                   &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+            RsMenu_PlaySfxId(NA_SE_SY_ERROR);
             return;
         }
         Inventory_ChangeEquipment(y, x);
@@ -439,8 +437,7 @@ static void EquipWithA(PlayState* play, int32_t point, int32_t cursorItem) {
     if (y == 0) {
         Interface_LoadItemIcon1(play, 0); // RESUME_EQUIPMENT_SWORD
     }
-    Audio_PlaySoundGeneral(NA_SE_SY_DECIDE, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
-                           &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+    RsMenu_PlaySfxId(NA_SE_SY_DECIDE);
     RsVanilla_CountEquip();
 }
 
@@ -452,8 +449,7 @@ static void AssignToButton(PlayState* play, uint16_t press, int32_t point, int32
         return;
     }
     if (!CHECK_OWNED_EQUIP(y, x - 1)) {
-        Audio_PlaySoundGeneral(NA_SE_SY_ERROR, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
-                               &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+        RsMenu_PlaySfxId(NA_SE_SY_ERROR);
         return;
     }
     u16 slot = 0;
@@ -515,8 +511,7 @@ static void EquipmentPageInput(int32_t pageIndex, int32_t level, uint16_t press,
     const int32_t cursorItem = CellItem(point);
     if (CHECK_BTN_ALL(press, BTN_A) && x == 0 && y == 2 && CVarGetInteger(CVAR_ENHANCEMENT("ToggleStrength"), 0)) {
         CVarSetInteger(CVAR_ENHANCEMENT("StrengthDisabled"), !CVarGetInteger(CVAR_ENHANCEMENT("StrengthDisabled"), 0));
-        Audio_PlaySoundGeneral(NA_SE_SY_DECIDE, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
-                               &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+        RsMenu_PlaySfxId(NA_SE_SY_DECIDE);
         return;
     }
     const uint16_t buttons = (uint16_t)(BTN_A | cButtons);
@@ -526,8 +521,7 @@ static void EquipmentPageInput(int32_t pageIndex, int32_t level, uint16_t press,
     if (!CHECK_AGE_REQ_EQUIP(y, x)) {
         // EQUIP_FAIL (:693-701): the error sound for A, and for a C button on a tunic or boots row.
         if (CHECK_BTN_ALL(press, BTN_A) || (assignable && y > 1)) {
-            Audio_PlaySoundGeneral(NA_SE_SY_ERROR, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
-                                   &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+            RsMenu_PlaySfxId(NA_SE_SY_ERROR);
         }
         return;
     }

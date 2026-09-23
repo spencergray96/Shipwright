@@ -213,7 +213,14 @@
 //                         `seg6_during=` what Player_DrawPause left there, `seg4_now=`/`seg6_now=`
 //                         read live between frames. #124 adds `cursor_drawn=` to `section=draw`:
 //                         1 when the last frame drew the cursor box, 0 through a roll or a level
-//                         change (the box hides with the content)
+//                         change (the box hides with the content). #131 adds `section=sfx`, one
+//                         count per sound event the menu plays (`sfx_cursor=`, `sfx_hand=`,
+//                         `sfx_roll_left=`, `sfx_roll_right=`, `sfx_open=`, `sfx_close=`) - THE ONLY
+//                         CHANNEL FOR SOUND, because the harness cannot hear. A count proves the call
+//                         was made, not that anything reached the speaker, so a sound change needs a
+//                         listening pass too. The `sfx_` prefix is load-bearing: this line also ends
+//                         with `open=` from the state suffix, and `cursor=`/`hand=` are other
+//                         sections' fields, so the bare names would collide three ways
 //
 // Returns 0 when the operation succeeded (or for read-only subcommands), 1 otherwise - so `rc=` on
 // the agent loop's cmd marker is the pass/fail bit.

@@ -633,4 +633,74 @@ struct RsMenuStatus {
 };
 RsMenuStatus RsMenu_Status();
 
+// --- #131: vanilla's menu sounds, in one place ---------------------------------------------------
+//
+// Callers name an EVENT, never a sound id. Two reasons, and the second is the one that decided it:
+//
+//   - the roll's two sounds are PLACEHOLDERS. Spencer (2026-09-22): "the plan is to replace them
+//     later with a parchment-shuffling sound. So route every roll through the one helper, and the
+//     swap stays a single edit." That is only true if the event, not the sound, is what the call
+//     sites carry;
+//   - the six-argument `Audio_PlaySoundGeneral` was already copied four times in this directory.
+//
+// An id would also not compile here: this header cannot share a translation unit with z64.h
+// (MenuConsole.cpp includes it), so the NA_SE_SY_ constants live on the other side of the
+// declaration. Every event's sound is in ONE table in RsMenu.cpp.
+//
+// WHERE EACH ONE IS PLAYED, and each is one call site:
+//   CURSOR / HAND  RsMenu.cpp's JumpCursor - the single path a cursor move takes, which covers the
+//                  ported pages' grids, the Quest Journal's list (its rows are cursor nodes) and its
+//                  C-left/C-right paging (RsMenu_SetCursorById, which goes through JumpCursor rather
+//                  than copying it). A refused step never reaches JumpCursor, so an edge is silent,
+//                  as vanilla is.
+//   ROLL_*         RsMenu_StartSweep, at the START of the gesture - vanilla plays it on the press
+//                  (KaleidoScope_SwitchPage), not at the swap tick.
+//                  ⚠ The console's `sweep loop` and `sweep hold` go through it too, so a stress run
+//                  inflates `sfx_roll_*`. Left that way ON PURPOSE: those two replay the real
+//                  animation (see RsMenu_HoldSweep - "a held frame is a frame the animation really
+//                  produces"), and a silent roll would break exactly that property. Read the counters
+//                  as DELTAS around a gesture, never as session totals, and a loop cannot mislead.
+//   OPEN / CLOSE   RsMenu_Open and RsMenu_BeginClose. NOT the instant RsMenu_Close, which is a scene
+//                  load or a CVar going off rather than a player leaving.
+//
+// NOT vanilla's route: `func_800F64E0` plays WIN_OPEN/WIN_CLOSE but also mutes the BGM, and #127
+// muted through the raw 0xF1000000 command precisely to keep those apart (AUDIO_SYSTEM.md). These
+// play the sound directly and touch nothing else.
+//
+// STILL SILENT, deliberately: going down a level and back (vanilla has no such gesture), and the
+// journal's line scrolling at level 1 (the page's own, not a cursor move).
+enum RsMenuSfxEvent {
+    RS_MENU_SFX_CURSOR = 0, // the cursor reached a new item
+    RS_MENU_SFX_HAND,       // ... and it was a HAND. Vanilla's page arrows play DECIDE, not CURSOR
+                            // (KaleidoScope_MoveCursorToSpecialPos, z_kaleido_scope_PAL.c:1198) -
+                            // an exception #131 did not know about, kept on Spencer's "match vanilla"
+    RS_MENU_SFX_ROLL_LEFT,  // placeholder: a parchment shuffle replaces both of these later
+    RS_MENU_SFX_ROLL_RIGHT,
+    RS_MENU_SFX_OPEN,
+    RS_MENU_SFX_CLOSE,
+    RS_MENU_SFX_COUNT,
+};
+void RsMenu_PlaySfx(int32_t event);
+
+// The same six-argument call with no event behind it, for a sound that is VANILLA'S OWN at a moment
+// vanilla chose - the equip chime, the error buzz, a song's notes - rather than a design decision of
+// ours that might be re-sounded later. Those do not want events: one of them is computed
+// (`NA_SE_SY_SET_FIRE_ARROW + index`, EquipFlight.cpp), and a table of them would just be kaleido's
+// own constants copied into a second place to be looked up again. Uncounted: `section=sfx` is about
+// the menu's chrome, and folding the equip and song sounds into it would make those counts mean two
+// different things. This exists so the six arguments appear ONCE in this directory.
+void RsMenu_PlaySfxId(uint16_t sfxId);
+
+// THE HARNESS CANNOT HEAR. So every event counts, and a run asserts the counts instead of the sound;
+// Spencer's ear is the other half, and neither is sufficient alone - a counter proves the call was
+// made, not that anything came out of the speaker. `menu dump` prints one `section=sfx` line.
+// Out-of-range events count nothing and return 0. Counts are per session and never reset.
+int32_t RsMenu_SfxCount(int32_t event);
+// The greppable token a console line carries for an event - `sfx_cursor`, `sfx_hand`,
+// `sfx_roll_left`, ... The prefix is part of the name, not added by the caller: `cursor=` and
+// `hand=` already mean something on `section=slot` and `section=cursor`, and a run that greps the
+// whole joined dump rather than one line would otherwise read those as sound counts. The first
+// #131 run did exactly that and scored 8/17 on sound that was firing correctly.
+const char* RsMenu_SfxEventName(int32_t event);
+
 #endif // SOH_RS_MENU_H

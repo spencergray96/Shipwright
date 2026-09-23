@@ -351,8 +351,7 @@ static void ItemsPageInput(int32_t pageIndex, int32_t level, uint16_t press, int
                                  kMap.X(SlotLeft(SLOT_BOW)), kMap.Y(SlotTop(SLOT_BOW)));
         }
     } else {
-        Audio_PlaySoundGeneral(NA_SE_SY_ERROR, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
-                               &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+        RsMenu_PlaySfxId(NA_SE_SY_ERROR);
     }
 }
 
