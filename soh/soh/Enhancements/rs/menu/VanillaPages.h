@@ -118,6 +118,13 @@ struct RsMenuEquipFlightState {
     int32_t landings;
     int32_t ticks;  // update ticks the current (or last) flight has taken
     int32_t holdAt; // the test-only hold, -1 off
+    // #133, TEST-ONLY. The quad exactly as this tick would draw it, in the same screen space, BEFORE
+    // the renderer interpolates it - which makes it the LATTICE a frame capture is measured against:
+    // a drawn rectangle that is not one of the poses `flight hold 0..n` enumerates could only have
+    // come from the renderer. Floats because the whole point of #133 is the positions between ticks.
+    float qLeft, qTop, qSide;
+    bool loop;  // the flight repeats instead of landing
+    bool probe; // the icon draws as a flat magenta rectangle, so a pixel scan can find its corners
 };
 RsMenuEquipFlightState RsVanilla_EquipFlightState();
 // #127: song playback on the Quest Status page (QuestStatusPage.cpp). `state` is kaleido's song
@@ -144,6 +151,25 @@ RsMenuSongState RsMenu_SongState();
 // TEST-ONLY: stop a flight advancing once it has taken `tick` ticks (-1 lets it go), so a run can read
 // and screenshot one pose of a half-second animation. `menu flight hold <n>|release`.
 void RsVanilla_SetEquipFlightHold(int32_t tick);
+// --- #133's two test-only instruments, and they exist because of the agent loop rather than the game.
+//
+// A flight is well under a second and a command round trip is seconds, so no run can photograph a
+// chosen frame of one - the same problem `sweep loop` and `sweep hold` solve for the roll, from the
+// same two ends. `flight hold` (above) already parks a flight at a tick; these two are the other half.
+//
+// THE LOOP replays the flight FOREVER and never lands it: the save is not written, no item is
+// equipped and no icon swaps, so a burst of captures can sample a live excursion for as long as it
+// likes without shuffling a save. It replays the last flight the menu actually started, so the run
+// equips once and then loops that. False when no flight has been started this session.
+bool RsVanilla_StartEquipFlightLoop();
+void RsVanilla_StopEquipFlightLoop();
+// THE PROBE draws the flying icon as a FLAT MAGENTA RECTANGLE - no texture, no alpha fade - so a pixel
+// scan recovers its corner and its side exactly, which are the two channels #133's smoothness claim is
+// about. An item icon is a 32x32 texture with transparent edges and colours that change per item, and
+// neither its position nor its size can be read off one reliably. Magenta because nothing on the HUD
+// or the parchment is magenta (the menu's own probe uses it for the rolls, and the two are never on
+// together in a run). Not a CVar: nothing survives the session.
+void RsVanilla_SetEquipFlightProbe(bool on);
 
 // The save fields equipping writes, read live - what the half-2 comparison compares. `buttons` is
 // equips.buttonItems (B, C-left, C-down, C-right, then the four D-pad slots), `slots` cButtonSlots,

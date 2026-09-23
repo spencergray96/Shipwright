@@ -84,6 +84,61 @@ static int32_t sLandings = 0;
 // TEST-ONLY (menu flight hold <n>): stop advancing once a flight has taken n ticks, so a run can read
 // and screenshot one pose of a half-second animation; -1 is off.
 static int32_t sHoldAt = -1;
+// #133's loop: the flight's opening state, kept so the loop can replay it, and the flag itself.
+static EquipFlight sFlightStart;
+static s16 sFlightStartW87 = 0; // the size registers as the flight began - see RestartFlight
+static s16 sFlightStartW90 = 0;
+static bool sHaveFlightStart = false;
+static bool sFlightLoop = false;
+static bool sFlightProbe = false;
+
+// #133: WHERE THE QUAD IS, as floats, in the same screen space vanilla's integers used. Pulled out of
+// the draw so the two channels a frame capture measures - the corner and the side - are one function,
+// and so the matrix below and the tick state can never describe different rectangles.
+struct FlightQuad {
+    float left, top, side;
+};
+
+// #133: back to the stored opening state, counted as a fresh flight. One place, because the loop
+// restarts from two - the tick that would have landed, and `flight loop` itself.
+//
+// THE SIZE REGISTERS ARE PART OF THAT STATE, and restoring them rather than calling ResetFlightSize is
+// the whole of the difference between a replay and a lookalike. The icon's shrink comes out of
+// WREG(87), which is 80 at boot and WREG(91) = 40 once ResetFlightSize has run (z_construct.c:484; the
+// file header above). BeginEquip does NOT reset it, so the FIRST flight after boot shrinks 32 -> 24 and
+// every later one 32 -> 28. A loop that reset it would replay that first flight on the wrong shrink
+// curve - which matters here more than anywhere, because the size is one of the two channels the
+// probe exists to measure.
+static void RestartFlight() {
+    sFlight = sFlightStart;
+    WREG(87) = sFlightStartW87;
+    WREG(90) = sFlightStartW90;
+    sFlights++;
+}
+
+// ONE DELIBERATE DEPARTURE FROM VANILLA, and it is the point rather than an oversight: vanilla writes
+// `(s16)(animX / 10)`, truncating the drawn corner to a whole screen unit. These are floats, so the
+// corner can sit up to a unit from where vanilla drew it (#125 logged t=5 at x=61; this reports 61.5).
+// Truncating would re-quantise the very thing option A exists to smooth - the interpolator would tween
+// between whole units instead of between the real ones. The TICK STATE is untouched, so every `flight=`
+// figure #125 recorded still reads the same; it is the rendered geometry that is finer than vanilla's.
+static FlightQuad FlightQuadOf(const EquipFlight& f) {
+    FlightQuad q;
+    q.left = (float)f.animX / 10.0f;
+    q.top = (float)f.animY / 10.0f;
+    q.side = (float)WREG(90) / 10.0f;
+    if (f.item >= kArrowEffectBase && f.alpha > 0 && f.alpha < 255) {
+        // The magic arrow's effect swells as it fades in (:5788-5798). `grow` stays INTEGRAL, unlike
+        // the corner above: it is a step function of alpha rather than a position, so smoothing it
+        // would change the effect's shape instead of its motion.
+        const float grow = (float)((f.alpha / 8) / 2);
+        q.left -= grow;
+        q.top += grow;
+        q.side = grow * 2.0f + 32.0f;
+    }
+    return q;
+}
+
 
 // The three magic arrows, in kaleido's effect order (fire, ice, light); their ITEM_ ids are not
 // consecutive (0x04, 0x0C, 0x12). -1 for anything else.
@@ -351,6 +406,12 @@ bool RsVanilla_BeginEquip(uint16_t press, uint16_t item, uint16_t slot, int16_t 
         RsMenu_PlaySfxId(NA_SE_SY_DECIDE);
     }
     sFlights++;
+    // #133: kept for the loop, which replays this exact opening state rather than equipping again -
+    // the size registers included, because BeginEquip deliberately does not reset them.
+    sFlightStart = sFlight;
+    sFlightStartW87 = WREG(87);
+    sFlightStartW90 = WREG(90);
+    sHaveFlightStart = true;
     return true;
 }
 
@@ -424,6 +485,13 @@ void RsVanilla_UpdateEquipFlight(PlayState* play) {
                 f.flashTimer = 4;
                 return;
             }
+            // #133, TEST-ONLY: the loop replays the flight and NEVER LANDS IT. Land() is what writes
+            // the save, so looping past it would re-equip - and swap, and re-equip - for as long as
+            // the burst ran. The animation is identical either way; only the ending differs.
+            if (sFlightLoop && sHaveFlightStart) {
+                RestartFlight();
+                return;
+            }
             Land(play, f.target, f.item, f.slot);
             f.active = false;
             f.moveTimer = 10;
@@ -439,6 +507,39 @@ void RsVanilla_UpdateEquipFlight(PlayState* play) {
 
 void RsVanilla_SetEquipFlightHold(int32_t tick) {
     sHoldAt = tick < 0 ? -1 : tick;
+}
+
+bool RsVanilla_StartEquipFlightLoop() {
+    if (!sHaveFlightStart) {
+        return false; // nothing to replay: the run equips once first, then loops that
+    }
+    // A flight already in the air is ABANDONED, not landed - the same rule RsMenu_SetPage applies to a
+    // sweep, and for the same reason: waiting for it would let a run assert a pose the loop never
+    // produced. Nothing is equipped by it either, because only Land() writes the save.
+    sFlightLoop = true;
+    // THE HOLD IS LEFT ALONE, and the two together are the instrument that enumerates the lattice.
+    // A loop restarts the flight at tick 0; a hold parks it once it has taken n ticks. Both on, the
+    // flight sits at tick n for as long as you like, and `flight hold n+1` walks it forward exactly
+    // one tick - so `flight_quad=` can be read at every pose the 20 Hz animation can draw, one
+    // console command per pose, without a fresh equip each time. `flight release` then lets the loop
+    // run free for the capture burst. `flight_hold=` is on the same line, so a run can always see
+    // which of the two it is in.
+    RestartFlight();
+    return true;
+}
+
+void RsVanilla_StopEquipFlightLoop() {
+    sFlightLoop = false;
+    // AND THE HOLD, or the sentence below is false: a held flight returns from the update before it
+    // ever reaches moveTimer == 0, so nothing would land and the run would equip zero times. `stop`
+    // ends the instrument, both halves of it.
+    sHoldAt = -1;
+    // Left in flight rather than landed: the next tick runs the ordinary ending, which DOES land it,
+    // so stopping a loop equips exactly once - the equip the run asked for in the first place.
+}
+
+void RsVanilla_SetEquipFlightProbe(bool on) {
+    sFlightProbe = on;
 }
 
 bool RsVanilla_EquipFlightActive() {
@@ -457,6 +558,14 @@ void RsVanilla_FinishEquipFlight(PlayState* play) {
         ResetFlightSize();
     }
     sFlight.active = false;
+    // #133: AND THE TEST-ONLY STATE DIES WITH THE MENU. This runs from the close and from every scene
+    // load. A loop left on would otherwise outlive the session that set it, and then every later REAL
+    // equip would fly forever and never write the save - BeginEquip refuses while a flight is active -
+    // which is a wedged game, not a wedged test. The same for the hold, which had the hole first, and
+    // for the probe, which would leave a magenta square on a player's screen.
+    sFlightLoop = false;
+    sHoldAt = -1;
+    sFlightProbe = false;
 }
 
 RsMenuEquipFlightState RsVanilla_EquipFlightState() {
@@ -474,29 +583,52 @@ RsMenuEquipFlightState RsVanilla_EquipFlightState() {
     s.landings = sLandings;
     s.ticks = sFlight.ticks;
     s.holdAt = sHoldAt;
+    const FlightQuad q = FlightQuadOf(sFlight);
+    s.qLeft = q.left;
+    s.qTop = q.top;
+    s.qSide = q.side;
+    s.loop = sFlightLoop;
+    s.probe = sFlightProbe;
     return s;
 }
 
 // Interface_Draw's "Inventory Equip Effects" (z_parameter.c:5760-5807), called from inside
 // Interface_Draw by OnInterfaceDrawItemButtonsEnd. OPEN_DISPS from a file-static function, never from
 // an anonymous namespace (PauseLink.cpp has why).
+// #133 OPTION A: THE QUAD IS A UNIT SQUARE UNDER A MATRIX, not four screen-space vertices.
+//
+// Vanilla writes the icon's corners straight into Vtx from the tick state, and so did this up to
+// #133. Vertices written by hand replay identically on every rendered frame, so the flight STEPPED at
+// the 20 Hz game tick while the scroll and the hands beside it glided - they are drawn through
+// matrices inside interpolation nodes and SoH tweens those to the display rate
+// (SOH_2D_DRAWING.md; the same argument stage 5 rests on). One unit quad plus
+// Matrix_Translate + Matrix_Scale from the same tick state puts the flight on that channel too, and
+// costs nothing else: the path, the timing and the WREG values are still vanilla's.
+//
+// THE NODE'S KEY is the flight number and one bit. A key that no longer matches last tick's tree makes
+// the node render at its exact tick position instead of lerping into it
+// (frame_interpolation.cpp:300-307), which is wanted at exactly two discontinuities and nowhere else:
+// a NEW flight must not slide in from where the last one ended, and the magic arrow's state 2 -> 3
+// resets the icon's size through ResetFlightSize, which is a jump rather than a motion.
+//
+// So the bit is `state >= 3`, NOT the state itself. Keying on the state would also snap at 0 -> 1 and
+// 1 -> 2, and neither is a discontinuity: the fade-in and the flash both hold the icon still, and
+// state 1 flies to the Bow from exactly where the fade-in left it. Snapping there costs a tick of
+// interpolation for nothing.
+static int32_t FlightNodeKey(const EquipFlight& f) {
+    return sFlights * 2 + (f.state >= 3 ? 1 : 0);
+}
+static const char sFlightNodeKey = 0;
+static const void* const sFlightNode = &sFlightNodeKey;
+
 static void DrawEquipFlight(PlayState* play) {
     const EquipFlight& f = sFlight;
+    const FlightQuad q = FlightQuadOf(sFlight);
     Vtx* vtx = (Vtx*)Graph_Alloc(play->state.gfxCtx, 4 * sizeof(Vtx));
-    s16 x0 = (s16)(f.animX / 10);
-    s16 x1 = (s16)(x0 + WREG(90) / 10);
-    s16 y0 = (s16)(f.animY / 10);
-    s16 y1 = (s16)(y0 - WREG(90) / 10);
-    if (f.item >= kArrowEffectBase && f.alpha > 0 && f.alpha < 255) {
-        // The magic arrow's effect swells as it fades in (:5788-5798).
-        const s16 grow = (s16)((f.alpha / 8) / 2);
-        x0 = (s16)(x0 - grow);
-        x1 = (s16)(x0 + grow * 2 + 32);
-        y0 = (s16)(y0 + grow);
-        y1 = (s16)(y0 - grow * 2 - 32);
-    }
-    const s16 xs[4] = { x0, x1, x0, x1 };
-    const s16 ys[4] = { y0, y0, y1, y1 };
+    // The unit square, y DOWN from its top-left corner - the shape vanilla's x0/x1, y0/y1 described.
+    // Constant every frame, which is the point: everything that moves is now in the matrix.
+    const s16 xs[4] = { 0, 1, 0, 1 };
+    const s16 ys[4] = { 0, 0, -1, -1 };
     const s16 ss[4] = { 0, 32 << 5, 0, 32 << 5 };
     const s16 ts[4] = { 0, 0, 32 << 5, 32 << 5 };
     for (int32_t i = 0; i < 4; i++) {
@@ -510,10 +642,25 @@ static void DrawEquipFlight(PlayState* play) {
     }
 
     OPEN_DISPS(play->state.gfxCtx);
+    FrameInterpolation_RecordOpenChild(sFlightNode, FlightNodeKey(f));
     Gfx_SetupDL_42Overlay(play->state.gfxCtx);
     gDPSetCombineMode(OVERLAY_DISP++, G_CC_MODULATERGBA_PRIM, G_CC_MODULATERGBA_PRIM);
-    gSPMatrix(OVERLAY_DISP++, &gMtxClear, G_MTX_MODELVIEW | G_MTX_LOAD);
-    if (f.item < kArrowEffectBase) {
+    Matrix_Push();
+    Matrix_Translate(q.left, q.top, 0.0f, MTXMODE_NEW);
+    Matrix_Scale(q.side, q.side, 1.0f, MTXMODE_APPLY);
+    gSPMatrix(OVERLAY_DISP++, Matrix_NewMtx(play->state.gfxCtx, (char*)__FILE__, __LINE__),
+              G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    Matrix_Pop();
+    if (sFlightProbe) {
+        // #133, TEST-ONLY: a solid magenta rectangle instead of the icon - no texture, and opaque
+        // whatever the fade is doing. A pixel scan then recovers the quad's corner AND its side from
+        // one frame, which are exactly the two channels the smoothness claim is about; an item icon's
+        // transparent edges and per-item colours give neither reliably. The combiner is prim-only, so
+        // this is the same quad under the same matrix with the texture stage taken out.
+        gDPSetCombineMode(OVERLAY_DISP++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
+        gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 0, 255, 255);
+        gSPVertex(OVERLAY_DISP++, (uintptr_t)vtx, 4, 0);
+    } else if (f.item < kArrowEffectBase) {
         gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 255, 255, f.alpha);
         gSPVertex(OVERLAY_DISP++, (uintptr_t)vtx, 4, 0);
         gDPLoadTextureBlock(OVERLAY_DISP++, gItemIcons[f.item], G_IM_FMT_RGBA, G_IM_SIZ_32b, 32, 32, 0,
@@ -529,6 +676,12 @@ static void DrawEquipFlight(PlayState* play) {
                             G_TX_NOLOD, G_TX_NOLOD);
     }
     gSP1Quadrangle(OVERLAY_DISP++, 0, 2, 3, 1, 0);
+    // The modelview back to identity, which is what vanilla left loaded (it never replaced gMtxClear).
+    // Nothing later in Interface_Draw submits vertices today, so this is housekeeping rather than a fix
+    // - but a scale left on the stack is exactly the kind of inherited state that costs a session to
+    // find. A constant op in a constant position, so the node's index-matched interpolation is unmoved.
+    gSPMatrix(OVERLAY_DISP++, &gMtxClear, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    FrameInterpolation_RecordCloseChild();
     CLOSE_DISPS(play->state.gfxCtx);
 }
 

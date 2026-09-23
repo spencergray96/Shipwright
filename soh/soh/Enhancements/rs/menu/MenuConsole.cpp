@@ -132,16 +132,18 @@ std::string DescribeSweep(const RsMenuSweepState& sweep) {
 std::string DescribeHud() {
     const RsMenuHudState h = RsMenu_HudState();
     const RsMenuEquipFlightState f = RsVanilla_EquipFlightState();
-    char buf[384];
+    char buf[512];
     std::snprintf(buf, sizeof(buf),
                   "valid=%d mode=%d prev=%d status=%d,%d,%d,%d,%d,%d,%d,%d,%d "
                   "alpha=%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d b_label=%d b_label_shown=%d "
-                  "flight=%d,%d,%d,%d,%d,%d,%d,%d,%d flight_ticks=%d flight_hold=%d flights=%d landings=%d",
+                  "flight=%d,%d,%d,%d,%d,%d,%d,%d,%d flight_ticks=%d flight_hold=%d flights=%d landings=%d "
+                  "flight_quad=%.3f,%.3f,%.3f flight_loop=%d flight_probe=%d",
                   h.valid ? 1 : 0, h.mode, h.prevMode, h.status[0], h.status[1], h.status[2], h.status[3],
                   h.status[4], h.status[5], h.status[6], h.status[7], h.status[8], h.alpha[0], h.alpha[1],
                   h.alpha[2], h.alpha[3], h.alpha[4], h.alpha[5], h.alpha[6], h.alpha[7], h.alpha[8], h.alpha[9],
                   h.alpha[10], h.alpha[11], h.alpha[12], h.bLabel, h.bLabelShown, f.active ? 1 : 0, f.state, f.item,
-                  f.target, f.x, f.y, f.alpha, f.size, f.moveTimer, f.ticks, f.holdAt, f.flights, f.landings);
+                  f.target, f.x, f.y, f.alpha, f.size, f.moveTimer, f.ticks, f.holdAt, f.flights, f.landings,
+                  f.qLeft, f.qTop, f.qSide, f.loop ? 1 : 0, f.probe ? 1 : 0);
     return buf;
 }
 
@@ -707,6 +709,17 @@ int32_t Flight(const std::vector<std::string>& args, std::vector<std::string>& l
         RsVanilla_SetEquipFlightHold(tick);
     } else if (args.size() == 2 && args[1] == "release") {
         RsVanilla_SetEquipFlightHold(-1);
+    } else if (args.size() == 2 && args[1] == "loop") {
+        // #133. Refused rather than silently doing nothing when no flight has been started yet: the
+        // loop replays one, and "it is looping but nothing moved" is the hardest kind of run to read.
+        if (!RsVanilla_StartEquipFlightLoop()) {
+            Addf(lines, "op=flight result=error error=no_flight %s", DescribeHud().c_str());
+            return 1;
+        }
+    } else if (args.size() == 2 && args[1] == "stop") {
+        RsVanilla_StopEquipFlightLoop();
+    } else if (args.size() == 3 && args[1] == "probe" && (args[2] == "on" || args[2] == "off")) {
+        RsVanilla_SetEquipFlightProbe(args[2] == "on");
     } else {
         Addf(lines, "op=flight result=error error=arg %s", Describe().c_str());
         return 1;

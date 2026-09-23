@@ -166,9 +166,28 @@
 //                         `mode=`/`prev=`, `status=` (the nine buttonStatus), `alpha=` (thirteen
 //                         alphas), `b_label=`/`b_label_shown=`, and the flying equip icon (`flight=`,
 //                         `flight_ticks=`, `flight_hold=`, `flights=`, `landings=`)
-//   flight hold <n>|release
-//                         #125, TEST-ONLY. Parks the flying equip icon once it has taken n ticks, so
-//                         one pose of a half-second flight can be read and screenshot; replies `hud`
+//   flight hold <n>|release|loop|stop|probe <on|off>
+//                         #125 and #133, TEST-ONLY, and all of it exists because of the agent loop
+//                         rather than the game: a flight is well under a second and a command round
+//                         trip is seconds, so no run can photograph a chosen frame of one.
+//                         `hold <n>` parks the icon once it has taken n ticks, so one pose can be read
+//                         and screenshot, and `release` lets it go. Those enumerate the LATTICE: the
+//                         poses the 20 Hz animation itself can draw, which `flight_quad=` reports
+//                         exactly. `loop` replays the last flight forever and NEVER LANDS IT - no save
+//                         write, no equip, no icon swap - so a burst of captures samples a live
+//                         excursion; rc=1 `error=no_flight` when nothing has been started to replay.
+//                         `stop` releases the hold as well, or a held flight would never reach the
+//                         tick that lands it. LOOP AND HOLD COMPOSE: a hold alone already walks ONE
+//                         flight tick by tick, which is all the lattice needs, and the loop is what
+//                         lets that walk be repeated - or restarted - without equipping again. The
+//                         loop ABANDONS a flight already in the air rather than landing it, as
+//                         `menu page` does to a sweep. Neither survives the menu closing.
+//                         `stop` ends the loop and lets the next tick land it, so a looped flight
+//                         equips exactly once. `probe on` draws the icon as a flat MAGENTA rectangle
+//                         instead, so a pixel scan recovers its corner and its side - the two channels
+//                         #133's smoothness claim is about, and neither readable off a 32x32 icon with
+//                         transparent edges. `hud` gains `flight_quad=` (left,top,side as floats),
+//                         `flight_loop=` and `flight_probe=`. Nothing here is a CVar
 //   song                  #127, READ-ONLY. The Quest Status page's song playback (`state=` kaleido's
 //                         song sub-state, `point=`, `song=`, `count=`, `notes=`, `muted=`) and the
 //                         ocarina's two global staves (`playback=` and `playing=`, each pos,state,
