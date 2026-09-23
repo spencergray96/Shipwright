@@ -65,6 +65,14 @@ function Invoke-SohCMake {
     <#
     .SYNOPSIS
     Run cmake at a lowered priority class, streaming its output, and return its exit code.
+
+    .NOTES
+    cmake inherits this console's handles, so its output goes straight to the console
+    and PowerShell-level redirection does not see it: `Invoke-SohBuild *> build.log`
+    captures only the [agent-env] lines below, not the compiler's. Anything capturing
+    the whole session's stdout - an agent tool call, a shell transcript - gets all of
+    it. To capture the compiler output to a file specifically, redirect the outer
+    PowerShell process rather than this function.
     #>
     [CmdletBinding()]
     param(
