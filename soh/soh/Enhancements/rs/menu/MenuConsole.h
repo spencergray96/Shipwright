@@ -67,8 +67,10 @@
 //                         `agenttest press L|R` because a mid-sweep screenshot has to be taken at a
 //                         known tick: the line carries `tick=`/`of=`/`dx=`/`width=`, so a capture is
 //                         self-describing. `dx=` is the roll's own displacement only, and
-//                         `stick_rolls=` (#129) how many of `sweeps=` the stick started by being
-//                         pushed outward from a hand - the one roll cause a node id cannot show.
+//                         `stick_rolls=`/`dpad_rolls=` (#129) how many of `sweeps=` an outward push
+//                         from a hand started, by stick and by D-pad - the one roll cause a node id
+//                         cannot show, since a shoulder, A, the stick and the D-pad all leave the
+//                         cursor on the same node. Both count when both were pushed at once.
 //                         `loop` keeps sweeping, alternating direction, until `stop`, and IT IS THE
 //                         INSTRUMENT FOR THIS STAGE rather than a convenience: one sweep is half a
 //                         second and a command round trip is seconds, so no run can photograph a

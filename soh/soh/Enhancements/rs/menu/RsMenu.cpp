@@ -448,7 +448,7 @@ constexpr int32_t kStickRelease = 18;
 // KALEIDO'S OWN gate, which is a different number from the two above and belongs to the ported half:
 // vanilla writes the bare literal 30 in each of the two places it tests the stick - its cursor filter
 // (z_kaleido_scope_PAL.c:1538-1588) and its page-switch timer (:1319-1336) - and both are ported here
-// (KaleidoStickAxis, PageSwitchStick). Named once so the two cannot drift apart.
+// (KaleidoStickAxis, PageSwitchOutward). Named once so the two cannot drift apart.
 constexpr int32_t kKaleidoStick = 30;
 
 // (Stage 3's greybox pages are gone since stage 8: the three ported vanilla pages took their places.
@@ -583,9 +583,10 @@ static std::vector<RsCursorLinks> sCursorLinks;
 static int32_t sHandLinkIn[2] = { RS_MENU_LINK_HAND_RIGHT, RS_MENU_LINK_HAND_LEFT };
 static int32_t sCursorMoves = 0;
 static int32_t sCursorSelects = 0;
-// #129: kaleido's pageSwitchTimer and a counter for the rolls it starts. See PageSwitchStick.
+// #129: kaleido's pageSwitchTimer and a counter for the rolls it starts. See PageSwitchOutward.
 static int32_t sPageSwitchTimer = -1;
 static int32_t sStickRolls = 0;
+static int32_t sDpadRolls = 0;
 static bool sStickLatchX = false;
 static bool sStickLatchY = false;
 // #127: kaleido's stick filter stepped this tick (RsMenu_StickStepped) - a song's play-along ends on it.
@@ -1793,7 +1794,7 @@ static int32_t HandRollDelta(const RsMenuCursorNode* node) {
     return node != nullptr && node->hand == 0 ? -1 : 1;
 }
 
-// #129: arm kaleido's page-switch timer, which is what ARRIVING on a hand does - see PageSwitchStick.
+// #129: arm kaleido's page-switch timer, which is what ARRIVING on a hand does - see PageSwitchOutward.
 // Named so the one place that writes the timer from outside it is greppable from both ends.
 static void ArmPageSwitchTimer();
 
@@ -1805,7 +1806,7 @@ static void JumpCursor(int32_t next) {
     // more ticks before it rolls. That is kaleido's KaleidoScope_MoveCursorToSpecialPos
     // (z_kaleido_scope_PAL.c:1198), which every page calls as the cursor steps onto a page arrow, and it
     // is the whole of the difference between the two ways a roll can be reached: a push that STARTS on a
-    // hand rolls at once (the timer is -1, reset by PageSwitchStick while nothing pushes outward), and a
+    // hand rolls at once (the timer is -1, reset by PageSwitchOutward while nothing pushes outward), and a
     // stick held across the page onto the far hand does not. Without this the scroll rolled again about
     // ten ticks early on a long hold, which is what the first #129 run caught at 45 frames.
     if (CursorNodes()[(size_t)next].hand >= 0) {
@@ -2163,8 +2164,8 @@ static void ApplyPageHud(bool force) {
 //
 // NOT PORTED, around it: kaleido's D-pad repeat (:1492-1535), which exists only under SoH's
 // DpadHoldChange + DPadOnPause - the scroll's D-pad walks the cursor whatever DPadOnPause says, one
-// step per press. Its neighbour the page-switch timer (:1319-1336) IS ported now, in
-// PageSwitchStick below (#129); only that block's D-pad half is left out, for the same reason.
+// step per press. Its neighbour the page-switch timer (:1319-1336) is ported WHOLE, D-pad half
+// included, in PageSwitchOutward below (#129).
 static int32_t KaleidoStickAxis(int32_t rel, KaleidoStickAxisState* axis) {
     const int16_t want = rel < -kKaleidoStick ? -1 : rel > kKaleidoStick ? 1 : 0;
     if (want == 0) {
@@ -2195,9 +2196,13 @@ static int32_t KaleidoStickAxis(int32_t rel, KaleidoStickAxisState* axis) {
 // It rolls again when it reaches the far hand AND has held ten more ticks there - see JumpCursor, which
 // arms the timer at 0 on arrival the way kaleido's MoveCursorToSpecialPos does.
 //
-// NOT ported, as before: the D-pad half of the same block, which is kaleido's only under DPadOnPause.
-// The scroll's D-pad walks the cursor whatever that setting says (see KaleidoStickAxis), and a D-pad
-// press outward from a hand is still refused rather than rolling.
+// THE D-PAD DOES THE SAME, and UNCONDITIONALLY, which is the one place this departs from kaleido's
+// letter to keep the scroll's own rule (Spencer, 2026-09-22: "add it for parity"). Vanilla gates its
+// D-pad half on DPadOnPause, a setting that is off by default - so a gated port would be dead code for
+// most players and would read as "the D-pad does nothing here". The scroll already ignores that setting
+// for the cursor (see KaleidoStickAxis), so ignoring it here keeps ONE D-pad policy rather than two.
+// Vanilla's HELD mask, not the press edge, exactly as :1321 reads it - and the raw mask rather than the
+// page-claimed one, because kaleido's page toggles run before and regardless of its equip code.
 //
 // Returns whether it rolled. `sPageSwitchTimer` is frozen, not reset, while a roll runs - UpdateNavigation
 // returns before this - which is again kaleido, whose HandlePageToggles is not called during a page turn.
@@ -2207,11 +2212,17 @@ static void ArmPageSwitchTimer() {
     sPageSwitchTimer = 0;
 }
 
-static bool PageSwitchStick(const Input* input) {
+static bool PageSwitchOutward(const Input* input) {
     const RsMenuCursorNode* node = RsMenu_CursorAt(sCursorIndex);
     const int32_t rel = input->rel.stick_x;
-    const bool outward =
+    const u16 held = input->cur.button;
+    // Counted apart, because the counter's whole job is to say WHICH of the things that can roll did:
+    // a shoulder, A, the stick and the D-pad all leave the cursor on the same node.
+    const bool stickOut =
         node != nullptr && ((node->hand == 0 && rel < -kKaleidoStick) || (node->hand == 1 && rel > kKaleidoStick));
+    const bool dpadOut = node != nullptr && ((node->hand == 0 && CHECK_BTN_ALL(held, BTN_DLEFT)) ||
+                                             (node->hand == 1 && CHECK_BTN_ALL(held, BTN_DRIGHT)));
+    const bool outward = stickOut || dpadOut;
     if (!outward) {
         sPageSwitchTimer = -1;
         return false;
@@ -2228,7 +2239,13 @@ static bool PageSwitchStick(const Input* input) {
         // stops a stick held for an hour on a one-page ring from running the counter off the end.
         return false;
     }
-    sStickRolls++;
+    // Both when both are pushed, which is what vanilla's `||` means: neither is the cause on its own.
+    if (stickOut) {
+        sStickRolls++;
+    }
+    if (dpadOut) {
+        sDpadRolls++;
+    }
     return true;
 }
 
@@ -2310,7 +2327,7 @@ static void UpdateNavigation(const Input* input) {
     // kaleido's order, where KaleidoScope_HandlePageToggles runs in the Update and the page's own
     // cursor code in the Draw, and a switch sets unk_1E4 so that frame's cursor and equip buttons are
     // both skipped. So a tick that rolls does nothing else, exactly as a shoulder press does.
-    if (!(sPageHold & RS_MENU_HOLD_ROLL) && PageSwitchStick(input)) {
+    if (!(sPageHold & RS_MENU_HOLD_ROLL) && PageSwitchOutward(input)) {
         return;
     }
 
@@ -3276,6 +3293,7 @@ RsMenuSweepState RsMenu_SweepState() {
     state.width = SweepWidth();
     state.sweeps = sSweeps;
     state.stickRolls = sStickRolls;
+    state.dpadRolls = sDpadRolls;
     state.loop = sSweepLoop;
     state.hold = sSweepHold;
     return state;

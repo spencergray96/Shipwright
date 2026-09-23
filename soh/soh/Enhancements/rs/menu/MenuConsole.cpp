@@ -119,11 +119,11 @@ std::string DescribeSweep(const RsMenuSweepState& sweep) {
     char buf[224];
     std::snprintf(buf, sizeof(buf),
                   "sweep=%d loop=%d hold=%d tick=%d of=%d dir=%d from=%d to=%d hand=%s env=%.3f dx=%.2f "
-                  "width=%.3f sweeps=%d stick_rolls=%d",
+                  "width=%.3f sweeps=%d stick_rolls=%d dpad_rolls=%d",
                   sweep.active ? 1 : 0, sweep.loop ? 1 : 0, sweep.hold ? 1 : 0, sweep.tick, sweep.ticks, sweep.dir,
                   sweep.fromPage + 1,
                   sweep.toPage + 1, sweep.movingHand == 0 ? "left" : "right", sweep.env, sweep.dx, sweep.width,
-                  sweep.sweeps, sweep.stickRolls);
+                  sweep.sweeps, sweep.stickRolls, sweep.dpadRolls);
     return buf;
 }
 
