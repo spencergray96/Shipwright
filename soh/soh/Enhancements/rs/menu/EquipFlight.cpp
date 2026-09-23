@@ -77,6 +77,7 @@ struct EquipFlight {
     s16 bowX = 0;        // the Bow slot's top-left, the magic arrow's first stop (kaleido's itemVtx[12])
     s16 bowY = 0;
     int32_t ticks = 0;   // update ticks this flight has taken (the test-only hold counts these)
+    s16 linger = 0;      // #133: ticks still to DRAW after landing - see the landing branch
 };
 static EquipFlight sFlight;
 static int32_t sFlights = 0;
@@ -429,6 +430,17 @@ void RsVanilla_UpdateEquipFlight(PlayState* play) {
     if (sHoldAt >= 0 && f.ticks >= sHoldAt) {
         return;
     }
+    // #133: the tick after the landing. The pose was drawn on the tick that landed; now it goes away.
+    // Before `f.ticks++`, so the linger is not a tick of the flight and `flight hold n` still parks at
+    // the pose it always did.
+    if (f.linger > 0) {
+        if (--f.linger == 0) {
+            f.active = false;
+            f.moveTimer = 10;
+            ResetFlightSize();
+        }
+        return;
+    }
     f.ticks++;
     s16 posX[7];
     s16 posY[7];
@@ -493,9 +505,29 @@ void RsVanilla_UpdateEquipFlight(PlayState* play) {
                 return;
             }
             Land(play, f.target, f.item, f.slot);
-            f.active = false;
-            f.moveTimer = 10;
-            ResetFlightSize();
+            // #133: ONE MORE TICK OF DRAWING, and this is the one place the flight leaves vanilla.
+            //
+            // The step above put the icon exactly ON the button - the offset is the whole remaining
+            // distance once moveTimer is 1. Vanilla computes that final pose and never draws it:
+            // KaleidoScope_UpdateItemEquip writes the save, loads the button's icon and sets
+            // `unk_1E4 = 0` in this same branch (z_kaleido_item.c:1245-1253), and `unk_1E4 == 3` is
+            // exactly what the draw gate tests (z_parameter.c:5760). So vanilla's last DRAWN pose is
+            // one full step short - a tenth of the journey, about fourteen game units - and the icon
+            // vanishes there while the button's own icon appears.
+            //
+            // At 20 Hz that reads as the animation's cadence, because all ten steps are equal jumps.
+            // Once option A made the other nine glide, the last one was the only discontinuity left
+            // and read as a snap (Spencer, in game). Drawing the pose that was already computed costs
+            // one tick and closes it: the interpolator carries the icon all the way in, and it
+            // disappears at the moment it is indistinguishable from the button icon underneath.
+            //
+            // The save is written HERE, on vanilla's own tick - the linger changes what is drawn, not
+            // when the equip happens. `active` stays true through it, so the menu's input lock holds
+            // one tick longer, which is what vanilla does for the whole flight anyway. The size
+            // registers are NOT reset yet: resetting them here would pop the icon back to full size
+            // for the very frame this exists to show.
+            f.linger = 1;
+            return;
         }
     } else {
         f.animTimer--;
@@ -549,7 +581,9 @@ bool RsVanilla_EquipFlightActive() {
 void RsVanilla_FinishEquipFlight(PlayState* play) {
     // A close mid-flight (a scene change, the CVar switched off) lands the equip at once rather than
     // dropping it: the press was accepted and the sound played, so the save gets the equip.
-    if (sFlight.active && play != nullptr) {
+    // #133: `linger` means it has ALREADY landed and is only still being drawn - landing it again
+    // would equip twice, which a scene load during that one tick would otherwise do.
+    if (sFlight.active && sFlight.linger == 0 && play != nullptr) {
         // Mid-effect the item is still kaleido's 0xBF + index; the arrow ids themselves are not
         // consecutive (0x04, 0x0C, 0x12), so they come back through a table.
         const u16 item =
@@ -558,6 +592,7 @@ void RsVanilla_FinishEquipFlight(PlayState* play) {
         ResetFlightSize();
     }
     sFlight.active = false;
+    sFlight.linger = 0;
     // #133: AND THE TEST-ONLY STATE DIES WITH THE MENU. This runs from the close and from every scene
     // load. A loop left on would otherwise outlive the session that set it, and then every later REAL
     // equip would fly forever and never write the save - BeginEquip refuses while a flight is active -
