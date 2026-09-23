@@ -41,6 +41,35 @@ if (-not $script:SohCMake) {
 
 $env:MSBUILDDISABLENODEREUSE = '1'
 
+# vcpkg builds ~16 static ports into build/x64/vcpkg (2.28 GB). A second checkout
+# would rebuild all of them, so borrow a sibling's tree when this one has none.
+# automate-vcpkg.cmake:84-90 takes VCPKG_ROOT from the environment whenever the CMake
+# variable is not already set.
+#
+# Resolution order - own tree first, then the first sibling checkout that has one -
+# so this file stays identical in every tree and can be copied rather than edited.
+#
+# CAUTION: two trees sharing one vcpkg tree must not *configure* at the same time.
+# Building concurrently is fine (the shared tree is read-only once populated), but a
+# concurrent bootstrap would have both writing to it.
+$script:SohVcpkgRoot = $null
+$ownVcpkg = Join-Path $PSScriptRoot 'build\x64\vcpkg'
+if (Test-Path (Join-Path $ownVcpkg 'scripts\buildsystems\vcpkg.cmake')) {
+    $script:SohVcpkgRoot = $ownVcpkg
+}
+else {
+    $siblingRoot = Split-Path $PSScriptRoot -Parent
+    foreach ($dir in Get-ChildItem $siblingRoot -Directory -ErrorAction SilentlyContinue) {
+        if ($dir.FullName -eq $PSScriptRoot) { continue }
+        $candidate = Join-Path $dir.FullName 'build\x64\vcpkg'
+        if (Test-Path (Join-Path $candidate 'scripts\buildsystems\vcpkg.cmake')) {
+            $script:SohVcpkgRoot = $candidate
+            break
+        }
+    }
+}
+if ($script:SohVcpkgRoot) { $env:VCPKG_ROOT = $script:SohVcpkgRoot }
+
 # Default priority for every build launched through these helpers. BelowNormal keeps
 # the desktop responsive at almost no cost to build time; Low ('Idle') is stronger
 # and slower - reach for it only if BelowNormal still lags.
@@ -56,6 +85,8 @@ function Get-SohEnv {
         TreeRoot        = $script:SohTreeRoot
         BuildDir        = $script:SohBuildDir
         CMake           = $script:SohCMake
+        VcpkgRoot       = if ($script:SohVcpkgRoot) { $script:SohVcpkgRoot } else { '(none found - will bootstrap)' }
+        VcpkgShared     = if ($script:SohVcpkgRoot -and -not $script:SohVcpkgRoot.StartsWith($PSScriptRoot)) { 'yes - borrowed from a sibling tree' } else { 'no - this tree owns it' }
         DefaultPriority = $script:SohDefaultPriority
         NodeReuse       = if ($env:MSBUILDDISABLENODEREUSE -eq '1') { 'disabled' } else { 'enabled' }
     }
