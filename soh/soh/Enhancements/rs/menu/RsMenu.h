@@ -280,7 +280,9 @@ bool RsMenu_SetPage(int32_t index);
 // hand, back (L) on the right - which is kaleido's own rule for its page arrows
 // (KaleidoScope_SwitchPage). Five things start a roll and all five land the same way: L/Z, R, A on a
 // hand, and the stick or the D-pad pushed outward FROM a hand (kaleido's pageSwitchTimer, ported in
-// RsMenu.cpp). Outward from anywhere else is not a roll - it is a cursor step the graph refuses.
+// RsMenu.cpp). Outward from anywhere else is not a roll - it is a cursor step the graph refuses. The
+// D-pad one is gated on DPadOnPause as vanilla gates it, because SoH makes that setting the switch
+// between the D-pad navigating and the D-pad equipping - see PageSwitchOutward.
 bool RsMenu_StartSweep(int32_t delta);
 
 // Keep sweeping, alternating direction, until told to stop - THE INSTRUMENT FOR THIS STAGE, and it

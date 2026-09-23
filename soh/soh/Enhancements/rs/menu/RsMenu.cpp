@@ -2196,13 +2196,18 @@ static int32_t KaleidoStickAxis(int32_t rel, KaleidoStickAxisState* axis) {
 // It rolls again when it reaches the far hand AND has held ten more ticks there - see JumpCursor, which
 // arms the timer at 0 on arrival the way kaleido's MoveCursorToSpecialPos does.
 //
-// THE D-PAD DOES THE SAME, and UNCONDITIONALLY, which is the one place this departs from kaleido's
-// letter to keep the scroll's own rule (Spencer, 2026-09-22: "add it for parity"). Vanilla gates its
-// D-pad half on DPadOnPause, a setting that is off by default - so a gated port would be dead code for
-// most players and would read as "the D-pad does nothing here". The scroll already ignores that setting
-// for the cursor (see KaleidoStickAxis), so ignoring it here keeps ONE D-pad policy rather than two.
+// THE D-PAD DOES THE SAME, and GATED ON DPadOnPause exactly as vanilla gates it (:1319). That gate is
+// not decoration, which is why this follows it even though the scroll ignores the same setting for the
+// cursor: SoH makes the two D-pad features MUTUALLY EXCLUSIVE, and the fork already ports the rule.
+// RsVanilla_EquipButtons gives the D-pad to equipping when DpadEquips is on and either DPadOnPause is
+// OFF or C-up is held (z_kaleido_item.c:696-701) - so "DPadOnPause off" is precisely the configuration
+// in which a D-pad press is meant to be an equip. An ungated roll would fire there, over the top of the
+// page's own claim on those bits, which is the collision Spencer called out (2026-09-22).
+//
 // Vanilla's HELD mask, not the press edge, exactly as :1321 reads it - and the raw mask rather than the
-// page-claimed one, because kaleido's page toggles run before and regardless of its equip code.
+// page-claimed one, because kaleido's page toggles run before and regardless of its equip code. That is
+// safe only BECAUSE of the gate: with DPadOnPause on, the D-pad is not an equip button unless C-up is
+// held, and a hand has no item to equip anyway.
 //
 // Returns whether it rolled. `sPageSwitchTimer` is frozen, not reset, while a roll runs - UpdateNavigation
 // returns before this - which is again kaleido, whose HandlePageToggles is not called during a page turn.
@@ -2220,8 +2225,10 @@ static bool PageSwitchOutward(const Input* input) {
     // a shoulder, A, the stick and the D-pad all leave the cursor on the same node.
     const bool stickOut =
         node != nullptr && ((node->hand == 0 && rel < -kKaleidoStick) || (node->hand == 1 && rel > kKaleidoStick));
-    const bool dpadOut = node != nullptr && ((node->hand == 0 && CHECK_BTN_ALL(held, BTN_DLEFT)) ||
-                                             (node->hand == 1 && CHECK_BTN_ALL(held, BTN_DRIGHT)));
+    const bool dpadOnPause = CVarGetInteger(CVAR_SETTING("DPadOnPause"), 0) != 0;
+    const bool dpadOut = dpadOnPause && node != nullptr &&
+                         ((node->hand == 0 && CHECK_BTN_ALL(held, BTN_DLEFT)) ||
+                          (node->hand == 1 && CHECK_BTN_ALL(held, BTN_DRIGHT)));
     const bool outward = stickOut || dpadOut;
     if (!outward) {
         sPageSwitchTimer = -1;
