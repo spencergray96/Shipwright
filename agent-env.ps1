@@ -128,8 +128,16 @@ function Invoke-SohCMake {
     Write-Host "[agent-env] $(Split-Path $script:SohTreeRoot -Leaf): cmake $($Arguments -join ' ')"
     Write-Host "[agent-env] priority=$priorityClass nodeReuse=disabled"
 
+    # Start-Process joins ArgumentList with spaces and quotes nothing, so an argument
+    # that contains whitespace arrives at the callee split into several. That turns
+    # -G "Visual Studio 17 2022" into four arguments and cmake reports it cannot create
+    # a generator named "Visual". Quote them here rather than relying on the caller.
+    $quoted = $Arguments | ForEach-Object {
+        if ($_ -match '\s') { '"' + $_ + '"' } else { $_ }
+    }
+
     $started = Get-Date
-    $proc = Start-Process -FilePath $script:SohCMake -ArgumentList $Arguments `
+    $proc = Start-Process -FilePath $script:SohCMake -ArgumentList $quoted `
         -WorkingDirectory $script:SohTreeRoot -NoNewWindow -PassThru
 
     # Touching .Handle caches it. Without this, ExitCode reads back as $null after
