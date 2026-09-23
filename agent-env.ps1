@@ -89,6 +89,9 @@ function Get-SohEnv {
         VcpkgShared     = if ($script:SohVcpkgRoot -and -not $script:SohVcpkgRoot.StartsWith($PSScriptRoot)) { 'yes - borrowed from a sibling tree' } else { 'no - this tree owns it' }
         DefaultPriority = $script:SohDefaultPriority
         NodeReuse       = if ($env:MSBUILDDISABLENODEREUSE -eq '1') { 'disabled' } else { 'enabled' }
+        ShipwrightPath  = $env:SHIPWRIGHT_PATH
+        SohAppDir       = $env:SOH_APP_DIR
+        AgentLoopLoaded = $script:SohAgentLoaded
     }
 }
 
@@ -211,7 +214,33 @@ function Invoke-SohAssets {
 }
 
 # ---------------------------------------------------------------------------
-# Issue #135 step 9 extends this file: SHIPWRIGHT_PATH and SOH_APP_DIR derived
-# from $PSScriptRoot, and a copy of this file at the second checkout's root, so
-# each tree's runtime paths and grid-tool export target follow its own wrapper.
+# Runtime and tooling paths for this tree (issue #135).
+#
+# SHIPWRIGHT_PATH  - where the grid tool exports scene C and runs its verify
+#                    scripts. Unset, those resolve to a sibling by convention and
+#                    a second tree silently reads the first one's files.
+# SOH_APP_DIR      - the game's working directory, which is also where soh.exe,
+#                    agent-commands.txt, agent-log.txt, the engine log and
+#                    shipofharkinian.json live. The game has no environment
+#                    variable of its own for this: libultraship's app dir is
+#                    literally the process working directory, so separate working
+#                    directories are the whole isolation mechanism.
+#
+# Both derive from $PSScriptRoot, so they cannot disagree about which tree they
+# mean. Pointing them at different trees would export to one and test the other,
+# which presents as "my change did not take effect".
 # ---------------------------------------------------------------------------
+$env:SHIPWRIGHT_PATH = $script:SohTreeRoot
+$env:SOH_APP_DIR = Join-Path $script:SohTreeRoot 'x64\Debug'
+
+# soh-agent.ps1 reads SOH_APP_DIR at dot-source time, not per call, so it has to
+# be set above this line.
+$script:SohAgentScript = Join-Path $script:SohTreeRoot '..\sturdy-bassoon\.claude\skills\soh-agent-test\soh-agent.ps1'
+if (Test-Path $script:SohAgentScript) {
+    . $script:SohAgentScript
+    $script:SohAgentLoaded = $true
+}
+else {
+    $script:SohAgentLoaded = $false
+    Write-Host "[agent-env] note: agent test loop not found beside this tree; build helpers only"
+}
