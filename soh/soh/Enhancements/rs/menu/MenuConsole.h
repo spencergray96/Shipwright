@@ -66,7 +66,9 @@
 //                         `error=no_ring` when the ring has fewer than two pages. It exists beside
 //                         `agenttest press L|R` because a mid-sweep screenshot has to be taken at a
 //                         known tick: the line carries `tick=`/`of=`/`dx=`/`width=`, so a capture is
-//                         self-describing. `dx=` is the roll's own displacement only.
+//                         self-describing. `dx=` is the roll's own displacement only, and
+//                         `stick_rolls=` (#129) how many of `sweeps=` the stick started by being
+//                         pushed outward from a hand - the one roll cause a node id cannot show.
 //                         `loop` keeps sweeping, alternating direction, until `stop`, and IT IS THE
 //                         INSTRUMENT FOR THIS STAGE rather than a convenience: one sweep is half a
 //                         second and a command round trip is seconds, so no run can photograph a

@@ -275,6 +275,12 @@ bool RsMenu_SetPage(int32_t index);
 // page content changes while it is shut. `delta` is +1 (R, the right side travels) or -1 (L, the
 // left side). Refused while a sweep is already running, and while the ring has fewer than two
 // pages - there is nothing to roll to.
+//
+// #129: WHEREVER THE CURSOR WAS, IT LANDS ON THE HAND OPPOSITE THE ROLL - forward (R) on the left
+// hand, back (L) on the right - which is kaleido's own rule for its page arrows
+// (KaleidoScope_SwitchPage). Four things start a roll and all four land the same way: L/Z, R, A on a
+// hand, and the stick pushed outward from a hand (kaleido's pageSwitchTimer, ported in RsMenu.cpp).
+// The stick outward from anywhere else is not a roll - it is a cursor step the graph refuses.
 bool RsMenu_StartSweep(int32_t delta);
 
 // Keep sweeping, alternating direction, until told to stop - THE INSTRUMENT FOR THIS STAGE, and it
@@ -312,6 +318,7 @@ struct RsMenuSweepState {
     float dx;           // game units the moving side is displaced this tick
     float width;        // how much parchment is still showing: 1 wide open, 0 shut
     int32_t sweeps;     // how many have run this session
+    int32_t stickRolls; // #129: of those, how many the stick pushed outward from a hand started
     bool loop;          // sweeping on repeat, alternating direction
     bool hold;          // parked at `tick` rather than advancing
 };

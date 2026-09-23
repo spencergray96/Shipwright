@@ -445,6 +445,11 @@ constexpr int16_t kProbeTextY = 134;
 // not machine-gun the cursor across the graph - the same shape as kaleido's own stickRelX gate.
 constexpr int32_t kStickPress = 40;
 constexpr int32_t kStickRelease = 18;
+// KALEIDO'S OWN gate, which is a different number from the two above and belongs to the ported half:
+// vanilla writes the bare literal 30 in each of the two places it tests the stick - its cursor filter
+// (z_kaleido_scope_PAL.c:1538-1588) and its page-switch timer (:1319-1336) - and both are ported here
+// (KaleidoStickAxis, PageSwitchStick). Named once so the two cannot drift apart.
+constexpr int32_t kKaleidoStick = 30;
 
 // (Stage 3's greybox pages are gone since stage 8: the three ported vanilla pages took their places.
 // A page registered with no draw callback still gets the greybox body - its title, centred.)
@@ -578,6 +583,9 @@ static std::vector<RsCursorLinks> sCursorLinks;
 static int32_t sHandLinkIn[2] = { RS_MENU_LINK_HAND_RIGHT, RS_MENU_LINK_HAND_LEFT };
 static int32_t sCursorMoves = 0;
 static int32_t sCursorSelects = 0;
+// #129: kaleido's pageSwitchTimer and a counter for the rolls it starts. See PageSwitchStick.
+static int32_t sPageSwitchTimer = -1;
+static int32_t sStickRolls = 0;
 static bool sStickLatchX = false;
 static bool sStickLatchY = false;
 // #127: kaleido's stick filter stepped this tick (RsMenu_StickStepped) - a song's play-along ends on it.
@@ -1777,10 +1785,32 @@ static int32_t CursorEdge(const RsMenuCursorNode* node, int32_t dx, int32_t dy) 
     return next >= 0 && next < RsMenu_CursorCount() ? next : -1;
 }
 
+// Which way a HAND rolls: the left hand back, the right forward - the same mapping the shoulders have,
+// and the settled design's "selecting a hand does what L/R does" read literally. Every caller that turns
+// a hand into a roll goes through this, so RsMenu.h's claim that the four roll causes behave alike is
+// one function rather than four copies of a ternary.
+static int32_t HandRollDelta(const RsMenuCursorNode* node) {
+    return node != nullptr && node->hand == 0 ? -1 : 1;
+}
+
+// #129: arm kaleido's page-switch timer, which is what ARRIVING on a hand does - see PageSwitchStick.
+// Named so the one place that writes the timer from outside it is greppable from both ends.
+static void ArmPageSwitchTimer();
+
 static void JumpCursor(int32_t next) {
     sCursorIndex = next;
     sCursorId = CursorNodes()[(size_t)next].id;
     sCursorMoves++;
+    // #129: ARRIVING on a hand arms the page-switch timer at 0, so a stick ALREADY held has to hold ten
+    // more ticks before it rolls. That is kaleido's KaleidoScope_MoveCursorToSpecialPos
+    // (z_kaleido_scope_PAL.c:1198), which every page calls as the cursor steps onto a page arrow, and it
+    // is the whole of the difference between the two ways a roll can be reached: a push that STARTS on a
+    // hand rolls at once (the timer is -1, reset by PageSwitchStick while nothing pushes outward), and a
+    // stick held across the page onto the far hand does not. Without this the scroll rolled again about
+    // ten ticks early on a long hold, which is what the first #129 run caught at 45 frames.
+    if (CursorNodes()[(size_t)next].hand >= 0) {
+        ArmPageSwitchTimer();
+    }
     // Rebuilt now rather than next tick, so a page that scrolls to follow its cursor (the quest
     // list) has already scrolled by the time anything draws or a console line reads the graph.
     RebuildCursorGraph();
@@ -1856,6 +1886,13 @@ bool RsMenu_SetCursorById(const char* id) {
             sCursorIndex = i;
             sCursorId = nodes[(size_t)i].id;
             sCursorMoves++;
+            // #129: an arrival is an arrival, whichever door it came through, so this arms the
+            // page-switch timer the way JumpCursor does. It matters only for a run that jumps the
+            // cursor onto a hand with the stick ALREADY pushed outward: the first stickless tick puts
+            // the timer back to -1 by itself, so the ordinary console-then-push sequence is unaffected.
+            if (nodes[(size_t)i].hand >= 0) {
+                ArmPageSwitchTimer();
+            }
             RebuildCursorGraph(); // `nodes` is not touched after this - the rebuild replaces it
             return true;
         }
@@ -1900,7 +1937,7 @@ RsMenuSelectResult RsMenu_SelectCursor() {
     sCursorSelects++;
     // "Selecting a hand does what L/R does" - the settled design, verbatim. The left hand rolls
     // back, the right rolls forward, which is the same mapping the shoulders have.
-    if (!RsMenu_StartSweep(node->hand == 0 ? -1 : 1)) {
+    if (!RsMenu_StartSweep(HandRollDelta(node))) {
         return RS_MENU_SELECT_BUSY;
     }
     return node->hand == 0 ? RS_MENU_SELECT_HAND_LEFT : RS_MENU_SELECT_HAND_RIGHT;
@@ -1999,14 +2036,13 @@ static void AdvanceSweep() {
         ResetPage(sPage); // #127: the page being rolled away drops any running state
         sPage = sSweepTo;
         sPageChanges++;
-        // The cursor, if it was on an ITEM of the page being left, has nothing to stand on here: hand
-        // it to the hand on the side that was pressed (L the left, R the right). Before this, the
-        // clamp in RebuildCursorGraph always picked the last node - the right hand - whichever
-        // shoulder it was.
-        const RsMenuCursorNode* node = RsMenu_CursorAt(sCursorIndex);
-        if (node == nullptr || node->hand < 0) {
-            sCursorId = SweepMovingHand() == 0 ? "hand_left" : "hand_right";
-        }
+        // #129: THE CURSOR LANDS ON THE OPPOSITE HAND, wherever it started - on an item as much as on
+        // a hand. That is vanilla's rule verbatim (KaleidoScope_SwitchPage, z_kaleido_scope_PAL.c:1254):
+        // rolling forward (R) parks it on PAUSE_CURSOR_PAGE_LEFT, rolling back (L) on
+        // PAUSE_CURSOR_PAGE_RIGHT, because the page you were looking at has rotated in from the far
+        // side and the node you were on is now at the near edge. Up to #129 this was the reverse - the
+        // cursor followed the hand the shoulder moved, and only when it had been on an item.
+        sCursorId = sSweepDir > 0 ? "hand_left" : "hand_right";
         // And rebuilt NOW, not at the top of the next tick. Otherwise the frame drawn after the swap
         // pairs the new page with the old page's graph, and the cursor's stale item box draws in
         // the middle of a page that does not own it - the flicker Spencer caught in game after stage 6.
@@ -2127,10 +2163,10 @@ static void ApplyPageHud(bool force) {
 //
 // NOT PORTED, around it: kaleido's D-pad repeat (:1492-1535), which exists only under SoH's
 // DpadHoldChange + DPadOnPause - the scroll's D-pad walks the cursor whatever DPadOnPause says, one
-// step per press; and holding the stick on a page arrow for ten frames to turn the page
-// (pageSwitchTimer, :1319-1336) - a hand refuses an outward push instead.
+// step per press. Its neighbour the page-switch timer (:1319-1336) IS ported now, in
+// PageSwitchStick below (#129); only that block's D-pad half is left out, for the same reason.
 static int32_t KaleidoStickAxis(int32_t rel, KaleidoStickAxisState* axis) {
-    const int16_t want = rel < -30 ? -1 : rel > 30 ? 1 : 0;
+    const int16_t want = rel < -kKaleidoStick ? -1 : rel > kKaleidoStick ? 1 : 0;
     if (want == 0) {
         axis->dir = 0;
         return 0;
@@ -2145,6 +2181,55 @@ static int32_t KaleidoStickAxis(int32_t rel, KaleidoStickAxisState* axis) {
         return want;
     }
     return 0;
+}
+
+// #129: kaleido's pageSwitchTimer (KaleidoScope_HandlePageToggles, z_kaleido_scope_PAL.c:1319-1336),
+// ported line for line. The stick pushed OUTWARD on a page arrow - left on the left one, right on the
+// right one - turns the page: the timer sits at -1 while nothing is pushing, so the first tick of a
+// push reaches 0 and fires at once, and a stick held past ten more ticks fires again. Our hands are
+// kaleido's arrows, and the roll a hand implies is the one A and its shoulder already start: the left
+// hand rolls back, the right rolls forward.
+//
+// The repeat does arrive, but not on its own: the roll lands the cursor on the OPPOSITE hand, where the
+// same held direction points INWARD, so the stick spends the next ticks walking back across the page.
+// It rolls again when it reaches the far hand AND has held ten more ticks there - see JumpCursor, which
+// arms the timer at 0 on arrival the way kaleido's MoveCursorToSpecialPos does.
+//
+// NOT ported, as before: the D-pad half of the same block, which is kaleido's only under DPadOnPause.
+// The scroll's D-pad walks the cursor whatever that setting says (see KaleidoStickAxis), and a D-pad
+// press outward from a hand is still refused rather than rolling.
+//
+// Returns whether it rolled. `sPageSwitchTimer` is frozen, not reset, while a roll runs - UpdateNavigation
+// returns before this - which is again kaleido, whose HandlePageToggles is not called during a page turn.
+constexpr int32_t kPageSwitchRepeat = 10;
+
+static void ArmPageSwitchTimer() {
+    sPageSwitchTimer = 0;
+}
+
+static bool PageSwitchStick(const Input* input) {
+    const RsMenuCursorNode* node = RsMenu_CursorAt(sCursorIndex);
+    const int32_t rel = input->rel.stick_x;
+    const bool outward =
+        node != nullptr && ((node->hand == 0 && rel < -kKaleidoStick) || (node->hand == 1 && rel > kKaleidoStick));
+    if (!outward) {
+        sPageSwitchTimer = -1;
+        return false;
+    }
+    if (sPageSwitchTimer < kPageSwitchRepeat) {
+        sPageSwitchTimer++;
+    }
+    if (sPageSwitchTimer != 0 && sPageSwitchTimer < kPageSwitchRepeat) {
+        return false;
+    }
+    if (!RsMenu_StartSweep(HandRollDelta(node))) {
+        // Fewer than two pages, or something is already animating. Vanilla's timer would keep climbing
+        // here and its switch cannot fail; the clamp above keeps the retry every-tick either way and
+        // stops a stick held for an hour on a one-page ring from running the counter off the end.
+        return false;
+    }
+    sStickRolls++;
+    return true;
 }
 
 // The cursor's own input, kept apart from the page ring's because they answer different buttons:
@@ -2218,6 +2303,14 @@ static void UpdateNavigation(const Input* input) {
         if (page != nullptr && page->input != nullptr) {
             page->input(sPage, 1, press, dy, page->userData);
         }
+        return;
+    }
+
+    // #129: the stick pushed OUTWARD on a hand rolls the page, before the cursor is given anything -
+    // kaleido's order, where KaleidoScope_HandlePageToggles runs in the Update and the page's own
+    // cursor code in the Draw, and a switch sets unk_1E4 so that frame's cursor and equip buttons are
+    // both skipped. So a tick that rolls does nothing else, exactly as a shoulder press does.
+    if (!(sPageHold & RS_MENU_HOLD_ROLL) && PageSwitchStick(input)) {
         return;
     }
 
@@ -2925,6 +3018,12 @@ static bool CloseMenu(bool syncPlayer) {
     sSweepTick = 0;
     sSweepLoop = false;
     sSweepHold = false;
+    // #129: ARMED, not cleared. -1 is the value that fires on the very next outward tick, so clearing it
+    // would be the opposite of what this is for: the scroll can reopen with the cursor already on a
+    // hand, which vanilla never does (kaleido opens with cursorSpecialPos 0), and a stick still held
+    // from before the close would roll on the first tick. Armed at 0 it has to hold ten more, which is
+    // what arriving on a hand costs everywhere else.
+    ArmPageSwitchTimer();
     ResetLevel();
     if (gPlayState != nullptr) {
         gPlayState->haltAllActors = sHaltPrev;
@@ -3176,6 +3275,7 @@ RsMenuSweepState RsMenu_SweepState() {
     state.dx = SweepDx(SweepMovingHand()); // the roll's own term only, not the level gesture's
     state.width = SweepWidth();
     state.sweeps = sSweeps;
+    state.stickRolls = sStickRolls;
     state.loop = sSweepLoop;
     state.hold = sSweepHold;
     return state;
