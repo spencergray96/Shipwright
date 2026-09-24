@@ -523,11 +523,12 @@ int32_t Dump(std::vector<std::string>& lines) {
     Addf(lines,
          "op=dump section=freeze halt=%d halt_prev=%d hud_held=%d hud_prev=%d hud_now=%d hud_reasserts=%d "
          "kaleido=%d viewpoint=%d viewpoint_vetoes=%d free_look_vetoes=%d manual_cam=%d cam_xy=%.1f,%.1f "
-         "minimap_off=%d",
+         "minimap_off=%d cs_mode=%d cs_index=0x%04X cs_next=0x%04X",
          status.halt ? 1 : 0, status.haltPrev ? 1 : 0, status.hudHeld ? 1 : 0, status.hudPrev, status.hudNow,
          status.hudReasserts,
          status.kaleido, status.viewpoint, status.viewpointVetoes, status.freeLookVetoes,
-         status.manualCamera ? 1 : 0, status.camX, status.camY, status.minimapOff);
+         status.manualCamera ? 1 : 0, status.camX, status.camY, status.minimapOff,
+         status.csMode, status.csIndex, status.csNext);
     // The START filter's witness. `filter_armed` counts the frames it was entitled to swallow on,
     // `start_swallowed` the edges it actually took, and `kaleido=` above says whether vanilla pause
     // got in anyway - which is the difference between "the filter worked" and "no START arrived".

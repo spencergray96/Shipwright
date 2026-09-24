@@ -894,13 +894,17 @@ static const char* LevelPhaseName(int32_t pose) {
 // invisible (a texture rectangle cannot glide - it would step at 20 Hz), and fades back in over the rest
 // of the turn and the open. Hearts, magic and the C buttons are untouched.
 //
-// B's level-1 spot: a move rather than a place, because the interface works B's position out at four
-// draw sites and applies this to each (Interface_ShiftBButton). At 16:9 with the HUD raised B's centre
-// is at about game (228, 21); this puts it at about (290, 70), under the C buttons and right of the
-// vertical parchment - Spencer's placeholder, to be settled by screenshot. The mod targets 16:9: B is
-// right-anchored, so at 4:3 the same move lands it at about (237, 70), over the parchment's right edge.
-constexpr s16 kLevelBShiftX = 62;
-constexpr s16 kLevelBShiftY = 49;
+// B's level-1 spot is A's own (Spencer, 2026-09-23): with A hidden there, B reappears in a place the
+// HUD already uses rather than a new one. It is a move rather than a place, because the interface works
+// B's position out at four draw sites and applies this to each (Interface_ShiftBButton). The move is
+// centre to centre, MEASURED rather than derived - A is a rotated 3D quad and B a texture rectangle, so
+// no pair of constants gives their centres - off #130's captures with the HUD raised: B at game
+// (228.0, 21.0), A at (260.7, 20.1) (docs/test-runs/2026-09-23-issue-130-hud-raise/measure-out.txt,
+// r1-05). B's box then spans x 249-275, clear of the upright top hand (to x 234) and short of the C
+// buttons (from x 283). Both buttons are right-anchored, so it lands on A at any aspect ratio, unlike
+// the first placeholder spot. (It was +62, +49, to about (290, 70), under the C buttons.)
+constexpr s16 kLevelBShiftX = 33;
+constexpr s16 kLevelBShiftY = -1;
 
 // START's and A's share of their full alpha: 1 at level 0, 0 from the swap tick on.
 static float LevelHudShown() {
@@ -3849,6 +3853,9 @@ RsMenuStatus RsMenu_Status() {
     status.freeLookVetoes = sFreeLookVetoes;
     status.manualCamera = gPlayState != nullptr && gPlayState->manualCamera;
     status.minimapOff = R_MINIMAP_DISABLED;
+    status.csMode = gPlayState != nullptr ? Play_InCsMode(gPlayState) : 0;
+    status.csIndex = gSaveContext.cutsceneIndex;
+    status.csNext = gSaveContext.nextCutsceneIndex;
     status.camX = gPlayState != nullptr ? gPlayState->camX : 0.0f;
     status.camY = gPlayState != nullptr ? gPlayState->camY : 0.0f;
     // Zero while the menu is closed: the last frame drew nothing, whatever the last OPEN frame did.

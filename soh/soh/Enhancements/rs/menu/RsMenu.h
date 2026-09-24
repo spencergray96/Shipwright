@@ -623,6 +623,11 @@ struct RsMenuStatus {
     int32_t freeLookVetoes;  // #138: free-look input reads refused (VB_FREE_LOOK_TAKE_INPUT), several a frame
     bool manualCamera;       // play->manualCamera: free look has taken the camera
     int32_t minimapOff;      // #138: R_MINIMAP_DISABLED, which N64 L toggles in gameplay (z_map_exp.c)
+    // #138: the three terms of the cutscene refusal, so an `error=cutscene` can say which one it was:
+    // Play_InCsMode, gSaveContext.cutsceneIndex and nextCutsceneIndex (>= 0xFFF0 is a cutscene entry).
+    int32_t csMode;
+    int32_t csIndex;
+    int32_t csNext;
     float camX, camY;        // play->camX/camY: free look's yaw and pitch, what the right stick turns
     // What the last drawn frame cost, in the units the OVERLAY_DISP budget is denominated in - and
     // zero while the menu is closed, because then the last frame drew nothing.
