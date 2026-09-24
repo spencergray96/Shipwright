@@ -1,12 +1,12 @@
 /*
  * RsMenu.cpp - the mod-owned pause interface (sturdy-bassoon#111), stages 1-8.
  *
- * #128 adds the page stepper: a row of stones, one per page, in the HUD's band above the scroll, centred
- * on it and level with the magic meter's bottom edge (DrawStepper). It is drawn in the dim's node under
- * the dim's identity matrix, so it adds no Matrix_* op and no node.
+ * #128 adds the page stepper: a row of stones, one per page, just above the scroll and centred on it
+ * (DrawStepper), and drops the whole scroll 3 more units so the stepper's top meets the magic meter's.
+ * It is drawn in the dim's node under the dim's identity matrix, so it adds no Matrix_* op and no node.
  *
- * #130 raises the vanilla HUD (cosmetics defaults, RegisterRsHudDefaults), drops the whole scroll 3 units
- * to clear the magic meter, and stands the level-1 hands upright with the HUD cut to a moved B. No
+ * #130 raises the vanilla HUD (cosmetics defaults, RegisterRsHudDefaults), drops the whole scroll (3 units
+ * then, 6 since #128) to clear the magic meter, and stands the level-1 hands upright with the HUD cut to a moved B. No
  * Matrix_* op is added or made conditional: the drop is a term in the base matrix's one translate, the
  * upright pose is different arguments to the same swivel ops, and the hands' extents for `menu dump`
  * are read with Matrix_MultVec3f, which records nothing. At level 1, B also reads "Return".
@@ -212,14 +212,19 @@ constexpr int16_t kPanelY1 = 192;
 constexpr int16_t kPanelBorder = 3;
 constexpr int16_t kPanelCentreX = (kPanelX0 + kPanelX1) / 2;
 
-// #130: the whole scroll sits this far below where the constants in this file put it, to clear the
-// magic meter. The HUD is raised by half the hearts' distance from the top edge (RegisterRsHudDefaults),
-// which leaves a double meter's bottom at about game y 44 - into the rolls' tops at 43. It is folded into
-// the base matrix's one translate (ApplyBaseMatrix), so the parchment, rolls, hands, content, cursor and
-// the vertical pose all move together and no constant here changes; the one thing that places itself
-// outside that matrix, the equip flight's starting point, adds it through RsMenu_ScreenDy.
-// Drawn in docs/notes/2026-09-17-pause-menu-diagrams/hud-overlap.svg, panel 2.
-constexpr float kScrollDropY = 3.0f;
+// The whole scroll sits this far below where the constants in this file put it. Two calls set it:
+//   - #130: 3, to clear the magic meter. The HUD is raised by half the hearts' distance from the top edge
+//     (RegisterRsHudDefaults), which leaves a double meter's bottom at about game y 44 - into the rolls'
+//     tops at 43.
+//   - #128 (Spencer, 2026-09-24): 3 more, so the page stepper, which rides the drop 2 units above the
+//     rolls, has its top on the magic meter's drawn top edge - game y 33 under two rows of hearts with the
+//     HUD raised. At 3 it sat at 30, close under START; the scroll, hands and stepper moved down together,
+//     so the stepper-to-scroll gap stayed 2. Asserted beside the stepper (kStepperAboveRolls).
+// It is folded into the base matrix's one translate (ApplyBaseMatrix), so the parchment, rolls, hands,
+// content, cursor and the vertical pose all move together and no constant here changes; the things that
+// place themselves outside that matrix - the equip flight's starting point and the stepper - add it
+// through RsMenu_ScreenDy or directly. Drawn in docs/notes/2026-09-17-pause-menu-diagrams/hud-overlap.svg.
+constexpr float kScrollDropY = 6.0f;
 
 constexpr float kTitleScale = 1.5f;
 constexpr float kSubScale = 0.8f;
@@ -401,7 +406,7 @@ constexpr float kClosedSpan = kPanelSpan - 2.0f * kLevelTravel;
 // sideways off its roll, 16 up and 30 down, which capped the span at 165); at rest now they point off
 // the top and bottom edges ON PURPOSE, so the thing that has to stay on screen is the roll each one
 // holds. Asserted below with the same 8-unit floor, and with #130's drop included, since that is where
-// the rolls are drawn. At 164 the rolls run game y 30.5 to 214.5, so the span could grow by about 35;
+// the rolls are drawn. At 164 the rolls run game y 33.5 to 217.5, so the span could grow by about 29;
 // it is left where Spencer tuned it. The detail text area (RsMenu_DetailRect) is derived from the rolls
 // and the hands' rest pose (HandRestInward) and moves with them.
 constexpr float kVerticalSpan = 164.0f;
@@ -415,7 +420,7 @@ static_assert(kPivotY + kScrollDropY + (kVerticalSpan / 2.0f + kRollHalfWidth) <
 static_assert(kVerticalSpan > kClosedSpan, "the vertical page must open wider than the closed bundle");
 // ...and the other half of "upright": each hand's forearm, grip to cuff end, is longer than its grip
 // is far from the screen edge, so it runs OFF that edge rather than stopping short of it on screen. The
-// forearm is 83; the grips rest 40.5 from the top and 35.5 from the bottom. Stated without the lean
+// forearm is 83; the grips rest 43.5 from the top and 32.5 from the bottom. Stated without the lean
 // (kHandLean), which shortens the vertical reach by under 2%.
 constexpr float kHandForearm = (float)(kHandBoxY + kHandBoxH) - kGripY; // 83
 static_assert(kPivotY + kScrollDropY - kVerticalSpan / 2.0f < kHandForearm,
@@ -714,6 +719,9 @@ static int32_t sStartConsumed = 0;
 // "akin to vanilla", which takes no input while a page turns). The drop's witness: without it, a run
 // cannot tell "dropped" from "never arrived".
 static int32_t sCloseDropped = 0;
+// START presses ignored because the scroll was at level 1, where START does not close it (#128). The
+// refusal's witness, as sCloseDropped is the mid-animation one's.
+static int32_t sStartLevelDropped = 0;
 // #138: opens RsMenu_Open refused over a cutscene or a textbox. START's path into it is silent, so this is
 // the only witness that a START pressed over a textbox arrived and was turned down.
 static int32_t sOpenRefused = 0;
@@ -1372,31 +1380,33 @@ static void DrawDim() {
 // --- the page stepper (#128) ----------------------------------------------------------------------
 //
 // One stone per page in the ring, the page the ring is on red and the rest grey - the POC's placeholder
-// art. It sits in the HUD's band above the scroll: centred on the scroll, and dropped so the stones' bottom
-// edge lines up with the magic meter's (Spencer, 2026-09-24, after trying it in the gap between the hearts
-// and START). It does not ride the arrival or #130's drop. It draws at START's own alpha (StartShown): it
-// RAMPS with the arrival, fades out with START and A on the way down a level, gone from the swap tick on,
-// and is not drawn when the menu opened over a hidden HUD, where START is not either. The highlight moves
-// when sPage does, which during a roll is the swap tick, while the scroll is shut.
+// art. It sits just above the scroll, centred on it (Spencer, 2026-09-24). It is PLACED with the scroll -
+// 2 units above the rolls, in the scroll's own game space, plus the fixed drop (kScrollDropY) - so moving
+// the scroll moves it and the gap stays put. It does not ride the arrival slide or the probe: it draws at
+// START's own alpha instead (StartShown), so it RAMPS with the arrival, fades out with START and A on the
+// way down a level, gone from the swap tick on, and is not drawn when the menu opened over a hidden HUD,
+// where START is not either. The highlight moves when sPage does, which during a roll is the swap tick,
+// while the scroll is shut.
+//
+// STATIC, whatever the HUD shows: its top is the magic meter's drawn top when the meter is there under two
+// rows of hearts, and it does not follow the meter when there is one row (the meter 8 higher) or none -
+// Spencer's call. That alignment is what sets kScrollDropY, and it is asserted below.
 //
 // Centred on the scroll means game x 160 at every aspect ratio, since the scroll is authored in the 4:3
-// band. At 16:9 the four stones run x 123-197, so the right end passes under START's disc (x 189-207, y
-// 8-28). How close depends on the heart rows, since the meter's y does (#128's run, `measure-s4-out.txt`):
-//   - two rows (the debug save): the stones run y 30-44 and clear the disc by two units;
-//   - one row: the meter sits 8 higher, the stones run y 22-36, and START draws over the fourth stone's
-//     top-right corner, since the HUD draws after the menu.
-// At 4:3 the first stone meets the end of a double meter. Spencer's call to try it this close, moving
-// nothing else (2026-09-24).
+// band. At 16:9 the four stones run x 123-197, under START's disc (x 189-207, y 8-28), clear of it by 5.
 //
 // Drawn in the dim's node under its identity matrix and its prim-colour state, which is the fade's
 // mechanism already: alpha is a prim-colour immediate and steps with the tick, as the dim does. The
 // stones never move, so they need no Matrix_* op of their own.
 constexpr float kStoneSize = 14.0f; // #128's drawing: 14 x 14, 6 apart
 constexpr float kStoneGap = 6.0f;
-// The magic meter's visible bottom edge, below the top of its quad: the 16-row texture's last four rows are
-// empty. Measured off #128's capture with the HUD raised under two rows of hearts: the quad's top is 42 - 10
-// = 32 and the drawn edge ends at 44 (docs/test-runs/2026-09-24-issue-128-stepper, `magic-out.txt`).
-constexpr float kMagicBarDrawnBottom = 12.0f;
+constexpr float kStepperAboveRolls = 2.0f; // the stones' bottom to the rolls' top, in the scroll's frame
+// The magic meter's drawn top edge under two rows of hearts with the HUD raised 10: its quad's top is
+// R_MAGIC_BAR_LARGE_Y (42) less the margin, and the texture's first row is empty. Measured at 33.0 off #128's
+// captures (docs/test-runs/2026-09-24-issue-128-stepper, `measure-s4-out.txt`, `MAGIC s4-01 top=33.0`).
+constexpr float kMagicBarDrawnTop = 33.0f;
+static_assert((float)kRollTopY - kStepperAboveRolls - kStoneSize + kScrollDropY == kMagicBarDrawnTop,
+              "the stepper's top no longer meets the magic meter's - retune kScrollDropY (Spencer, #128)");
 constexpr u8 kStoneCurrentColour[3] = { 210, 40, 40 };
 constexpr u8 kStoneColour[3] = { 150, 150, 150 };
 
@@ -1406,27 +1416,9 @@ struct StepperLayout {
     float x0, y0, x1, y1;
 };
 
-// The top of the magic meter's quad, where Interface_DrawMagicBar puts it at its original location
-// (z_parameter.c:3536-3545): R_MAGIC_BAR_SMALL_Y (34) under one row of hearts, R_MAGIC_BAR_LARGE_Y (42) under
-// two, and a further LARGE - SMALL + 2 per row past that, less the top margin when the meter takes margins. So
-// the stepper follows the meter when the heart count crosses a row. A meter the cosmetics have moved
-// elsewhere (PosType) is not followed; this is its original place. The same arithmetic without the meter
-// drawn at all (no magic yet), so the stepper stays put when magic is acquired.
-static float MagicBarTop() {
-    const int32_t margin = CVarGetInteger(CVAR_COSMETIC("HUD.MagicBar.UseMargins"), 0) != 0
-                               ? CVarGetInteger(CVAR_COSMETIC("HUD.Margin.T"), 0)
-                               : 0;
-    const int32_t lineLength = CVarGetInteger(CVAR_COSMETIC("HUD.Hearts.LineLength"), 10);
-    const int32_t drop = R_MAGIC_BAR_LARGE_Y - R_MAGIC_BAR_SMALL_Y + 2;
-    int32_t y = R_MAGIC_BAR_SMALL_Y;
-    if (lineLength != 0 && (gSaveContext.healthCapacity - 1) / FULL_HEART_HEALTH >= lineLength) {
-        y = R_MAGIC_BAR_LARGE_Y + drop * ((gSaveContext.healthCapacity - 1) / (0x10 * lineLength) - 1);
-    }
-    return (float)(y - margin);
-}
-
 // SIZED FROM THE PAGE COUNT, per the ring's invariant (RsMenu.h): as many stones as there are pages, at 14 + 6
-// while the row is no wider than the parchment - fourteen stones are - and all scaled down together past that.
+// while the row is no wider than the parchment - fourteen stones are - and all scaled down together past that,
+// keeping the bottom where it is.
 static StepperLayout LayoutStepper() {
     StepperLayout l;
     l.stones = RsMenu_PageCount();
@@ -1436,7 +1428,7 @@ static StepperLayout LayoutStepper() {
     l.pitch = (kStoneSize + kStoneGap) * scale;
     l.x0 = (float)kPanelCentreX - want * scale / 2.0f;
     l.x1 = l.x0 + want * scale;
-    l.y1 = MagicBarTop() + kMagicBarDrawnBottom;
+    l.y1 = (float)kRollTopY - kStepperAboveRolls + kScrollDropY;
     l.y0 = l.y1 - l.stone;
     return l;
 }
@@ -2899,14 +2891,18 @@ static void RsMenu_OnGameFrameUpdate() {
             sPageHold = holdPage->hold(sPage, holdPage->userData);
         }
 
-        // START closes from anywhere, at either level - it is the "get me out" button - but not while
-        // the scroll is animating. Vanilla takes no input while a page turns (kaleido's unk_1E4 != 0), and
-        // a close landing mid-roll or mid-turn cut the gesture off halfway (Spencer, 2026-09-23). The
-        // entry slides already drop it: the update returns before input while they run.
+        // START closes the menu from level 0 only, and not while the scroll is animating. In a detail view
+        // it does nothing; B goes back up a level (Spencer, 2026-09-24, #128). Vanilla takes no input while
+        // a page turns (kaleido's unk_1E4 != 0), and a close landing mid-roll or mid-turn cut the gesture
+        // off halfway (Spencer, 2026-09-23). The entry slides already drop it: the update returns before
+        // input while they run. Each drop has its own witness: `close_dropped=` mid-animation,
+        // `start_level_dropped=` at level 1.
         const bool animating = sSweepActive || sLevelActive;
         if (startEdge && !(sPageHold & RS_MENU_HOLD_START)) {
             if (animating) {
                 sCloseDropped++;
+            } else if (sLevel != 0) {
+                sStartLevelDropped++;
             } else {
                 sStartConsumed++;
                 RsMenu_BeginClose();
@@ -3189,8 +3185,8 @@ static void RsMenu_OnInterfaceDrawItemButtonsEnd() {
 //
 // ONE number for all ten, because the margin is one number: 10, half the hearts' 21 (rounded down, since
 // it is an integer). The hearts and magic are what the raise is for - it is what lets the scroll clear a
-// double magic meter with a 3-unit drop (kScrollDropY) - so the buttons rise 10 too, a little more than
-// their own halves (START 7, B and A 8.5).
+// double magic meter with a 3-unit drop (kScrollDropY, 6 since #128) - so the buttons rise 10 too, a
+// little more than their own halves (START 7, B and A 8.5).
 //
 // Registered, not set: CVarRegisterInteger writes only a CVar that does not exist yet
 // (ConsoleVariable::RegisterInteger), so a player's own cosmetics win, and ShipInit re-running on every
@@ -4042,6 +4038,7 @@ RsMenuStatus RsMenu_Status() {
     status.startSwallowed = sStartSwallowed;
     status.startConsumed = sStartConsumed;
     status.closeDropped = sCloseDropped;
+    status.startLevelDropped = sStartLevelDropped;
     status.openRefused = sOpenRefused;
     status.filterPressSeen = sFilterPressSeen;
     return status;

@@ -37,9 +37,11 @@
 //                         it comes. A screenshot taken straight after it catches the menu half off
 //                         the bottom edge and reads as a broken layout. There is no `open now` -
 //                         wait about a second, or poll `dump` until `phase=open`
-//   close [now]           starts the closing SLIDE, the way B and START do; the freeze and the HUD
-//                         are restored when it finishes, not when it starts, because un-freezing
-//                         halfway down would show the world moving under a menu still on screen.
+//   close [now]           starts the closing SLIDE, the way B and START do at level 0, but from any
+//                         level (START does nothing at level 1, #128: `start_level_dropped=` on
+//                         `section=start` counts it); the freeze and the HUD are restored when it
+//                         finishes, not when it starts, because un-freezing halfway down would show
+//                         the world moving under a menu still on screen.
 //                         `now` skips the slide and restores everything on the spot - which is what
 //                         a run wants when the next command must not race the animation, and what a
 //                         scene load takes internally. Idempotent either way: closing a closed menu
@@ -121,8 +123,8 @@
 //                         animation had reached. Every level change a hold plays through counts in
 //                         `swaps=`, so that field counts holds as well as real gestures.
 //                         #130 adds `drop=` (how far below its game space the scroll draws this
-//                         tick: the entry slide, the probe's offset and the fixed 3-unit drop),
-//                         `hand_l=`/`hand_r=` (each hand's last drawn extent, x0,y0,x1,y1 on
+//                         tick: the entry slide, the probe's offset and the fixed drop - 6 since
+//                         #128), `hand_l=`/`hand_r=` (each hand's last drawn extent, x0,y0,x1,y1 on
 //                         screen, y down, read through its own matrix - at level 1 rest they run
 //                         off the bottom and top edges),
 //                         `hud_shown=` (START's and A's share of their alpha), `b_shown=` (B's),
@@ -257,7 +259,8 @@
 //                         `section=stepper`: `stepper_shown=` and `stepper_alpha=` (what the last
 //                         frame drew - START's fade; 0 at level 1 and while closed), `stepper_at=`
 //                         (1-based, the red stone), `stepper_stones=`, `stepper_side=` (a stone's side),
-//                         `stepper_row=x0,y0,x1,y1` in game units (its bottom is the magic meter's);
+//                         `stepper_row=x0,y0,x1,y1` in game units (static: 2 above the rolls at
+//                         rest, and it does not follow the entry slide or the probe);
 //                         `stepper_ramp_open=`/`stepper_ramp_close=` are the alpha drawn on each
 //                         entry tick of the last slide each way (-1 where no frame drew), since a
 //                         slide is shorter than a command round trip. Prefixed for the same reason as

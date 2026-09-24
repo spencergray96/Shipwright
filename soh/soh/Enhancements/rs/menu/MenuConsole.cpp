@@ -534,9 +534,9 @@ int32_t Dump(std::vector<std::string>& lines) {
     // got in anyway - which is the difference between "the filter worked" and "no START arrived".
     Addf(lines,
          "op=dump section=start filter_armed=%d start_swallowed=%d start_consumed=%d press_seen=0x%04X "
-         "close_dropped=%d open_refused=%d",
+         "close_dropped=%d start_level_dropped=%d open_refused=%d",
          status.filterArmedFrames, status.startSwallowed, status.startConsumed, status.filterPressSeen,
-         status.closeDropped, status.openRefused);
+         status.closeDropped, status.startLevelDropped, status.openRefused);
     // `bindings=-1` means the control deck could not be read at all, which is a different thing
     // from a trigger nobody has bound - and on a GameCube pad `bound=0` is the DEFAULT, not a fault.
     Addf(lines, "op=dump section=trigger button=START mask=0x%04X bindings=%d bound=%d", trigger.mask,
