@@ -490,9 +490,9 @@ RsMenuLevelState RsMenu_LevelState();
 
 // --- the page stepper (#128) -----------------------------------------------------------------------
 //
-// One stone per page, the ring's page red, just above the scroll and centred on it, at a static height: its
-// top meets the magic meter's under two rows of hearts. It ramps with the arrival and fades out on the way
-// down a level exactly as START does, and is hidden at level 1.
+// One stone per page, the ring's page red, 2 above the scroll's rolls and centred on it, at a static height
+// that moves only with the scroll's fixed drop. It ramps with the arrival and fades out on the way down a
+// level exactly as START does, and is hidden at level 1.
 // `shown`/`alpha` are what the LAST DRAWN FRAME did (0 while the menu is closed); the row is laid out
 // live. Game units, y down; `at` is 0-based.
 struct RsMenuStepperState {
