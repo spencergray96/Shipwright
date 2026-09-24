@@ -5,7 +5,11 @@
  * to clear the magic meter, and stands the level-1 hands upright with the HUD cut to a moved B. No
  * Matrix_* op is added or made conditional: the drop is a term in the base matrix's one translate, the
  * upright pose is different arguments to the same swivel ops, and the hands' extents for `menu dump`
- * are read with Matrix_MultVec3f, which records nothing.
+ * are read with Matrix_MultVec3f, which records nothing. At level 1, B also reads "Return".
+ *
+ * Spencer's 2026-09-23 play test: C-up no longer flips a house's camera under the menu
+ * (VB_TOGGLE_HOUSE_VIEWPOINT), and a page with no `hud` callback - the Quest Journal - dims every C
+ * button, as vanilla does on a page with nothing to equip. Neither touches a Matrix_* op.
  *
  * #127 lets a page run state of its own (RsMenu.h: `tick`, `hold`, `reset`) - the Quest Status page's song
  * playback - and hold back the menu's own reactions to START, B, A, L/R and the cursor while it does.
@@ -543,6 +547,9 @@ static int32_t sHudReasserts = 0;
 // #130: whether ApplyLevelHud has written A's and B's alphas since the scroll was last flat, so the tick
 // it comes back to level 0 puts them back to full once and then leaves them to the interface again.
 static bool sLevelHudTouched = false;
+// C-up presses the menu refused to let toggle a house's camera (VB_TOGGLE_HOUSE_VIEWPOINT): the veto's
+// own witness, beside `viewpoint=` - which alone cannot tell "refused" from "no C-up arrived".
+static int32_t sViewpointVetoes = 0;
 
 // Set by the VB_OPEN_PAUSE_MENU veto, consumed by the update. The veto runs inside
 // KaleidoSetup_Update (Play_Update, from gameState->main), and OnGameFrameUpdate fires after
@@ -921,6 +928,27 @@ static void ApplyLevelHud(PlayState* play) {
     ic->aAlpha = (s16)(aFull * LevelHudShown());
     ic->bAlpha = (s16)(bFull * LevelBShown());
     sLevelHudTouched = offFlat;
+}
+
+// B's label, the one place it is set while the menu is up: "Save" as #125 set it, and "Return" at level
+// 1, where B goes back up - the stock DO_ACTION_RETURN texture, the one the START button carries. The
+// swap happens while B is invisible (LevelBMoved flips at the swap tick, where B's alpha is 0). Only once
+// A's label change has finished, since the two share doActionSegment[1] (RsMenu_Open says why): the
+// open's first "Save" waits on that as `sBLabelPending`, and so does every swap after it. Checked every
+// tick rather than on the swap, so a missed tick cannot strand the wrong label.
+static void ApplyLevelBLabel(PlayState* play) {
+    if (!sHudShown) {
+        return;
+    }
+    InterfaceContext* ic = &play->interfaceCtx;
+    if (ic->unk_1EC != 0) {
+        return;
+    }
+    const u16 want = LevelBMoved() ? DO_ACTION_RETURN : DO_ACTION_SAVE;
+    if (sBLabelPending || ic->unk_1FC != want) {
+        Interface_LoadActionLabelB(play, want);
+        sBLabelPending = false;
+    }
 }
 
 // How far this side is displaced this tick, in the scroll's own frame. Two independent terms that
@@ -2351,12 +2379,18 @@ static uint32_t sPageHold = RS_MENU_HOLD_NONE;
 // into gSaveContext.buttonStatus. When they change (and on open, `force`) the HUD mode is taken to 0 and
 // back to ALL, which is how kaleido makes the interface re-tween the button alphas on a page switch
 // (KaleidoScope_SwitchPage, z_kaleido_scope_PAL.c:1288-1289): enabled buttons rise to 255, disabled
-// ones settle at 70. A page with no `hud` callback gets the Quest Journal's buttons: B, A, and C-left
-// and C-right, which page its list.
+// ones settle at 70. A page with no `hud` callback - the Quest Journal - gets vanilla's buttons for a
+// page with nothing to equip (Quest Status, Map): B and A only, every C button and D-pad slot dimmed.
+//
+// It used to leave C-left and C-right lit because they page the journal's list. But a status belongs
+// to the BUTTON, not the item on it, so the journal lit whichever items sat on C-left and C-right and
+// dimmed C-down. With the Hookshot and Bombs on the sides and the Ocarina below, that read as the
+// reverse of indoor gameplay (Spencer's play test, 2026-09-23). The paging still works; it is just
+// not advertised.
 static void ApplyPageHud(bool force) {
     const int32_t pageIndex = sSweepActive ? sSweepTo : sPage;
     const RsMenuPage* page = RsMenu_PageAt(pageIndex);
-    u8 status[9] = { BTN_ENABLED,  BTN_ENABLED,  BTN_DISABLED, BTN_ENABLED, BTN_ENABLED,
+    u8 status[9] = { BTN_ENABLED,  BTN_DISABLED, BTN_DISABLED, BTN_DISABLED, BTN_ENABLED,
                      BTN_DISABLED, BTN_DISABLED, BTN_DISABLED, BTN_DISABLED };
     if (page != nullptr && page->hud != nullptr) {
         page->hud(pageIndex, status, page->userData);
@@ -2655,10 +2689,7 @@ static void RsMenu_OnGameFrameUpdate() {
                                                                   : 1.0f;
             play->interfaceCtx.startAlpha = sHudShown ? (s16)(255.0f * shown * LevelHudShown()) : 0;
             ApplyLevelHud(play);
-            if (sBLabelPending && play->interfaceCtx.unk_1EC == 0) {
-                Interface_LoadActionLabelB(play, DO_ACTION_SAVE);
-                sBLabelPending = false;
-            }
+            ApplyLevelBLabel(play);
         }
         // The flying equip icon moves on the game tick, before any input: kaleido's UpdateItemEquip runs
         // in its update, and the flight a press starts first moves on the next tick.
@@ -3069,6 +3100,15 @@ static void RegisterRsMenu() {
     COND_VB_SHOULD(VB_DRAW_UNPAUSED_HUD, true, {
         if (MenuIsUp()) {
             *should = false;
+        }
+    });
+    // C-up toggles a house's camera between fixed and pivoting (Play_Update) unless vanilla pause is up.
+    // Player is frozen under the scroll but Play_Update is not, so without this C-up moved the camera
+    // behind the menu (Spencer's play test, 2026-09-23, in Link's house).
+    COND_VB_SHOULD(VB_TOGGLE_HOUSE_VIEWPOINT, true, {
+        if (MenuIsUp()) {
+            *should = false;
+            sViewpointVetoes++;
         }
     });
     // #130: B stands clear of the upright top hand from the level swap on (LevelBMoved), invisible when it
@@ -3756,6 +3796,8 @@ RsMenuStatus RsMenu_Status() {
     status.hudPrev = (int32_t)sHudPrev;
     status.hudNow = (int32_t)gSaveContext.hudVisibilityMode;
     status.hudReasserts = sHudReasserts;
+    status.viewpoint = gPlayState != nullptr ? gPlayState->unk_1242B : 0;
+    status.viewpointVetoes = sViewpointVetoes;
     // Zero while the menu is closed: the last frame drew nothing, whatever the last OPEN frame did.
     status.drawGlyphs = status.open ? sDrawGlyphs : 0;
     status.drawQuads = status.open ? sDrawQuads : 0;

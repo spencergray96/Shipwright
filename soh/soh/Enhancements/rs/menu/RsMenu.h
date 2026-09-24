@@ -429,7 +429,7 @@ const char* RsMenu_SelectResultName(RsMenuSelectResult result);
 //      one pointing off the top edge, the bottom one off the bottom edge, with a slight lean toward
 //      their own sides (#130 option B; after stage 6 they reached in from the right and the left,
 //      and the top one sat over the HUD's buttons). Level 1 cuts the HUD's buttons to B, moved clear
-//      of the top hand (RsMenu.cpp, "the HUD at level 1").
+//      of the top hand and labelled "Return" (RsMenu.cpp, "the HUD at level 1").
 //   3. OPEN VERTICALLY - but only to a separation that fits the screen, which is a named constant
 //      in RsMenu.cpp (kVerticalSpan) and NOT the horizontal 288: the vertical rest pose is its own
 //      pose, not the horizontal one rotated.
@@ -616,6 +616,8 @@ struct RsMenuStatus {
     int32_t hudPrev;     // gSaveContext.hudVisibilityMode at open; what close restores
     int32_t hudNow;
     int32_t hudReasserts; // stage 8: times the HUD mode was put back while up (ALL since #125; 0 expected)
+    int32_t viewpoint;    // play->unk_1242B, a house camera's viewpoint (0 none, 1 fixed, 2 pivot); C-up flips 1/2
+    int32_t viewpointVetoes; // C-up presses the menu refused to let flip it (VB_TOGGLE_HOUSE_VIEWPOINT)
     // What the last drawn frame cost, in the units the OVERLAY_DISP budget is denominated in - and
     // zero while the menu is closed, because then the last frame drew nothing.
     // `dlWords` is the heap display list's length - OVERLAY_DISP itself holds only 2048 Gfx words

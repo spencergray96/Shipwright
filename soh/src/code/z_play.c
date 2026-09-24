@@ -1236,7 +1236,9 @@ void Play_Update(PlayState* play) {
 
             if (play->unk_1242B != 0) {
                 if (CHECK_BTN_ALL(input[0].press.button, BTN_CUP)) {
-                    if ((play->pauseCtx.state != 0) || (play->pauseCtx.debugState != 0)) {
+                    if (!GameInteractor_Should(VB_TOGGLE_HOUSE_VIEWPOINT,
+                                               (play->pauseCtx.state == 0) && (play->pauseCtx.debugState == 0),
+                                               play)) {
                         // "Changing viewpoint is prohibited due to the kaleidoscope"
                         osSyncPrintf(VT_FGCOL(CYAN) "カレイドスコープ中につき視点変更を禁止しております\n" VT_RST);
                     } else if (Player_InCsMode(play)) {

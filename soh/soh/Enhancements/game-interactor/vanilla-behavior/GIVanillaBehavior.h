@@ -1810,6 +1810,17 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // (play->pauseCtx.state == 0) && (play->pauseCtx.debugState == 0)
+    // ```
+    // Whether C-up may toggle a house's camera between its fixed and pivoting viewpoints
+    // (Play_Update). Vanilla refuses while kaleido is up; the rs/ pause scroll answers false while it is
+    // up, since it leaves pauseCtx alone.
+    // #### `args`
+    // - `*PlayState`
+    VB_TOGGLE_HOUSE_VIEWPOINT,
+
+    // #### `result`
+    // ```c
     // false
     // ```
     // #### `args`
