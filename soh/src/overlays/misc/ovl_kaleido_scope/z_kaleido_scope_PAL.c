@@ -4886,3 +4886,26 @@ void KaleidoScope_Update(PlayState* play) {
 
     GameInteractor_ExecuteOnKaleidoscopeUpdate(sInDungeonScene);
 }
+
+// The item-name texture KaleidoScope_UpdateNamePanel copies into nameSegment for `namedItem` (not the map page's),
+// for sturdy-bassoon#132's RS scroll, which names the item under its cursor with this table. The index arithmetic
+// is UpdateNamePanel's own (:2479-2497), repeated here rather than shared so no line above this function moves:
+// the fork's comments cite this file by line number.
+const char* KaleidoScope_ItemNameTexture(u16 namedItem) {
+    // #region SOH [NTSC] - There's a lot of OOB/Incorrect accesses that can occur so make sure sp2A selects
+    // something valid
+    u16 sp2A = namedItem % 123;
+    // #endregion
+
+    if (gSaveContext.language >= LANGUAGE_GER) {
+        sp2A += 123;
+    }
+    if (gSaveContext.language >= LANGUAGE_FRA) {
+        sp2A += 123;
+    }
+    if (gSaveContext.language >= LANGUAGE_JPN) {
+        sp2A += 123;
+    }
+
+    return iconNameTextures[sp2A];
+}

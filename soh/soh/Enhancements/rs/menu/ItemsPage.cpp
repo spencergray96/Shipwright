@@ -7,9 +7,10 @@
  * Draws through the menu's helpers only (RsMenu.h's page seam) - no OPEN_DISPS, no Gfx macro here.
  *
  * NOT PORTED, on purpose: the cursor's own look (the menu's yellow box stands in for kaleido's corners
- * and its 2-unit icon zoom), the name plate, SoH's item-cycling extras (mask select, rando trade
- * cycling, Roc's Feather). The flying-icon equip animation IS ported since #125 (EquipFlight.cpp): the
- * equip lands, and the save changes, when the icon reaches its button.
+ * and its 2-unit icon zoom), SoH's item-cycling extras (mask select, rando trade cycling, Roc's
+ * Feather). The name panel under the scroll is NamePanel.cpp's since #132; this page says what it names.
+ * The flying-icon equip animation IS ported since #125 (EquipFlight.cpp): the equip lands, and the save
+ * changes, when the icon reaches its button.
  * Also kaleido's `cursorItem == PAUSE_ITEM_NONE` -> `stickRelX = 40` (z_kaleido_item.c:460-461), which
  * walks the cursor right with no input: that value only marks the page arrows, which here are hands.
  *
@@ -355,6 +356,25 @@ static void ItemsPageInput(int32_t pageIndex, int32_t level, uint16_t press, int
     }
 }
 
+// #132: what the name panel says on this page - KaleidoScope_DrawItemSelect's cursorItem and nameColorSet
+// (z_kaleido_item.c:442, :676-688) and UpdateNamePanel's item-page rules. The timer always runs here
+// (:2509); the C prompt shows unless PauseAnyCursor has put the cursor on an empty slot (:2292-2294), which is
+// also the one way to be named nothing (:2452-2458).
+static void ItemsPageName(int32_t pageIndex, const RsMenuCursorNode* node, RsMenuNameInfo* info, void* userData) {
+    (void)pageIndex;
+    (void)userData;
+    const int32_t slot = SlotOfNode(node->id);
+    if (slot < 0) {
+        return;
+    }
+    const int32_t item = gSaveContext.inventory.items[slot];
+    info->item = item == ITEM_NONE ? -1 : item;
+    info->grey = !CHECK_AGE_REQ_SLOT(slot);
+    info->alternates = true;
+    info->subState = RsVanilla_EquipSubState();
+    info->prompt = item == ITEM_NONE ? RS_MENU_PROMPT_NONE : RS_MENU_PROMPT_C_EQUIP;
+}
+
 // #125: the HUD buttons vanilla shows on this page.
 static void ItemsPageHud(int32_t pageIndex, uint8_t status[9], void* userData) {
     (void)pageIndex;
@@ -373,6 +393,8 @@ int32_t RsMenuItemsPage_Register() {
     page.stickModel = RS_MENU_STICK_KALEIDO_SEQUENTIAL;
     page.hud = ItemsPageHud;
     page.ownsItemHighlight = false; // the menu's yellow box, not kaleido's corner cursor
+    page.name = ItemsPageName;
+    page.toLabel = RsVanilla_ToPageLabel(PAUSE_ITEM);
     sPageIndex = RsMenu_RegisterPageStruct(page);
     return sPageIndex;
 }

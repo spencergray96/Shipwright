@@ -8,6 +8,7 @@
 #include <ship/Context.h>
 #include <ship/debug/Console.h>
 
+#include "NamePanel.h"
 #include "PauseLink.h"
 #include "QuestPage.h"
 #include "RsMenu.h"
@@ -577,6 +578,32 @@ int32_t Dump(std::vector<std::string>& lines) {
              s.shown ? 1 : 0, s.alpha, s.at + 1, s.stones, s.stone, s.x0, s.y0, s.x1, s.y1,
              join(s.rampOpen).c_str(), join(s.rampClose).c_str());
     }
+    // #132: the name panel, as the last drawn frame drew it. Every field is `name_panel_`-prefixed: `name=` is
+    // already the state marker's scene name and `quest`'s, and `item=`, `timer=` and `at=` are other sections'.
+    // `name_panel_text=` is what is on the stone (name, prompt, to - a hand's label - or none) and
+    // `name_panel_tex=` its texture's resource path, `-` for a prompt or nothing; it goes LAST because a custom
+    // name's path is whatever the hook wrote. Worst case about 420 bytes with an 80-character path, inside Addf's
+    // 512. The L/R icons are a line of their own for the same budget.
+    {
+        static const char* const kPrompt[] = { "none", "c_equip", "a_equip", "a_play_melody" };
+        static_assert(sizeof(kPrompt) / sizeof(kPrompt[0]) == RS_MENU_PROMPT_COUNT, "one name per RsMenuNamePrompt");
+        const RsNamePanelState n = RsNamePanel_State();
+        const int32_t prompt = n.prompt >= 0 && n.prompt < RS_MENU_PROMPT_COUNT ? n.prompt : 0;
+        Addf(lines,
+             "op=dump section=name_panel name_panel_shown=%d name_panel_stone=%d name_panel_text=%s "
+             "name_panel_item=%s name_panel_grey=%d name_panel_timer=%d name_panel_alternates=%d name_panel_sub=%d "
+             "name_panel_prompt=%s name_panel_custom=%d name_panel_lookups=%d name_panel_customs=%d "
+             "name_panel_at=%.1f,%.1f,%.1f,%.1f name_panel_tex=%s",
+             n.shown ? 1 : 0, n.stone ? 1 : 0, n.text, n.itemName.c_str(), n.grey ? 1 : 0, n.timer,
+             n.alternates ? 1 : 0, n.subState, kPrompt[prompt], n.custom ? 1 : 0, n.lookups, n.customs,
+             n.stoneRect[0], n.stoneRect[1], n.stoneRect[2], n.stoneRect[3], n.tex.empty() ? "-" : n.tex.c_str());
+        static const char* const kBig[] = { "none", "left", "right" };
+        Addf(lines,
+             "op=dump section=name_panel_lr name_panel_lr_shown=%d name_panel_lr_big=%s "
+             "name_panel_l=%.1f,%.1f,%.1f,%.1f name_panel_r=%.1f,%.1f,%.1f,%.1f",
+             n.lr ? 1 : 0, kBig[n.lrBig >= 0 && n.lrBig < 3 ? n.lrBig : 0], n.lRect[0], n.lRect[1], n.lRect[2],
+             n.lRect[3], n.rRect[0], n.rRect[1], n.rRect[2], n.rRect[3]);
+    }
     // #131: THE HARNESS CANNOT HEAR, so every sound the menu plays is counted and a run asserts the
     // counts. One field per event, named by RsMenu_SfxEventName so adding an event adds a field and
     // nothing here changes. A count proves the call was made, NOT that anything came out of the
@@ -717,8 +744,12 @@ int32_t Kaleido(std::vector<std::string>& lines) {
         return 1;
     }
     static const char* const kSpecial[] = { "none", "left", "right" };
-    Addf(lines, "op=kaleido result=ok state=%d debug=%d page=%d point=%d x=%d y=%d special=%s item=%d slot=%d sub=%d",
-         k.state, k.debugState, k.page, k.point, k.x, k.y, kSpecial[k.special], k.item, k.slot, k.sub);
+    // #132's three after `sub=`, so earlier runs' patterns (which end there) still match.
+    Addf(lines,
+         "op=kaleido result=ok state=%d debug=%d page=%d point=%d x=%d y=%d special=%s item=%d slot=%d sub=%d "
+         "named_item=%s name_timer=%d name_grey=%d",
+         k.state, k.debugState, k.page, k.point, k.x, k.y, kSpecial[k.special], k.item, k.slot, k.sub,
+         k.namedName.c_str(), k.nameTimer, k.nameGrey);
     return 0;
 }
 
@@ -820,13 +851,34 @@ int32_t Inv(const std::vector<std::string>& args, std::vector<std::string>& line
     return 0;
 }
 
+// TEST-ONLY `namepanel custom <item>|off` (#132): a VB_DRAW_CUSTOM_ITEM_NAME handler naming ITEM_ id <item> with
+// the Ocarina of Time's name, as rando's Roc's Feather names its item (NamePanel.h). Refused while the menu is
+// closed, because the handler comes off when the menu does. `custom_item=` is the item now named, -1 for off;
+// the panel asks the hook again on its next settled tick, so read `section=name_panel` after that.
+int32_t NamePanelCmd(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    int32_t item = -1;
+    const bool off = args.size() == 2 && args[1] == "off";
+    const bool custom = args.size() == 3 && args[1] == "custom" && ParseIndex(args[2], &item) && item <= 0xFF;
+    if (!off && !custom) {
+        Addf(lines, "op=namepanel result=error error=arg %s", Describe().c_str());
+        return 1;
+    }
+    if (!RsMenu_IsOpen()) {
+        Addf(lines, "op=namepanel result=error error=closed %s", Describe().c_str());
+        return 1;
+    }
+    const int32_t now = RsNamePanel_SetTestCustom(off ? -1 : item);
+    Addf(lines, "op=namepanel result=ok custom_item=%d %s", now, Describe().c_str());
+    return 0;
+}
+
 const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custom|vanilla] | "
                      "sweep [l|r|loop|hold <l|r> <tick>|stop] | "
                      "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
                      "stress [<n> [same]|off|memo <on|off>] | "
                      "cursor [left|right|up|down|select|<id>] | probe [on|off] | kaleido | equips | hud | "
                      "flight hold <n>|release | song | "
-                     "inv <kind> <a> <b> | dump";
+                     "inv <kind> <a> <b> | namepanel custom <item>|off | dump";
 
 } // namespace
 
@@ -885,6 +937,9 @@ int32_t RsMenuConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "inv") {
         return Inv(args, lines);
     }
+    if (sub == "namepanel") {
+        return NamePanelCmd(args, lines);
+    }
     if (sub == "dump") {
         return Dump(lines);
     }
@@ -905,7 +960,8 @@ const ConsoleSink::Command menuCommand(
     "primary [custom|vanilla] | sweep [l|r|loop|hold <l|r> <tick>|stop] | "
     "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
     "stress [<n> [same]|off|memo <on|off>] | cursor [left|right|up|down|select|<id>] | "
-    "probe [on|off] | kaleido | equips | hud | flight hold <n>|release | song | inv <kind> <a> <b> | dump. "
+    "probe [on|off] | kaleido | equips | hud | flight hold <n>|release | song | inv <kind> <a> <b> | "
+    "namepanel custom <item>|off | dump. "
     "The scroll opens on START when primary is custom (N64 L is the minimap's) "
     "and hard-freezes the world; primary decides which menu START opens, and is a subcommand because "
     "there is no console `set`. sweep rolls the scroll one page the way a shoulder press does, and "
@@ -923,8 +979,10 @@ const ConsoleSink::Command menuCommand(
     "input arrived while the world was frozen, plus every slot of the three ported vanilla pages. kaleido "
     "reads vanilla pause's live cursor and equips the save's equip fields plus what Link in the world "
     "is wearing - the two halves of the stage-8 differential tests; inv (test-only) writes a sparse "
-    "inventory for them, and can set the Biggoron flags or switch Link's age.",
-    { { "open|close|page|primary|sweep|level|filler|stress|cursor|probe|kaleido|equips|hud|flight|song|inv|dump",
+    "inventory for them, and can set the Biggoron flags or switch Link's age. namepanel (test-only) names an item "
+    "through the custom-name hook rando uses, so the name panel's hook path can be tested without a seed.",
+    { { "open|close|page|primary|sweep|level|filler|stress|cursor|probe|kaleido|equips|hud|flight|song|inv|namepanel|"
+        "dump",
         Ship::ArgumentType::TEXT },
       { "argument", Ship::ArgumentType::TEXT, true } });
 

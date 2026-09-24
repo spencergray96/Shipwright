@@ -68,6 +68,13 @@ void RsVanilla_HudButtons(int32_t kaleidoPage, uint8_t status[9]);
 // Counts an equip the pages performed, for `menu equips`' `done=`.
 void RsVanilla_CountEquip();
 
+// #132: the "To <page>" label the name panel shows on a page arrow turning to `kaleidoPage` (PAUSE_ITEM,
+// PAUSE_EQUIP or PAUSE_QUEST) - four textures by language, for a page's `toLabel`; null for any other page.
+const void* const* RsVanilla_ToPageLabel(int32_t kaleidoPage);
+// #132: the Items and Equipment pages' kaleido sub-state for the name panel (RsMenuNameInfo::subState): 3 while
+// an equipped icon is flying, kaleido's item-equip state, else 0.
+int32_t RsVanilla_EquipSubState();
+
 // The pages, one file each. Register returns the ring index; Describe fills one port line.
 int32_t RsMenuItemsPage_Register();
 int32_t RsMenuEquipmentPage_Register();

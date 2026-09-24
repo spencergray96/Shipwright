@@ -9,7 +9,8 @@
 // (`items`), Equipment (`equipment`) and Quest Status (`quest_status`). A STRAIGHT PORT, NOT A
 // REDESIGN - for each page, vanilla's item positions, vanilla's cursor movement and the real contents
 // of gSaveContext, placed on the plain parchment with none of kaleido's backdrop framing (no page
-// quads, name plates, page arrows or info panel). Our own menus get built by modifying these.
+// quads or kaleido's page arrows). Our own menus get built by modifying these. Vanilla's info panel - the
+// name, the prompts and the L/R icons - is drawn under the scroll by the menu since #132 (NamePanel.cpp).
 //
 // THE POSITIONS are kaleido's own tables (KaleidoScope_InitVertices, z_kaleido_scope_PAL.c), which
 // are PAGE-LOCAL - vanilla draws each page onto a face of its rotating cube, x right and y UP from
@@ -78,6 +79,12 @@ struct RsMenuKaleidoCursor {
     int32_t item;
     int32_t slot;
     int32_t sub;
+    // #132: kaleido's name panel - namedItem (-1 for PAUSE_ITEM_NONE), nameDisplayTimer and nameColorSet. The
+    // vanilla half of the scroll's name-panel comparison.
+    int32_t named;
+    std::string namedName; // its ITEM_ token, "-" for none - what the scroll's `name_panel_item=` prints
+    int32_t nameTimer;
+    int32_t nameGrey;
 };
 RsMenuKaleidoCursor RsMenu_KaleidoCursor();
 

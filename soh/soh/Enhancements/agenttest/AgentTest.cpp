@@ -321,7 +321,8 @@
  *                                          would actually read
  *   agenttest menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|
  *                filler [n]|stress [<n> [same]|off|memo <on|off>]|
- *                cursor [left|right|up|down|select|<id>]|probe [on|off]|kaleido|equips|inv <kind> <a> <b>|dump
+ *                cursor [left|right|up|down|select|<id>]|probe [on|off]|kaleido|equips|hud|flight ...|song|
+ *                inv <kind> <a> <b>|namepanel ...|dump
  *                                          the mod-owned pause interface (sturdy-bassoon#111) - the
  *                                          RS-style scroll that opens beside vanilla pause rather
  *                                          than inside it. `open`/`close` drive it, `page` selects
@@ -2073,7 +2074,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
-              "kaleido|equips|inv <kind> <a> <b>|dump | "
+              "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|fadein <s>|"
               "baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
             "kaleidoinput [on|off] | altassets [on|off] | save <fileNum> | loadsave <fileNum> | mark <text>";
@@ -2109,7 +2110,7 @@ void RegisterAgentTest() {
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
-              "kaleido|equips|inv <kind> <a> <b>|dump | "
+              "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|"
               "fadein <s>|baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
               "kaleidoinput [on|off] | altassets [on|off] | save <fileNum> | loadsave <fileNum> | mark <text>. "

@@ -167,6 +167,9 @@
 //                         `point=`, `x=`/`y=`, `special=none|left|right` (the page arrows, which the
 //                         scroll's hands stand in for), `item=`, `slot=` and `sub=` (kaleido's
 //                         unk_1E4). A node id carries the same point: `items_09` <-> page=0 point=9.
+//                         #132 appends kaleido's name panel: `named_item=` (namedItem as an ITEM_ token, `-`
+//                         for none), `name_timer=` (nameDisplayTimer) and `name_grey=` (nameColorSet) - the
+//                         vanilla halves of the scroll's `name_panel_item=`/`_timer=`/`_grey=`.
 //                         Driving kaleido at all needs `agenttest kaleidoinput on`. rc=1 no_play
 //   equips                STAGE 8, READ-ONLY. The save fields an equip writes, for comparing the
 //                         scroll's equip with vanilla's: `buttons=` (the 8 button items, B then
@@ -213,6 +216,12 @@
 //                         inventory the movement tests need: `item <slot> <ITEM_ id|255>`,
 //                         `equip <bit> <0|1>`, `upgrade <UPG_ type> <value>`, `quest <bit> <0|1>`.
 //                         rc=1 `error=arg` on anything out of range. Nothing refreshes the HUD
+//   namepanel custom <item>|off
+//                         #132, TEST-ONLY. Registers a VB_DRAW_CUSTOM_ITEM_NAME handler naming ITEM_ id
+//                         <item> with the Ocarina of Time's name, the way rando's Roc's Feather names its
+//                         item, so the name panel's hook path can be tested without a seed; `off` removes
+//                         it, and so does the menu closing. `op=namepanel result=ok custom_item=<n>`
+//                         (-1 for off); rc=1 `error=arg`, or `error=closed` while the menu is not open
 //   dump                  EVERYTHING a marker can carry: open/closed, current page, page count,
 //                         which menu `primary` selects, the live freeze and HUD state, the
 //                         trigger's binding count, the counters, and one line per registered page.
@@ -248,7 +257,8 @@
 //                         `seg6_during=` what Player_DrawPause left there, `seg4_now=`/`seg6_now=`
 //                         read live between frames. #124 adds `cursor_drawn=` to `section=draw`:
 //                         1 when the last frame drew the cursor box, 0 through a roll or a level
-//                         change (the box hides with the content). #131 adds `section=sfx`, one
+//                         change (the box hides with the content). #132's name panel counts in `icons=` too
+//                         (its stone, text and L/R icons are textured quads). #131 adds `section=sfx`, one
 //                         count per sound event the menu plays (`sfx_cursor=`, `sfx_hand=`,
 //                         `sfx_roll_left=`, `sfx_roll_right=`, `sfx_open=`, `sfx_close=`) - THE ONLY
 //                         CHANNEL FOR SOUND, because the harness cannot hear. A count proves the call
@@ -264,7 +274,20 @@
 //                         `stepper_ramp_open=`/`stepper_ramp_close=` are the alpha drawn on each
 //                         entry tick of the last slide each way (-1 where no frame drew), since a
 //                         slide is shorter than a command round trip. Prefixed for the same reason as
-//                         `sfx_`
+//                         `sfx_`. #132 adds `section=name_panel`, the name panel as the last frame drew
+//                         it: `name_panel_shown=`, `name_panel_stone=` (0 on the Journal),
+//                         `name_panel_text=name|prompt|to|none` (what is on the stone; `to` is a hand's
+//                         label), `name_panel_item=` (the named item's token, `-` for none),
+//                         `name_panel_grey=`, `name_panel_timer=`, `name_panel_alternates=`,
+//                         `name_panel_sub=` (the page's kaleido sub-state), `name_panel_prompt=`,
+//                         `name_panel_custom=` (named through the hook), `name_panel_lookups=`,
+//                         `name_panel_customs=`, `name_panel_at=x0,y0,x1,y1` on screen, and
+//                         `name_panel_tex=` last, the texture's resource path or `-`; and
+//                         `section=name_panel_lr`, the L/R icons: `name_panel_lr_shown=`,
+//                         `name_panel_lr_big=none|left|right` (the cursor rests on that hand),
+//                         `name_panel_l=`/`name_panel_r=` x0,y0,x1,y1 on screen. Both hidden through a
+//                         roll or a level change and at level 1. Prefixed because `name=` is the state
+//                         marker's scene name and `quest`'s, and `item=`/`timer=`/`at=` are other lines'
 //
 // Returns 0 when the operation succeeded (or for read-only subcommands), 1 otherwise - so `rc=` on
 // the agent loop's cmd marker is the pass/fail bit.

@@ -8,8 +8,9 @@
  * Song playback is ported since #127 (the song section below; sturdy-bassoon
  * docs/reference/PAUSE_SONG_PLAYBACK.md has the design). NOT PORTED: the medallions'
  * glow pulse and the heart pieces' colour cycle (both drawn in their resting colour), the cursor's own
- * look and the name plate. Unlike the other two pages, the cursor here stands on EVERY slot, owned or
- * not, exactly as kaleido's does - its movement is a fixed table, not a scan.
+ * look (the name panel is NamePanel.cpp's since #132). Unlike the other two pages, the cursor here
+ * stands on EVERY slot, owned or not, exactly as kaleido's does - its movement is a fixed table, not a
+ * scan.
  *
  * Author: Spencer (with Claude)
  * Created: 2026-09-21
@@ -607,6 +608,27 @@ RsMenuSongState RsMenu_SongState() {
     return st;
 }
 
+// #132: what the name panel says on this page. The item is kaleido's cursorItem (z_kaleido_collect.c:160-189):
+// PointItem when owned, nothing when not. nameColorSet is always 0 here (:101). The timer runs only on an owned
+// song in its preview (UpdateNamePanel, :2507-2508); elsewhere the name stays up. The song's sub-state is
+// kaleido's own number (the Song enum above), which decides when the name and the prompt may show at all -
+// neither in the lead-in, the name alone while a song plays.
+static void QuestStatusPageName(int32_t pageIndex, const RsMenuCursorNode* node, RsMenuNameInfo* info,
+                                void* userData) {
+    (void)pageIndex;
+    (void)userData;
+    const int32_t point = PointOfNode(node->id);
+    if (point < 0) {
+        return;
+    }
+    const bool song = point >= QUEST_SONG_MINUET && point < QUEST_KOKIRI_EMERALD;
+    info->item = PointOwned(point) ? PointItem(point) : -1;
+    info->grey = false;
+    info->subState = sSong.state;
+    info->alternates = song && sSong.state == SONG_PREVIEW;
+    info->prompt = song && info->item >= 0 ? RS_MENU_PROMPT_A_PLAY_MELODY : RS_MENU_PROMPT_NONE;
+}
+
 // #125: the HUD buttons vanilla shows on this page.
 static void QuestStatusPageHud(int32_t pageIndex, uint8_t status[9], void* userData) {
     (void)pageIndex;
@@ -626,6 +648,8 @@ int32_t RsMenuQuestStatusPage_Register() {
     page.tick = QuestStatusPageTick;
     page.hold = QuestStatusPageHold;
     page.reset = QuestStatusPageReset;
+    page.name = QuestStatusPageName;
+    page.toLabel = RsVanilla_ToPageLabel(PAUSE_QUEST);
     sPageIndex = RsMenu_RegisterPageStruct(page);
     return sPageIndex;
 }

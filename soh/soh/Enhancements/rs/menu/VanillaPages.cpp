@@ -2,9 +2,9 @@
  * VanillaPages.cpp - what the three ported vanilla pause pages share (sturdy-bassoon#111 stage 8):
  * registration in ring order, the item-name tokens `menu dump` prints, the PauseAnyCursor read, each
  * page's HUD button states (#125), and read-only probes for the differential tests - kaleido's live
- * cursor, the save's equip fields and the HUD. VanillaPages.h is the contract; the pages themselves are
- * ItemsPage.cpp, EquipmentPage.cpp and QuestStatusPage.cpp, and the C-button equip with its flying icon
- * is EquipFlight.cpp.
+ * cursor, the save's equip fields and the HUD - and, since #132, the name panel's "To <page>" labels.
+ * VanillaPages.h is the contract; the pages themselves are ItemsPage.cpp, EquipmentPage.cpp and
+ * QuestStatusPage.cpp, and the C-button equip with its flying icon is EquipFlight.cpp.
  *
  * Author: Spencer (with Claude)
  * Created: 2026-09-21
@@ -31,6 +31,10 @@ extern "C" {
 #include "functions.h"
 #include "variables.h"
 #include "macros.h"
+#include "textures/icon_item_nes_static/icon_item_nes_static.h"
+#include "textures/icon_item_ger_static/icon_item_ger_static.h"
+#include "textures/icon_item_fra_static/icon_item_fra_static.h"
+#include "textures/icon_item_jpn_static/icon_item_jpn_static.h"
 extern PlayState* gPlayState;
 }
 
@@ -129,7 +133,36 @@ RsMenuKaleidoCursor RsMenu_KaleidoCursor() {
     cursor.item = pauseCtx->cursorItem[page];
     cursor.slot = pauseCtx->cursorSlot[page];
     cursor.sub = pauseCtx->unk_1E4;
+    cursor.named = pauseCtx->namedItem == PAUSE_ITEM_NONE ? -1 : pauseCtx->namedItem;
+    cursor.namedName = cursor.named >= 0 ? RsVanilla_ItemToken(cursor.named) : "-";
+    cursor.nameTimer = pauseCtx->nameDisplayTimer;
+    cursor.nameGrey = pauseCtx->nameColorSet;
     return cursor;
+}
+
+// #132: D_8082AD78/D_8082ADA8's labels (z_kaleido_scope_PAL.c:1932-1943), one row per page they turn TO.
+static const void* const kToSelectItem[4] = { gPauseToSelectItemENGTex, gPauseToSelectItemGERTex,
+                                              gPauseToSelectItemFRATex, gPauseToSelectItemJPNTex };
+static const void* const kToEquipment[4] = { gPauseToEquipmentENGTex, gPauseToEquipmentGERTex,
+                                             gPauseToEquipmentFRATex, gPauseToEquipmentJPNTex };
+static const void* const kToQuestStatus[4] = { gPauseToQuestStatusENGTex, gPauseToQuestStatusGERTex,
+                                               gPauseToQuestStatusFRATex, gPauseToQuestStatusJPNTex };
+
+const void* const* RsVanilla_ToPageLabel(int32_t kaleidoPage) {
+    switch (kaleidoPage) {
+        case PAUSE_ITEM:
+            return kToSelectItem;
+        case PAUSE_EQUIP:
+            return kToEquipment;
+        case PAUSE_QUEST:
+            return kToQuestStatus;
+        default:
+            return nullptr;
+    }
+}
+
+int32_t RsVanilla_EquipSubState() {
+    return RsVanilla_EquipFlightActive() ? 3 : 0;
 }
 
 void RsVanilla_HudButtons(int32_t kaleidoPage, uint8_t status[9]) {

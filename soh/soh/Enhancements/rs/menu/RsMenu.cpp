@@ -1,6 +1,10 @@
 /*
  * RsMenu.cpp - the mod-owned pause interface (sturdy-bassoon#111), stages 1-8.
  *
+ * #132 puts vanilla's name panel under the scroll and its L/R page-arrow icons beside the hands (NamePanel.cpp
+ * ports them; "the name panel" below places them). Drawn in the content node under the base matrix, and hidden
+ * through rolls and level changes by a branch around geometry, so it adds no Matrix_* op and no node.
+ *
  * #128 adds the page stepper: a row of stones, one per page, just above the scroll and centred on it
  * (DrawStepper), and drops the whole scroll 10 more units, clear of the magic meter and the C-down button.
  * It is drawn in the dim's node under the dim's identity matrix, so it adds no Matrix_* op and no node.
@@ -146,6 +150,7 @@
  */
 
 #include "RsMenu.h"
+#include "NamePanel.h"
 #include "PauseLink.h"
 #include "QuestPage.h"
 #include "VanillaPages.h"
@@ -691,6 +696,7 @@ enum RsListState {
     RS_LIST_OTHER = 0,
     RS_LIST_TEXT,
     RS_LIST_ICON,
+    RS_LIST_PANEL, // #132: kaleido's info-panel combiner (RsMenu_DrawPanelTexture)
 };
 static int32_t sListState = RS_LIST_OTHER;
 
@@ -1089,6 +1095,7 @@ float RsMenu_ScreenDy() {
 // Defined with the scroll's other state presets below.
 static void PushTextState();
 static void PushIconState();
+static void PushPanelState();
 
 float RsMenu_TextWidth(const char* text, float scale) {
     float width = 0.0f;
@@ -1502,6 +1509,60 @@ static void DrawStepper() {
     }
 }
 
+// --- the name panel (#132) ------------------------------------------------------------------------
+//
+// Vanilla's info panel, ported in NamePanel.cpp; this is only WHERE it goes and WHEN. Drawn in the content
+// node under the scroll's base matrix, so it rides the arrival slide the way vanilla's slides up with its
+// pages (infoPanelOffsetY), and it is not drawn at all through a roll, a level change or level 1 - the moving
+// hand crosses the band a roll, and the cursor box is hidden the same way (#124).
+//
+// THE STONE, 144 x 24, centred on the scroll and 2 below the rolls (kStepperAboveRolls' gap, mirrored). At the
+// drop of 13 that is game y 211-235 on screen, inside the band the rolls (to 209) and the screen's bottom (240)
+// leave, and x 88-232, clear of the resting hands (to x 40 and from 280). Vanilla's panel is 196-220; it moved
+// down because the scroll sits where vanilla's pages do and its rolls reach 209.
+//
+// THE L/R ICONS (Spencer, 2026-09-24): each vertically centred on its hand's palm, and stepped OUT past the hand
+// by the same 2, so they never overlap it - vanilla's own spot (x -15, 315) sits on the resting fingertips. Out
+// rather than in because in is the page: the Equipment page's upgrade column starts at x 51. Out is past the
+// 4:3 frame (x -32..-8 and 328..352 at full size), as vanilla's own icons mostly are at 4:3.
+constexpr int16_t kNamePanelW = 144;
+constexpr int16_t kNamePanelH = 24;
+constexpr int16_t kPanelGap = (int16_t)kStepperAboveRolls; // the stepper's gap, reused below the rolls and by L/R
+constexpr int16_t kNamePanelX = (int16_t)(kPanelCentreX - kNamePanelW / 2);
+constexpr int16_t kNamePanelY = (int16_t)(kRollBottomY + kPanelGap);
+static_assert(kNamePanelY + kNamePanelH + kScrollDropY <= SCREEN_HEIGHT,
+              "the name panel no longer fits between the rolls and the bottom edge (#132)");
+static_assert(kHandBoxX + kHandBoxW - kHandOutward < kNamePanelX,
+              "the resting hands reach the name panel (#132)");
+constexpr int32_t kPalmBox = 2; // kHandLeft's palm
+constexpr int16_t kArrowCentreY = (int16_t)((kHandLeft[kPalmBox].y0 + kHandLeft[kPalmBox].y1) / 2 - kHandRaise);
+// The hand's outboard edge at rest is its leftmost box (the thumb, at kHandBoxX), stepped out kHandOutward.
+constexpr int16_t kArrowLeftInner = (int16_t)(kHandBoxX - kHandOutward - kPanelGap);
+constexpr int16_t kArrowRightInner = (int16_t)(SCREEN_WIDTH - kArrowLeftInner);
+
+static int32_t HandRollDelta(const RsMenuCursorNode* node);
+
+static RsNamePanelFrame NamePanelFrame() {
+    RsNamePanelFrame f = {};
+    f.page = RsMenu_PageAt(sPage);
+    f.pageIndex = sPage;
+    f.node = RsMenu_CursorAt(sCursorIndex);
+    f.handTo = nullptr;
+    const int32_t count = RsMenu_PageCount();
+    if (f.node != nullptr && f.node->hand >= 0 && count > 0) {
+        f.handTo = RsMenu_PageAt(((sPage + HandRollDelta(f.node)) % count + count) % count);
+    }
+    f.settled = sPhase == RS_MENU_PHASE_OPEN;
+    f.opening = sPhase == RS_MENU_PHASE_OPENING;
+    f.stoneX = kNamePanelX;
+    f.stoneY = kNamePanelY;
+    f.lrY = kArrowCentreY;
+    f.lrInner[0] = kArrowLeftInner;
+    f.lrInner[1] = kArrowRightInner;
+    f.screenDy = RsMenu_ScreenDy();
+    return f;
+}
+
 // Flat vertex colour: shade in, shade out. No texture, no lighting, and no Z - the world has
 // already written a depth buffer and the menu must never be tested against it.
 static void PushFlatState() {
@@ -1543,6 +1604,23 @@ static void PushIconState() {
     dl.push_back(gsDPPipeSync());
     dl.push_back(gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON));
     dl.push_back(gsDPSetCombineMode(G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM));
+    dl.push_back(gsDPSetOtherMode(G_AD_NOTPATTERN | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | G_TF_BILERP | G_TT_NONE |
+                                      G_TL_TILE | G_TD_CLAMP | G_TP_PERSP | G_CYC_1CYCLE | G_PM_NPRIMITIVE,
+                                  G_AC_NONE | G_ZS_PIXEL | G_RM_XLU_SURF | G_RM_XLU_SURF2));
+    dl.push_back(gsSPLoadGeometryMode(G_SHADING_SMOOTH));
+}
+
+// #132: the icon preset with kaleido's info-panel combiner and environment colour (DrawInfoPanel,
+// z_kaleido_scope_PAL.c:2160-2163): PRIMITIVE where the texel is lit, ENVIRONMENT where it is not, alpha the
+// texel's times the prim's. Everything the panel writes on its stone is drawn in this.
+static void PushPanelState() {
+    sListState = RS_LIST_PANEL;
+    std::vector<Gfx>& dl = MenuDl();
+    dl.push_back(gsDPPipeSync());
+    dl.push_back(gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON));
+    dl.push_back(gsDPSetCombineLERP(PRIMITIVE, ENVIRONMENT, TEXEL0, ENVIRONMENT, TEXEL0, 0, PRIMITIVE, 0, PRIMITIVE,
+                                    ENVIRONMENT, TEXEL0, ENVIRONMENT, TEXEL0, 0, PRIMITIVE, 0));
+    dl.push_back(gsDPSetEnvColor(20, 30, 40, 0));
     dl.push_back(gsDPSetOtherMode(G_AD_NOTPATTERN | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | G_TF_BILERP | G_TT_NONE |
                                       G_TL_TILE | G_TD_CLAMP | G_TP_PERSP | G_CYC_1CYCLE | G_PM_NPRIMITIVE,
                                   G_AC_NONE | G_ZS_PIXEL | G_RM_XLU_SURF | G_RM_XLU_SURF2));
@@ -1852,12 +1930,13 @@ void RsMenu_DrawBar(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t r, u
     PushTextState();
 }
 
-// A textured quad over the box, the whole texture mapped onto it: SetGlyphQuad's layout with the
-// texture's own size in the texture coordinates (10.5 fixed point) instead of the glyph cell's.
-static void SetTexturedQuad(Vtx* v, int16_t x, int16_t y, int16_t w, int16_t h, int16_t texW, int16_t texH) {
+// A textured quad over the box, texels `s0` up to `s1` across and every row down mapped onto it: SetGlyphQuad's
+// layout with the texture's own texels in the texture coordinates (10.5 fixed point) instead of the glyph cell's.
+static void SetTexturedQuadST(Vtx* v, int16_t x, int16_t y, int16_t w, int16_t h, int16_t s0, int16_t s1,
+                              int16_t texH) {
     const int16_t ox[4] = { x, (int16_t)(x + w), x, (int16_t)(x + w) };
     const int16_t oy[4] = { y, y, (int16_t)(y + h), (int16_t)(y + h) };
-    const int16_t s[4] = { 0, (int16_t)(texW << 5), 0, (int16_t)(texW << 5) };
+    const int16_t s[4] = { (int16_t)(s0 << 5), (int16_t)(s1 << 5), (int16_t)(s0 << 5), (int16_t)(s1 << 5) };
     const int16_t t[4] = { 0, 0, (int16_t)(texH << 5), (int16_t)(texH << 5) };
     for (int32_t i = 0; i < 4; i++) {
         v[i].v.ob[0] = (int16_t)(ox[i] - SCREEN_WIDTH / 2);
@@ -1868,6 +1947,39 @@ static void SetTexturedQuad(Vtx* v, int16_t x, int16_t y, int16_t w, int16_t h, 
         v[i].v.tc[1] = t[i];
         v[i].v.cn[0] = v[i].v.cn[1] = v[i].v.cn[2] = v[i].v.cn[3] = 255;
     }
+}
+
+// The whole texture mapped onto the box.
+static void SetTexturedQuad(Vtx* v, int16_t x, int16_t y, int16_t w, int16_t h, int16_t texW, int16_t texH) {
+    SetTexturedQuadST(v, x, y, w, h, 0, texW, texH);
+}
+
+// One texture load into `p`, returning the end. Built with the packet macros into a scratch array the caller
+// copies in, because gDPLoadTextureBlock pastes its size argument into token names (G_IM_SIZ_32b_LOAD_BLOCK...)
+// and so needs one literal per format. CLAMP rather than kaleido's WRAP: the whole texture (or a crop of it) is
+// mapped onto the quad, and bilinear filtering at a wrapped edge would bleed the opposite edge in.
+static Gfx* LoadTexture(Gfx* p, const void* texture, RsMenuTexFormat format, int16_t texW, int16_t texH) {
+    const uintptr_t tex = reinterpret_cast<uintptr_t>(texture);
+    switch (format) {
+        case RS_MENU_TEX_IA8:
+            gDPLoadTextureBlock(p++, tex, G_IM_FMT_IA, G_IM_SIZ_8b, texW, texH, 0, G_TX_NOMIRROR | G_TX_CLAMP,
+                                G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
+            break;
+        case RS_MENU_TEX_I8:
+            gDPLoadTextureBlock(p++, tex, G_IM_FMT_I, G_IM_SIZ_8b, texW, texH, 0, G_TX_NOMIRROR | G_TX_CLAMP,
+                                G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
+            break;
+        case RS_MENU_TEX_IA4:
+            // KaleidoScope_QuadTextureIA4's load (z_kaleido_scope_PAL.c:1150-1152), clamped.
+            gDPLoadTextureBlock_4b(p++, tex, G_IM_FMT_IA, texW, texH, 0, G_TX_NOMIRROR | G_TX_CLAMP,
+                                   G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
+            break;
+        default:
+            gDPLoadTextureBlock(p++, tex, G_IM_FMT_RGBA, G_IM_SIZ_32b, texW, texH, 0, G_TX_NOMIRROR | G_TX_CLAMP,
+                                G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
+            break;
+    }
+    return p;
 }
 
 static void CountIcon() {
@@ -1887,28 +1999,8 @@ void RsMenu_DrawIcon(const void* texture, RsMenuTexFormat format, int16_t texW, 
     }
     Vtx* vtx = (Vtx*)Graph_Alloc(sDrawGfxCtx, 4 * sizeof(Vtx));
     SetTexturedQuad(vtx, x, y, w, h, texW, texH);
-
-    // The load is built with the packet macros into a scratch array and copied in, because
-    // gDPLoadTextureBlock pastes its size argument into token names (G_IM_SIZ_32b_LOAD_BLOCK...) and so
-    // needs one literal per format. CLAMP rather than kaleido's WRAP: the whole texture is mapped onto
-    // the quad, and bilinear filtering at a wrapped edge would bleed the opposite edge in.
     Gfx load[16];
-    Gfx* p = load;
-    const uintptr_t tex = reinterpret_cast<uintptr_t>(texture);
-    switch (format) {
-        case RS_MENU_TEX_IA8:
-            gDPLoadTextureBlock(p++, tex, G_IM_FMT_IA, G_IM_SIZ_8b, texW, texH, 0, G_TX_NOMIRROR | G_TX_CLAMP,
-                                G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-            break;
-        case RS_MENU_TEX_I8:
-            gDPLoadTextureBlock(p++, tex, G_IM_FMT_I, G_IM_SIZ_8b, texW, texH, 0, G_TX_NOMIRROR | G_TX_CLAMP,
-                                G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-            break;
-        default:
-            gDPLoadTextureBlock(p++, tex, G_IM_FMT_RGBA, G_IM_SIZ_32b, texW, texH, 0, G_TX_NOMIRROR | G_TX_CLAMP,
-                                G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-            break;
-    }
+    Gfx* p = LoadTexture(load, texture, format, texW, texH);
 
     std::vector<Gfx>& dl = MenuDl();
     dl.push_back(gsDPSetPrimColor(0, 0, r, g, b, a));
@@ -1923,6 +2015,26 @@ void RsMenu_DrawIcon(const void* texture, RsMenuTexFormat format, int16_t texW, 
     if (grey) {
         dl.push_back(gsSPGrayscale(false));
     }
+    CountIcon();
+}
+
+void RsMenu_DrawPanelTexture(const void* texture, RsMenuTexFormat format, int16_t texW, int16_t texH, int16_t s0,
+                             int16_t s1, int16_t x, int16_t y, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    if (sDrawGfxCtx == nullptr || texture == nullptr || s1 <= s0) {
+        return;
+    }
+    if (sListState != RS_LIST_PANEL) {
+        PushPanelState();
+    }
+    Vtx* vtx = (Vtx*)Graph_Alloc(sDrawGfxCtx, 4 * sizeof(Vtx));
+    SetTexturedQuadST(vtx, x, y, (int16_t)(s1 - s0), texH, s0, s1, texH);
+    Gfx load[16];
+    Gfx* p = LoadTexture(load, texture, format, texW, texH);
+    std::vector<Gfx>& dl = MenuDl();
+    dl.push_back(gsDPSetPrimColor(0, 0, r, g, b, a));
+    dl.insert(dl.end(), load, p);
+    dl.push_back(gsSPVertex(vtx, 4, 0));
+    dl.push_back(gsSP1Quadrangle(0, 2, 3, 1, 0));
     CountIcon();
 }
 
@@ -2814,6 +2926,7 @@ static void RsMenu_OnGameFrameUpdate() {
             for (int32_t i = 0; i < RsMenu_PageCount(); i++) {
                 ResetPage(i);
             }
+            RsNamePanel_Reset();
         }
         sStartEdge = false;
         return;
@@ -2878,6 +2991,10 @@ static void RsMenu_OnGameFrameUpdate() {
         sProbePhase = (sProbePhase + 1) % kProbePeriod;
         RebuildCursorGraph();
         RecordOfferedInput(input);
+        // #132: the name panel asks the page what the cursor names every tick; vanilla's timer runs only once
+        // the arrival is over (NamePanel.cpp). Before any input, so it names what the last tick left - vanilla's
+        // UpdateNamePanel likewise reads the cursor its last draw moved.
+        RsNamePanel_Tick(NamePanelFrame());
 
         // The arrival, driven off the same game tick as everything else. The world stays frozen and
         // the HUD stays in its pause configuration for the whole of both slides - un-freezing halfway
@@ -3118,6 +3235,13 @@ static void RsMenu_OnPlayDrawEnd() {
             DrawCursorOutline(*node);
             sCursorDrawn = true;
         }
+    }
+    // #132: the name panel and the L/R icons, under the same base matrix - none of it through a roll or a
+    // level change, or at level 1, where there is no graph and no roll. A branch around geometry only.
+    if (sLevel == 0 && !sSweepActive && !sLevelActive) {
+        RsNamePanel_Draw(NamePanelFrame());
+    } else {
+        RsNamePanel_Hidden();
     }
     Matrix_Pop();
     FrameInterpolation_RecordCloseChild();
@@ -3544,6 +3668,8 @@ RsMenuOpenResult RsMenu_Open() {
     // Link's skeleton loads again on the first Equipment frame of every open, as kaleido loads it on
     // every pause - so an age change between opens gets the right Link.
     RsPauseLink_Invalidate();
+    // #132: kaleido's open resets its name panel the same way (namedItem none, the timer 0).
+    RsNamePanel_Reset();
 
     sPhase = RS_MENU_PHASE_OPENING;
     sEntryTick = 0;
@@ -3620,6 +3746,8 @@ static bool CloseMenu(bool syncPlayer) {
         ResetPage(i);
     }
     sPageHold = RS_MENU_HOLD_NONE;
+    // #132: and the name panel, which takes its test-only custom name down with it.
+    RsNamePanel_Reset();
     // An icon still in the air lands now, so the equip the press started is not lost - except from scene
     // init, where the old interface is gone (`syncPlayer` false) and it is dropped.
     RsVanilla_FinishEquipFlight(syncPlayer ? gPlayState : nullptr);

@@ -65,9 +65,20 @@ enum RsMenuTexFormat {
     RS_MENU_TEX_RGBA32 = 0, // item and quest icons (gItemIcons below the song notes)
     RS_MENU_TEX_IA8,        // song note, heart pieces, equipped outline, ammo digits
     RS_MENU_TEX_I8,         // the counter digits (digitTextures)
+    RS_MENU_TEX_IA4,        // #132: an item's name (iconNameTextures, 128 x 16)
 };
 void RsMenu_DrawIcon(const void* texture, RsMenuTexFormat format, int16_t texW, int16_t texH, int16_t x, int16_t y,
                      int16_t w, int16_t h, uint8_t r, uint8_t g, uint8_t b, uint8_t a, bool grey);
+
+// #132 - ONE OF KALEIDO'S INFO-PANEL DRAWS: an item's name, a prompt's words, the A or C symbols, a "To ..."
+// label. Texels `s0` up to `s1` of every row of the texture, one texel to one game unit, top-left at `x, y`; same
+// space and validity rule as the icon call. Not the icon call because the combiner differs: the panel's is
+// PRIMITIVE where the texel is lit and the panel's ENVIRONMENT colour (20, 30, 40) where it is not, alpha the
+// texel's times the prim's (z_kaleido_scope_PAL.c:2161-2163). That is what gives a name its dark edge; the
+// icon call's MODULATEIA_PRIM would draw the same texels edged in black. `s0`/`s1` exist for the C symbols,
+// which vanilla draws as three overlapping crops of one texture, one per button colour.
+void RsMenu_DrawPanelTexture(const void* texture, RsMenuTexFormat format, int16_t texW, int16_t texH, int16_t s0,
+                             int16_t s1, int16_t x, int16_t y, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
 
 // STAGE 8 - LINK'S PORTRAIT: a quad textured from the pause-Link framebuffer, composited onto the
 // parchment under the scroll's matrix, and the request that makes the menu render Link into that
@@ -165,6 +176,40 @@ enum RsMenuStickModel {
     RS_MENU_STICK_KALEIDO_ORIGIN,
 };
 
+// #132: THE NAME PANEL - vanilla's stone bar under the scroll, naming the item the cursor is on and
+// alternating with the button prompts on vanilla's own timer (NamePanel.cpp ports KaleidoScope_DrawInfoPanel
+// and KaleidoScope_UpdateNamePanel). A page with a `name` callback gets the panel; a page without one (the
+// Quest Journal) does not. The PAGE says what its node names, because only the page knows what its slot
+// holds; the panel owns the timer, the textures and the drawing.
+//
+// `name` is asked once per update tick for the item node the cursor is on (never for a hand) and fills in
+// what kaleido's own state would say there. It is always handed a zeroed RsMenuNameInfo with `item` -1.
+//   item       - kaleido's namedItem: the ITEM_ id whose name shows, or -1 for none (PAUSE_ITEM_NONE), which is
+//                an empty slot under PauseAnyCursor or an unowned quest slot. A name the page reports is looked
+//                up exactly as UpdateNamePanel does it, VB_DRAW_CUSTOM_ITEM_NAME included.
+//   grey       - kaleido's nameColorSet: the name draws grey, and never gives way to the prompts.
+//   alternates - UpdateNamePanel's page test for the timer to run: the name for WREG(89) ticks, then the
+//                prompts until WREG(88). Where it is false the name stays up.
+//   subState   - kaleido's unk_1E4 on this page right now (3 an equip flight, the song states on Quest Status):
+//                it decides whether the name and the prompts may show at all (DrawInfoPanel:2165-2230).
+//   prompt     - which of vanilla's button prompts this node gets when the name is not showing.
+enum RsMenuNamePrompt {
+    RS_MENU_PROMPT_NONE = 0,
+    RS_MENU_PROMPT_C_EQUIP,       // the C symbols and "to Equip" (Select Item)
+    RS_MENU_PROMPT_A_EQUIP,       // A and "to Equip" (Equipment)
+    RS_MENU_PROMPT_A_PLAY_MELODY, // A and "to Play Melody" (a Quest Status song)
+    RS_MENU_PROMPT_COUNT,
+};
+struct RsMenuNameInfo {
+    int32_t item;
+    bool grey;
+    bool alternates;
+    int32_t subState;
+    RsMenuNamePrompt prompt;
+};
+typedef void (*RsMenuPageNameFn)(int32_t pageIndex, const RsMenuCursorNode* node, RsMenuNameInfo* info,
+                                 void* userData);
+
 struct RsMenuPage {
     std::string id;
     std::string title;
@@ -181,6 +226,12 @@ struct RsMenuPage {
     RsMenuPageTickFn tick = nullptr;
     RsMenuPageHoldFn hold = nullptr;
     RsMenuPageResetFn reset = nullptr;
+    // #132, both optional. `name`: see RsMenuNameInfo above. `toLabel`: the "To <this page>" label vanilla's
+    // panel shows in yellow while the cursor rests on a page arrow that turns TO this page - four 128 x 16 IA8
+    // textures, by gSaveContext.language (ENG, GER, FRA, JPN). Null where vanilla has no such label (the Quest
+    // Journal), and then a hand turning to this page shows the stone with nothing on it.
+    RsMenuPageNameFn name = nullptr;
+    const void* const* toLabel = nullptr;
 };
 
 // Registers a page at the end of the ring and returns its 0-based index, or -1 if `id` is empty or

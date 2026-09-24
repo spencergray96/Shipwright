@@ -36,6 +36,7 @@ void KaleidoScope_UpdateItemEquip(PlayState* play);
 void KaleidoScope_DrawDungeonMap(PlayState* play, GraphicsContext* gfxCtx);
 void KaleidoScope_DrawWorldMap(PlayState* play, GraphicsContext* gfxCtx);
 void KaleidoScope_UpdatePrompt(PlayState* play);
+const char* KaleidoScope_ItemNameTexture(u16 namedItem);
 Gfx* KaleidoScope_QuadTextureIA4(Gfx* gfx, void* texture, s16 width, s16 height, u16 point);
 Gfx* KaleidoScope_QuadTextureIA8(Gfx* gfx, void* texture, s16 width, s16 height, u16 point);
 void KaleidoScope_MoveCursorToSpecialPos(PlayState* play, u16 specialPos);

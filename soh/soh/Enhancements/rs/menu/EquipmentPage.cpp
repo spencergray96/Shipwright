@@ -6,7 +6,7 @@
  *
  * Draws through the menu's helpers only - no OPEN_DISPS, no Gfx macro here.
  *
- * NOT PORTED: the cursor's own look, the name plate, the A-button hint drawn over the strength slot
+ * NOT PORTED: the cursor's own look, the A-button hint drawn over the strength slot
  * under SoH's ToggleStrength (the toggle itself is ported), and kaleido's ten-tick input lockout after
  * an equip (unk_1E4 = 7, sEquipTimer = 10, z_kaleido_equipment.c:643/:709-717) - an equip here takes
  * effect at once and the cursor stays live. Dropped on purpose (Spencer, #126). In kaleido those ten
@@ -213,7 +213,7 @@ static bool IsNode(int32_t point) {
     return OwnsCell(point) || RsVanilla_PauseAnyCursor();
 }
 
-// kaleido's cursorItem for a cell (:453-488) - what the name plate would say and what an equip puts on
+// kaleido's cursorItem for a cell (:453-488) - what the name panel says (#132) and what an equip puts on
 // the B button. The Biggoron cell names the heart piece when the sword is the BGS (a vanilla quirk
 // the B-button write below undoes) and the knife when the broken knife is owned.
 static int32_t CellItem(int32_t point) {
@@ -532,6 +532,40 @@ static void EquipmentPageInput(int32_t pageIndex, int32_t level, uint16_t press,
     }
 }
 
+// #132: what the name panel says on this page. The item is kaleido's cursorItem (CellItem); the grey is its
+// nameColorSet (z_kaleido_equipment.c:497-517, and SoH's strength toggle at :721-729); the timer runs off the
+// upgrade column only (UpdateNamePanel, :2510); the A prompt shows unless the cell is equipment not owned
+// (DrawInfoPanel, :2413-2416). An unowned cell is named nothing only under PauseAnyCursor (:2452-2458) - without
+// it the cursor never stands on one.
+static void EquipmentPageName(int32_t pageIndex, const RsMenuCursorNode* node, RsMenuNameInfo* info,
+                              void* userData) {
+    (void)pageIndex;
+    (void)userData;
+    const int32_t point = PointOfNode(node->id);
+    if (point < 0) {
+        return;
+    }
+    const int32_t x = point % kCols;
+    const int32_t y = point / kCols;
+    const int32_t item = CellItem(point);
+    const bool unownedEquipment = x != 0 && !CHECK_OWNED_EQUIP(y, x - 1);
+    info->item = RsVanilla_PauseAnyCursor() && unownedEquipment ? -1 : item;
+    bool grey = !CHECK_AGE_REQ_EQUIP(y, x);
+    if (item == ITEM_BRACELET) {
+        grey = !(LINK_AGE_IN_YEARS == YEARS_CHILD || IS_RANDO);
+    }
+    if (x == 0 && y == 0) {
+        grey = LINK_AGE_IN_YEARS != YEARS_CHILD && item >= ITEM_BULLET_BAG_30 && item <= ITEM_BULLET_BAG_50;
+    }
+    if (x == 0 && y == 2 && CVarGetInteger(CVAR_ENHANCEMENT("ToggleStrength"), 0)) {
+        grey = CVarGetInteger(CVAR_ENHANCEMENT("StrengthDisabled"), 0) != 0;
+    }
+    info->grey = grey;
+    info->alternates = x != 0;
+    info->subState = RsVanilla_EquipSubState();
+    info->prompt = unownedEquipment ? RS_MENU_PROMPT_NONE : RS_MENU_PROMPT_A_EQUIP;
+}
+
 // #125: the HUD buttons vanilla shows on this page.
 static void EquipmentPageHud(int32_t pageIndex, uint8_t status[9], void* userData) {
     (void)pageIndex;
@@ -550,6 +584,8 @@ int32_t RsMenuEquipmentPage_Register() {
     page.stickModel = RS_MENU_STICK_KALEIDO_SEQUENTIAL;
     page.hud = EquipmentPageHud;
     page.ownsItemHighlight = false;
+    page.name = EquipmentPageName;
+    page.toLabel = RsVanilla_ToPageLabel(PAUSE_EQUIP);
     sPageIndex = RsMenu_RegisterPageStruct(page);
     return sPageIndex;
 }
