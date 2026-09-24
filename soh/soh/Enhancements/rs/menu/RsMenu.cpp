@@ -255,7 +255,10 @@ constexpr int16_t kRollX[kRollCount][kRollColumns] = { { 6, 16, 26 }, { 294, 304
 
 // The hands: SVG 40,201,40,79 and 280,201,40,79, i.e. game x 0-46 / 274-320, y 150-240. They come
 // in from the bottom edge and close over the roll ends, which is option A's "hands low, POV from
-// the bottom edge". They are RIGID DISPLAY LISTS UNDER AN ANIMATED MATRIX, never rigged skeletons -
+// the bottom edge". At rest since #128 they are drawn higher up the rolls and further out than these
+// boxes say (kHandRaise, kHandOutward), and the cuff is authored long enough to still run off the bottom
+// edge there. They are
+// RIGID DISPLAY LISTS UNDER AN ANIMATED MATRIX, never rigged skeletons -
 // and each is reached through kHand below rather than inlined, so the equipment-reactive swap
 // a later stage wants stays a one-line change.
 //
@@ -277,7 +280,7 @@ struct RsHandBox {
 // Five boxes, 20 vertices, 10 triangles per hand. Deliberately blocky - stage 5 is the mechanism,
 // not the art.
 constexpr RsHandBox kHandLeft[] = {
-    { 2, 210, 38, 240, 3 },  // wrist cuff, running off the bottom edge
+    { 2, 210, 38, 278, 3 },  // wrist cuff, running off the bottom edge even raised (kHandRaise, 38)
     { 6, 184, 36, 212, 1 },  // forearm / back of the hand
     { 8, 162, 40, 188, 0 },  // palm
     { 0, 170, 10, 196, 1 },  // thumb, outboard
@@ -287,11 +290,11 @@ constexpr int32_t kHandBoxCount = (int32_t)(sizeof(kHandLeft) / sizeof(kHandLeft
 constexpr int32_t kHandVtxCount = kHandBoxCount * 4;
 // The hand's selectable extent, which is what the cursor highlight is drawn around. It is the union
 // of the boxes above, held as four numbers rather than recomputed, because it is also the number a
-// console line prints and a run asserts on.
+// console line prints and a run asserts on. Authored, like the boxes: a node adds the rest raise.
 constexpr int16_t kHandBoxX = 0;
 constexpr int16_t kHandBoxY = 148;
 constexpr int16_t kHandBoxW = 46;
-constexpr int16_t kHandBoxH = 92;
+constexpr int16_t kHandBoxH = 130;
 
 // The roll's three columns, dark - light - dark, which is what makes it read as a cylinder rather
 // than a stripe. The centre column is the only thing the probe recolours: magenta is a colour no
@@ -362,6 +365,21 @@ constexpr int32_t kSweepSwapTick = kSweepTicks / 2;
 //     centre at every value of the envelope, so the world shows through behind it.
 constexpr float kGripY = 157.0f;                // the middle of the fingers box below
 constexpr float kGripX[2] = { 16.0f, 304.0f };  // left roll centre, right roll centre
+// #128 (Spencer, 2026-09-24): at level 0 the hands rest HALFWAY up the rolls, counted from their bottom -
+// the grip, where the fingers close over the roll, at 196 - 0.5 * 153 = 119.5 (the rolls' midpoint) rather
+// than the authored 157 (25%). 40% was tried first. A whole unit, 38, so the hands' cursor node is exactly
+// where the hand is drawn. And each hand rests kHandOutward further out, toward its own screen edge, so the
+// fingers cover less of the parchment (x 19-40 on the left rather than 19-46). Both are terms in the hand's
+// existing slide translate (ApplyHandSwivel), ramped out over the level gesture's turn, so a hand slides
+// back down its roll and in as the scroll turns and the level-1 pose is the one it was. An L/R roll keeps
+// both, so the two hands close to 2 * kHandOutward apart rather than touching.
+constexpr float kHandRestUp = 0.50f;
+constexpr int16_t kHandRaise =
+    (int16_t)(kGripY - ((float)kRollBottomY - kHandRestUp * (float)(kRollBottomY - kRollTopY)) + 0.5f);
+static_assert(kHandRaise == 38, "the hands' rest raise moved - re-measure the run's hand extents (#128)");
+constexpr int16_t kHandOutward = 6;
+static_assert(kHandLeft[0].y1 - kHandRaise >= SCREEN_HEIGHT && kHandBoxY + kHandBoxH == kHandLeft[0].y1,
+              "the raised hand's cuff must still run off the bottom edge, and the cursor box end with it");
 // How far the moving side travels: until the two hands' inner edges MEET, never past it. The hands
 // are wider than the rolls they hold and their fingers overhang inward, so they touch before the
 // rolls do - which means the scroll closes to a BUNDLE rather than to a zero-width line, and that
@@ -431,9 +449,10 @@ static_assert(kPivotY + kScrollDropY + (kVerticalSpan / 2.0f + kRollHalfWidth) <
 static_assert(kVerticalSpan > kClosedSpan, "the vertical page must open wider than the closed bundle");
 // ...and the other half of "upright": each hand's forearm, grip to cuff end, is longer than its grip
 // is far from the screen edge, so it runs OFF that edge rather than stopping short of it on screen. The
-// forearm is 83; the grips rest 50.5 from the top and 25.5 from the bottom. Stated without the lean
+// forearm is 121 (its cuff is long enough for #128's rest raise); the grips rest 50.5 from the top and
+// 25.5 from the bottom. Stated without the lean
 // (kHandLean), which shortens the vertical reach by under 2%.
-constexpr float kHandForearm = (float)(kHandBoxY + kHandBoxH) - kGripY; // 83
+constexpr float kHandForearm = (float)(kHandBoxY + kHandBoxH) - kGripY; // 121
 static_assert(kPivotY + kScrollDropY - kVerticalSpan / 2.0f < kHandForearm,
               "the vertical page's top hand no longer reaches off the top edge");
 static_assert((float)SCREEN_HEIGHT - (kPivotY + kScrollDropY + kVerticalSpan / 2.0f) < kHandForearm,
@@ -1680,8 +1699,11 @@ static float HandSlide(int32_t side) {
 static void ApplyHandSwivel(int32_t side) {
     const float gx = kGripX[side] - (float)(SCREEN_WIDTH / 2);
     const float gy = (float)(SCREEN_HEIGHT / 2) - kGripY;
-    // The slide first, in the side's own frame, where "up the roll" is +y (the ortho is y-up).
-    Matrix_Translate(0.0f, HandSlide(side), 0.0f, MTXMODE_APPLY);
+    // The slide first, in the side's own frame, where "up the roll" is +y (the ortho is y-up), and #128's
+    // rest raise and outward step in the same op: full while the scroll is flat, none once it has turned.
+    const float rest = 1.0f - LevelAngle(LevelPose()) / kTurnAngle;
+    const float outward = (side == 0 ? -1.0f : 1.0f) * (float)kHandOutward * rest;
+    Matrix_Translate(outward, HandSlide(side) + (float)kHandRaise * rest, 0.0f, MTXMODE_APPLY);
     Matrix_Translate(gx, gy, 0.0f, MTXMODE_APPLY);
     Matrix_RotateZ(HandSwivel(side), MTXMODE_APPLY);
     Matrix_Translate(-gx, -gy, 0.0f, MTXMODE_APPLY);
@@ -2015,8 +2037,10 @@ static void AddHandNode(int32_t hand) {
     // Mirrored HERE rather than at draw time, so `box=` on a console line is where the highlight
     // actually is. The first build stored the left hand's authored box on both nodes and a run
     // asserting the right hand's position would have read the left one's.
-    node.x = hand == 0 ? kHandBoxX : (int16_t)(SCREEN_WIDTH - (kHandBoxX + kHandBoxW));
-    node.y = kHandBoxY;
+    // Where it rests (#128): raised and stepped out. The cursor is drawn only at rest.
+    node.x = hand == 0 ? (int16_t)(kHandBoxX - kHandOutward)
+                       : (int16_t)(SCREEN_WIDTH - (kHandBoxX + kHandBoxW) + kHandOutward);
+    node.y = (int16_t)(kHandBoxY - kHandRaise);
     node.w = kHandBoxW;
     node.h = kHandBoxH;
     node.left = node.right = node.up = node.down = -1;
@@ -3118,7 +3142,11 @@ static void RsMenu_OnPlayDrawEnd() {
         MeasureHand(side);
         const RsMenuCursorNode* node = RsMenu_CursorAt(sCursorIndex);
         if (cursorShown && node != nullptr && node->hand == side) {
-            DrawCursorOutline(*node);
+            // The node's box is where the resting hand is; this matrix moves it there, so draw the authored box.
+            RsMenuCursorNode authored = *node;
+            authored.x = side == 0 ? kHandBoxX : (int16_t)(SCREEN_WIDTH - (kHandBoxX + kHandBoxW));
+            authored.y = kHandBoxY;
+            DrawCursorOutline(authored);
             sCursorDrawn = true;
         }
         Matrix_Pop();
@@ -3334,8 +3362,9 @@ int32_t RsMenu_RegisterPageStruct(const RsMenuPage& page) {
 }
 
 RsMenuRect RsMenu_PageRect() {
-    // The horizontal parchment's inside, less the hands: they cover the panel's bottom corners out
-    // to x 46 and in from x 274, so a page that stays between them never draws under a finger.
+    // The horizontal parchment's inside, less the hands: they cover the panel's sides - from halfway up
+    // the rolls down, since #128 - out to x 46 and in from x 274 (40 and 280 since #128 stepped them out,
+    // left as it was so no page moves), so a page that stays between them never draws under a finger.
     constexpr int16_t kHandClear = 6;
     RsMenuRect rect;
     rect.x0 = (int16_t)(kHandBoxX + kHandBoxW + kHandClear);
