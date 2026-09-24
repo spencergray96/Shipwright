@@ -144,10 +144,10 @@ std::string DescribeHud() {
                   h.valid ? 1 : 0, h.mode, h.prevMode, h.status[0], h.status[1], h.status[2], h.status[3],
                   h.status[4], h.status[5], h.status[6], h.status[7], h.status[8], h.alpha[0], h.alpha[1],
                   h.alpha[2], h.alpha[3], h.alpha[4], h.alpha[5], h.alpha[6], h.alpha[7], h.alpha[8], h.alpha[9],
-                  h.alpha[10], h.alpha[11], h.alpha[12], h.bLabel, h.bLabelShown, h.marginTop, h.raisedOn, h.raiseElements,
-                  h.magicLevel, h.magicCapacity, h.magic, h.bShiftX, h.bShiftY, f.active ? 1 : 0, f.state, f.item,
-                  f.target, f.x, f.y, f.alpha, f.size, f.moveTimer, f.ticks, f.holdAt, f.flights, f.landings,
-                  f.qLeft, f.qTop, f.qSide, f.loop ? 1 : 0, f.probe ? 1 : 0);
+                  h.alpha[10], h.alpha[11], h.alpha[12], h.bLabel, h.bLabelShown, h.marginTop, h.raisedOn,
+                  h.raiseElements, h.magicLevel, h.magicCapacity, h.magic, h.bShiftX, h.bShiftY, f.active ? 1 : 0,
+                  f.state, f.item, f.target, f.x, f.y, f.alpha, f.size, f.moveTimer, f.ticks, f.holdAt, f.flights,
+                  f.landings, f.qLeft, f.qTop, f.qSide, f.loop ? 1 : 0, f.probe ? 1 : 0);
     return buf;
 }
 
@@ -522,18 +522,23 @@ int32_t Dump(std::vector<std::string>& lines) {
          status.dimAlpha);
     Addf(lines,
          "op=dump section=freeze halt=%d halt_prev=%d hud_held=%d hud_prev=%d hud_now=%d hud_reasserts=%d "
-         "kaleido=%d viewpoint=%d viewpoint_vetoes=%d",
+         "kaleido=%d viewpoint=%d viewpoint_vetoes=%d free_look_vetoes=%d manual_cam=%d cam_xy=%.1f,%.1f "
+         "minimap_off=%d",
          status.halt ? 1 : 0, status.haltPrev ? 1 : 0, status.hudHeld ? 1 : 0, status.hudPrev, status.hudNow,
          status.hudReasserts,
-         status.kaleido, status.viewpoint, status.viewpointVetoes);
+         status.kaleido, status.viewpoint, status.viewpointVetoes, status.freeLookVetoes,
+         status.manualCamera ? 1 : 0, status.camX, status.camY, status.minimapOff);
     // The START filter's witness. `filter_armed` counts the frames it was entitled to swallow on,
     // `start_swallowed` the edges it actually took, and `kaleido=` above says whether vanilla pause
     // got in anyway - which is the difference between "the filter worked" and "no START arrived".
-    Addf(lines, "op=dump section=start filter_armed=%d start_swallowed=%d start_consumed=%d press_seen=0x%04X",
-         status.filterArmedFrames, status.startSwallowed, status.startConsumed, status.filterPressSeen);
+    Addf(lines,
+         "op=dump section=start filter_armed=%d start_swallowed=%d start_consumed=%d press_seen=0x%04X "
+         "close_dropped=%d open_refused=%d",
+         status.filterArmedFrames, status.startSwallowed, status.startConsumed, status.filterPressSeen,
+         status.closeDropped, status.openRefused);
     // `bindings=-1` means the control deck could not be read at all, which is a different thing
     // from a trigger nobody has bound - and on a GameCube pad `bound=0` is the DEFAULT, not a fault.
-    Addf(lines, "op=dump section=trigger button=N64_L mask=0x%04X bindings=%d bound=%d", trigger.mask,
+    Addf(lines, "op=dump section=trigger button=START mask=0x%04X bindings=%d bound=%d", trigger.mask,
          trigger.bindings, trigger.bound ? 1 : 0);
     // The live roll. `tick=`/`of=` says where in the excursion this line was read, which is what a
     // mid-sweep screenshot is asserted against; `hand=` is the half of "the moving hand follows the
@@ -881,8 +886,7 @@ const ConsoleSink::Command menuCommand(
     "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
     "stress [<n> [same]|off|memo <on|off>] | cursor [left|right|up|down|select|<id>] | "
     "probe [on|off] | kaleido | equips | hud | flight hold <n>|release | song | inv <kind> <a> <b> | dump. "
-    "The scroll opens on the N64 L bit (and on "
-    "START when primary is custom) "
+    "The scroll opens on START when primary is custom (N64 L is the minimap's) "
     "and hard-freezes the world; primary decides which menu START opens, and is a subcommand because "
     "there is no console `set`. sweep rolls the scroll one page the way a shoulder press does, and "
     "reports the tick it is on so a mid-sweep screenshot is self-describing; level goes down into the "
@@ -895,7 +899,7 @@ const ConsoleSink::Command menuCommand(
     "per-tick offset into the geometry and "
     "into a string at once, so one screenshot shows which of the two frame-interpolates. dump "
     "reports open/closed, the page ring, the freeze and HUD state, the live sweep, the cursor "
-    "graph, what the last frame cost, whether N64 L has a binding at all, and how many frames of "
+    "graph, what the last frame cost, whether START has a binding at all, and how many frames of "
     "input arrived while the world was frozen, plus every slot of the three ported vanilla pages. kaleido "
     "reads vanilla pause's live cursor and equips the save's equip fields plus what Link in the world "
     "is wearing - the two halves of the stage-8 differential tests; inv (test-only) writes a sparse "

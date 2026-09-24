@@ -221,6 +221,8 @@ enum RsMenuOpenResult {
     RS_MENU_OPEN_NO_PLAY,       // no PlayState, or not GAMEMODE_NORMAL
     RS_MENU_OPEN_KALEIDO,       // vanilla pause is up; one menu at a time
     RS_MENU_OPEN_NO_PAGES,      // nothing registered, so there is nothing to show
+    RS_MENU_OPEN_CUTSCENE,      // #138: a cutscene is playing or queued, where vanilla pause refuses too
+    RS_MENU_OPEN_TEXTBOX,       // #138: a textbox is up (talking, reading, an item get)
 };
 const char* RsMenu_OpenResultName(RsMenuOpenResult result);
 
@@ -569,11 +571,11 @@ bool RsMenu_ParsePrimary(const std::string& word, int32_t* primary);
 
 // The trigger's binding state on port 0, read from the control deck.
 //
-// N64 L is the only bit vanilla never reads during gameplay (research D.2) - and on a GameCube pad
-// NOTHING produces it: SoH binds it to SDL `leftshoulder`, which no GC adapter mapping exposes, and
-// the GC L trigger is already N64 Z. So an unbound trigger is indistinguishable from a broken menu,
-// and the boot line below exists to tell them apart. The agent harness injects the BTN_L mask
-// directly and is unaffected by bindings. Never describe the feature to a player as "press L".
+// START since #138. Until then it was N64 L, on the belief that L was the one bit vanilla never
+// reads in gameplay (research D.2) - which the minimap toggle (z_map_exp.c) disproves. N64 L also
+// needs a binding a GameCube pad cannot produce, which is why this surface and the boot line exist:
+// an unbound trigger and a broken menu look the same. START is the button vanilla pause opens on, so
+// an unbound START is a pad that cannot pause at all (`bindings=2` on the owner's pad, 2026-09-23).
 struct RsMenuTriggerInfo {
     uint16_t mask;
     int32_t bindings;   // -1 when the control deck could not be reached at all
@@ -618,6 +620,10 @@ struct RsMenuStatus {
     int32_t hudReasserts; // stage 8: times the HUD mode was put back while up (ALL since #125; 0 expected)
     int32_t viewpoint;    // play->unk_1242B, a house camera's viewpoint (0 none, 1 fixed, 2 pivot); C-up flips 1/2
     int32_t viewpointVetoes; // C-up presses the menu refused to let flip it (VB_TOGGLE_HOUSE_VIEWPOINT)
+    int32_t freeLookVetoes;  // #138: free-look input reads refused (VB_FREE_LOOK_TAKE_INPUT), several a frame
+    bool manualCamera;       // play->manualCamera: free look has taken the camera
+    int32_t minimapOff;      // #138: R_MINIMAP_DISABLED, which N64 L toggles in gameplay (z_map_exp.c)
+    float camX, camY;        // play->camX/camY: free look's yaw and pitch, what the right stick turns
     // What the last drawn frame cost, in the units the OVERLAY_DISP budget is denominated in - and
     // zero while the menu is closed, because then the last frame drew nothing.
     // `dlWords` is the heap display list's length - OVERLAY_DISP itself holds only 2048 Gfx words
@@ -653,6 +659,8 @@ struct RsMenuStatus {
     int32_t filterArmedFrames;
     int32_t startSwallowed;
     int32_t startConsumed;
+    int32_t closeDropped;   // START/B presses dropped while the scroll was mid-roll or mid-level-gesture
+    int32_t openRefused;    // #138: opens refused over a cutscene or a textbox, START's or the console's
     uint32_t filterPressSeen;
 };
 RsMenuStatus RsMenu_Status();

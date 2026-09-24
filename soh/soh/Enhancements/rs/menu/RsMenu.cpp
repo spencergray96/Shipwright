@@ -44,7 +44,8 @@
  * scroll is flat; the page content stays upright on the unrotated base matrix.
  *
  * What it is at this stage: an RS-style scroll - parchment, two roll ends and two blocky hands, all
- * real vertex-coloured geometry - that opens on N64 L, hard-freezes the world, hides the HUD, and
+ * real vertex-coloured geometry - that opened on N64 L (START since stage 6, and ONLY START since
+ * sturdy-bassoon#138), hard-freezes the world, hides the HUD, and
  * SHUTS AND RE-OPENS when a shoulder is pressed. The side matching the shoulder - roll end and hand
  * together - travels horizontally across until its hand meets the other hand's edge; the parchment
  * between them shrinks with it, down to a fifth of its open width, so the scroll is a closed
@@ -127,9 +128,12 @@
  *     straight through the greybox. OVERLAY is last and draws over everything.
  *     The hook does not fire at all while vanilla pause is up, which is fine - the two never
  *     coexist.
- *   - TRIGGER: BTN_L, read as an edge off `play->state.input[0].press.button`. CONTROLLER1() is a
- *     Majora's Mask macro and does not exist here. `press`/`rel` are truncated to u16 in
- *     padmgr.c:291, so a mask above 0xFFFF never produces an edge; BTN_L (0x20) is well under it.
+ *   - TRIGGER: START, through the VB_OPEN_PAUSE_MENU veto (stage 6). Stage 1 opened on BTN_L, read
+ *     as an edge off `play->state.input[0].press.button`; #138 took that away (Spencer's call,
+ *     2026-09-23), because vanilla DOES read N64 L in gameplay - the minimap toggle (z_map_exp.c) -
+ *     and on the press that opened the scroll it had already flipped the minimap that frame. The
+ *     minimap keeps L. Inside the open scroll L still rolls left beside Z: the minimap does not draw
+ *     there, so its toggle is not reached.
  *
  * The open-ended page ring is the load-bearing structural rule - see RsMenu.h.
  *
@@ -550,6 +554,9 @@ static bool sLevelHudTouched = false;
 // C-up presses the menu refused to let toggle a house's camera (VB_TOGGLE_HOUSE_VIEWPOINT): the veto's
 // own witness, beside `viewpoint=` - which alone cannot tell "refused" from "no C-up arrived".
 static int32_t sViewpointVetoes = 0;
+// #138: free-look reads the menu refused (VB_FREE_LOOK_TAKE_INPUT) - per read, and free look reads in
+// more than one place a frame, so this counts reads rather than presses. Non-zero proves the veto ran.
+static int32_t sFreeLookVetoes = 0;
 
 // Set by the VB_OPEN_PAUSE_MENU veto, consumed by the update. The veto runs inside
 // KaleidoSetup_Update (Play_Update, from gameState->main), and OnGameFrameUpdate fires after
@@ -699,6 +706,13 @@ static u16 sLastButtons = 0;
 static int32_t sFilterArmedFrames = 0;
 static int32_t sStartSwallowed = 0;
 static int32_t sStartConsumed = 0;
+// START and B presses dropped because the scroll was mid-roll or mid-level-gesture (Spencer, 2026-09-23:
+// "akin to vanilla", which takes no input while a page turns). The drop's witness: without it, a run
+// cannot tell "dropped" from "never arrived".
+static int32_t sCloseDropped = 0;
+// #138: opens RsMenu_Open refused over a cutscene or a textbox. START's path into it is silent, so this is
+// the only witness that a START pressed over a textbox arrived and was turned down.
+static int32_t sOpenRefused = 0;
 // Every press bit the veto has EVER seen, OR-ed together. Under the old filter this read 0x0000
 // after a delivered `agenttest press A`, which is how the hook-order race was caught; the veto runs
 // inside KaleidoSetup_Update, after every OnGameStateMainStart hook, so an injected press must now
@@ -2207,15 +2221,14 @@ static void WriteBootLineOnce() {
 
     char line[256];
     if (trigger.bound) {
-        std::snprintf(line, sizeof(line), "rs_menu boot button=N64_L mask=0x%04X bindings=%d bound=1", trigger.mask,
+        std::snprintf(line, sizeof(line), "rs_menu boot button=START mask=0x%04X bindings=%d bound=1", trigger.mask,
                       trigger.bindings);
     } else {
-        // The whole reason this line exists. On a GameCube pad nothing produces N64 L by default -
-        // SoH binds it to SDL leftshoulder, which no GC adapter mapping exposes, and the GC L
-        // trigger is already N64 Z (research D.2). Without this line an unbound trigger and a
-        // broken menu look identical from the log.
+        // Without this line an unbound trigger and a broken menu look identical from the log. It was
+        // written for N64 L, which a GameCube pad cannot produce (research D.2); START, the trigger
+        // since #138, is bound on every default mapping, so this branch should now never be taken.
         std::snprintf(line, sizeof(line),
-                      "rs_menu boot button=N64_L mask=0x%04X bindings=0 bound=0 "
+                      "rs_menu boot button=START mask=0x%04X bindings=0 bound=0 "
                       "hint=rebind_in_settings_configure_controller", trigger.mask);
     }
     AgentTest_WriteMarker(line);
@@ -2379,8 +2392,9 @@ static uint32_t sPageHold = RS_MENU_HOLD_NONE;
 // into gSaveContext.buttonStatus. When they change (and on open, `force`) the HUD mode is taken to 0 and
 // back to ALL, which is how kaleido makes the interface re-tween the button alphas on a page switch
 // (KaleidoScope_SwitchPage, z_kaleido_scope_PAL.c:1288-1289): enabled buttons rise to 255, disabled
-// ones settle at 70. A page with no `hud` callback - the Quest Journal - gets vanilla's buttons for a
-// page with nothing to equip (Quest Status, Map): B and A only, every C button and D-pad slot dimmed.
+// ones settle at 70. A page with no `hud` callback gets vanilla's buttons for a page with nothing to
+// equip (Quest Status, Map): B and A only, every C button and D-pad slot dimmed. The Quest Journal
+// starts from this default and dims A too while the cursor is on a hand (QuestPageHud).
 //
 // It used to leave C-left and C-right lit because they page the journal's list. But a status belongs
 // to the BUTTON, not the item on it, so the journal lit whichever items sat on C-left and C-right and
@@ -2743,19 +2757,27 @@ static void RsMenu_OnGameFrameUpdate() {
             sPageHold = holdPage->hold(sPage, holdPage->userData);
         }
 
-        // START closes from anywhere, at either level - it is the "get me out" button.
+        // START closes from anywhere, at either level - it is the "get me out" button - but not while
+        // the scroll is animating. Vanilla takes no input while a page turns (kaleido's unk_1E4 != 0), and
+        // a close landing mid-roll or mid-turn cut the gesture off halfway (Spencer, 2026-09-23). The
+        // entry slides already drop it: the update returns before input while they run.
+        const bool animating = sSweepActive || sLevelActive;
         if (startEdge && !(sPageHold & RS_MENU_HOLD_START)) {
-            sStartConsumed++;
-            RsMenu_BeginClose();
-            return;
+            if (animating) {
+                sCloseDropped++;
+            } else {
+                sStartConsumed++;
+                RsMenu_BeginClose();
+                return;
+            }
         }
         // B is "back": up a level from a detail view, and out of the menu from the top. Dropped
-        // while the level gesture is moving, like every other press that would start an animation
-        // on top of one - otherwise a B landing mid-descent would close a menu that was on its way
-        // down into something.
+        // while anything is animating, like every other press that would start an animation on top of
+        // one - otherwise a B landing mid-descent would close a menu that was on its way down into
+        // something, and a B mid-roll closed it halfway through the roll.
         if (CHECK_BTN_ALL(input->press.button, BTN_B) && !(sPageHold & RS_MENU_HOLD_B)) {
-            if (sLevelActive) {
-                // dropped
+            if (animating) {
+                sCloseDropped++;
             } else if (sLevel != 0) {
                 RsMenu_Ascend();
             } else {
@@ -2788,10 +2810,9 @@ static void RsMenu_OnGameFrameUpdate() {
         return;
     }
 
-    if (CHECK_BTN_ALL(input->press.button, BTN_L) || startEdge) {
-        if (startEdge) {
-            sStartConsumed++;
-        }
+    // START alone (#138): N64 L is the minimap's.
+    if (startEdge) {
+        sStartConsumed++;
         // A refusal here is silent on purpose - a player mashing the trigger inside vanilla pause
         // does not want a log line per frame. The console names refusals; that is what it is for.
         RsMenu_Open();
@@ -3111,6 +3132,14 @@ static void RegisterRsMenu() {
             sViewpointVetoes++;
         }
     });
+    // #138: free look's right stick and mouse would turn the camera behind the scroll (Camera_Update runs
+    // under it); refused while the scroll is up, which leaves the camera where it was pointed.
+    COND_VB_SHOULD(VB_FREE_LOOK_TAKE_INPUT, true, {
+        if (MenuIsUp()) {
+            *should = false;
+            sFreeLookVetoes++;
+        }
+    });
     // #130: B stands clear of the upright top hand from the level swap on (LevelBMoved), invisible when it
     // moves either way.
     COND_VB_SHOULD(VB_SHIFT_HUD_B_BUTTON, true, {
@@ -3214,6 +3243,10 @@ const char* RsMenu_OpenResultName(RsMenuOpenResult result) {
             return "no_play";
         case RS_MENU_OPEN_KALEIDO:
             return "kaleido_open";
+        case RS_MENU_OPEN_CUTSCENE:
+            return "cutscene";
+        case RS_MENU_OPEN_TEXTBOX:
+            return "textbox";
         case RS_MENU_OPEN_NO_PAGES:
             return "no_pages";
     }
@@ -3265,6 +3298,21 @@ RsMenuOpenResult RsMenu_Open() {
     // state machine - it just declines.
     if (VanillaPauseIsUp(play)) {
         return RS_MENU_OPEN_KALEIDO;
+    }
+    // #138 (Spencer, 2026-09-23): not over a cutscene or a textbox, as vanilla pause will not open over
+    // one. The cutscene half is kaleido's own test (KaleidoSetup_Update, z_kaleido_setup.c:16-19); a
+    // textbox is refused outright. Opened over a talk or cutscene camera, the scroll's own navigation
+    // buttons ended it (Camera_KeepOn3, Camera_Unique0 and friends end on any press), because the
+    // scroll freezes actors and not the camera.
+    // The textbox first: talking puts Player in a cutscene mode too (Play_InCsMode), and "textbox" is
+    // the truer name for a conversation (the first t1 run read `error=cutscene` mid-conversation).
+    if (play->msgCtx.msgMode != MSGMODE_NONE) {
+        sOpenRefused++;
+        return RS_MENU_OPEN_TEXTBOX;
+    }
+    if (Play_InCsMode(play) || gSaveContext.cutsceneIndex >= 0xFFF0 || gSaveContext.nextCutsceneIndex >= 0xFFF0) {
+        sOpenRefused++;
+        return RS_MENU_OPEN_CUTSCENE;
     }
     if (RsMenu_PageCount() == 0) {
         return RS_MENU_OPEN_NO_PAGES;
@@ -3699,7 +3747,7 @@ bool RsMenu_ParsePrimary(const std::string& word, int32_t* primary) {
 
 RsMenuTriggerInfo RsMenu_TriggerInfo() {
     RsMenuTriggerInfo info;
-    info.mask = BTN_L;
+    info.mask = BTN_START;
     info.bindings = -1;
     info.bound = false;
 
@@ -3715,7 +3763,7 @@ RsMenuTriggerInfo RsMenu_TriggerInfo() {
     if (controller == nullptr) {
         return info;
     }
-    auto button = controller->GetButton(BTN_L);
+    auto button = controller->GetButton(BTN_START);
     if (button == nullptr) {
         return info;
     }
@@ -3798,6 +3846,11 @@ RsMenuStatus RsMenu_Status() {
     status.hudReasserts = sHudReasserts;
     status.viewpoint = gPlayState != nullptr ? gPlayState->unk_1242B : 0;
     status.viewpointVetoes = sViewpointVetoes;
+    status.freeLookVetoes = sFreeLookVetoes;
+    status.manualCamera = gPlayState != nullptr && gPlayState->manualCamera;
+    status.minimapOff = R_MINIMAP_DISABLED;
+    status.camX = gPlayState != nullptr ? gPlayState->camX : 0.0f;
+    status.camY = gPlayState != nullptr ? gPlayState->camY : 0.0f;
     // Zero while the menu is closed: the last frame drew nothing, whatever the last OPEN frame did.
     status.drawGlyphs = status.open ? sDrawGlyphs : 0;
     status.drawQuads = status.open ? sDrawQuads : 0;
@@ -3819,6 +3872,8 @@ RsMenuStatus RsMenu_Status() {
     status.filterArmedFrames = sFilterArmedFrames;
     status.startSwallowed = sStartSwallowed;
     status.startConsumed = sStartConsumed;
+    status.closeDropped = sCloseDropped;
+    status.openRefused = sOpenRefused;
     status.filterPressSeen = sFilterPressSeen;
     return status;
 }

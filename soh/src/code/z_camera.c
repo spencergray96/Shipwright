@@ -1533,11 +1533,21 @@ s32 Camera_Noop(Camera* camera) {
     return true;
 }
 
+// Free look's two input reads, SetCameraManual and Camera_Free, pass through this: a mod can hold the
+// camera still by answering VB_FREE_LOOK_TAKE_INPUT false, and the camera stays where it was pointed.
+static void Camera_FreeLookInputGate(f32* newCamX, f32* newCamY) {
+    if (!GameInteractor_Should(VB_FREE_LOOK_TAKE_INPUT, true)) {
+        *newCamX = 0.0f;
+        *newCamY = 0.0f;
+    }
+}
+
 s32 SetCameraManual(Camera* camera) {
     f32 newCamX = -D_8015BD7C->state.input[0].cur.right_stick_x * 10.0f;
     f32 newCamY = D_8015BD7C->state.input[0].cur.right_stick_y * 10.0f;
 
     Mouse_HandleThirdPerson(&newCamX, &newCamY);
+    Camera_FreeLookInputGate(&newCamX, &newCamY);
 
     if ((fabsf(newCamX) >= 15.0f || fabsf(newCamY) >= 15.0f) && camera->play->manualCamera == false) {
         camera->play->manualCamera = true;
@@ -1624,6 +1634,7 @@ s32 Camera_Free(Camera* camera) {
     if (!(camera->player->stateFlags1 & 0x400000)) {
         Mouse_HandleThirdPerson(&newCamX, &newCamY);
     }
+    Camera_FreeLookInputGate(&newCamX, &newCamY);
 
     newCamX *= (CVarGetFloat(CVAR_SETTING("FreeLook.CameraSensitivity.X"), 1.0f));
     newCamY *= (CVarGetFloat(CVAR_SETTING("FreeLook.CameraSensitivity.Y"), 1.0f));

@@ -1821,6 +1821,17 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // true
+    // ```
+    // Whether free look (CVAR_SETTING("FreeLook.Enabled")) takes this frame's right stick and mouse,
+    // read in SetCameraManual and Camera_Free. False holds the camera where it is. The rs/ pause
+    // scroll answers false while it is up (sturdy-bassoon#138).
+    // #### `args`
+    // - None
+    VB_FREE_LOOK_TAKE_INPUT,
+
+    // #### `result`
+    // ```c
     // false
     // ```
     // #### `args`

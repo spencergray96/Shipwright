@@ -180,13 +180,13 @@
  *   rs_quest quest=<n> event=on_complete a quest's optional completion callback ran (D12). It runs after the
  *                                        declarative rewards with the status already COMPLETE, so counting
  *                                        these markers is how a run proves a reward fired exactly once
- *   rs_menu boot button=N64_L mask=0x<hex> bindings=<n> bound=<0|1> [hint=...]
+ *   rs_menu boot button=START mask=0x<hex> bindings=<n> bound=<0|1> [hint=...]
  *                                        written once per session by the mod-owned pause interface
- *                                        (sturdy-bassoon#111) as soon as the control deck is up. It
- *                                        exists because on a GameCube pad NOTHING produces N64 L by
- *                                        default - SoH binds it to SDL leftshoulder, which no GC
- *                                        adapter exposes - so without this line an unbound trigger
- *                                        and a broken menu are indistinguishable. Like the other
+ *                                        (sturdy-bassoon#111) as soon as the control deck is up: the
+ *                                        binding count of the button that opens it. That was N64 L
+ *                                        until #138, which a GameCube pad cannot produce by default,
+ *                                        so without this line an unbound trigger and a broken menu
+ *                                        were indistinguishable. It is START now. Like the other
  *                                        gameplay markers it reaches the engine log in every
  *                                        session, agent mode or not
  *   rs_menu <line>                       one line of RsMenuConsole_Run output per marker, from
@@ -210,6 +210,8 @@
  *                                          with a fresh press edge on the at_frame-th injected frame (default 1)
  *                                          and stay held to the end - e.g. "walk 80 0 80 A 40" rolls mid-run.
  *                                          Ends with input_done.
+ *   agenttest look <frames> [rx] [ry]      hold the RIGHT stick (default 80,0) for N frames, left stick centred -
+ *                                          SoH's free-look camera input. Ends with input_done.
  *   agenttest press <BUTTONS> [frames]     hold A,B,Z,R,L,START,DUP..,CUP.. (comma list) for N frames, default 2.
  *                                          "press Z" with nothing targeted re-centres the camera behind Link.
  *   agenttest rooms                        one "transition idx= id= rooms=A,B pos= rotY=" marker per transition
@@ -448,6 +450,12 @@ bool sAgentMode = false; // decided once at the console logo from SOH_AGENT_TEST
 int32_t sInputFramesLeft = 0;
 int8_t sInputStickX = 0;
 int8_t sInputStickY = 0;
+// How far an injected stick may be pushed, either stick, either axis: a real N64 stick's reach.
+constexpr int32_t kInjectStickMax = 85;
+// The right stick, for `look` (sturdy-bassoon#138): SoH's free look reads it, and a guard on free look
+// cannot be challenged without it. Zero for every other injection.
+int8_t sInputRightX = 0;
+int8_t sInputRightY = 0;
 uint16_t sInputButtons = 0;
 bool sInputPressPending = false; // first injected frame also sets press.button (a fresh press)
 // `agenttest kaleidoinput on`: injected frames also count while kaleido is up. Session state, cleared on
@@ -1003,6 +1011,8 @@ void OnGameStateMainStartAgentTest() {
     Input* input = &gPlayState->state.input[0];
     input->cur.stick_x = sInputStickX;
     input->cur.stick_y = sInputStickY;
+    input->cur.right_stick_x = sInputRightX;
+    input->cur.right_stick_y = sInputRightY;
     PadUtils_UpdateRelXY(input); // same dead zone and clamp a real pad gets
     input->cur.button |= sInputButtons;
     if (sInputPressPending) {
@@ -1028,6 +1038,8 @@ void StartInput(int32_t frames, int8_t stickX, int8_t stickY, uint16_t buttons, 
                 int32_t deferredAtFrame = 0) {
     sInputStickX = stickX;
     sInputStickY = stickY;
+    sInputRightX = 0;
+    sInputRightY = 0;
     sInputButtons = buttons;
     sInputPressPending = buttons != 0;
     // deferredAtFrame is 1-based from the start of the injection; convert to the frames-left
@@ -1214,8 +1226,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         return 0;
     }
     if (args.size() >= 2 &&
-        (args[1] == "state" || args[1] == "goto" || args[1] == "walk" || args[1] == "press" || args[1] == "rooms" ||
-         args[1] == "camclear" ||
+        (args[1] == "state" || args[1] == "goto" || args[1] == "walk" || args[1] == "look" || args[1] == "press" ||
+         args[1] == "rooms" || args[1] == "camclear" ||
          args[1] == "time" || args[1] == "trace" || args[1] == "fog" || args[1] == "uncull" ||
          args[1] == "kill") &&
         !InNormalPlay()) {
@@ -1334,8 +1346,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             }
             return 1;
         }
-        sx = std::clamp(sx, -85, 85);
-        sy = std::clamp(sy, -85, 85);
+        sx = std::clamp(sx, -kInjectStickMax, kInjectStickMax);
+        sy = std::clamp(sy, -kInjectStickMax, kInjectStickMax);
         // Optional mid-walk press: [buttons] [at_frame]. The buttons land with a fresh press edge on
         // the at_frame-th injected frame (1-based, default 1) and stay held to the end of the walk -
         // "walk 80 0 80 A 40" is a roll at full run speed, which sequential walk-then-press cannot do.
@@ -1363,6 +1375,28 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
                 *output += ", pressing " + args[5] + " at frame " + std::to_string(deferredAt);
             }
             *output += "; wait for input_done";
+        }
+        return 0;
+    }
+    // The right stick held at (rx, ry) for N frames, left stick centred - what SoH's free look turns the
+    // camera with (sturdy-bassoon#138). Same injection, frame budget and input_done as `walk`.
+    if (args.size() >= 3 && args[1] == "look") {
+        int32_t frames = 0;
+        int32_t rx = 0;
+        int32_t ry = 0;
+        if (!ParseInt(args[2], &frames) || frames <= 0 || frames > MAX_INPUT_FRAMES || !ParseIntArg(args, 3, 80, &rx) ||
+            !ParseIntArg(args, 4, 0, &ry)) {
+            if (output) {
+                *output += "look needs frames in 1.." + std::to_string(MAX_INPUT_FRAMES) + " and integer stick values";
+            }
+            return 1;
+        }
+        StartInput(frames, 0, 0, 0);
+        sInputRightX = static_cast<int8_t>(std::clamp(rx, -kInjectStickMax, kInjectStickMax));
+        sInputRightY = static_cast<int8_t>(std::clamp(ry, -kInjectStickMax, kInjectStickMax));
+        if (output) {
+            *output += "looking " + std::to_string(frames) + " frames, right stick " + std::to_string(sInputRightX) +
+                       "," + std::to_string(sInputRightY) + "; wait for input_done";
         }
         return 0;
     }
@@ -2009,8 +2043,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     // implementation (RsMenuConsole_Run) behind two sinks. This one carries more weight than the
     // others, because a full-screen menu has no gameplay side effect for a run to observe - without
     // `rs_menu op=dump …` the only evidence available is a screenshot, which cannot say which page
-    // the ring is on, whether the world is actually frozen, or whether the N64 L trigger has a
-    // binding at all.
+    // the ring is on, whether the world is actually frozen, or whether the trigger has a binding at
+    // all.
     if (args.size() >= 3 && args[1] == "menu") {
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(RsMenuConsole_Run, sub, "rs_menu ", output, WriteMarker);
@@ -2026,7 +2060,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     if (output) {
         *output +=
             "usage: agenttest perf <ticks> | state | goto <x> <y> <z> [yaw] | "
-            "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | "
+            "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | look <frames> [rx] [ry] | "
             "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | "
             "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
             "roomdist [hysteresis]|off | uncull | kill <actor> | sceneflag <sceneId> [value] | "
@@ -2062,7 +2096,7 @@ void RegisterAgentTest() {
             "agenttest",
             { AgentTestCommand,
               "Agent test loop: perf <ticks> | state | goto <x> <y> <z> [yaw] | "
-              "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | "
+              "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | look <frames> [rx] [ry] | "
               "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | "
               "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
               "roomdist [hysteresis]|off | uncull | kill <actor> | sceneflag <sceneId> [value] | "

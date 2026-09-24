@@ -27,7 +27,8 @@
 //
 // `args[0]` is the subcommand:
 //   open                  opens the scroll, always at level 0 of the current page. REFUSALS ARE
-//                         NAMED: `error=kaleido_open` when vanilla pause is up (one menu at a time,
+//                         NAMED: `error=cutscene` and `error=textbox` (#138: not over either, as
+//                         vanilla pause), `error=kaleido_open` when vanilla pause is up (one menu at a time,
 //                         and this is the one that yields), `error=no_play`, `error=no_pages`,
 //                         `error=disabled`. Opening an already
 //                         open menu is not a refusal - it reports `was_open=1` and rc=0.
@@ -82,7 +83,9 @@
 //                         peak", "which hand carries the twist"), which is otherwise a race against
 //                         half a second. The swap is played forward rather than assigned, so a held
 //                         frame is one the animation really produces. rc=1 on a tick out of range.
-//                         `stop` releases a hold and abandons the sweep in flight
+//                         `stop` releases a hold and abandons the sweep in flight. A parked hold
+//                         IS mid-roll, so START and B are dropped until `stop` (`close_dropped=`,
+//                         #138); `close now` still closes
 //   cursor [left|right|up|down|select|<id>]
 //                         STAGE 5. The cursor graph, whose end nodes are the two hands. With no
 //                         argument it only reports. A direction moves one step and is rc=1 when
@@ -118,9 +121,10 @@
 //                         animation had reached. Every level change a hold plays through counts in
 //                         `swaps=`, so that field counts holds as well as real gestures.
 //                         #130 adds `drop=` (how far below its game space the scroll draws this
-//                         tick: the entry slide, the probe's offset and the fixed 3-unit drop), `hand_l=`/`hand_r=` (each hand's
-//                         last drawn extent, x0,y0,x1,y1 on screen, y down, read through its own
-//                         matrix - at level 1 rest they run off the bottom and top edges),
+//                         tick: the entry slide, the probe's offset and the fixed 3-unit drop),
+//                         `hand_l=`/`hand_r=` (each hand's last drawn extent, x0,y0,x1,y1 on
+//                         screen, y down, read through its own matrix - at level 1 rest they run
+//                         off the bottom and top edges),
 //                         `hud_shown=` (START's and A's share of their alpha), `b_shown=` (B's),
 //                         `b_moved=` (B at its level-1 spot) and `detail_rect=` (the journal's band)
 //   filler [n]            STAGE 6, TEST-ONLY. Appends n synthetic rows (0-60) to the quest list after

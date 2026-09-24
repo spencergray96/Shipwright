@@ -674,6 +674,23 @@ static void QuestPageInput(int32_t pageIndex, int32_t level, uint16_t press, int
     }
 }
 
+// The journal's HUD buttons (#125's page `hud`). The menu hands in its default for a page with nothing
+// to equip - B and A lit, every C button and D-pad slot dimmed - and the journal changes one thing: A is
+// lit only while the cursor is on a quest row, where A goes down into that quest's journal. On a hand
+// it dims, as vanilla dims A on a page where it has nothing to decide (Spencer, 2026-09-23: "Decide"
+// over a hand, which rolls the page, read as wrong). It stays lit from the row through the level
+// gesture and the detail view: the gesture only starts from a row, and a status change there would
+// re-tween the HUD under #130's level-1 fade.
+static void QuestPageHud(int32_t pageIndex, uint8_t status[9], void* userData) {
+    (void)pageIndex;
+    (void)userData;
+    constexpr int32_t kStatusA = 4; // buttonStatus order: B, C-left, C-down, C-right, A, then the D-pad
+    const RsMenuLevelState level = RsMenu_LevelState();
+    if (CursorRow() < 0 && level.level == 0 && !level.active) {
+        status[kStatusA] = BTN_DISABLED;
+    }
+}
+
 // --- public ----------------------------------------------------------------------------------------
 
 RsMenuQuestPageStatus RsMenuQuestPage_Status() {
@@ -740,6 +757,7 @@ void RsMenuQuestPage_Register() {
     page.select = QuestPageSelect;
     page.detailDraw = QuestPageDetailDraw;
     page.input = QuestPageInput;
+    page.hud = QuestPageHud;
     page.ownsItemHighlight = true;
     sPageIndex = RsMenu_RegisterPageStruct(page);
 }
