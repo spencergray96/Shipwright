@@ -116,7 +116,13 @@
 //                         gesture is 1.2 s and a round trip is seconds. `hold` refuses a bad tick
 //                         as `error=range`; `stop` releases either and lands on whichever level the
 //                         animation had reached. Every level change a hold plays through counts in
-//                         `swaps=`, so that field counts holds as well as real gestures
+//                         `swaps=`, so that field counts holds as well as real gestures.
+//                         #130 adds `drop=` (how far below its game space the scroll draws this
+//                         tick: the entry slide, the probe's offset and the fixed 3-unit drop), `hand_l=`/`hand_r=` (each hand's
+//                         last drawn extent, x0,y0,x1,y1 on screen, y down, read through its own
+//                         matrix - at level 1 rest they run off the bottom and top edges),
+//                         `hud_shown=` (START's and A's share of their alpha), `b_shown=` (B's),
+//                         `b_moved=` (B at its level-1 spot) and `detail_rect=` (the journal's band)
 //   filler [n]            STAGE 6, TEST-ONLY. Appends n synthetic rows (0-60) to the quest list after
 //                         the real ones, so it has more rows than fit and scrolling can be driven;
 //                         each has a synthetic journal long enough to scroll. `filler 0` removes
@@ -165,7 +171,11 @@
 //   hud                   #125, READ-ONLY. The gameplay HUD as the interface sees it, under either menu:
 //                         `mode=`/`prev=`, `status=` (the nine buttonStatus), `alpha=` (thirteen
 //                         alphas), `b_label=`/`b_label_shown=`, and the flying equip icon (`flight=`,
-//                         `flight_ticks=`, `flight_hold=`, `flights=`, `landings=`)
+//                         `flight_ticks=`, `flight_hold=`, `flights=`, `landings=`). #130 adds, before
+//                         the flight: `margin_t=` (the cosmetics' top margin) and `raised=on/total` (how
+//                         many of the elements the mod raises take it), `magic=` (level, capacity,
+//                         current) and `b_shift=` (the move VB_SHIFT_HUD_B_BUTTON gives B this frame,
+//                         asked through the hook itself)
 //   flight hold <n>|release|loop|stop|probe <on|off>
 //                         #125 and #133, TEST-ONLY, and all of it exists because of the agent loop
 //                         rather than the game: a flight is well under a second and a command round

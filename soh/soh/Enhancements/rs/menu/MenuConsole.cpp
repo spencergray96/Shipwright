@@ -129,19 +129,23 @@ std::string DescribeSweep(const RsMenuSweepState& sweep) {
 
 // The HUD line's fields (#125), shared by `hud` and `dump`'s `section=hud`, with the flying equip icon
 // last: `flight=` is active, state, item, target, x, y, alpha, size, move timer (RsMenuEquipFlightState).
+// #130 adds `margin_t=` and `raised=on/total` (the HUD raise), `magic=` level, capacity, current, and
+// `b_shift=` the move the interface would give B this frame.
 std::string DescribeHud() {
     const RsMenuHudState h = RsMenu_HudState();
     const RsMenuEquipFlightState f = RsVanilla_EquipFlightState();
     char buf[512];
     std::snprintf(buf, sizeof(buf),
                   "valid=%d mode=%d prev=%d status=%d,%d,%d,%d,%d,%d,%d,%d,%d "
-                  "alpha=%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d b_label=%d b_label_shown=%d "
+                  "alpha=%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d b_label=%d b_label_shown=%d margin_t=%d raised=%d/%d "
+                  "magic=%d,%d,%d b_shift=%d,%d "
                   "flight=%d,%d,%d,%d,%d,%d,%d,%d,%d flight_ticks=%d flight_hold=%d flights=%d landings=%d "
                   "flight_quad=%.3f,%.3f,%.3f flight_loop=%d flight_probe=%d",
                   h.valid ? 1 : 0, h.mode, h.prevMode, h.status[0], h.status[1], h.status[2], h.status[3],
                   h.status[4], h.status[5], h.status[6], h.status[7], h.status[8], h.alpha[0], h.alpha[1],
                   h.alpha[2], h.alpha[3], h.alpha[4], h.alpha[5], h.alpha[6], h.alpha[7], h.alpha[8], h.alpha[9],
-                  h.alpha[10], h.alpha[11], h.alpha[12], h.bLabel, h.bLabelShown, f.active ? 1 : 0, f.state, f.item,
+                  h.alpha[10], h.alpha[11], h.alpha[12], h.bLabel, h.bLabelShown, h.marginTop, h.raisedOn, h.raiseElements,
+                  h.magicLevel, h.magicCapacity, h.magic, h.bShiftX, h.bShiftY, f.active ? 1 : 0, f.state, f.item,
                   f.target, f.x, f.y, f.alpha, f.size, f.moveTimer, f.ticks, f.holdAt, f.flights, f.landings,
                   f.qLeft, f.qTop, f.qSide, f.loop ? 1 : 0, f.probe ? 1 : 0);
     return buf;
@@ -289,13 +293,20 @@ int32_t Cursor(const std::vector<std::string>& args, std::vector<std::string>& l
 // is what a held screenshot is checked against; `phase=` names which of close / turn / open that
 // pose is in; `sep=` is roll centre to roll centre in the scroll's own frame and `angle=` its turn in
 // degrees counter-clockwise - the two numbers Spencer tunes, printed so a capture carries them.
+// #130's fields follow the gesture's: `drop=` the scroll's screen offset, `hand_l=`/`hand_r=` each hand's
+// last drawn extent (x0,y0,x1,y1, screen, y down), `hud_shown=`/`b_shown=`/`b_moved=` what level 1 does to
+// START and A, and to B, and `detail_rect=` the journal's text band.
 std::string DescribeLevel(const RsMenuLevelState& level) {
-    char buf[224];
+    char buf[512];
     std::snprintf(buf, sizeof(buf),
                   "level=%d moving=%d loop=%d hold=%d tick=%d of=%d dir=%d pose=%d phase=%s sep=%.1f angle=%.1f "
-                  "swaps=%d",
+                  "swaps=%d drop=%.1f hand_l=%.1f,%.1f,%.1f,%.1f hand_r=%.1f,%.1f,%.1f,%.1f hud_shown=%.3f "
+                  "b_shown=%.3f b_moved=%d detail_rect=%d,%d,%d,%d",
                   level.level, level.active ? 1 : 0, level.loop ? 1 : 0, level.hold ? 1 : 0, level.tick, level.ticks,
-                  level.dir, level.pose, level.phase, level.separation, level.angle, level.swaps);
+                  level.dir, level.pose, level.phase, level.separation, level.angle, level.swaps, level.drop,
+                  level.hands[0][0], level.hands[0][1], level.hands[0][2], level.hands[0][3], level.hands[1][0],
+                  level.hands[1][1], level.hands[1][2], level.hands[1][3], level.hudShown, level.bShown,
+                  level.bMoved ? 1 : 0, level.detail.x0, level.detail.y0, level.detail.x1, level.detail.y1);
     return buf;
 }
 

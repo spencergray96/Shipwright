@@ -203,6 +203,12 @@ struct RsMenuRect {
 RsMenuRect RsMenu_PageRect();
 RsMenuRect RsMenu_DetailRect();
 
+// How far below its game-space coordinates the whole scroll is drawn this tick, in game units: the
+// arrival slide, the probe's offset and #130's fixed drop, which is exactly what the scroll's base
+// matrix translates by. Both rects above, and every coordinate a page draws at, are BEFORE this; add it
+// to place anything on screen that is not drawn under the scroll's matrix (the equip flight's start).
+float RsMenu_ScreenDy();
+
 int32_t RsMenu_PageCount();
 // 0-based. Null when `index` is out of range, and null whenever the count is 0.
 const RsMenuPage* RsMenu_PageAt(int32_t index);
@@ -418,10 +424,12 @@ const char* RsMenu_SelectResultName(RsMenuSelectResult result);
 //      parchment scales about its CENTRE, so its edges stay on the roll centres and nothing is
 //      left in the rolls' trail.
 //   2. TURN. The closed bundle rotates COUNTER-CLOCKWISE to vertical about the rolls' midpoint:
-//      the right roll ends on top, the left on the bottom. The right hand is rigid and ends on top
-//      reaching in from the right; the LEFT hand swivels back on its own grip as the scroll turns,
-//      so it ends on the bottom roll reaching in from the LEFT (Spencer's correction after stage 6 -
-//      rigidly rotated, both hands came in from the right).
+//      the right roll ends on top, the left on the bottom, each still held by its own hand. Each
+//      hand also turns on its own grip as the scroll turns, so at rest both stand UPRIGHT: the top
+//      one pointing off the top edge, the bottom one off the bottom edge, with a slight lean toward
+//      their own sides (#130 option B; after stage 6 they reached in from the right and the left,
+//      and the top one sat over the HUD's buttons). Level 1 cuts the HUD's buttons to B, moved clear
+//      of the top hand (RsMenu.cpp, "the HUD at level 1").
 //   3. OPEN VERTICALLY - but only to a separation that fits the screen, which is a named constant
 //      in RsMenu.cpp (kVerticalSpan) and NOT the horizontal 288: the vertical rest pose is its own
 //      pose, not the horizontal one rotated.
@@ -465,8 +473,22 @@ struct RsMenuLevelState {
     int32_t swaps;    // how many level changes have happened this session
     bool loop;
     bool hold;
+    // #130. `hands` is where each hand (0 left, 1 right) was last drawn: x0, y0, x1, y1 on screen, game
+    // units, y down, entry slide and drop included. `drop` is RsMenu_ScreenDy. `hudShown` is START's and
+    // A's share of their alpha, `bShown` B's; `bMoved` whether B is at its level-1 spot. `detail` is
+    // RsMenu_DetailRect, the journal's text band.
+    float hands[2][4];
+    float drop;
+    float hudShown;
+    float bShown;
+    bool bMoved;
+    RsMenuRect detail;
 };
 RsMenuLevelState RsMenu_LevelState();
+
+// #130: the HUD raise as it stands - the cosmetics' top margin, and how many of the elements the mod
+// raises have their "use margins" toggle on, out of how many (RegisterRsHudDefaults, RsMenu.cpp).
+void RsMenu_HudRaise(int32_t* marginTop, int32_t* elementsOn, int32_t* elements);
 
 // --- the interpolation probe ---------------------------------------------------------------------
 //

@@ -3822,6 +3822,18 @@ void Interface_DrawActionLabel(GraphicsContext* gfxCtx, void* texture) {
     CLOSE_DISPS(gfxCtx);
 }
 
+// Lets a mod move the B button this frame (VB_SHIFT_HUD_B_BUTTON). Called at each of the four places that
+// work out a position for B - the button, its item icon, its ammo count and its action label - on the
+// final screen position, so they all move together whatever the cosmetics say.
+static void Interface_ShiftBButton(s16* x, s16* y) {
+    s16 dx = 0;
+    s16 dy = 0;
+    if (GameInteractor_Should(VB_SHIFT_HUD_B_BUTTON, false, &dx, &dy)) {
+        *x += dx;
+        *y += dy;
+    }
+}
+
 void Interface_DrawItemButtons(PlayState* play) {
     static void* cUpLabelTextures[] = { gNaviCUpENGTex, gNaviCUpENGTex, gNaviCUpENGTex, gNaviCUpJPTex };
     static s16 startButtonLeftPos[] = { 132, 130, 130, 132 };
@@ -3913,6 +3925,7 @@ void Interface_DrawItemButtons(PlayState* play) {
         PosY_BtnB = PosY_BtnB_ori;
         PosX_BtnB = PosX_BtnB_ori;
     }
+    Interface_ShiftBButton(&PosX_BtnB, &PosY_BtnB);
     // Start Button
     s16 X_Margins_StartBtn;
     s16 Y_Margins_StartBtn;
@@ -4656,6 +4669,9 @@ void Interface_DrawItemIconTexture(PlayState* play, void* texture, s16 button) {
     gDPLoadTextureBlock(OVERLAY_DISP++, texture, G_IM_FMT_RGBA, G_IM_SIZ_32b, 32, 32, 0, G_TX_NOMIRROR | G_TX_WRAP,
                         G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
 
+    if (button == 0) {
+        Interface_ShiftBButton(&ItemIconPos[0][0], &ItemIconPos[0][1]);
+    }
     gSPWideTextureRectangle(OVERLAY_DISP++, ItemIconPos[button][0] << 2, ItemIconPos[button][1] << 2,
                             (ItemIconPos[button][0] + gItemIconWidth[button]) << 2,
                             (ItemIconPos[button][1] + gItemIconWidth[button]) << 2, G_TX_RENDERTILE, 0, 0,
@@ -4900,6 +4916,9 @@ void Interface_DrawAmmoCount(PlayState* play, s16 button, s16 alpha) {
     } else {
         ItemIconPos[3][0] = OTRGetRectDimensionFromRightEdge(ItemIconPos_ori[3][0]);
         ItemIconPos[3][1] = ItemIconPos_ori[3][1];
+    }
+    if (button == 0) {
+        Interface_ShiftBButton(&ItemIconPos[0][0], &ItemIconPos[0][1]);
     }
 
     OPEN_DISPS(play->state.gfxCtx);
@@ -5524,6 +5543,7 @@ void Interface_Draw(PlayState* play) {
                 BbtnPosX = OTRGetRectDimensionFromRightEdge(R_B_LABEL_X(languageOffset) + X_Margins_BtnB_label);
                 BbtnPosY = R_B_LABEL_Y(languageOffset) + Y_Margins_BtnB_label;
             }
+            Interface_ShiftBButton(&BbtnPosX, &BbtnPosY);
             gDPPipeSync(OVERLAY_DISP++);
             gDPSetCombineLERP(OVERLAY_DISP++, PRIMITIVE, ENVIRONMENT, TEXEL0, ENVIRONMENT, TEXEL0, 0, PRIMITIVE, 0,
                               PRIMITIVE, ENVIRONMENT, TEXEL0, ENVIRONMENT, TEXEL0, 0, PRIMITIVE, 0);

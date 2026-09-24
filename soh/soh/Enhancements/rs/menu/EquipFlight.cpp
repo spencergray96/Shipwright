@@ -30,6 +30,7 @@
 #include "VanillaPagesInternal.h"
 #include "RsMenu.h"
 
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 
@@ -378,7 +379,12 @@ bool RsVanilla_BeginEquip(uint16_t press, uint16_t item, uint16_t slot, int16_t 
     if (target < 0 || sFlight.active) {
         return false;
     }
-    // KaleidoScope_SetupItemEquip (:848-880), with the slot's top-left made screen-centred and x10.
+    // KaleidoScope_SetupItemEquip (:848-880), with the slot's top-left made screen-centred and x10. The
+    // slot is in the page's game space and drawn under the scroll's matrix, which puts it RsMenu_ScreenDy
+    // lower on screen (#130's drop); the flight is drawn by the interface, so it starts from there.
+    const float dy = RsMenu_ScreenDy();
+    slotY = (int16_t)std::lround((float)slotY + dy);
+    bowY = (int16_t)std::lround((float)bowY + dy);
     sFlight = EquipFlight();
     sFlight.active = true;
     sFlight.target = target;

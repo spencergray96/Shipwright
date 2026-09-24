@@ -97,6 +97,17 @@ struct RsMenuHudState {
     int32_t alpha[13];
     int32_t bLabel;
     int32_t bLabelShown;
+    // #130: the top margin and how many of the raised elements take it (RsMenu_HudRaise); the magic
+    // meter as level, capacity (the bar's length) and current; and B's move as the interface would get it
+    // this frame - asked through VB_SHIFT_HUD_B_BUTTON itself, so it is the hook's answer, not a copy.
+    int32_t marginTop;
+    int32_t raisedOn;
+    int32_t raiseElements;
+    int32_t magicLevel;
+    int32_t magicCapacity;
+    int32_t magic;
+    int32_t bShiftX;
+    int32_t bShiftY;
 };
 RsMenuHudState RsMenu_HudState();
 

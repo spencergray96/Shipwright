@@ -12,6 +12,7 @@
 
 #include "VanillaPages.h"
 #include "VanillaPagesInternal.h"
+#include "RsMenu.h"
 
 #include <cstdio>
 #include <string>
@@ -166,6 +167,16 @@ RsMenuHudState RsMenu_HudState() {
     }
     hud.bLabel = ic->unk_1FC;      // Interface_LoadActionLabelB (z_parameter.c:2872)
     hud.bLabelShown = ic->unk_1FA; // 1: B draws that label, not its item (:5455)
+    RsMenu_HudRaise(&hud.marginTop, &hud.raisedOn, &hud.raiseElements);
+    hud.magicLevel = gSaveContext.magicLevel;
+    hud.magicCapacity = gSaveContext.magicCapacity;
+    hud.magic = gSaveContext.magic;
+    s16 dx = 0;
+    s16 dy = 0;
+    if (GameInteractor_Should(VB_SHIFT_HUD_B_BUTTON, false, &dx, &dy)) {
+        hud.bShiftX = dx;
+        hud.bShiftY = dy;
+    }
     return hud;
 }
 

@@ -1799,6 +1799,19 @@ typedef enum {
     // ```c
     // false
     // ```
+    // Whether the B button moves from where the HUD cosmetics put it this frame, together with
+    // everything drawn with it: its item icon, ammo count and action label, each of which works out
+    // B's position for itself. Answer true and write the move, in game units (y down), to `*dx`/`*dy`.
+    // The rs/ pause scroll moves B clear of its top hand at level 1 (sturdy-bassoon#130).
+    // #### `args`
+    // - `*s16` (dx)
+    // - `*s16` (dy)
+    VB_SHIFT_HUD_B_BUTTON,
+
+    // #### `result`
+    // ```c
+    // false
+    // ```
     // #### `args`
     // - `*uint16_t` (overrideTextId)
     VB_OVERRIDE_LINK_THE_GORON_DIALOGUE,

@@ -1,6 +1,12 @@
 /*
  * RsMenu.cpp - the mod-owned pause interface (sturdy-bassoon#111), stages 1-8.
  *
+ * #130 raises the vanilla HUD (cosmetics defaults, RegisterRsHudDefaults), drops the whole scroll 3 units
+ * to clear the magic meter, and stands the level-1 hands upright with the HUD cut to a moved B. No
+ * Matrix_* op is added or made conditional: the drop is a term in the base matrix's one translate, the
+ * upright pose is different arguments to the same swivel ops, and the hands' extents for `menu dump`
+ * are read with Matrix_MultVec3f, which records nothing.
+ *
  * #127 lets a page run state of its own (RsMenu.h: `tick`, `hold`, `reset`) - the Quest Status page's song
  * playback - and hold back the menu's own reactions to START, B, A, L/R and the cursor while it does.
  * Input only; no Matrix_* op changes.
@@ -194,6 +200,15 @@ constexpr int16_t kPanelY1 = 192;
 constexpr int16_t kPanelBorder = 3;
 constexpr int16_t kPanelCentreX = (kPanelX0 + kPanelX1) / 2;
 
+// #130: the whole scroll sits this far below where the constants in this file put it, to clear the
+// magic meter. The HUD is raised by half the hearts' distance from the top edge (RegisterRsHudDefaults),
+// which leaves a double meter's bottom at about game y 44 - into the rolls' tops at 43. It is folded into
+// the base matrix's one translate (ApplyBaseMatrix), so the parchment, rolls, hands, content, cursor and
+// the vertical pose all move together and no constant here changes; the one thing that places itself
+// outside that matrix, the equip flight's starting point, adds it through RsMenu_ScreenDy.
+// Drawn in docs/notes/2026-09-17-pause-menu-diagrams/hud-overlap.svg, panel 2.
+constexpr float kScrollDropY = 3.0f;
+
 constexpr float kTitleScale = 1.5f;
 constexpr float kSubScale = 0.8f;
 constexpr int16_t kTitleY = 96;
@@ -370,33 +385,31 @@ constexpr float kClosedSpan = kPanelSpan - 2.0f * kLevelTravel;
 // So the vertical page is a pose of its own, resting with each side still translated partway in
 // from its horizontal home, and this is how far.
 //
-// What bounds it: the hands. Each hand's boxes reach 16 units beyond its roll centre on the side
-// away from the other roll (its thumb, "outboard") and 30 on the side toward it ("inboard"). Turned
-// to vertical:
-//   - the TOP hand (the right side) is rigid, so its outboard 16 points up: its extent is
-//     kPivotY - (span/2 + 16);
-//   - the BOTTOM hand (the left side) SWIVELS the other way on its own grip (kHandSwivel below), so
-//     it ends turned clockwise and its INBOARD 30 points down: its extent is kPivotY + (span/2 + 30).
-// The bottom one binds, asserted below with an 8-unit floor: the largest span it allows is 165. At
-// 164 the pose runs game y 21.5 to 231.5. (It was 184 before the swivel, when both hands overhung by
-// 16; the swivel costs 20 units of span and about 6 of journal height.) The detail text area
-// (RsMenu_DetailRect) is derived from the same numbers and moves with them.
+// What bounds it, since #130 stood the hands upright: the ROLLS. The hands used to bind (each reached
+// sideways off its roll, 16 up and 30 down, which capped the span at 165); at rest now they point off
+// the top and bottom edges ON PURPOSE, so the thing that has to stay on screen is the roll each one
+// holds. Asserted below with the same 8-unit floor, and with #130's drop included, since that is where
+// the rolls are drawn. At 164 the rolls run game y 30.5 to 214.5, so the span could grow by about 35;
+// it is left where Spencer tuned it. The detail text area (RsMenu_DetailRect) is derived from the rolls
+// and the hands' rest pose (HandRestInward) and moves with them.
 constexpr float kVerticalSpan = 164.0f;
 constexpr float kVerticalMargin = 8.0f;
-// How far a hand reaches beyond its own roll centre, outward and inward, from the authored boxes.
-constexpr float kHandOutboard = kGripX[0] - (float)kHandBoxX;                // 16
-constexpr float kHandInboard = (float)(kHandBoxX + kHandBoxW) - kGripX[0];   // 30
-// Where each hand reaches in the vertical pose, as distances from its roll centre toward the page
-// (inward) and toward the screen edge (outward). Named, because the two hands differ after the swivel.
-constexpr float kTopHandInward = kHandInboard;      // rigid: the fingers reach down into the page
-constexpr float kTopHandOutward = kHandOutboard;
-constexpr float kBottomHandInward = kHandOutboard;  // swivelled: now the thumb side faces the page
-constexpr float kBottomHandOutward = kHandInboard;
-static_assert(kPivotY - (kVerticalSpan / 2.0f + kTopHandOutward) >= kVerticalMargin,
-              "the vertical page's top hand runs off the top of the screen - shrink kVerticalSpan");
-static_assert(kPivotY + (kVerticalSpan / 2.0f + kBottomHandOutward) <= (float)SCREEN_HEIGHT - kVerticalMargin,
-              "the vertical page's bottom hand runs off the bottom of the screen - shrink kVerticalSpan");
+constexpr float kRollHalfWidth = (float)(kRollX[0][2] - kRollX[0][0]) / 2.0f; // 10
+static_assert(kPivotY + kScrollDropY - (kVerticalSpan / 2.0f + kRollHalfWidth) >= kVerticalMargin,
+              "the vertical page's top roll runs off the top of the screen - shrink kVerticalSpan");
+static_assert(kPivotY + kScrollDropY + (kVerticalSpan / 2.0f + kRollHalfWidth) <=
+                  (float)SCREEN_HEIGHT - kVerticalMargin,
+              "the vertical page's bottom roll runs off the bottom of the screen - shrink kVerticalSpan");
 static_assert(kVerticalSpan > kClosedSpan, "the vertical page must open wider than the closed bundle");
+// ...and the other half of "upright": each hand's forearm, grip to cuff end, is longer than its grip
+// is far from the screen edge, so it runs OFF that edge rather than stopping short of it on screen. The
+// forearm is 83; the grips rest 40.5 from the top and 35.5 from the bottom. Stated without the lean
+// (kHandLean), which shortens the vertical reach by under 2%.
+constexpr float kHandForearm = (float)(kHandBoxY + kHandBoxH) - kGripY; // 83
+static_assert(kPivotY + kScrollDropY - kVerticalSpan / 2.0f < kHandForearm,
+              "the vertical page's top hand no longer reaches off the top edge");
+static_assert((float)SCREEN_HEIGHT - (kPivotY + kScrollDropY + kVerticalSpan / 2.0f) < kHandForearm,
+              "the vertical page's bottom hand no longer reaches off the bottom edge");
 // Counter-clockwise on screen is POSITIVE here: in this menu's y-up ortho, Matrix_RotateZ(+theta)
 // writes xx = cos, xy = -sin (sys_matrix.c:265-266), which is the standard counter-clockwise
 // rotation. Verified on the first held screenshot rather than trusted.
@@ -527,6 +540,9 @@ static void RetweenHud(u16 mode) {
 }
 // Times the HUD's mode had to be put back to ALL while the menu was up (the re-assert in the update).
 static int32_t sHudReasserts = 0;
+// #130: whether ApplyLevelHud has written A's and B's alphas since the scroll was last flat, so the tick
+// it comes back to level 0 puts them back to full once and then leaves them to the interface again.
+static bool sLevelHudTouched = false;
 
 // Set by the VB_OPEN_PAUSE_MENU veto, consumed by the update. The veto runs inside
 // KaleidoSetup_Update (Play_Update, from gameState->main), and OnGameFrameUpdate fires after
@@ -848,6 +864,65 @@ static const char* LevelPhaseName(int32_t pose) {
     return pose >= turnEnd ? "open" : pose >= turnStart ? "turn" : "close";
 }
 
+// --- the HUD at level 1 (#130, option B) -----------------------------------------------------------
+//
+// Upright, the top hand stands over START and B (hud-overlap.svg, panel 5), so level 1 cuts the HUD's
+// buttons down to B - "back" - and moves B clear of the hand. All of it hangs off the level pose, so going
+// up plays it backwards. START and A fade out over the close and the first half of the turn and are gone
+// by the swap tick, where the scroll is shut; B fades out the same way, MOVES at the swap while it is
+// invisible (a texture rectangle cannot glide - it would step at 20 Hz), and fades back in over the rest
+// of the turn and the open. Hearts, magic and the C buttons are untouched.
+//
+// B's level-1 spot: a move rather than a place, because the interface works B's position out at four
+// draw sites and applies this to each (Interface_ShiftBButton). At 16:9 with the HUD raised B's centre
+// is at about game (228, 21); this puts it at about (290, 70), under the C buttons and right of the
+// vertical parchment - Spencer's placeholder, to be settled by screenshot. The mod targets 16:9: B is
+// right-anchored, so at 4:3 the same move lands it at about (237, 70), over the parchment's right edge.
+constexpr s16 kLevelBShiftX = 62;
+constexpr s16 kLevelBShiftY = 49;
+
+// START's and A's share of their full alpha: 1 at level 0, 0 from the swap tick on.
+static float LevelHudShown() {
+    const int32_t pose = LevelPose();
+    if (pose >= kLevelSwapTick) {
+        return 0.0f;
+    }
+    return 1.0f - EaseInOut((float)pose / (float)kLevelSwapTick);
+}
+
+// Whether B is at its level-1 spot: from the swap tick on, when it is invisible.
+static bool LevelBMoved() {
+    return LevelPose() >= kLevelSwapTick;
+}
+
+// B's share of its full alpha: out with START and A, then back in at the new spot.
+static float LevelBShown() {
+    const int32_t pose = LevelPose();
+    if (pose < kLevelSwapTick) {
+        return LevelHudShown();
+    }
+    return EaseInOut((float)(pose - kLevelSwapTick) / (float)(kLevelTicks - kLevelSwapTick));
+}
+
+// Writes A's and B's alphas while the scroll is off level 0. No HUD visibility mode shows everything but
+// A, so this sets the alphas directly, as the button check would: the alpha each button settles at under
+// HUD_VISIBILITY_ALL (func_80082644: 70 disabled, 255 otherwise), scaled. That holds only while nothing
+// re-tweens the HUD, and nothing does off level 0: the page cannot change there, so its button states do
+// not, and `hud_reasserts=` counts the one thing that could. Runs after the frame's draw (game.c:356),
+// so what it writes is drawn next frame - one tick behind the pose, the same as the START fade.
+static void ApplyLevelHud(PlayState* play) {
+    const bool offFlat = LevelPose() > 0;
+    if (!sHudShown || (!offFlat && !sLevelHudTouched)) {
+        return;
+    }
+    InterfaceContext* ic = &play->interfaceCtx;
+    const float aFull = gSaveContext.buttonStatus[4] == BTN_DISABLED ? 70.0f : 255.0f;
+    const float bFull = gSaveContext.buttonStatus[0] == BTN_DISABLED ? 70.0f : 255.0f;
+    ic->aAlpha = (s16)(aFull * LevelHudShown());
+    ic->bAlpha = (s16)(bFull * LevelBShown());
+    sLevelHudTouched = offFlat;
+}
+
 // How far this side is displaced this tick, in the scroll's own frame. Two independent terms that
 // never overlap in practice (a roll is refused off level 0, a level change is refused mid-roll):
 //   - the L/R roll: zero for the anchor side on every frame; for the moving side, the full travel
@@ -884,6 +959,10 @@ static float ProbeDy() {
     }
     const int32_t tri = sProbePhase <= kProbeHalfPeriod ? sProbePhase : kProbePeriod - sProbePhase;
     return (float)tri * kProbeStep;
+}
+
+float RsMenu_ScreenDy() {
+    return ProbeDy() + EntryDy() + kScrollDropY;
 }
 
 // --- text ----------------------------------------------------------------------------------------
@@ -1278,10 +1357,11 @@ static void PushIconState() {
 // converted. `dy` is the probe's offset and is folded into the first translate rather than added as
 // a fourth op, for the same reason.
 static void ApplyBaseMatrix() {
-    // The arrival offset and the probe's, in one translate. Emitted first in every chain, so the
-    // whole assembly rises and falls as one piece and the probe's four-channel measurement still
-    // means what it meant at stage 5.
-    Matrix_Translate(0.0f, -(ProbeDy() + EntryDy()), 0.0f, MTXMODE_NEW);
+    // The arrival offset, the probe's and the #130 drop, in one translate. Emitted first in every
+    // chain, so the whole assembly rises and falls as one piece and the probe's four-channel
+    // measurement still means what it meant at stage 5 (the drop is a constant, so it cancels out of
+    // every probe difference).
+    Matrix_Translate(0.0f, -RsMenu_ScreenDy(), 0.0f, MTXMODE_NEW);
 }
 
 // THE TURN, and the rule it obeys (stage 6): the rotation about the pivot is in EVERY chain that
@@ -1327,19 +1407,73 @@ static void ApplySideMatrix(int32_t side) {
     Matrix_Translate(SideDx(side), 0.0f, 0.0f, MTXMODE_APPLY);
 }
 
-// THE LEFT HAND SWIVELS ON ITS OWN GRIP while the scroll turns (Spencer, after stage 6). Rigidly
-// rotated, both hands ended on the right, so the bottom one reached in from the right - which reads
-// wrong from the player's point of view. The left hand therefore turns back by TWICE the scroll's
-// angle about its own grip point, for a net CLOCKWISE turn equal to the scroll's counter-clockwise
-// one: at vertical it rests on the bottom roll reaching in from the LEFT. The right hand stays rigid
-// and ends on top, reaching in from the right.
+// THE HANDS SWIVEL ON THEIR OWN GRIPS while the scroll turns. History, because each pose below was a
+// correction of the one before: rigidly rotated (stage 6), both hands ended on the right, so the
+// bottom one reached in from the right. Spencer's first correction swivelled the left hand back by
+// twice the scroll's angle, so it rested on the bottom roll reaching in from the LEFT, while the right
+// hand stayed rigid, reaching in from the right over the top roll - and over the HUD's buttons.
+// The mesh is still the left hand's (a mirror of the right), so the poses mirror in position, not in
+// handedness - fine for a low-poly placeholder, per Spencer.
 //
-// Pivoting about the grip alone laid the left forearm along the bottom roll; HandSlide below moves
-// the grip to the roll's other end at the same time, so the forearm reaches off the roll instead.
-// The mesh is still the left hand's (a mirror of the right), so the pose mirrors the right hand in
-// position, not in handedness - fine for a low-poly placeholder, per Spencer.
+// #130 (option B, Spencer 2026-09-22): the TURN is kept - the right hand still ends on top and the
+// left on the bottom - but both now REST UPRIGHT, pointing off the top and bottom edges, instead of
+// reaching off the sides, where the top one sat over the HUD's buttons. Each hand turns about its own
+// grip by however much it needs on top of the scroll's turn:
+//   - the right (top) hand by +1x the scroll's angle, for a net 180: its forearm, which hangs DOWN at
+//     level 0, points UP off the top edge;
+//   - the left (bottom) hand by -1x, for a net 0: its forearm stays pointing down, off the bottom
+//     edge, while the roll turns under it.
+// Both then lean kHandLean clockwise, which tips each forearm toward its own side of the screen - the
+// top one up-and-right, the bottom one down-and-left - so they read as two arms coming in from
+// outside rather than as posts. The lean ramps in with the turn, as the swivel does, so level 0 is
+// untouched. Swapping to option A later is HandSwivelAt and HandSlide: flip which side gets +1.
+constexpr float kHandLean = 10.0f * kPi / 180.0f;
+
+// The swivel for a scroll turned `angle` counter-clockwise - the one place the side choice is made.
+static float HandSwivelAt(int32_t side, float angle) {
+    return (side == 1 ? 1.0f : -1.0f) * angle - kHandLean * (angle / kTurnAngle);
+}
+
 static float HandSwivel(int32_t side) {
-    return side == 0 ? -2.0f * LevelAngle(LevelPose()) : 0.0f;
+    return HandSwivelAt(side, LevelAngle(LevelPose()));
+}
+
+// The hand's net turn at level 1 rest: the scroll's turn plus the swivel it ends at.
+static float HandRestAngle(int32_t side) {
+    return kTurnAngle + HandSwivelAt(side, kTurnAngle);
+}
+
+// A hand box's x extent as drawn: the left hand's table as written, the right hand's mirrored about
+// x = 160. The one mirror every reader of kHandLeft goes through (DrawHand, HandRestInward, MeasureHand).
+static void HandBoxX(int32_t hand, const RsHandBox& box, int16_t* x0, int16_t* x1) {
+    *x0 = hand == 0 ? box.x0 : (int16_t)(SCREEN_WIDTH - box.x1);
+    *x1 = hand == 0 ? box.x1 : (int16_t)(SCREEN_WIDTH - box.x0);
+}
+
+// How far a hand at level 1 rest reaches from its grip TOWARD THE PAGE, in game units: the top hand
+// down, the bottom hand up. Computed from the authored boxes turned by HandRestAngle, so re-authoring
+// the hand or re-tuning the lean moves the journal's text band (RsMenu_DetailRect) with it. Screen y
+// is down here, and a counter-clockwise turn by `a` takes (x, y) to (x cos a + y sin a, y cos a - x sin a).
+static float HandRestInward(int32_t side) {
+    const float a = HandRestAngle(side);
+    const float c = std::cos(a);
+    const float s = std::sin(a);
+    float reach = 0.0f;
+    for (int32_t i = 0; i < kHandBoxCount; i++) {
+        int16_t x0 = 0;
+        int16_t x1 = 0;
+        const RsHandBox& box = kHandLeft[i];
+        HandBoxX(side, box, &x0, &x1);
+        const float xs[2] = { (float)x0 - kGripX[side], (float)x1 - kGripX[side] };
+        const float ys[2] = { (float)box.y0 - kGripY, (float)box.y1 - kGripY };
+        for (float dx : xs) {
+            for (float dy : ys) {
+                const float y = dy * c - dx * s;
+                reach = std::max(reach, side == 1 ? y : -y);
+            }
+        }
+    }
+    return reach;
 }
 
 // AND SLIDES ALONG ITS ROLL while it swivels (Spencer, the pass after): swivelling about the grip
@@ -1347,17 +1481,18 @@ static float HandSwivel(int32_t side) {
 // The right hand grips its roll kGripY - kPivotY = 37.5 below the rolls' midpoint, which in the
 // vertical pose puts it 37.5 right of centre at the top right. The mirror of that is 37.5 LEFT of
 // centre on the bottom roll, so the left hand travels twice that - 75 - up its own roll (toward the
-// roll's far end), ramped with the turn exactly as the swivel is. From there its forearm reaches off
-// the roll's left end, mirroring the right one reaching off the top roll's right end.
+// roll's far end), ramped with the turn exactly as the swivel is. Kept by #130: upright, the two hands
+// then stand 37.5 either side of the centre, the top one at game x 197.5 and the bottom at 122.5.
 constexpr float kHandSlide = 2.0f * (kGripY - kPivotY);
 
 static float HandSlide(int32_t side) {
     return side == 0 ? kHandSlide * (LevelAngle(LevelPose()) / kTurnAngle) : 0.0f;
 }
 
-// Applied after ApplySideMatrix, for BOTH hands on every frame - the right hand's angle is always
-// zero, but its chain must record the same ops as the left's, because ops are matched positionally
-// inside the hands' interpolation node. The roll is drawn BEFORE this, so the roll never swivels.
+// Applied after ApplySideMatrix, for BOTH hands on every frame - the right hand's slide is always
+// zero, and both angles are zero at level 0, but each chain must record the same ops as the other,
+// because ops are matched positionally inside the hands' interpolation node. The roll is drawn BEFORE
+// this, so the roll never swivels.
 static void ApplyHandSwivel(int32_t side) {
     const float gx = kGripX[side] - (float)(SCREEN_WIDTH / 2);
     const float gy = (float)(SCREEN_HEIGHT / 2) - kGripY;
@@ -1423,8 +1558,9 @@ static void DrawHand(int32_t hand) {
     Vtx* vtx = (Vtx*)Graph_Alloc(sDrawGfxCtx, kHandVtxCount * sizeof(Vtx));
     for (int32_t i = 0; i < kHandBoxCount; i++) {
         const RsHandBox& box = kHandLeft[i];
-        const int16_t x0 = hand == 0 ? box.x0 : (int16_t)(SCREEN_WIDTH - box.x1);
-        const int16_t x1 = hand == 0 ? box.x1 : (int16_t)(SCREEN_WIDTH - box.x0);
+        int16_t x0 = 0;
+        int16_t x1 = 0;
+        HandBoxX(hand, box, &x0, &x1);
         SetFlatQuad(&vtx[i * 4], x0, box.y0, x1, box.y1, kHandTones[box.tone]);
     }
 
@@ -1434,6 +1570,37 @@ static void DrawHand(int32_t hand) {
         const u8 b = (u8)(i * 4);
         dl.push_back(gsSP1Quadrangle(b + 0, b + 2, b + 3, b + 1, 0));
         sDrawQuads++;
+    }
+}
+
+// #130: where each hand was last drawn, on screen, in game units with y down - x0, y0, x1, y1 over all
+// its boxes, through the very matrix DrawHand drew under, so a run can assert "off the top edge" and
+// "clear of B" as numbers. Matrix_MultVec3f reads the matrix and records no op, so measuring cannot
+// misalign the hands' interpolation node. It is the tick's pose, not an interpolated frame's.
+static float sHandExtent[2][4] = {};
+
+static void MeasureHand(int32_t hand) {
+    float ext[4] = { 1e9f, 1e9f, -1e9f, -1e9f };
+    for (int32_t i = 0; i < kHandBoxCount; i++) {
+        int16_t xs[2] = {};
+        HandBoxX(hand, kHandLeft[i], &xs[0], &xs[1]);
+        const int16_t ys[2] = { kHandLeft[i].y0, kHandLeft[i].y1 };
+        for (int16_t x : xs) {
+            for (int16_t y : ys) {
+                Vec3f src = { (float)(x - SCREEN_WIDTH / 2), (float)(SCREEN_HEIGHT / 2 - y), 0.0f };
+                Vec3f dst;
+                Matrix_MultVec3f(&src, &dst);
+                const float sx = dst.x + (float)(SCREEN_WIDTH / 2);
+                const float sy = (float)(SCREEN_HEIGHT / 2) - dst.y;
+                ext[0] = std::min(ext[0], sx);
+                ext[1] = std::min(ext[1], sy);
+                ext[2] = std::max(ext[2], sx);
+                ext[3] = std::max(ext[3], sy);
+            }
+        }
+    }
+    for (int32_t k = 0; k < 4; k++) {
+        sHandExtent[hand][k] = ext[k];
     }
 }
 
@@ -2486,7 +2653,8 @@ static void RsMenu_OnGameFrameUpdate() {
             const float shown = sPhase == RS_MENU_PHASE_OPENING   ? (float)sEntryTick / (float)kEntryTicks
                                 : sPhase == RS_MENU_PHASE_CLOSING ? 1.0f - (float)sEntryTick / (float)kEntryTicks
                                                                   : 1.0f;
-            play->interfaceCtx.startAlpha = sHudShown ? (s16)(255.0f * shown) : 0;
+            play->interfaceCtx.startAlpha = sHudShown ? (s16)(255.0f * shown * LevelHudShown()) : 0;
+            ApplyLevelHud(play);
             if (sBLabelPending && play->interfaceCtx.unk_1EC == 0) {
                 Interface_LoadActionLabelB(play, DO_ACTION_SAVE);
                 sBLabelPending = false;
@@ -2746,10 +2914,11 @@ static void RsMenu_OnPlayDrawEnd() {
         ApplySideMatrix(side);
         PushCurrentMatrix();
         DrawRoll(side);
-        // The hand gets its own matrix on top of the side's: the swivel (zero for the right hand).
+        // The hand gets its own matrix on top of the side's: the slide and the swivel (both zero at level 0).
         ApplyHandSwivel(side);
         PushCurrentMatrix();
         DrawHand(side);
+        MeasureHand(side);
         const RsMenuCursorNode* node = RsMenu_CursorAt(sCursorIndex);
         if (cursorShown && node != nullptr && node->hand == side) {
             DrawCursorOutline(*node);
@@ -2793,7 +2962,8 @@ static void RsMenu_OnPlayDrawEnd() {
         // correlating timestamps: `phase` is the vertical bob's 20-tick counter and `S<n>` the
         // sweep's own tick. The string itself is the non-interpolating reference channel.
         std::snprintf(probe, sizeof(probe), "PROBE %d S%d", sProbePhase, sSweepTick);
-        DrawProbeTextRect(play, probe, kProbeTextX, (int16_t)(kProbeTextY + ProbeDy()), 1.0f, 0, 255, 0, 255);
+        DrawProbeTextRect(play, probe, kProbeTextX, (int16_t)(kProbeTextY + ProbeDy() + kScrollDropY), 1.0f, 0,
+                          255, 0, 255);
     }
 
     sDrawGfxCtx = nullptr;
@@ -2813,7 +2983,57 @@ static void RsMenu_OnInterfaceDrawItemButtonsEnd() {
     RsVanilla_DrawEquipFlight(gPlayState);
 }
 
+// #130: THE VANILLA HUD IS RAISED, by half its distance from the top edge (Spencer, 2026-09-22) - in
+// gameplay too, not only under the scroll. SoH already has the lever, so this is defaults, not code: the
+// cosmetics' top margin (HUD.Margin.T, positive raises) moves each HUD element whose own "use margins"
+// toggle is on, and moves nothing without it - every reader tests HUD.<element>.UseMargins before
+// adding the margin (z_parameter.c, z_lifemeter.c). So both are set: the margin, and the toggle on the
+// ten top-anchored vanilla elements. The minimap, rupees and keys anchor to the bottom margin and are
+// left alone; the timers and scores read only the side margins.
+//
+// ONE number for all ten, because the margin is one number: 10, half the hearts' 21 (rounded down, since
+// it is an integer). The hearts and magic are what the raise is for - it is what lets the scroll clear a
+// double magic meter with a 3-unit drop (kScrollDropY) - so the buttons rise 10 too, a little more than
+// their own halves (START 7, B and A 8.5).
+//
+// Registered, not set: CVarRegisterInteger writes only a CVar that does not exist yet
+// (ConsoleVariable::RegisterInteger), so a player's own cosmetics win, and ShipInit re-running on every
+// config load re-applies nothing that was changed. The Cosmetics editor's reset clears a CVar, which puts
+// that element back at 0 until the next config load re-registers it. Kaleido's equip flight
+// (z_kaleido_item.c:894) and the scroll's (EquipFlight.cpp, ButtonPositions) read the same CVars, so an
+// equip still lands on the moved button.
+constexpr int32_t kHudRaise = 10;
+static const char* const kHudRaisedElements[] = {
+    "Hearts",       "MagicBar",    "BButton",     "AButton",    "StartButton",
+    "CLeftButton",  "CDownButton", "CRightButton", "CUpButton", "Dpad",
+};
+
+// The element's own "use margins" toggle, e.g. gCosmetics.HUD.MagicBar.UseMargins.
+static std::string UseMarginsCVar(const char* element) {
+    return std::string(CVAR_COSMETIC("HUD.")) + element + ".UseMargins";
+}
+
+static void RegisterRsHudDefaults() {
+    CVarRegisterInteger(CVAR_COSMETIC("HUD.Margin.T"), kHudRaise);
+    for (const char* element : kHudRaisedElements) {
+        CVarRegisterInteger(UseMarginsCVar(element).c_str(), 1);
+    }
+}
+
+// What the HUD raise leaves in force: the top margin and how many of the ten elements take it. Read back
+// from the CVars rather than from the constants, so a player's own cosmetics show as what they are.
+void RsMenu_HudRaise(int32_t* marginTop, int32_t* elementsOn, int32_t* elements) {
+    *marginTop = CVarGetInteger(CVAR_COSMETIC("HUD.Margin.T"), 0);
+    *elementsOn = 0;
+    *elements = 0;
+    for (const char* element : kHudRaisedElements) {
+        *elementsOn += CVarGetInteger(UseMarginsCVar(element).c_str(), 0) != 0 ? 1 : 0;
+        (*elements)++;
+    }
+}
+
 static void RegisterRsMenu() {
+    RegisterRsHudDefaults();
     // The Quest Journal is the ring's first page and the three ported vanilla pages follow it, and
     // all of them are registered from HERE rather than from ShipInits of their own: ShipInit functions
     // in different translation units run in no promised order, and the ring's order is what L/R walks.
@@ -2849,6 +3069,17 @@ static void RegisterRsMenu() {
     COND_VB_SHOULD(VB_DRAW_UNPAUSED_HUD, true, {
         if (MenuIsUp()) {
             *should = false;
+        }
+    });
+    // #130: B stands clear of the upright top hand from the level swap on (LevelBMoved), invisible when it
+    // moves either way.
+    COND_VB_SHOULD(VB_SHIFT_HUD_B_BUTTON, true, {
+        if (MenuIsUp() && sHudShown && LevelBMoved()) {
+            s16* dx = va_arg(args, s16*);
+            s16* dy = va_arg(args, s16*);
+            *dx = kLevelBShiftX;
+            *dy = kLevelBShiftY;
+            *should = true;
         }
     });
     COND_HOOK(OnInterfaceDrawItemButtonsEnd, true, RsMenu_OnInterfaceDrawItemButtonsEnd);
@@ -2902,16 +3133,20 @@ RsMenuRect RsMenu_DetailRect() {
     // The vertical parchment at rest, worked from the same constants the matrix chain uses. Turned
     // counter-clockwise about the pivot, the horizontal panel's top edge (game y 48) becomes its
     // LEFT edge and its bottom edge (y 192) its RIGHT edge; the rolls end up kVerticalSpan apart
-    // across y. Each hand reaches some way in from its roll (the top one 30, the swivelled bottom
-    // one 16), so the text band stops short of both; the margin keeps a glyph off a knuckle.
+    // across y. At each end the text band stops short of whichever reaches further into the page, the
+    // roll or the fingers of the hand holding it (#130: upright, the fingers reach about 14 at the top
+    // and 10 at the bottom, where the sideways hands reached 30 and 16); the margin keeps a glyph off a
+    // knuckle. In the page's game space, like every rect here - the #130 drop is the matrix's.
     constexpr float kMargin = 5.0f;
     const float left = kPivotX - (kPivotY - (float)kPanelY0);
     const float right = kPivotX + ((float)kPanelY1 - kPivotY);
+    const float topInward = std::max(kRollHalfWidth, HandRestInward(1));
+    const float bottomInward = std::max(kRollHalfWidth, HandRestInward(0));
     RsMenuRect rect;
     rect.x0 = (int16_t)std::ceil(left + (float)kPanelBorder + kMargin);
     rect.x1 = (int16_t)std::floor(right - (float)kPanelBorder - kMargin);
-    rect.y0 = (int16_t)std::ceil(kPivotY - kVerticalSpan / 2.0f + kTopHandInward + kMargin);
-    rect.y1 = (int16_t)std::floor(kPivotY + kVerticalSpan / 2.0f - kBottomHandInward - kMargin);
+    rect.y0 = (int16_t)std::ceil(kPivotY - kVerticalSpan / 2.0f + topInward + kMargin);
+    rect.y1 = (int16_t)std::floor(kPivotY + kVerticalSpan / 2.0f - bottomInward - kMargin);
     return rect;
 }
 
@@ -3130,6 +3365,10 @@ static bool CloseMenu(bool syncPlayer) {
         }
         GameInteractor_Should(VB_TEMP_B_RESTORE_SWORDLESS, true);
         sBLabelPending = false;
+        // #130: closed from level 1, A and B are brought back by the mode change below, which re-tweens
+        // every alpha that is not already full; the flag must not survive to write them over the next
+        // open's tween.
+        sLevelHudTouched = false;
         if (syncPlayer && gPlayState != nullptr) {
             // unk_1FA: B draws its label rather than its item; unk_1FC: that label (z_parameter.c:2872-2878).
             gPlayState->interfaceCtx.unk_1FA = gPlayState->interfaceCtx.unk_1FC = 0;
@@ -3348,6 +3587,16 @@ RsMenuLevelState RsMenu_LevelState() {
     state.swaps = sLevelSwaps;
     state.loop = sLevelLoop;
     state.hold = sLevelHold;
+    for (int32_t hand = 0; hand < 2; hand++) {
+        for (int32_t k = 0; k < 4; k++) {
+            state.hands[hand][k] = sHandExtent[hand][k];
+        }
+    }
+    state.drop = RsMenu_ScreenDy();
+    state.hudShown = LevelHudShown();
+    state.bShown = LevelBShown();
+    state.bMoved = LevelBMoved();
+    state.detail = RsMenu_DetailRect();
     return state;
 }
 
