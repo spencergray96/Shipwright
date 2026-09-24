@@ -569,12 +569,12 @@ int32_t Dump(std::vector<std::string>& lines) {
             }
             return out;
         };
-        // Worst case about 280 bytes (seven-character coordinates, two ramps of eight "255"), inside Addf's 512.
+        // Worst case about 250 bytes (seven-character coordinates, two ramps of eight "255"), inside Addf's 512.
         Addf(lines,
              "op=dump section=stepper stepper_shown=%d stepper_alpha=%d stepper_at=%d stepper_stones=%d "
-             "stepper_side=%.1f stepper_row=%.1f,%.1f,%.1f,%.1f stepper_gap=%.1f,%.1f stepper_ramp_open=%s "
+             "stepper_side=%.1f stepper_row=%.1f,%.1f,%.1f,%.1f stepper_ramp_open=%s "
              "stepper_ramp_close=%s",
-             s.shown ? 1 : 0, s.alpha, s.at + 1, s.stones, s.stone, s.x0, s.y0, s.x1, s.y1, s.gapX0, s.gapX1,
+             s.shown ? 1 : 0, s.alpha, s.at + 1, s.stones, s.stone, s.x0, s.y0, s.x1, s.y1,
              join(s.rampOpen).c_str(), join(s.rampClose).c_str());
     }
     // #131: THE HARNESS CANNOT HEAR, so every sound the menu plays is counted and a run asserts the

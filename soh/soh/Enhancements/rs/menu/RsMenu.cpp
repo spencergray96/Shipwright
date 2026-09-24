@@ -1,9 +1,9 @@
 /*
  * RsMenu.cpp - the mod-owned pause interface (sturdy-bassoon#111), stages 1-8.
  *
- * #128 adds the page stepper: a row of stones, one per page, in the HUD's gap between the hearts and
- * START (DrawStepper). It is drawn in the dim's node under the dim's identity matrix, so it adds no
- * Matrix_* op and no node.
+ * #128 adds the page stepper: a row of stones, one per page, in the HUD's band above the scroll, centred
+ * on it and level with the magic meter's bottom edge (DrawStepper). It is drawn in the dim's node under
+ * the dim's identity matrix, so it adds no Matrix_* op and no node.
  *
  * #130 raises the vanilla HUD (cosmetics defaults, RegisterRsHudDefaults), drops the whole scroll 3 units
  * to clear the magic meter, and stands the level-1 hands upright with the HUD cut to a moved B. No
@@ -181,9 +181,6 @@ extern PlayState* gPlayState;
 // forward declaration AgentTest.cpp carries, for the same reason. The dim quad needs it because it
 // is the one piece of this menu that spans the whole window rather than the 4:3 band.
 float OTRGetAspectRatio(void);
-// The same, for the page stepper (#128), which sits between a left-anchored and a right-anchored HUD element.
-float OTRGetDimensionFromLeftEdge(float v);
-float OTRGetDimensionFromRightEdge(float v);
 }
 
 #define CVAR_RS_MENU_ON CVAR_ENHANCEMENT("RsMenu")
@@ -1375,44 +1372,31 @@ static void DrawDim() {
 // --- the page stepper (#128) ----------------------------------------------------------------------
 //
 // One stone per page in the ring, the page the ring is on red and the rest grey - the POC's placeholder
-// art. It lives in the HUD's band, in the gap between the hearts/magic block and START (Spencer,
-// 2026-09-22), so it is placed from the HUD's numbers, not the scroll's. It does not ride the arrival or
-// #130's drop. It draws at START's own alpha (StartShown): it RAMPS with the arrival, fades out with START
-// and A on the way down a level, gone from the swap tick on, and is not drawn when the menu opened over a
-// hidden HUD, where START is not either. The highlight moves when sPage does, which during a roll is the
-// swap tick, while the scroll is shut.
+// art. It sits in the HUD's band above the scroll: centred on the scroll, and dropped so the stones' bottom
+// edge lines up with the magic meter's (Spencer, 2026-09-24, after trying it in the gap between the hearts
+// and START). It does not ride the arrival or #130's drop. It draws at START's own alpha (StartShown): it
+// RAMPS with the arrival, fades out with START and A on the way down a level, gone from the swap tick on,
+// and is not drawn when the menu opened over a hidden HUD, where START is not either. The highlight moves
+// when sPage does, which during a roll is the swap tick, while the scroll is shut.
 //
-// The gap runs from a LEFT-anchored block to a RIGHT-anchored button, so its width changes with the
-// window's aspect ratio and its centre does not - both edges move the same distance in opposite
-// directions (OTRGetDimensionFromLeftEdge/RightEdge). At 16:9 it is x 70.8-183.6, 113 wide; narrower, the
-// row shrinks to fit (LayoutStepper), and at 4:3, about 6 wide, there is no room and it is not drawn.
-//
-// The two edges are MEASURED, as drawn, rather than derived, for the same reason B's level-1 move is: what
-// the eye sees as the gap is not the elements' quads. Off #128's first capture at 16:9, HUD raised, double
-// magic, a full row of hearts (docs/test-runs/2026-09-24-issue-128-stepper, `gap-out.txt`): the hearts and
-// the magic meter end at x 70.8, and START's "Return" label starts at 183.6 - it overhangs START's disc to
-// the left. At 4:3 those are 124.1 and 130.3. The code's own numbers put the edges 1.4 and 1.8 further right,
-// which left the row 1.6 off the gap's centre: START's quad starts at startButtonLeftPos (132 in English,
-// z_parameter.c:3839) from the right edge, and a full heart row's quad ends at 120 + 5.6 (ten hearts 10
-// apart from x 30, 16 units at 0.7, z_lifemeter.c:584, :633). START's height IS derived: its top is 16 less
-// the top margin and it is 24 square (32 at 0.75, z_parameter.c:3950-3952).
+// Centred on the scroll means game x 160 at every aspect ratio, since the scroll is authored in the 4:3
+// band. At 16:9 the four stones run x 123-197, so the right end passes under START's disc (x 189-207, y
+// 8-28). How close depends on the heart rows, since the meter's y does (#128's run, `measure-s4-out.txt`):
+//   - two rows (the debug save): the stones run y 30-44 and clear the disc by two units;
+//   - one row: the meter sits 8 higher, the stones run y 22-36, and START draws over the fourth stone's
+//     top-right corner, since the HUD draws after the menu.
+// At 4:3 the first stone meets the end of a double meter. Spencer's call to try it this close, moving
+// nothing else (2026-09-24).
 //
 // Drawn in the dim's node under its identity matrix and its prim-colour state, which is the fade's
 // mechanism already: alpha is a prim-colour immediate and steps with the tick, as the dim does. The
 // stones never move, so they need no Matrix_* op of their own.
-// How far 16:9 moves an anchored element from where 4:3 puts it: 120 * 16 / 9 - 160. The two measured edges
-// are brought back to 4:3 through it, and OTRGetDimensionFrom*Edge carries them to the live aspect ratio.
-constexpr float kShift169 = (float)(SCREEN_HEIGHT / 2) * 16.0f / 9.0f - (float)(SCREEN_WIDTH / 2);
-constexpr float kStartLeft43 = 183.6f - kShift169;
-constexpr float kStartTopY = 16.0f;
-constexpr float kStartSize = 24.0f;
-constexpr float kHeartsRight43 = 70.8f + kShift169;
 constexpr float kStoneSize = 14.0f; // #128's drawing: 14 x 14, 6 apart
 constexpr float kStoneGap = 6.0f;
-constexpr float kStepperPad = 4.0f; // air between the row and the hearts or START, at the tightest
-// Below this a stone is a speck, and the stepper is not drawn at all - which is what happens at 4:3, where
-// the hearts run into START's label and the gap is about 6 units (#128's run, s2 at 4:3: stones of 0).
-constexpr float kStoneMin = 4.0f;
+// The magic meter's visible bottom edge, below the top of its quad: the 16-row texture's last four rows are
+// empty. Measured off #128's capture with the HUD raised under two rows of hearts: the quad's top is 42 - 10
+// = 32 and the drawn edge ends at 44 (docs/test-runs/2026-09-24-issue-128-stepper, `magic-out.txt`).
+constexpr float kMagicBarDrawnBottom = 12.0f;
 constexpr u8 kStoneCurrentColour[3] = { 210, 40, 40 };
 constexpr u8 kStoneColour[3] = { 150, 150, 150 };
 
@@ -1420,29 +1404,40 @@ struct StepperLayout {
     int32_t stones;
     float stone, pitch;
     float x0, y0, x1, y1;
-    float gapX0, gapX1;
 };
 
-// SIZED FROM THE PAGE COUNT AND THE GAP, per the ring's invariant (RsMenu.h): as many stones as there are
-// pages, at 14 + 6 while they fit - five do at 16:9 - and all scaled down together once they do not.
+// The top of the magic meter's quad, where Interface_DrawMagicBar puts it at its original location
+// (z_parameter.c:3536-3545): R_MAGIC_BAR_SMALL_Y (34) under one row of hearts, R_MAGIC_BAR_LARGE_Y (42) under
+// two, and a further LARGE - SMALL + 2 per row past that, less the top margin when the meter takes margins. So
+// the stepper follows the meter when the heart count crosses a row. A meter the cosmetics have moved
+// elsewhere (PosType) is not followed; this is its original place. The same arithmetic without the meter
+// drawn at all (no magic yet), so the stepper stays put when magic is acquired.
+static float MagicBarTop() {
+    const int32_t margin = CVarGetInteger(CVAR_COSMETIC("HUD.MagicBar.UseMargins"), 0) != 0
+                               ? CVarGetInteger(CVAR_COSMETIC("HUD.Margin.T"), 0)
+                               : 0;
+    const int32_t lineLength = CVarGetInteger(CVAR_COSMETIC("HUD.Hearts.LineLength"), 10);
+    const int32_t drop = R_MAGIC_BAR_LARGE_Y - R_MAGIC_BAR_SMALL_Y + 2;
+    int32_t y = R_MAGIC_BAR_SMALL_Y;
+    if (lineLength != 0 && (gSaveContext.healthCapacity - 1) / FULL_HEART_HEALTH >= lineLength) {
+        y = R_MAGIC_BAR_LARGE_Y + drop * ((gSaveContext.healthCapacity - 1) / (0x10 * lineLength) - 1);
+    }
+    return (float)(y - margin);
+}
+
+// SIZED FROM THE PAGE COUNT, per the ring's invariant (RsMenu.h): as many stones as there are pages, at 14 + 6
+// while the row is no wider than the parchment - fourteen stones are - and all scaled down together past that.
 static StepperLayout LayoutStepper() {
     StepperLayout l;
     l.stones = RsMenu_PageCount();
-    l.gapX0 = OTRGetDimensionFromLeftEdge(kHeartsRight43);
-    l.gapX1 = OTRGetDimensionFromRightEdge(kStartLeft43);
     const float want = l.stones > 0 ? (float)l.stones * kStoneSize + (float)(l.stones - 1) * kStoneGap : 0.0f;
-    const float room = std::max(0.0f, l.gapX1 - l.gapX0 - 2.0f * kStepperPad);
-    const float scale = want > room ? room / want : 1.0f;
+    const float scale = want > kPanelSpan ? kPanelSpan / want : 1.0f;
     l.stone = kStoneSize * scale;
     l.pitch = (kStoneSize + kStoneGap) * scale;
-    l.x0 = (l.gapX0 + l.gapX1 - want * scale) / 2.0f;
+    l.x0 = (float)kPanelCentreX - want * scale / 2.0f;
     l.x1 = l.x0 + want * scale;
-    // Level with START's middle, whatever the top margin (#130's raise) makes that.
-    const int32_t margin = CVarGetInteger(CVAR_COSMETIC("HUD.StartButton.UseMargins"), 0) != 0
-                               ? CVarGetInteger(CVAR_COSMETIC("HUD.Margin.T"), 0)
-                               : 0;
-    l.y0 = kStartTopY - (float)margin + (kStartSize - l.stone) / 2.0f;
-    l.y1 = l.y0 + l.stone;
+    l.y1 = MagicBarTop() + kMagicBarDrawnBottom;
+    l.y0 = l.y1 - l.stone;
     return l;
 }
 
@@ -1472,7 +1467,7 @@ static void DrawStepper() {
     if ((sPhase == RS_MENU_PHASE_OPENING || sPhase == RS_MENU_PHASE_CLOSING) && sEntryTick < kEntryTicks) {
         sStepperRamp[sPhase == RS_MENU_PHASE_OPENING ? STEPPER_SLIDE_OPEN : STEPPER_SLIDE_CLOSE][sEntryTick] = alpha;
     }
-    sStepperDrawn = alpha > 0 && l.stones > 0 && l.stone >= kStoneMin;
+    sStepperDrawn = alpha > 0 && l.stones > 0;
     if (!sStepperDrawn) {
         return;
     }
@@ -3854,8 +3849,6 @@ RsMenuStepperState RsMenu_StepperState() {
     state.y0 = l.y0;
     state.x1 = l.x1;
     state.y1 = l.y1;
-    state.gapX0 = l.gapX0;
-    state.gapX1 = l.gapX1;
     state.rampOpen.assign(sStepperRamp[STEPPER_SLIDE_OPEN], sStepperRamp[STEPPER_SLIDE_OPEN] + kEntryTicks);
     state.rampClose.assign(sStepperRamp[STEPPER_SLIDE_CLOSE], sStepperRamp[STEPPER_SLIDE_CLOSE] + kEntryTicks);
     return state;

@@ -257,11 +257,11 @@
 //                         `section=stepper`: `stepper_shown=` and `stepper_alpha=` (what the last
 //                         frame drew - START's fade; 0 at level 1 and while closed), `stepper_at=`
 //                         (1-based, the red stone), `stepper_stones=`, `stepper_side=` (a stone's side),
-//                         `stepper_row=x0,y0,x1,y1` and `stepper_gap=x0,x1`, game units at this
-//                         window's aspect ratio; `stepper_ramp_open=`/`stepper_ramp_close=` are the
-//                         alpha drawn on each entry tick of the last slide each way (-1 where no
-//                         frame drew), since a slide is shorter than a command round trip. Prefixed
-//                         for the same reason as `sfx_`
+//                         `stepper_row=x0,y0,x1,y1` in game units (its bottom is the magic meter's);
+//                         `stepper_ramp_open=`/`stepper_ramp_close=` are the alpha drawn on each
+//                         entry tick of the last slide each way (-1 where no frame drew), since a
+//                         slide is shorter than a command round trip. Prefixed for the same reason as
+//                         `sfx_`
 //
 // Returns 0 when the operation succeeded (or for read-only subcommands), 1 otherwise - so `rc=` on
 // the agent loop's cmd marker is the pass/fail bit.

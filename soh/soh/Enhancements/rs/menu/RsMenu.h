@@ -490,19 +490,18 @@ RsMenuLevelState RsMenu_LevelState();
 
 // --- the page stepper (#128) -----------------------------------------------------------------------
 //
-// One stone per page, the ring's page red, in the HUD's band between the hearts and START. It ramps with
-// the arrival and fades out on the way down a level exactly as START does, and is hidden at level 1. At
-// 4:3 the gap closes (the hearts run into START's label) and it is not drawn at all.
+// One stone per page, the ring's page red, in the HUD's band above the scroll: centred on the scroll, its
+// bottom level with the magic meter's. It ramps with the arrival and fades out on the way down a level
+// exactly as START does, and is hidden at level 1.
 // `shown`/`alpha` are what the LAST DRAWN FRAME did (0 while the menu is closed); the row is laid out
-// live, at this window's aspect ratio. Game units, y down; `at` is 0-based.
+// live. Game units, y down; `at` is 0-based.
 struct RsMenuStepperState {
     bool shown;
     int32_t alpha;
     int32_t at;
     int32_t stones;
-    float stone; // a stone's side: 14, less once the ring outgrows the gap
+    float stone; // a stone's side: 14, less once the row would be wider than the parchment
     float x0, y0, x1, y1;
-    float gapX0, gapX1; // the gap the row is centred in: the hearts' right edge to START's left
     // The alpha drawn on each entry tick of the last opening and closing slide, -1 where no frame drew:
     // the slides are shorter than an agent-loop round trip, so no dump can land inside one.
     std::vector<int32_t> rampOpen, rampClose;
