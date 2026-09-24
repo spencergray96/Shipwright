@@ -123,7 +123,7 @@
 //                         animation had reached. Every level change a hold plays through counts in
 //                         `swaps=`, so that field counts holds as well as real gestures.
 //                         #130 adds `drop=` (how far below its game space the scroll draws this
-//                         tick: the entry slide, the probe's offset and the fixed drop - 10 since
+//                         tick: the entry slide, the probe's offset and the fixed drop - 13 since
 //                         #128), `hand_l=`/`hand_r=` (each hand's last drawn extent, x0,y0,x1,y1 on
 //                         screen, y down, read through its own matrix - at level 1 rest they run
 //                         off the bottom and top edges),

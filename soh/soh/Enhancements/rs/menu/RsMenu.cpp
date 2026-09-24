@@ -2,11 +2,11 @@
  * RsMenu.cpp - the mod-owned pause interface (sturdy-bassoon#111), stages 1-8.
  *
  * #128 adds the page stepper: a row of stones, one per page, just above the scroll and centred on it
- * (DrawStepper), and drops the whole scroll 7 more units, clear of the magic meter and the C-down button.
+ * (DrawStepper), and drops the whole scroll 10 more units, clear of the magic meter and the C-down button.
  * It is drawn in the dim's node under the dim's identity matrix, so it adds no Matrix_* op and no node.
  *
  * #130 raises the vanilla HUD (cosmetics defaults, RegisterRsHudDefaults), drops the whole scroll (3 units
- * then, 10 since #128) to clear the magic meter, and stands the level-1 hands upright with the HUD cut to a
+ * then, 13 since #128) to clear the magic meter, and stands the level-1 hands upright with the HUD cut to a
  * moved B. No Matrix_* op is added or made conditional: the drop is a term in the base matrix's one translate, the
  * upright pose is different arguments to the same swivel ops, and the hands' extents for `menu dump`
  * are read with Matrix_MultVec3f, which records nothing. At level 1, B also reads "Return".
@@ -212,7 +212,7 @@ constexpr int16_t kPanelY1 = 192;
 constexpr int16_t kPanelBorder = 3;
 constexpr int16_t kPanelCentreX = (kPanelX0 + kPanelX1) / 2;
 
-// The whole scroll sits this far below where the constants in this file put it. Four calls set it:
+// The whole scroll sits this far below where the constants in this file put it. Five calls set it:
 //   - #130: 3, to clear the magic meter. The HUD is raised by half the hearts' distance from the top edge
 //     (RegisterRsHudDefaults), which leaves a double meter's bottom at about game y 44 - into the rolls'
 //     tops at 43.
@@ -229,11 +229,13 @@ constexpr int16_t kPanelCentreX = (kPanelX0 + kPanelX1) / 2;
 //     `measure-s7-out.txt`): 6.7 below C-down's ring, against 7.2 from the stepper to the parchment; 11
 //     would give 7.7, half a unit over where 10 is half a unit under. A whole unit because the stepper's
 //     vertices are whole units.
+//   - #128, once more: "still too close" - the C-down gap half as big again, 6.7 * 1.5 = 10.05, so about 3.35
+//     more. 3 is the nearer whole unit (9.7, against 10.7 at 4); measured in `measure-s8-out.txt`.
 // It is folded into the base matrix's one translate (ApplyBaseMatrix), so the parchment, rolls, hands,
 // content, cursor and the vertical pose all move together and no constant here changes; the things that
 // place themselves outside that matrix - the equip flight's starting point and the stepper - add it
 // through RsMenu_ScreenDy or directly. Drawn in docs/notes/2026-09-17-pause-menu-diagrams/hud-overlap.svg.
-constexpr float kScrollDropY = 10.0f;
+constexpr float kScrollDropY = 13.0f;
 
 constexpr float kTitleScale = 1.5f;
 constexpr float kSubScale = 0.8f;
@@ -415,7 +417,7 @@ constexpr float kClosedSpan = kPanelSpan - 2.0f * kLevelTravel;
 // sideways off its roll, 16 up and 30 down, which capped the span at 165); at rest now they point off
 // the top and bottom edges ON PURPOSE, so the thing that has to stay on screen is the roll each one
 // holds. Asserted below with the same 8-unit floor, and with #130's drop included, since that is where
-// the rolls are drawn. At 164 the rolls run game y 37.5 to 221.5, so the span could grow by about 21;
+// the rolls are drawn. At 164 the rolls run game y 40.5 to 224.5, so the span could grow by about 15;
 // it is left where Spencer tuned it. The detail text area (RsMenu_DetailRect) is derived from the rolls
 // and the hands' rest pose (HandRestInward) and moves with them.
 constexpr float kVerticalSpan = 164.0f;
@@ -429,7 +431,7 @@ static_assert(kPivotY + kScrollDropY + (kVerticalSpan / 2.0f + kRollHalfWidth) <
 static_assert(kVerticalSpan > kClosedSpan, "the vertical page must open wider than the closed bundle");
 // ...and the other half of "upright": each hand's forearm, grip to cuff end, is longer than its grip
 // is far from the screen edge, so it runs OFF that edge rather than stopping short of it on screen. The
-// forearm is 83; the grips rest 47.5 from the top and 28.5 from the bottom. Stated without the lean
+// forearm is 83; the grips rest 50.5 from the top and 25.5 from the bottom. Stated without the lean
 // (kHandLean), which shortens the vertical reach by under 2%.
 constexpr float kHandForearm = (float)(kHandBoxY + kHandBoxH) - kGripY; // 83
 static_assert(kPivotY + kScrollDropY - kVerticalSpan / 2.0f < kHandForearm,
@@ -1399,10 +1401,10 @@ static void DrawDim() {
 //
 // STATIC, whatever the HUD shows: it does not follow the magic meter when the heart rows change - Spencer's
 // call. It first sat with its top on the meter's drawn top under two rows of hearts (y 33, kScrollDropY 6),
-// then went 4 lower with the whole scroll (kScrollDropY), so its top is at 37 now.
+// then went 7 lower with the whole scroll (kScrollDropY), so its top is at 40 now.
 //
 // Centred on the scroll means game x 160 at every aspect ratio, since the scroll is authored in the 4:3
-// band. At 16:9 the four stones run x 123-197, under START's disc (x 189-207, y 8-28), clear of it by 9.
+// band. At 16:9 the four stones run x 123-197, under START's disc (x 189-207, y 8-28), clear of it by 12.
 //
 // Drawn in the dim's node under its identity matrix and its prim-colour state, which is the fade's
 // mechanism already: alpha is a prim-colour immediate and steps with the tick, as the dim does. The
@@ -3188,7 +3190,7 @@ static void RsMenu_OnInterfaceDrawItemButtonsEnd() {
 //
 // ONE number for all ten, because the margin is one number: 10, half the hearts' 21 (rounded down, since
 // it is an integer). The hearts and magic are what the raise is for - it is what lets the scroll clear a
-// double magic meter with a 3-unit drop (kScrollDropY, 10 since #128) - so the buttons rise 10 too, a
+// double magic meter with a 3-unit drop (kScrollDropY, 13 since #128) - so the buttons rise 10 too, a
 // little more than their own halves (START 7, B and A 8.5).
 //
 // Registered, not set: CVarRegisterInteger writes only a CVar that does not exist yet
