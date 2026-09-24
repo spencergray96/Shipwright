@@ -36,7 +36,7 @@
  * VB_OPEN_PAUSE_MENU veto inside KaleidoSetup_Update rather than an input filter; the ring's first
  * page is the quest list (QuestPage.cpp); and pages can have a SECOND LEVEL, a detail view reached
  * by going down - close to the centre, turn counter-clockwise to vertical, open vertically (RsMenu.h
- * Â§ levels). The turn adds a rotation to every scroll and hand chain, always, at zero while the
+ * § levels). The turn adds a rotation to every scroll and hand chain, always, at zero while the
  * scroll is flat; the page content stays upright on the unrotated base matrix.
  *
  * What it is at this stage: an RS-style scroll - parchment, two roll ends and two blocky hands, all
@@ -641,7 +641,7 @@ enum RsListState {
 };
 static int32_t sListState = RS_LIST_OTHER;
 
-// Stage 7's view counters (RsMenu.h Â§ RsMenuViewStats). `sInView` is set only around the content
+// Stage 7's view counters (RsMenu.h § RsMenuViewStats). `sInView` is set only around the content
 // body's call, so RsMenu_DrawText knows which glyphs belong to the view; the row ys are gathered
 // there. Plain counters and a vector - invisible to the interpolation recorder.
 static bool sInView = false;
@@ -1177,9 +1177,9 @@ static void DrawStressBody() {
 
 // --- the scroll ----------------------------------------------------------------------------------
 //
-// THE PROJECTION, and why this is not what research Â§ C.1 recommended.
+// THE PROJECTION, and why this is not what research § C.1 recommended.
 //
-// Â§ C.1 names three levels for drawing real 3D over a 2D screen and recommends LEVEL 2: give the
+// § C.1 names three levels for drawing real 3D over a 2D screen and recommends LEVEL 2: give the
 // menu its own `View`, apply it with func_800AAA50(&myView, 127), restore with
 // func_800AAA50(&play->view, 15) - the KaleidoScope_Draw pattern
 // (z_kaleido_scope_PAL.c:3499-3545). What ships here is LEVEL 3 instead: our own `Vp` and `guOrtho`
