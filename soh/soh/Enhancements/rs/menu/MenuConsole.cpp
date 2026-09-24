@@ -558,6 +558,25 @@ int32_t Dump(std::vector<std::string>& lines) {
     Addf(lines, "op=dump section=draw glyphs=%d quads=%d icons=%d dl_words=%d cursor_drawn=%d", status.drawGlyphs,
          status.drawQuads, status.drawIcons, status.dlWords, status.cursorDrawn ? 1 : 0);
     Addf(lines, "op=dump section=hud %s", DescribeHud().c_str());
+    // #128: the page stepper. Every field is `stepper_`-prefixed: `at=`, `alpha=` and `row=` would each
+    // collide with another section's field on a grep of the whole dump. `stepper_at=` is 1-based, as `page=`.
+    {
+        const RsMenuStepperState s = RsMenu_StepperState();
+        auto join = [](const std::vector<int32_t>& v) {
+            std::string out;
+            for (size_t i = 0; i < v.size(); i++) {
+                out += (i > 0 ? "," : "") + std::to_string(v[i]);
+            }
+            return out;
+        };
+        // Worst case about 280 bytes (seven-character coordinates, two ramps of eight "255"), inside Addf's 512.
+        Addf(lines,
+             "op=dump section=stepper stepper_shown=%d stepper_alpha=%d stepper_at=%d stepper_stones=%d "
+             "stepper_side=%.1f stepper_row=%.1f,%.1f,%.1f,%.1f stepper_gap=%.1f,%.1f stepper_ramp_open=%s "
+             "stepper_ramp_close=%s",
+             s.shown ? 1 : 0, s.alpha, s.at + 1, s.stones, s.stone, s.x0, s.y0, s.x1, s.y1, s.gapX0, s.gapX1,
+             join(s.rampOpen).c_str(), join(s.rampClose).c_str());
+    }
     // #131: THE HARNESS CANNOT HEAR, so every sound the menu plays is counted and a run asserts the
     // counts. One field per event, named by RsMenu_SfxEventName so adding an event adds a field and
     // nothing here changes. A count proves the call was made, NOT that anything came out of the

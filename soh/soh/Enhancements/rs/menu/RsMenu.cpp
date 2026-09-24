@@ -1,6 +1,10 @@
 /*
  * RsMenu.cpp - the mod-owned pause interface (sturdy-bassoon#111), stages 1-8.
  *
+ * #128 adds the page stepper: a row of stones, one per page, in the HUD's gap between the hearts and
+ * START (DrawStepper). It is drawn in the dim's node under the dim's identity matrix, so it adds no
+ * Matrix_* op and no node.
+ *
  * #130 raises the vanilla HUD (cosmetics defaults, RegisterRsHudDefaults), drops the whole scroll 3 units
  * to clear the magic meter, and stands the level-1 hands upright with the HUD cut to a moved B. No
  * Matrix_* op is added or made conditional: the drop is a term in the base matrix's one translate, the
@@ -177,6 +181,9 @@ extern PlayState* gPlayState;
 // forward declaration AgentTest.cpp carries, for the same reason. The dim quad needs it because it
 // is the one piece of this menu that spans the whole window rather than the 4:3 band.
 float OTRGetAspectRatio(void);
+// The same, for the page stepper (#128), which sits between a left-anchored and a right-anchored HUD element.
+float OTRGetDimensionFromLeftEdge(float v);
+float OTRGetDimensionFromRightEdge(float v);
 }
 
 #define CVAR_RS_MENU_ON CVAR_ENHANCEMENT("RsMenu")
@@ -821,6 +828,19 @@ static u8 DimAlpha() {
     return (u8)((float)kDimAlpha * EntryProgress());
 }
 
+// The HUD's share of its alpha over the arrival: linear in the entry tick, as kaleido fades its START button
+// over its open and close. START and the page stepper (#128) both ride it, so the two fade as one.
+static float HudEntryShown() {
+    switch (sPhase) {
+        case RS_MENU_PHASE_OPENING:
+            return (float)sEntryTick / (float)kEntryTicks;
+        case RS_MENU_PHASE_CLOSING:
+            return 1.0f - (float)sEntryTick / (float)kEntryTicks;
+        default:
+            return 1.0f;
+    }
+}
+
 // Which side of the scroll travels: R (+1) closes with the right hand, L (-1) with the left. A
 // "side" is a roll end and the hand holding it, moved as one - which is what makes it impossible
 // for a hand to come apart from its roll.
@@ -913,6 +933,13 @@ static float LevelHudShown() {
         return 0.0f;
     }
     return 1.0f - EaseInOut((float)pose / (float)kLevelSwapTick);
+}
+
+// START's share of its full alpha, all told: the arrival, the level gesture, and none at all when the menu
+// opened over a HUD something else had hidden. The page stepper (#128) draws at exactly this, so the two
+// cannot part company.
+static float StartShown() {
+    return sHudShown ? HudEntryShown() * LevelHudShown() : 0.0f;
 }
 
 // Whether B is at its level-1 spot: from the swap tick on, when it is invisible.
@@ -1343,6 +1370,125 @@ static void DrawDim() {
     dl.push_back(gsSPVertex(vtx, 4, 0));
     dl.push_back(gsSP1Quadrangle(0, 2, 3, 1, 0));
     sDrawQuads++;
+}
+
+// --- the page stepper (#128) ----------------------------------------------------------------------
+//
+// One stone per page in the ring, the page the ring is on red and the rest grey - the POC's placeholder
+// art. It lives in the HUD's band, in the gap between the hearts/magic block and START (Spencer,
+// 2026-09-22), so it is placed from the HUD's numbers, not the scroll's. It does not ride the arrival or
+// #130's drop. It draws at START's own alpha (StartShown): it RAMPS with the arrival, fades out with START
+// and A on the way down a level, gone from the swap tick on, and is not drawn when the menu opened over a
+// hidden HUD, where START is not either. The highlight moves when sPage does, which during a roll is the
+// swap tick, while the scroll is shut.
+//
+// The gap runs from a LEFT-anchored block to a RIGHT-anchored button, so its width changes with the
+// window's aspect ratio and its centre does not - both edges move the same distance in opposite
+// directions (OTRGetDimensionFromLeftEdge/RightEdge). At 16:9 it is x 70.8-183.6, 113 wide; narrower, the
+// row shrinks to fit (LayoutStepper), and at 4:3, about 6 wide, there is no room and it is not drawn.
+//
+// The two edges are MEASURED, as drawn, rather than derived, for the same reason B's level-1 move is: what
+// the eye sees as the gap is not the elements' quads. Off #128's first capture at 16:9, HUD raised, double
+// magic, a full row of hearts (docs/test-runs/2026-09-24-issue-128-stepper, `gap-out.txt`): the hearts and
+// the magic meter end at x 70.8, and START's "Return" label starts at 183.6 - it overhangs START's disc to
+// the left. At 4:3 those are 124.1 and 130.3. The code's own numbers put the edges 1.4 and 1.8 further right,
+// which left the row 1.6 off the gap's centre: START's quad starts at startButtonLeftPos (132 in English,
+// z_parameter.c:3839) from the right edge, and a full heart row's quad ends at 120 + 5.6 (ten hearts 10
+// apart from x 30, 16 units at 0.7, z_lifemeter.c:584, :633). START's height IS derived: its top is 16 less
+// the top margin and it is 24 square (32 at 0.75, z_parameter.c:3950-3952).
+//
+// Drawn in the dim's node under its identity matrix and its prim-colour state, which is the fade's
+// mechanism already: alpha is a prim-colour immediate and steps with the tick, as the dim does. The
+// stones never move, so they need no Matrix_* op of their own.
+// How far 16:9 moves an anchored element from where 4:3 puts it: 120 * 16 / 9 - 160. The two measured edges
+// are brought back to 4:3 through it, and OTRGetDimensionFrom*Edge carries them to the live aspect ratio.
+constexpr float kShift169 = (float)(SCREEN_HEIGHT / 2) * 16.0f / 9.0f - (float)(SCREEN_WIDTH / 2);
+constexpr float kStartLeft43 = 183.6f - kShift169;
+constexpr float kStartTopY = 16.0f;
+constexpr float kStartSize = 24.0f;
+constexpr float kHeartsRight43 = 70.8f + kShift169;
+constexpr float kStoneSize = 14.0f; // #128's drawing: 14 x 14, 6 apart
+constexpr float kStoneGap = 6.0f;
+constexpr float kStepperPad = 4.0f; // air between the row and the hearts or START, at the tightest
+// Below this a stone is a speck, and the stepper is not drawn at all - which is what happens at 4:3, where
+// the hearts run into START's label and the gap is about 6 units (#128's run, s2 at 4:3: stones of 0).
+constexpr float kStoneMin = 4.0f;
+constexpr u8 kStoneCurrentColour[3] = { 210, 40, 40 };
+constexpr u8 kStoneColour[3] = { 150, 150, 150 };
+
+struct StepperLayout {
+    int32_t stones;
+    float stone, pitch;
+    float x0, y0, x1, y1;
+    float gapX0, gapX1;
+};
+
+// SIZED FROM THE PAGE COUNT AND THE GAP, per the ring's invariant (RsMenu.h): as many stones as there are
+// pages, at 14 + 6 while they fit - five do at 16:9 - and all scaled down together once they do not.
+static StepperLayout LayoutStepper() {
+    StepperLayout l;
+    l.stones = RsMenu_PageCount();
+    l.gapX0 = OTRGetDimensionFromLeftEdge(kHeartsRight43);
+    l.gapX1 = OTRGetDimensionFromRightEdge(kStartLeft43);
+    const float want = l.stones > 0 ? (float)l.stones * kStoneSize + (float)(l.stones - 1) * kStoneGap : 0.0f;
+    const float room = std::max(0.0f, l.gapX1 - l.gapX0 - 2.0f * kStepperPad);
+    const float scale = want > room ? room / want : 1.0f;
+    l.stone = kStoneSize * scale;
+    l.pitch = (kStoneSize + kStoneGap) * scale;
+    l.x0 = (l.gapX0 + l.gapX1 - want * scale) / 2.0f;
+    l.x1 = l.x0 + want * scale;
+    // Level with START's middle, whatever the top margin (#130's raise) makes that.
+    const int32_t margin = CVarGetInteger(CVAR_COSMETIC("HUD.StartButton.UseMargins"), 0) != 0
+                               ? CVarGetInteger(CVAR_COSMETIC("HUD.Margin.T"), 0)
+                               : 0;
+    l.y0 = kStartTopY - (float)margin + (kStartSize - l.stone) / 2.0f;
+    l.y1 = l.y0 + l.stone;
+    return l;
+}
+
+// What the last drawn frame did with the stepper, for `menu dump`.
+static bool sStepperDrawn = false;
+static int32_t sStepperAlpha = 0;
+// ...and the alpha it drew on each tick of the last opening slide [0] and the last closing one [1], -1 for
+// a tick no frame drew. The arrival is 8 ticks and the agent loop reads a command every 10, so no dump can
+// land inside a slide; this is what the ramp is asserted against. Cleared as each slide starts.
+enum StepperSlide {
+    STEPPER_SLIDE_OPEN = 0,
+    STEPPER_SLIDE_CLOSE,
+    STEPPER_SLIDE_COUNT,
+};
+static int16_t sStepperRamp[STEPPER_SLIDE_COUNT][kEntryTicks];
+
+static void ClearStepperRamp(int32_t slide) {
+    for (int32_t i = 0; i < kEntryTicks; i++) {
+        sStepperRamp[slide][i] = -1;
+    }
+}
+
+static void DrawStepper() {
+    const StepperLayout l = LayoutStepper();
+    const u8 alpha = (u8)(255.0f * StartShown());
+    sStepperAlpha = alpha;
+    if ((sPhase == RS_MENU_PHASE_OPENING || sPhase == RS_MENU_PHASE_CLOSING) && sEntryTick < kEntryTicks) {
+        sStepperRamp[sPhase == RS_MENU_PHASE_OPENING ? STEPPER_SLIDE_OPEN : STEPPER_SLIDE_CLOSE][sEntryTick] = alpha;
+    }
+    sStepperDrawn = alpha > 0 && l.stones > 0 && l.stone >= kStoneMin;
+    if (!sStepperDrawn) {
+        return;
+    }
+    Vtx* vtx = (Vtx*)Graph_Alloc(sDrawGfxCtx, (size_t)l.stones * 4 * sizeof(Vtx));
+    std::vector<Gfx>& dl = MenuDl();
+    for (int32_t i = 0; i < l.stones; i++) {
+        const float x = l.x0 + (float)i * l.pitch;
+        const u8* colour = i == sPage ? kStoneCurrentColour : kStoneColour;
+        // The colour is the prim colour's, as the dim's is; the vertex colour is ignored under it.
+        SetFlatQuad(&vtx[i * 4], (int16_t)std::lround(x), (int16_t)std::lround(l.y0), (int16_t)std::lround(x + l.stone),
+                    (int16_t)std::lround(l.y1), colour);
+        dl.push_back(gsDPSetPrimColor(0, 0, colour[0], colour[1], colour[2], alpha));
+        dl.push_back(gsSPVertex(&vtx[i * 4], 4, 0));
+        dl.push_back(gsSP1Quadrangle(0, 2, 3, 1, 0));
+        sDrawQuads++;
+    }
 }
 
 // Flat vertex colour: shade in, shade out. No texture, no lighting, and no Z - the world has
@@ -2702,10 +2848,7 @@ static void RsMenu_OnGameFrameUpdate() {
                 sHudReasserts++;
             }
             // The START button fades with the entry slide, as kaleido fades it over its open and close.
-            const float shown = sPhase == RS_MENU_PHASE_OPENING   ? (float)sEntryTick / (float)kEntryTicks
-                                : sPhase == RS_MENU_PHASE_CLOSING ? 1.0f - (float)sEntryTick / (float)kEntryTicks
-                                                                  : 1.0f;
-            play->interfaceCtx.startAlpha = sHudShown ? (s16)(255.0f * shown * LevelHudShown()) : 0;
+            play->interfaceCtx.startAlpha = (s16)(255.0f * StartShown());
             ApplyLevelHud(play);
             ApplyLevelBLabel(play);
         }
@@ -2866,6 +3009,8 @@ static void RsMenu_OnPlayDrawEnd() {
     Matrix_Translate(0.0f, 0.0f, 0.0f, MTXMODE_NEW);
     PushCurrentMatrix();
     DrawDim();
+    // #128: the stepper, in the same state and under the same identity; everything after draws over it.
+    DrawStepper();
     Matrix_Pop();
     FrameInterpolation_RecordCloseChild();
 
@@ -3090,6 +3235,8 @@ void RsMenu_HudRaise(int32_t* marginTop, int32_t* elementsOn, int32_t* elements)
 
 static void RegisterRsMenu() {
     RegisterRsHudDefaults();
+    ClearStepperRamp(STEPPER_SLIDE_OPEN);
+    ClearStepperRamp(STEPPER_SLIDE_CLOSE);
     // The Quest Journal is the ring's first page and the three ported vanilla pages follow it, and
     // all of them are registered from HERE rather than from ShipInits of their own: ShipInit functions
     // in different translation units run in no promised order, and the ring's order is what L/R walks.
@@ -3375,6 +3522,7 @@ RsMenuOpenResult RsMenu_Open() {
 
     sPhase = RS_MENU_PHASE_OPENING;
     sEntryTick = 0;
+    ClearStepperRamp(STEPPER_SLIDE_OPEN);
     sOpens++;
     // #131: after every refusal above, so a refused open is silent. The rebuild just above does NOT
     // move the cursor through JumpCursor, so opening plays this and nothing else - vanilla likewise
@@ -3399,6 +3547,7 @@ bool RsMenu_BeginClose() {
     // top first, which is one line and the difference between a slide and a jerk.
     sEntryTick = sPhase == RS_MENU_PHASE_OPENING ? kEntryTicks - sEntryTick : 0;
     sPhase = RS_MENU_PHASE_CLOSING;
+    ClearStepperRamp(STEPPER_SLIDE_CLOSE);
     // #131: the SLIDE plays it, and the instant RsMenu_Close does not - that path is a scene load or
     // the CVar going off, not a player leaving, and it also runs at the END of this slide, where a
     // second sound would double every close.
@@ -3689,6 +3838,26 @@ RsMenuLevelState RsMenu_LevelState() {
     state.bShown = LevelBShown();
     state.bMoved = LevelBMoved();
     state.detail = RsMenu_DetailRect();
+    return state;
+}
+
+RsMenuStepperState RsMenu_StepperState() {
+    const StepperLayout l = LayoutStepper();
+    const bool up = MenuIsUp();
+    RsMenuStepperState state;
+    state.shown = up && sStepperDrawn;
+    state.alpha = up ? sStepperAlpha : 0;
+    state.at = sPage;
+    state.stones = l.stones;
+    state.stone = l.stone;
+    state.x0 = l.x0;
+    state.y0 = l.y0;
+    state.x1 = l.x1;
+    state.y1 = l.y1;
+    state.gapX0 = l.gapX0;
+    state.gapX1 = l.gapX1;
+    state.rampOpen.assign(sStepperRamp[STEPPER_SLIDE_OPEN], sStepperRamp[STEPPER_SLIDE_OPEN] + kEntryTicks);
+    state.rampClose.assign(sStepperRamp[STEPPER_SLIDE_CLOSE], sStepperRamp[STEPPER_SLIDE_CLOSE] + kEntryTicks);
     return state;
 }
 
