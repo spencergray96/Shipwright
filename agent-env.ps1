@@ -146,9 +146,18 @@ function Get-SohTrees {
     #>
     foreach ($root in Get-SohTreeRoots) {
         $claim = Read-SohClaim -TreeRoot $root
+        # Nothing expires a claim automatically - a leftover one is a question for a
+        # human, not something to clear so a tree can be taken. So how long it has
+        # been held is the only staleness signal there is, and it has to read at a
+        # glance: an hours-or-days claim is almost certainly a session that ended.
         $age = ''
         if ($claim -and $claim.Since) {
-            try { $age = '{0:0}m' -f ((Get-Date) - [datetime]::Parse($claim.Since)).TotalMinutes }
+            try {
+                $span = (Get-Date) - [datetime]::Parse($claim.Since)
+                if ($span.TotalMinutes -lt 60) { $age = '{0:0}m' -f $span.TotalMinutes }
+                elseif ($span.TotalHours -lt 24) { $age = '{0:0}h' -f $span.TotalHours }
+                else { $age = '{0:0}d - stale?' -f $span.TotalDays }
+            }
             catch { $age = '?' }
         }
         [PSCustomObject]@{
