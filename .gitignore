@@ -461,3 +461,7 @@ soh/properties.h
 /clang-format
 /clang-format.exe
 *.o2r
+
+# Fork-local: agent-env.ps1's build lock, held only for a build's duration.
+# A crash can leave one behind; it is reclaimed automatically on the next build.
+/.agent-build.lock

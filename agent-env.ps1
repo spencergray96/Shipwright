@@ -136,6 +136,47 @@ function Invoke-SohCMake {
         if ($_ -match '\s') { '"' + $_ + '"' } else { $_ }
     }
 
+    # Take the tree's build lock. Two sessions building one tree write the same
+    # soh.exe from different sources and neither is told: the binary matches neither
+    # checkout, and nothing downstream can tell. "One task per tree" is a convention
+    # agents are asked to honour; this is the mechanism that does not depend on them.
+    #
+    # The lock lives exactly as long as the build, so the cmake process is its own
+    # identity - no session id to rotate or be inherited, no staleness heuristic
+    # beyond "is that pid still alive".
+    $lockFile = Join-Path $script:SohTreeRoot '.agent-build.lock'
+    $lockStream = $null
+    try {
+        # CreateNew throws if the file exists: atomic, so two builds racing here
+        # cannot both believe they won.
+        $lockStream = [System.IO.File]::Open($lockFile, [System.IO.FileMode]::CreateNew,
+                                             [System.IO.FileAccess]::Write,
+                                             [System.IO.FileShare]::Read)
+    }
+    catch [System.IO.IOException] {
+        $holder = try { (Get-Content $lockFile -Raw -ErrorAction Stop).Trim() } catch { '(unreadable)' }
+        $holderPid = if ($holder -match 'pid=(\d+)') { [int]$Matches[1] } else { 0 }
+        $alive = $holderPid -gt 0 -and (Get-Process -Id $holderPid -ErrorAction SilentlyContinue)
+        if ($alive) {
+            throw ("A build is already running in $(Split-Path $script:SohTreeRoot -Leaf): $holder" +
+                   [Environment]::NewLine +
+                   "Wait for it, or build in the other checkout. Two builds in one tree overwrite " +
+                   "the same soh.exe from different sources.")
+        }
+        # Holder is gone - a killed or crashed build. Reclaim rather than wedge the tree.
+        Write-Host "[agent-env] clearing a stale build lock from $holder"
+        Remove-Item -LiteralPath $lockFile -Force
+        $lockStream = [System.IO.File]::Open($lockFile, [System.IO.FileMode]::CreateNew,
+                                             [System.IO.FileAccess]::Write,
+                                             [System.IO.FileShare]::Read)
+    }
+
+    $writer = New-Object System.IO.StreamWriter($lockStream)
+    $writer.WriteLine("pid=$PID started=$((Get-Date).ToUniversalTime().ToString('o')) tree=$(Split-Path $script:SohTreeRoot -Leaf)")
+    $writer.Flush()
+
+    try {
+
     $started = Get-Date
     $proc = Start-Process -FilePath $script:SohCMake -ArgumentList $quoted `
         -WorkingDirectory $script:SohTreeRoot -NoNewWindow -PassThru
@@ -153,6 +194,15 @@ function Invoke-SohCMake {
     Write-Host ("[agent-env] exit={0} elapsed={1:hh\:mm\:ss}" -f $proc.ExitCode, $elapsed)
 
     $proc.ExitCode
+
+    }
+    finally {
+        # finally, not a trailing statement: a failed build, a thrown error or Ctrl+C
+        # must all release the tree. A lock that outlives its build wedges the checkout.
+        if ($writer) { $writer.Dispose() }
+        if ($lockStream) { $lockStream.Dispose() }
+        Remove-Item -LiteralPath $lockFile -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Invoke-SohBuild {
