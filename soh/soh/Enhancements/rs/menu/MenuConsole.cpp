@@ -1,5 +1,6 @@
 #include "MenuConsole.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 
@@ -581,22 +582,27 @@ int32_t Dump(std::vector<std::string>& lines) {
     // #132: the name panel, as the last drawn frame drew it. Every field is `name_panel_`-prefixed: `name=` is
     // already the state marker's scene name and `quest`'s, and `item=`, `timer=` and `at=` are other sections'.
     // `name_panel_text=` is what is on the stone (name, prompt, to - a hand's label - or none) and
-    // `name_panel_tex=` its texture's resource path, `-` for a prompt or nothing; it goes LAST because a custom
-    // name's path is whatever the hook wrote. Worst case about 420 bytes with an 80-character path, inside Addf's
-    // 512. The L/R icons are a line of their own for the same budget.
+    // `name_panel_glyphs=` whatever went on as text rather than a texture (the Journal's "to select quest", "To Quest
+    // Journal") with its spaces written as `_`, `-` for none; and `name_panel_tex=` its texture's resource path, `-`
+    // for a prompt or nothing - LAST, because a custom name's path is whatever the hook wrote. Worst case about 460
+    // bytes with an 80-character path and a 20-character label, inside Addf's 512. The L/R icons are a line of their
+    // own for the same budget.
     {
-        static const char* const kPrompt[] = { "none", "c_equip", "a_equip", "a_play_melody" };
+        static const char* const kPrompt[] = { "none", "c_equip", "a_equip", "a_play_melody", "a_text" };
         static_assert(sizeof(kPrompt) / sizeof(kPrompt[0]) == RS_MENU_PROMPT_COUNT, "one name per RsMenuNamePrompt");
         const RsNamePanelState n = RsNamePanel_State();
         const int32_t prompt = n.prompt >= 0 && n.prompt < RS_MENU_PROMPT_COUNT ? n.prompt : 0;
+        std::string glyphs = n.glyphs.empty() ? "-" : n.glyphs;
+        std::replace(glyphs.begin(), glyphs.end(), ' ', '_');
         Addf(lines,
              "op=dump section=name_panel name_panel_shown=%d name_panel_stone=%d name_panel_text=%s "
              "name_panel_item=%s name_panel_grey=%d name_panel_timer=%d name_panel_alternates=%d name_panel_sub=%d "
              "name_panel_prompt=%s name_panel_custom=%d name_panel_lookups=%d name_panel_customs=%d "
-             "name_panel_at=%.1f,%.1f,%.1f,%.1f name_panel_tex=%s",
+             "name_panel_at=%.1f,%.1f,%.1f,%.1f name_panel_glyphs=%s name_panel_tex=%s",
              n.shown ? 1 : 0, n.stone ? 1 : 0, n.text, n.itemName.c_str(), n.grey ? 1 : 0, n.timer,
              n.alternates ? 1 : 0, n.subState, kPrompt[prompt], n.custom ? 1 : 0, n.lookups, n.customs,
-             n.stoneRect[0], n.stoneRect[1], n.stoneRect[2], n.stoneRect[3], n.tex.empty() ? "-" : n.tex.c_str());
+             n.stoneRect[0], n.stoneRect[1], n.stoneRect[2], n.stoneRect[3], glyphs.c_str(),
+             n.tex.empty() ? "-" : n.tex.c_str());
         static const char* const kBig[] = { "none", "left", "right" };
         Addf(lines,
              "op=dump section=name_panel_lr name_panel_lr_shown=%d name_panel_lr_big=%s "

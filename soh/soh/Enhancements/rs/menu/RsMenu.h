@@ -79,6 +79,13 @@ void RsMenu_DrawIcon(const void* texture, RsMenuTexFormat format, int16_t texW, 
 // which vanilla draws as three overlapping crops of one texture, one per button colour.
 void RsMenu_DrawPanelTexture(const void* texture, RsMenuTexFormat format, int16_t texW, int16_t texH, int16_t s0,
                              int16_t s1, int16_t x, int16_t y, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
+// #132 - TEXT ON THE STONE with no texture behind it: the font RsMenu_DrawText uses, under the same panel combiner
+// as RsMenu_DrawPanelTexture, so its faint edge pixels pick up the panel's dark ENVIRONMENT colour the way
+// vanilla's word textures do rather than going black. What the mod says that vanilla has no art for ("to select
+// quest", "To Quest Journal"): Spencer (2026-09-25) chose typed text over new textures while the menu may still
+// grow. Same space and validity rule as the text calls; `x`/`y` is the first glyph cell's top-left.
+void RsMenu_DrawPanelText(const char* text, int16_t x, int16_t y, float scale, uint8_t r, uint8_t g, uint8_t b,
+                          uint8_t a);
 
 // STAGE 8 - LINK'S PORTRAIT: a quad textured from the pause-Link framebuffer, composited onto the
 // parchment under the scroll's matrix, and the request that makes the menu render Link into that
@@ -178,8 +185,9 @@ enum RsMenuStickModel {
 
 // #132: THE NAME PANEL - vanilla's stone bar under the scroll, naming the item the cursor is on and
 // alternating with the button prompts on vanilla's own timer (NamePanel.cpp ports KaleidoScope_DrawInfoPanel
-// and KaleidoScope_UpdateNamePanel). A page with a `name` callback gets the panel; a page without one (the
-// Quest Journal) does not. The PAGE says what its node names, because only the page knows what its slot
+// and KaleidoScope_UpdateNamePanel). A page with a `name` callback gets the panel; a page without one does not.
+// The Quest Journal has one since 2026-09-25 (Spencer): no name, but vanilla's A symbol and "to select quest", so
+// what A does there is on screen. The PAGE says what its node names, because only the page knows what its slot
 // holds; the panel owns the timer, the textures and the drawing.
 //
 // `name` is asked once per update tick for the item node the cursor is on (never for a hand) and fills in
@@ -193,11 +201,14 @@ enum RsMenuStickModel {
 //   subState   - kaleido's unk_1E4 on this page right now (3 an equip flight, the song states on Quest Status):
 //                it decides whether the name and the prompts may show at all (DrawInfoPanel:2165-2230).
 //   prompt     - which of vanilla's button prompts this node gets when the name is not showing.
+//   promptText - RS_MENU_PROMPT_A_TEXT's words, drawn as text after vanilla's A symbol: a prompt vanilla has no
+//                texture for (the Quest Journal's "to select quest"). Must outlive the draw - a literal.
 enum RsMenuNamePrompt {
     RS_MENU_PROMPT_NONE = 0,
     RS_MENU_PROMPT_C_EQUIP,       // the C symbols and "to Equip" (Select Item)
     RS_MENU_PROMPT_A_EQUIP,       // A and "to Equip" (Equipment)
     RS_MENU_PROMPT_A_PLAY_MELODY, // A and "to Play Melody" (a Quest Status song)
+    RS_MENU_PROMPT_A_TEXT,        // A and `promptText`, as text (the Quest Journal's rows)
     RS_MENU_PROMPT_COUNT,
 };
 struct RsMenuNameInfo {
@@ -206,6 +217,7 @@ struct RsMenuNameInfo {
     bool alternates;
     int32_t subState;
     RsMenuNamePrompt prompt;
+    const char* promptText;
 };
 typedef void (*RsMenuPageNameFn)(int32_t pageIndex, const RsMenuCursorNode* node, RsMenuNameInfo* info,
                                  void* userData);
@@ -226,12 +238,14 @@ struct RsMenuPage {
     RsMenuPageTickFn tick = nullptr;
     RsMenuPageHoldFn hold = nullptr;
     RsMenuPageResetFn reset = nullptr;
-    // #132, both optional. `name`: see RsMenuNameInfo above. `toLabel`: the "To <this page>" label vanilla's
+    // #132, all optional. `name`: see RsMenuNameInfo above. `toLabel`: the "To <this page>" label vanilla's
     // panel shows in yellow while the cursor rests on a page arrow that turns TO this page - four 128 x 16 IA8
-    // textures, by gSaveContext.language (ENG, GER, FRA, JPN). Null where vanilla has no such label (the Quest
-    // Journal), and then a hand turning to this page shows the stone with nothing on it.
+    // textures, by gSaveContext.language (ENG, GER, FRA, JPN). `toText`: the same label as text, for a page vanilla
+    // has no texture for (the Quest Journal's "To Quest Journal"); used only when `toLabel` is null. With neither,
+    // a hand turning to this page shows the stone with nothing on it.
     RsMenuPageNameFn name = nullptr;
     const void* const* toLabel = nullptr;
+    const char* toText = nullptr;
 };
 
 // Registers a page at the end of the ring and returns its 0-based index, or -1 if `id` is empty or

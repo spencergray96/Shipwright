@@ -5,8 +5,12 @@
  * through the menu's helpers (RsMenu.h) rather than kaleido's vertex buffer. Spencer's calls (2026-09-22 on
  * #132, and 2026-09-24):
  *   - the name alternates with the prompts on vanilla's own timer, WREG(88) and WREG(89), on vanilla's stone;
- *   - under the scroll; the Quest Journal gets no stone (it has no `name` callback);
- *   - on a hand, the "To <page>" label of the page the hand turns to, and nothing toward the Journal;
+ *   - under the scroll;
+ *   - on a hand, the "To <page>" label of the page the hand turns to;
+ *   - (2026-09-25) the Quest Journal gets the stone too, with vanilla's A symbol and "to select quest", and a hand
+ *     turning to the Journal reads "To Quest Journal". Vanilla has no art for either, so both are TEXT, in the
+ *     menu's font under the panel's combiner (RsMenu_DrawPanelText) - Spencer's call, rather than making textures
+ *     while the menu may still grow;
  *   - the L/R icons on every page, each vertically centred on its hand's palm and clear of the hand by the
  *     stepper's gap. RsMenu.cpp works those positions out; this file draws what it is handed.
  *
@@ -64,6 +68,9 @@ constexpr int16_t kNameW = 128;
 constexpr int16_t kArrowW = 24;
 constexpr int16_t kArrowH = 32;
 constexpr int16_t kArrowInset = 3;
+// Text on the stone (RsMenu_DrawPanelText): the font's 16-unit cell at this scale, centred in the 16-tall text row.
+constexpr float kPanelTextScale = 0.75f;
+constexpr int16_t kPanelTextCell = (int16_t)(FONT_CHAR_TEX_WIDTH * kPanelTextScale);
 
 // DrawInfoPanel's per-language widths (:1944-1946): "to Equip" and "to Play Melody", by gSaveContext.language.
 static const int16_t kToEquipW[4] = { 56, 88, 80, 56 };
@@ -107,7 +114,7 @@ static bool SubStateShowsPrompt(int32_t sub) {
 
 // --- the named item and its timer: KaleidoScope_UpdateNamePanel (:2437-2523) -------------------------------------
 
-constexpr RsMenuNameInfo kNamesNothing = { -1, false, false, 0, RS_MENU_PROMPT_NONE };
+constexpr RsMenuNameInfo kNamesNothing = { -1, false, false, 0, RS_MENU_PROMPT_NONE, nullptr };
 static RsMenuNameInfo sInfo = kNamesNothing;
 static int32_t sNamed = -1;        // namedItem; -1 is PAUSE_ITEM_NONE
 static int32_t sTimer = 0;         // nameDisplayTimer
@@ -256,6 +263,7 @@ void RsNamePanel_Hidden() {
     sState.lrBig = 0;
     sState.text = "none";
     sState.tex = "-";
+    sState.glyphs.clear();
 }
 
 // One L/R icon (:2054-2143). Colour, with SoH's FixMenuLR off, is vanilla's own slip: the left icon draws in the
@@ -291,9 +299,13 @@ static void DrawArrow(const RsNamePanelFrame& f, int32_t side, bool onArrow) {
 
 // A button symbol and its words (:2240-2267, :2356-2430): the symbol at `symbolX`, 24 wide, in A's colour; the
 // words at `wordsX`, `wordsW` wide, white.
-static void DrawAPrompt(int16_t textY, int16_t symbolX, int16_t wordsX, const void* words, int16_t wordsW) {
+static void DrawASymbol(int16_t x, int16_t textY) {
     const Color_RGB8 a = AButtonColour();
-    RsMenu_DrawPanelTexture(gABtnSymbolTex, RS_MENU_TEX_IA8, 24, 16, 0, 24, symbolX, textY, a.r, a.g, a.b, 255);
+    RsMenu_DrawPanelTexture(gABtnSymbolTex, RS_MENU_TEX_IA8, 24, 16, 0, 24, x, textY, a.r, a.g, a.b, 255);
+}
+
+static void DrawAPrompt(int16_t textY, int16_t symbolX, int16_t wordsX, const void* words, int16_t wordsW) {
+    DrawASymbol(symbolX, textY);
     RsMenu_DrawPanelTexture(words, RS_MENU_TEX_IA8, wordsW, 16, 0, wordsW, wordsX, textY, 255, 255, 255, 255);
 }
 
@@ -309,7 +321,9 @@ void RsNamePanel_Draw(const RsNamePanelFrame& f) {
     sState.stone = false;
     sState.text = "none";
     sState.tex = "-";
+    sState.glyphs.clear();
     StepPulse();
+    const int16_t glyphY = (int16_t)(textY + (kTextH - kPanelTextCell) / 2);
 
     // The stone (:2102-2115): kaleido's two halves in the cosmetics' name-panel colour.
     if (f.page != nullptr && f.page->name != nullptr) {
@@ -354,12 +368,22 @@ void RsNamePanel_Draw(const RsNamePanelFrame& f) {
     }
     if (onHand) {
         // A page arrow's label, yellow, once settled with nothing moving - the label of the page it turns to.
-        if (f.settled && sub == 0 && f.handTo != nullptr && f.handTo->toLabel != nullptr) {
+        if (!f.settled || sub != 0 || f.handTo == nullptr) {
+            return;
+        }
+        if (f.handTo->toLabel != nullptr) {
             const void* label = f.handTo->toLabel[language];
             RsMenu_DrawPanelTexture(label, RS_MENU_TEX_IA8, kNameW, kTextH, 0, kNameW, (int16_t)(cx + kNameX), textY,
                                     255, 200, 0, 255);
             sState.text = "to";
             sState.tex = (const char*)label;
+        } else if (f.handTo->toText != nullptr) {
+            // No texture for this page (the Journal): the label as text, centred, in the labels' yellow.
+            const float w = RsMenu_TextWidth(f.handTo->toText, kPanelTextScale);
+            RsMenu_DrawPanelText(f.handTo->toText, (int16_t)(cx - w / 2.0f), glyphY, kPanelTextScale, 255, 200, 0,
+                                 255);
+            sState.text = "to";
+            sState.glyphs = f.handTo->toText;
         }
         return;
     }
@@ -401,6 +425,21 @@ void RsNamePanel_Draw(const RsNamePanelFrame& f) {
             const int16_t wordsX =
                 (int16_t)(language == LANGUAGE_GER ? symbolX - 99 : symbolX + WREG(52 + lo));
             DrawAPrompt(textY, symbolX, wordsX, kPlayMelody[language], kPlayMelodyW[language]);
+            break;
+        }
+        case RS_MENU_PROMPT_A_TEXT: {
+            // Vanilla's A symbol, then the page's words as text, the pair centred on the stone as vanilla's A
+            // prompts roughly are, with vanilla's own gap from the A to the words (WREG(52 + lang)).
+            if (sInfo.promptText == nullptr) {
+                return;
+            }
+            const int16_t gap = (int16_t)WREG(52 + lo);
+            const float w = (float)gap + RsMenu_TextWidth(sInfo.promptText, kPanelTextScale);
+            const int16_t symbolX = (int16_t)(cx - w / 2.0f);
+            DrawASymbol(symbolX, textY);
+            RsMenu_DrawPanelText(sInfo.promptText, (int16_t)(symbolX + gap), glyphY, kPanelTextScale, 255, 255, 255,
+                                 255);
+            sState.glyphs = sInfo.promptText;
             break;
         }
         default:

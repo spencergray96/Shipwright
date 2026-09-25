@@ -691,6 +691,21 @@ static void QuestPageHud(int32_t pageIndex, uint8_t status[9], void* userData) {
     }
 }
 
+// #132 (Spencer, 2026-09-25): the journal's name panel. It names nothing - the list already names its quests -
+// but on a quest row it shows vanilla's A symbol and "to select quest", the way vanilla's pages show "A to Equip",
+// so what A does here is on screen rather than hidden. Every row goes down into its journal (QuestPageSelect),
+// so every row gets it; on a hand the panel shows the page the hand turns to instead. The words are text, not a
+// texture: vanilla has no art for them (RsMenu_DrawPanelText).
+static void QuestPageName(int32_t pageIndex, const RsMenuCursorNode* node, RsMenuNameInfo* info, void* userData) {
+    (void)pageIndex;
+    (void)userData;
+    if (RowOfNode(node->id) < 0) {
+        return;
+    }
+    info->prompt = RS_MENU_PROMPT_A_TEXT;
+    info->promptText = "to select quest";
+}
+
 // --- public ----------------------------------------------------------------------------------------
 
 RsMenuQuestPageStatus RsMenuQuestPage_Status() {
@@ -759,5 +774,7 @@ void RsMenuQuestPage_Register() {
     page.input = QuestPageInput;
     page.hud = QuestPageHud;
     page.ownsItemHighlight = true;
+    page.name = QuestPageName;
+    page.toText = "To Quest Journal"; // vanilla has no "To" texture for a page it does not have
     sPageIndex = RsMenu_RegisterPageStruct(page);
 }

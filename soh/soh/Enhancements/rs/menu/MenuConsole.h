@@ -258,7 +258,8 @@
 //                         read live between frames. #124 adds `cursor_drawn=` to `section=draw`:
 //                         1 when the last frame drew the cursor box, 0 through a roll or a level
 //                         change (the box hides with the content). #132's name panel counts in `icons=` too
-//                         (its stone, text and L/R icons are textured quads). #131 adds `section=sfx`, one
+//                         (its stone, text and L/R icons are textured quads), and its typed text in
+//                         `glyphs=`. #131 adds `section=sfx`, one
 //                         count per sound event the menu plays (`sfx_cursor=`, `sfx_hand=`,
 //                         `sfx_roll_left=`, `sfx_roll_right=`, `sfx_open=`, `sfx_close=`) - THE ONLY
 //                         CHANNEL FOR SOUND, because the harness cannot hear. A count proves the call
@@ -275,13 +276,16 @@
 //                         entry tick of the last slide each way (-1 where no frame drew), since a
 //                         slide is shorter than a command round trip. Prefixed for the same reason as
 //                         `sfx_`. #132 adds `section=name_panel`, the name panel as the last frame drew
-//                         it: `name_panel_shown=`, `name_panel_stone=` (0 on the Journal),
+//                         it: `name_panel_shown=`, `name_panel_stone=`,
 //                         `name_panel_text=name|prompt|to|none` (what is on the stone; `to` is a hand's
 //                         label), `name_panel_item=` (the named item's token, `-` for none),
 //                         `name_panel_grey=`, `name_panel_timer=`, `name_panel_alternates=`,
-//                         `name_panel_sub=` (the page's kaleido sub-state), `name_panel_prompt=`,
+//                         `name_panel_sub=` (the page's kaleido sub-state), `name_panel_prompt=` (`a_text`
+//                         for the Quest Journal's A and "to select quest"),
 //                         `name_panel_custom=` (named through the hook), `name_panel_lookups=`,
 //                         `name_panel_customs=`, `name_panel_at=x0,y0,x1,y1` on screen, and
+//                         `name_panel_glyphs=` - whatever went on the stone as text rather than a texture,
+//                         spaces as `_` (`to_select_quest`, `To_Quest_Journal`), `-` for none - and
 //                         `name_panel_tex=` last, the texture's resource path or `-`; and
 //                         `section=name_panel_lr`, the L/R icons: `name_panel_lr_shown=`,
 //                         `name_panel_lr_big=none|left|right` (the cursor rests on that hand),

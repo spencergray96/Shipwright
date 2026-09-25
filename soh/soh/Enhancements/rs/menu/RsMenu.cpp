@@ -1131,8 +1131,9 @@ static void SetGlyphQuad(Vtx* v, int16_t gameX, int16_t gameY, int16_t size) {
     }
 }
 
-void RsMenu_DrawText(const char* text, int16_t x, int16_t y, float scale, uint8_t r, uint8_t g, uint8_t b,
-                     uint8_t a) {
+// One run of glyphs, under the text state or (`panel`, #132) the name panel's combiner - see RsMenu_DrawPanelText.
+static void DrawGlyphs(const char* text, int16_t x, int16_t y, float scale, uint8_t r, uint8_t g, uint8_t b, uint8_t a,
+                       bool panel) {
     if (sDrawGfxCtx == nullptr || text == nullptr) {
         return;
     }
@@ -1152,7 +1153,11 @@ void RsMenu_DrawText(const char* text, int16_t x, int16_t y, float scale, uint8_
     }
 
     // A page may interleave icons with its text (stage 8); the glyphs need their own state back.
-    if (sListState != RS_LIST_TEXT) {
+    if (panel) {
+        if (sListState != RS_LIST_PANEL) {
+            PushPanelState();
+        }
+    } else if (sListState != RS_LIST_TEXT) {
         PushTextState();
     }
     std::vector<Gfx>& dl = MenuDl();
@@ -1191,6 +1196,16 @@ void RsMenu_DrawText(const char* text, int16_t x, int16_t y, float scale, uint8_
         i++;
         sDrawGlyphs++;
     }
+}
+
+void RsMenu_DrawText(const char* text, int16_t x, int16_t y, float scale, uint8_t r, uint8_t g, uint8_t b,
+                     uint8_t a) {
+    DrawGlyphs(text, x, y, scale, r, g, b, a, false);
+}
+
+void RsMenu_DrawPanelText(const char* text, int16_t x, int16_t y, float scale, uint8_t r, uint8_t g, uint8_t b,
+                          uint8_t a) {
+    DrawGlyphs(text, x, y, scale, r, g, b, a, true);
 }
 
 void RsMenu_DrawTextCentred(const char* text, int16_t centreX, int16_t y, float scale, uint8_t r, uint8_t g, uint8_t b,

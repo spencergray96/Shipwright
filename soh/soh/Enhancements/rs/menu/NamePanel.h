@@ -47,6 +47,7 @@ struct RsNamePanelState {
     bool stone;
     const char* text;    // what is on the stone: name, prompt, to (a hand's label) or none
     std::string tex;     // the name's texture (a resource path), or the hand label's; "-" for anything else
+    std::string glyphs;  // what was drawn as text rather than a texture ("to select quest"); "" for nothing
     int32_t item;        // namedItem as tracked, -1 none
     std::string itemName;  // its ITEM_ token, "-" for none
     bool grey;
