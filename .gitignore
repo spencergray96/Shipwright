@@ -465,3 +465,7 @@ soh/properties.h
 # Fork-local: agent-env.ps1's build lock, held only for a build's duration.
 # A crash can leave one behind; it is reclaimed automatically on the next build.
 /.agent-build.lock
+
+# Fork-local: which task holds this checkout. Released by whoever claimed it,
+# so a leftover is a question for a human, not something to clear automatically.
+/.agent-claim

@@ -95,6 +95,150 @@ function Get-SohEnv {
     }
 }
 
+# ---------------------------------------------------------------------------
+# Tree claims.
+#
+# A claim is a DECLARATION, not an inference. Availability cannot be read off git
+# state: a tree with uncommitted work may be perfectly free to build in (the human
+# is editing maps and does not mind), and a tree that looks clean may be held by a
+# session that is between edits. Only the person or agent using a tree knows, so
+# they say so.
+#
+# There is deliberately no identity here - no session id, no pid. The `for=` line
+# is the identity, and it is legible to a human. That is what makes this survive
+# the things that sank a keyed lease: CLAUDE_CODE_SESSION_ID is inherited by
+# subagents and rotates mid-conversation.
+#
+# Distinct from .agent-build.lock, which is mechanical and lives for one build.
+# A claim covers the whole task, including the gaps between builds, and is only
+# ever released by whoever took it.
+# ---------------------------------------------------------------------------
+$script:SohClaimFile = '.agent-claim'
+
+function Get-SohTreeRoots {
+    # Every checkout beside this one: a sibling directory carrying its own wrapper.
+    # Discovered rather than listed, so a third tree needs no edit here.
+    $parent = Split-Path $script:SohTreeRoot -Parent
+    $roots = @()
+    foreach ($dir in Get-ChildItem $parent -Directory -ErrorAction SilentlyContinue) {
+        if (Test-Path (Join-Path $dir.FullName 'agent-env.ps1')) { $roots += $dir.FullName }
+    }
+    $roots
+}
+
+function Read-SohClaim {
+    param([Parameter(Mandatory)][string]$TreeRoot)
+    $f = Join-Path $TreeRoot $script:SohClaimFile
+    if (-not (Test-Path $f)) { return $null }
+    $for = ''
+    $since = ''
+    foreach ($line in (Get-Content $f -ErrorAction SilentlyContinue)) {
+        if ($line -match '^for=(.*)$') { $for = $Matches[1] }
+        if ($line -match '^since=(.*)$') { $since = $Matches[1] }
+    }
+    [PSCustomObject]@{ For = $for; Since = $since }
+}
+
+function Get-SohTrees {
+    <#
+    .SYNOPSIS
+    Every checkout, who holds it, and what state it is in. Run this before claiming.
+    #>
+    foreach ($root in Get-SohTreeRoots) {
+        $claim = Read-SohClaim -TreeRoot $root
+        $age = ''
+        if ($claim -and $claim.Since) {
+            try { $age = '{0:0}m' -f ((Get-Date) - [datetime]::Parse($claim.Since)).TotalMinutes }
+            catch { $age = '?' }
+        }
+        [PSCustomObject]@{
+            Tree     = Split-Path $root -Leaf
+            Claimed  = if ($claim) { $claim.For } else { '(free)' }
+            Held     = $age
+            Branch   = (git -C $root branch --show-current 2>$null)
+            Dirty    = @(git -C $root status --porcelain 2>$null).Count
+            Building = (Test-Path (Join-Path $root '.agent-build.lock'))
+        }
+    }
+}
+
+function Claim-SohTree {
+    <#
+    .SYNOPSIS
+    Take the first unclaimed checkout - or a named one - and say what for.
+
+    .EXAMPLE
+    $t = Claim-SohTree -For 'issue 140: quest journal sort order'
+    . $t.Root\agent-env.ps1
+
+    .EXAMPLE
+    # The human reserving a tree for themselves, so agents route elsewhere:
+    Claim-SohTree -For 'mine - grid tool, please leave alone' -Tree Shipwright
+    #>
+    param(
+        [Parameter(Mandatory)][string]$For,
+        [string]$Tree
+    )
+    $candidates = Get-SohTreeRoots
+    if ($Tree) {
+        $candidates = @($candidates | Where-Object { (Split-Path $_ -Leaf) -eq $Tree })
+        if ($candidates.Count -eq 0) {
+            throw "No checkout named '$Tree' beside $(Split-Path $script:SohTreeRoot -Parent)."
+        }
+    }
+    foreach ($root in $candidates) {
+        $f = Join-Path $root $script:SohClaimFile
+        $stream = $null
+        try {
+            # CreateNew is atomic, so two agents claiming at once cannot both win.
+            $stream = [System.IO.File]::Open($f, [System.IO.FileMode]::CreateNew,
+                                             [System.IO.FileAccess]::Write,
+                                             [System.IO.FileShare]::Read)
+        }
+        catch [System.IO.IOException] {
+            continue
+        }
+        $writer = New-Object System.IO.StreamWriter($stream)
+        $writer.WriteLine("for=$For")
+        $writer.WriteLine("since=$((Get-Date).ToUniversalTime().ToString('o'))")
+        $writer.Dispose()
+        $stream.Dispose()
+        Write-Host "[agent-env] claimed $(Split-Path $root -Leaf) for: $For"
+        return [PSCustomObject]@{
+            Tree  = Split-Path $root -Leaf
+            Root  = $root
+            Enter = ". '$(Join-Path $root 'agent-env.ps1')'"
+        }
+    }
+    $held = (Get-SohTrees | ForEach-Object { "  $($_.Tree) - $($_.Claimed)" }) -join [Environment]::NewLine
+    throw ("Every checkout is already claimed:" + [Environment]::NewLine + $held +
+           [Environment]::NewLine +
+           "Ask which tree is yours, or wait for one to be released. Do not just take one - " +
+           "two sessions editing a tree between builds is the case nothing detects.")
+}
+
+function Release-SohTree {
+    <#
+    .SYNOPSIS
+    Give a checkout back. Release what you claimed, when the task is done.
+    #>
+    param([string]$Tree)
+    $root = $script:SohTreeRoot
+    if ($Tree) {
+        $match = @(Get-SohTreeRoots | Where-Object { (Split-Path $_ -Leaf) -eq $Tree })
+        if ($match.Count -eq 0) { throw "No checkout named '$Tree'." }
+        $root = $match[0]
+    }
+    $f = Join-Path $root $script:SohClaimFile
+    if (-not (Test-Path $f)) {
+        Write-Host "[agent-env] $(Split-Path $root -Leaf) was not claimed"
+        return
+    }
+    $claim = Read-SohClaim -TreeRoot $root
+    Remove-Item -LiteralPath $f -Force
+    Write-Host "[agent-env] released $(Split-Path $root -Leaf) (was: $($claim.For))"
+}
+
 function Invoke-SohCMake {
     <#
     .SYNOPSIS
@@ -127,6 +271,13 @@ function Invoke-SohCMake {
     # stream would be joined onto this function's return value.
     Write-Host "[agent-env] $(Split-Path $script:SohTreeRoot -Leaf): cmake $($Arguments -join ' ')"
     Write-Host "[agent-env] priority=$priorityClass nodeReuse=disabled"
+
+    # Surface the claim rather than refusing on it: this may well be your own claim,
+    # and nothing here can tell. An agent that reads a `for=` it does not recognise
+    # should stop and ask rather than build over someone's task.
+    $ownClaim = Read-SohClaim -TreeRoot $script:SohTreeRoot
+    if ($ownClaim) { Write-Host "[agent-env] this tree is claimed for: $($ownClaim.For)" }
+    else { Write-Host "[agent-env] this tree is unclaimed" }
 
     # Start-Process joins ArgumentList with spaces and quotes nothing, so an argument
     # that contains whitespace arrives at the callee split into several. That turns
