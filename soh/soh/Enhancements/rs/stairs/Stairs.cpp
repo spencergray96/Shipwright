@@ -179,10 +179,11 @@ bool MenuRenders(const RsDialogueRule& screen) {
 // override and comes back here.
 constexpr int32_t kDefaultFadeTicks = 6;
 
-// WALK INTO IT (#151). ON by default, provisionally, until the owner has played it on and off.
+// WALK INTO IT (#151). OFF by default: the owner's call (2026-09-26) - built and verified, but not
+// wanted in any area there is today. `stairs bump on` switches it on per install.
 #define CVAR_RS_STAIRS_BUMP CVAR_ENHANCEMENT("RsStairsBump")
 #define CVAR_RS_STAIRS_BUMP_HOLD CVAR_ENHANCEMENT("RsStairsBumpHold")
-constexpr int32_t kDefaultBump = 1;
+constexpr int32_t kDefaultBump = 0;
 // How long Link must push into a placement before its menu opens: 2 ticks, 0.1 s. Short on purpose,
 // because the hold is not what stops a graze - the aim cone is: every graze in the #151 run met the
 // collider 53 to 87 degrees off-centre, outside the 30-degree cone from its first tick, and never

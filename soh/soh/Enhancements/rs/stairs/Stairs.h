@@ -137,7 +137,7 @@ int32_t RsStair_FadeTicksOverridden(void); // 1 when the CVar is set, 0 when the
 // override over a build default, the fade's arrangement - so a human can play it on and off, and
 // at different holds, without a rebuild. `stairs bump ...` sets and clears them.
 //
-// The default is ON, provisionally: the owner decides it after playing both (#151). Hold is in game
+// The default is OFF - the owner's call (#151): not wanted in any current area. Hold is in game
 // ticks (20 per second), clamped to [1, RS_STAIR_MAX_BUMP_HOLD].
 #define RS_STAIR_MAX_BUMP_HOLD 40
 int32_t RsStair_BumpEnabled(void);

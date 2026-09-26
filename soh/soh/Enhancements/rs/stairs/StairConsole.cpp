@@ -366,7 +366,7 @@ const ConsoleSink::Command stairsCommand(
     "go <id> <row> | status | fade [ticks|default] | bump [on|off|default|hold <ticks|default>] | actors | "
     "badcheck. `go` runs the same move a staircase's menu does, without the conversation. The move fades by "
     "default; `fade 0` makes it a hard cut and `fade default` goes back. `bump` is walk-into (#151): pushing into "
-    "a staircase opens its menu after the hold; `bump off` leaves target-and-talk as the only way in.",
+    "a staircase opens its menu after the hold. It is off by default; `bump on` switches it on.",
     { { "list|dump|menu|where|go|status|fade|bump|actors|badcheck", Ship::ArgumentType::TEXT },
       { "staircase id, ticks, or on|off|default|hold", Ship::ArgumentType::TEXT, true },
       { "row or ticks", Ship::ArgumentType::TEXT, true } });

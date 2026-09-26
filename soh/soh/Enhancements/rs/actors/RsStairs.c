@@ -143,7 +143,7 @@ typedef enum RsStairsBumpWhy {
     RS_BUMP_AIM,      // the stick is not pointed into the shaft: brushing past, walking along the landing
     RS_BUMP_FACING,   // Link is not facing the shaft: backing into it
     // A push into it that may not count
-    RS_BUMP_DISABLED,  // the setting is off (`stairs bump off`)
+    RS_BUMP_DISABLED,  // the setting is off - its default (`stairs bump on` switches it on)
     RS_BUMP_MOVING,    // a storey move is in flight
     RS_BUMP_BUSY,      // a textbox is open, or Link is in a cutscene
     RS_BUMP_AIRBORNE,  // Player takes a talk offer only on the ground (or a horse, or swimming - neither
