@@ -160,5 +160,5 @@
 /* 0x8F */ DEFINE_SCENE(lumbridge_lintel_half_scene, none, SCENE_LUMBRIDGE_LINTEL_HALF, SDC_DEFAULT, 0, 0) // project ce85f467-a5c4-4d76-bc9f-1f1dffd03fec name lumbridge_lintel_half
 /* 0x90 */ DEFINE_SCENE(rs_area_p3_scene, none, SCENE_RS_AREA_P3, SDC_DEFAULT, 0, 0) // hand-merge rs_area_p3 (sturdy-bassoon#79 P3b)
 /* 0x91 */ DEFINE_SCENE(draynor_village_3_scene, none, SCENE_DRAYNOR_VILLAGE_3, SDC_DEFAULT, 0, 0) // project 4eb53b4e-4dd3-44cb-a74a-948775383bae name draynor_village_3
-// END GRID TOOL EXPORTS
 /* 0x92 */ DEFINE_SCENE(vert_probe_scene, none, SCENE_VERT_PROBE, SDC_DEFAULT, 0, 0) // hand-authored vertical-traversal probe (sturdy-bassoon#134)
+// END GRID TOOL EXPORTS
