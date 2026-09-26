@@ -25,6 +25,8 @@ extern "C" {
 #include "variables.h"
 #include "macros.h"
 extern PlayState* gPlayState;
+// z_camera.c, declared in no header: pulls `to` in to the first poly between `from` and `to`.
+s32 Camera_BGCheck(Camera* camera, Vec3f* from, Vec3f* to);
 }
 
 // See Stairs.h for what this file owns and why the move is not the actor's.
@@ -270,6 +272,42 @@ void Abort(const char* reason) {
     sMove = Move();
 }
 
+// Seats the freshly snapped camera where Camera_Normal would settle it, so a hard cut's first
+// frame is already the view the next few frames keep.
+//
+// Pulling the eye in to the first wall along InitPlayerSettings' own 10-degree line is not enough:
+// in the castle's tower that line clips the 4-unit rim of the shaft hole, 60 units back, and
+// leaves the eye INSIDE the slab - the first frame then shows the roof through the ceiling. The
+// camera's settled position there is lower (about 3 degrees, 98 back, against the tower's far
+// wall). So three pitches are tried behind him, each pulled in by Camera_BGCheck - the same check
+// Camera_Normal makes every frame - and the one with the longest clear line wins, ties going to
+// the higher pitch. In the open that is the natural 10 degrees at the full 180; in a tight room it
+// is whichever line reaches furthest before a wall.
+void SeatCamera(Camera* camera, s16 yaw) {
+    static const s16 kPitches[] = { 0x71C, 0x38E, 0 }; // 10, 5 and 0 degrees
+    const s16 behind = static_cast<s16>(yaw + 0x8000);
+    const f32 radius = 180.0f;
+    Vec3f best = camera->eye;
+    s16 bestPitch = kPitches[0];
+    f32 bestDist = -1.0f;
+    for (const s16 pitch : kPitches) {
+        const f32 flat = radius * Math_CosS(pitch);
+        Vec3f eye = { camera->at.x + flat * Math_SinS(behind), camera->at.y + radius * Math_SinS(pitch),
+                      camera->at.z + flat * Math_CosS(behind) };
+        Camera_BGCheck(camera, &camera->at, &eye);
+        const f32 dist = Math_Vec3f_DistXYZ(&camera->at, &eye);
+        if (dist > bestDist + 1.0f) {
+            best = eye;
+            bestDist = dist;
+            bestPitch = pitch;
+        }
+    }
+    camera->eye = best;
+    camera->eyeNext = best;
+    camera->inputDir.x = bestPitch;
+    camera->camDir.x = bestPitch;
+}
+
 // THE MOVE ITSELF - every field #134's source dig found an in-place move must write, and the two
 // `agenttest goto` does not.
 void Teleport(PlayState* play, Player* player, const RsStairLanding& landing) {
@@ -303,8 +341,16 @@ void Teleport(PlayState* play, Player* player, const RsStairLanding& landing) {
     // The camera, snapped behind him - Play_Init's own call for "Link just appeared here". Left to
     // itself the camera would chase him up the shaft over several frames, through a slab. Only the
     // main camera: a subcamera belongs to whatever cutscene owns it.
+    //
+    // Then re-seated where the camera would settle. InitPlayerSettings puts the eye a fixed 180
+    // behind him at a 10-degree pitch with no collision check - which, from a landing in a 4-cell
+    // tower room, is OUTSIDE the tower and above the ceiling. On a hard cut the next few
+    // Camera_Normal updates are on screen: the camera swooping in through the wall, then out of
+    // the slab (#147 run record, the cut filmstrips).
     if (play->activeCamera == CAM_ID_MAIN) {
-        Camera_InitPlayerSettings(Play_GetCamera(play, CAM_ID_MAIN), player);
+        Camera* camera = Play_GetCamera(play, CAM_ID_MAIN);
+        Camera_InitPlayerSettings(camera, player);
+        SeatCamera(camera, yaw);
     }
     // One rendered frame interpolated between the old camera and the new would draw a streak
     // through the building. Every other in-engine camera cut says the same thing.
@@ -374,14 +420,17 @@ void OnPlayerUpdateStairs() {
             if (sMove.fade == 0 && sMove.roomChange) {
                 SetFill(play, 255);
             }
-            // `black=` is whether the screen is held black as the move lands - what a screenshot would
-            // have to catch on exactly the right frame to prove.
+            // `black=` is whether the screen is held black as the move lands, and `eye=` where the
+            // snapped camera starts - both what a screenshot would have to catch on exactly the right
+            // frame to prove.
+            const Vec3f eye = Play_GetCamera(play, CAM_ID_MAIN)->eye;
             Marker("rs_stairs stair=%d event=moved to_row=%d storey=%d from=%.1f,%.1f,%.1f pos=%.1f,%.1f,%.1f yaw=%d "
-                   "room=%d room_change=%d black=%d ticks=%d",
+                   "room=%d room_change=%d black=%d eye=%.1f,%.1f,%.1f ticks=%d",
                    sMove.stairId, sMove.toRow, landing->storey, before.x, before.y, before.z,
                    player->actor.world.pos.x, player->actor.world.pos.y, player->actor.world.pos.z,
                    player->actor.shape.rot.y, sMove.roomFrom, sMove.roomChange ? 1 : 0,
-                   (play->envCtx.fillScreen && play->envCtx.screenFillColor[3] == 255) ? 1 : 0, sMove.ticks);
+                   (play->envCtx.fillScreen && play->envCtx.screenFillColor[3] == 255) ? 1 : 0, eye.x, eye.y,
+                   eye.z, sMove.ticks);
             sMove.phase = sMove.roomChange ? Phase::WaitRoom : Phase::Settle;
             sMove.phaseTick = 0;
             return;
