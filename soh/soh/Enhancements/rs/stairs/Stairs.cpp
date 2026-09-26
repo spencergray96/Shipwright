@@ -170,9 +170,10 @@ bool MenuRenders(const RsDialogueRule& screen) {
 // The default is a HARD CUT. Both were built and compared on the castle's tower shaft (#147 ADR,
 // run record 2026-09-25-issue-147-storey-actor): a 6-tick fade costs 0.7 s a move and reads as a
 // door or a load for an 80-unit hop the player can see straight down; the cut is 3 ticks and is
-// what RS does. What the fade hides - a ~200 ms camera re-frame after the snap - is the smaller
-// cost. `stairs fade <n>` overrides it per install without a rebuild; `stairs fade default` clears
-// the override.
+// what RS does. The one thing the fade hid - the camera settling after the snap, which from a
+// tower room started outside the tower - SeatCamera now does before the first frame is drawn.
+// `stairs fade <n>` overrides it per install without a rebuild; `stairs fade default` clears the
+// override.
 constexpr int32_t kDefaultFadeTicks = 0;
 constexpr int32_t kMaxFadeTicks = RS_STAIR_MAX_FADE_TICKS;
 
