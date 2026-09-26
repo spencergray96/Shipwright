@@ -330,12 +330,14 @@
  *                                          `npc dump`/`npc resolve` print the COMPOSED body, `region
  *                                          set us` followed by one of those asserts what a player
  *                                          would actually read
- *   agenttest stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks]|actors|badcheck
+ *   agenttest stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|
+ *                    actors|badcheck
  *                                          staircases (sturdy-bassoon#147): the menu-driven storey
  *                                          move. `go` runs the same move a staircase's menu does, with
  *                                          no conversation to drive; `where` says which storey of each
- *                                          staircase in the scene Link is standing on, and `fade 0`
- *                                          makes the move a hard cut. StairConsole.h documents every
+ *                                          staircase in the scene Link is standing on, and `fade <n>`
+ *                                          overrides the default hard cut (`fade default` clears the
+ *                                          override, which persists). StairConsole.h documents every
  *                                          line; the move's own `rs_stairs stair=<n> event=...` markers
  *                                          are listed with the other gameplay markers above
  *   agenttest menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|
@@ -2099,7 +2101,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
-              "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks]|actors|badcheck | "
+              "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|actors|badcheck | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
@@ -2136,7 +2138,7 @@ void RegisterAgentTest() {
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
-              "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks]|actors|badcheck | "
+              "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|actors|badcheck | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "

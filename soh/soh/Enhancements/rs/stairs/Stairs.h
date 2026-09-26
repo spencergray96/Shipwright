@@ -104,12 +104,16 @@ int32_t RsStair_BeginMove(int32_t stairId, int32_t fromRow, int32_t toRow, const
 // cannot open on top of the first move.
 int32_t RsStair_IsMoving(void);
 
-// The fade, in game ticks each way (20 per second). 0 is a HARD CUT: the move happens on the first
-// tick and nothing is drawn over the screen. Stored in a CVar, so a human can compare the two
-// without a rebuild; `stairs fade <n>` is the console half. Clamped to [0, RS_STAIR_MAX_FADE_TICKS].
+// The fade, in game ticks each way (20 per second). 0 is a HARD CUT - the default - where the move
+// happens on the first tick and nothing is drawn over the screen, except across a room change,
+// which is held black until the new room is the one drawn. An override lives in a CVar, so a human
+// can compare the two without a rebuild; `stairs fade <n>` sets it and `stairs fade default`
+// clears it. Clamped to [0, RS_STAIR_MAX_FADE_TICKS].
 #define RS_STAIR_MAX_FADE_TICKS 40
 int32_t RsStair_GetFadeTicks(void);
 void RsStair_SetFadeTicks(int32_t ticks);
+void RsStair_ClearFadeTicks(void);
+int32_t RsStair_FadeTicksOverridden(void); // 1 when the CVar is set, 0 when the build default applies
 
 #ifdef __cplusplus
 }

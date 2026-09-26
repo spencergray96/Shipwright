@@ -28,8 +28,9 @@
 //                           Link is nearest. A write; the markers above report how it went
 //   status                  the controller: phase, the move in flight, and the last move's final
 //                           marker line (`last="..."`, last on its own line because it has spaces)
-//   fade [ticks]            the fade length each way, in game ticks; 0 is a hard cut. With an
-//                           argument it sets and saves the CVar (0..40)
+//   fade [ticks|default]    the fade length each way, in game ticks; 0 is a hard cut and the build
+//                           default. A number sets and saves the override CVar (0..40); `default`
+//                           clears it. Reports `source=cvar|default`
 //   actors                  every live staircase actor: params decoded, reserved bits, room, pos
 //   badcheck                the validator over the malformed table (StairTable.cpp), one line each
 //

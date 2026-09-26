@@ -190,13 +190,19 @@ int32_t Status(std::vector<std::string>& lines) {
 int32_t Fade(const std::vector<std::string>& args, std::vector<std::string>& lines) {
     if (args.size() >= 2) {
         int32_t ticks = 0;
-        if (!ParseInt(args[1], &ticks) || ticks < 0 || ticks > RS_STAIR_MAX_FADE_TICKS) {
+        if (args[1] == "default") {
+            RsStair_ClearFadeTicks();
+        } else if (!ParseInt(args[1], &ticks) || ticks < 0 || ticks > RS_STAIR_MAX_FADE_TICKS) {
             Addf(lines, "op=fade result=error error=bad_ticks range=0..%d", RS_STAIR_MAX_FADE_TICKS);
             return 1;
+        } else {
+            RsStair_SetFadeTicks(ticks);
         }
-        RsStair_SetFadeTicks(ticks);
     }
-    Addf(lines, "op=fade ticks=%d cut=%d", RsStair_GetFadeTicks(), RsStair_GetFadeTicks() == 0 ? 1 : 0);
+    // `source=` says whether a run left an override behind in the owner's config - the thing to
+    // check before a session ends.
+    Addf(lines, "op=fade ticks=%d cut=%d source=%s", RsStair_GetFadeTicks(), RsStair_GetFadeTicks() == 0 ? 1 : 0,
+         RsStair_FadeTicksOverridden() ? "cvar" : "default");
     return 0;
 }
 
@@ -245,8 +251,8 @@ int32_t BadCheck(std::vector<std::string>& lines) {
 }
 
 const char* kUsage =
-    "usage: stairs list | dump <id> | menu <id> <row> | where | go <id> <row> | status | fade [ticks] | actors | "
-    "badcheck";
+    "usage: stairs list | dump <id> | menu <id> <row> | where | go <id> <row> | status | fade [ticks|default] | "
+    "actors | badcheck";
 
 } // namespace
 
@@ -296,8 +302,9 @@ namespace {
 const ConsoleSink::Command stairsCommand(
     "stairs", RsStairConsole_Run,
     "Staircases - menu-driven storey moves (sturdy-bassoon#147): list | dump <id> | menu <id> <row> | where | "
-    "go <id> <row> | status | fade [ticks] | actors | badcheck. `go` runs the same move a staircase's menu "
-    "does, without the conversation; `fade 0` is a hard cut, for comparing the two.",
+    "go <id> <row> | status | fade [ticks|default] | actors | badcheck. `go` runs the same move a staircase's menu "
+    "does, without the conversation. The move is a hard cut by default; `fade 6` tries a fade and "
+    "`fade default` goes back.",
     { { "list|dump|menu|where|go|status|fade|actors|badcheck", Ship::ArgumentType::TEXT },
       { "staircase id or ticks", Ship::ArgumentType::TEXT, true },
       { "row", Ship::ArgumentType::TEXT, true } });

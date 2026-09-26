@@ -165,9 +165,13 @@ bool MenuRenders(const RsDialogueRule& screen) {
 
 #define CVAR_RS_STAIRS_FADE CVAR_ENHANCEMENT("RsStairsFadeTicks")
 
-// The default fade. See the #147 ADR for the comparison with a hard cut; the number is the one the
-// play test settled on, and `stairs fade <n>` overrides it per install.
-constexpr int32_t kDefaultFadeTicks = 6;
+// The default is a HARD CUT. Both were built and compared on the castle's tower shaft (#147 ADR,
+// run record 2026-09-25-issue-147-storey-actor): a 6-tick fade costs 0.7 s a move and reads as a
+// door or a load for an 80-unit hop the player can see straight down; the cut is 3 ticks and is
+// what RS does. What the fade hides - a ~200 ms camera re-frame after the snap - is the smaller
+// cost. `stairs fade <n>` overrides it per install without a rebuild; `stairs fade default` clears
+// the override.
+constexpr int32_t kDefaultFadeTicks = 0;
 constexpr int32_t kMaxFadeTicks = RS_STAIR_MAX_FADE_TICKS;
 
 // Ticks spent at full black after the move, before fading back in. Player's floor raycast runs on
@@ -364,11 +368,20 @@ void OnPlayerUpdateStairs() {
             Teleport(play, player, *landing);
             sMove.roomFrom = play->roomCtx.curRoom.num;
             sMove.roomChange = landing->room != sMove.roomFrom;
+            // A hard cut still goes black across a ROOM CHANGE. Until Room_FinishRoomChange the
+            // destination room is not the one being drawn, so a cut would show Link standing in
+            // nothing for the tick or two the load takes. Finish clears it with the rest.
+            if (sMove.fade == 0 && sMove.roomChange) {
+                SetFill(play, 255);
+            }
+            // `black=` is whether the screen is held black as the move lands - what a screenshot would
+            // have to catch on exactly the right frame to prove.
             Marker("rs_stairs stair=%d event=moved to_row=%d storey=%d from=%.1f,%.1f,%.1f pos=%.1f,%.1f,%.1f yaw=%d "
-                   "room=%d room_change=%d ticks=%d",
+                   "room=%d room_change=%d black=%d ticks=%d",
                    sMove.stairId, sMove.toRow, landing->storey, before.x, before.y, before.z,
                    player->actor.world.pos.x, player->actor.world.pos.y, player->actor.world.pos.z,
-                   player->actor.shape.rot.y, sMove.roomFrom, sMove.roomChange ? 1 : 0, sMove.ticks);
+                   player->actor.shape.rot.y, sMove.roomFrom, sMove.roomChange ? 1 : 0,
+                   (play->envCtx.fillScreen && play->envCtx.screenFillColor[3] == 255) ? 1 : 0, sMove.ticks);
             sMove.phase = sMove.roomChange ? Phase::WaitRoom : Phase::Settle;
             sMove.phaseTick = 0;
             return;
@@ -628,6 +641,18 @@ extern "C" int32_t RsStair_GetFadeTicks(void) {
 extern "C" void RsStair_SetFadeTicks(int32_t ticks) {
     CVarSetInteger(CVAR_RS_STAIRS_FADE, ticks < 0 ? 0 : (ticks > kMaxFadeTicks ? kMaxFadeTicks : ticks));
     CVarSave();
+}
+
+extern "C" void RsStair_ClearFadeTicks(void) {
+    CVarClear(CVAR_RS_STAIRS_FADE);
+    CVarSave();
+}
+
+extern "C" int32_t RsStair_FadeTicksOverridden(void) {
+    // A sentinel default rather than CVarExists: consolevariablebridge.h declares that one, but this
+    // libultraship does not define it, and the only symptom is an unresolved external at link.
+    constexpr int32_t kUnset = INT32_MIN;
+    return CVarGetInteger(CVAR_RS_STAIRS_FADE, kUnset) != kUnset ? 1 : 0;
 }
 
 extern "C" int32_t RsStair_IsMoving(void) {
