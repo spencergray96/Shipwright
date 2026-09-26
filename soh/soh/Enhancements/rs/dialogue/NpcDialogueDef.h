@@ -200,9 +200,10 @@ typedef struct RsNpcDef {
 
 // --- text ids -----------------------------------------------------------------------------------
 //
-// The band is 0xA000..0xF01F, in five pieces: entry rules (0xA000..0xBFFF), the one direct-text id
-// (0xC000), quest-item pickups (0xC800..0xCFFF, #99), nodes (0xD000..0xEFFF, #96) and the
-// reply-then-navigate ids (0xF000..0xF01F, #96).
+// The band is 0xA000..0xF01F, in six pieces: entry rules (0xA000..0xBFFF), the one direct-text id
+// (0xC000), staircase menus (0xC400..0xC7FF, #147 - defined in stairs/StairDef.h, which asserts it
+// clear of its neighbours), quest-item pickups (0xC800..0xCFFF, #99), nodes (0xD000..0xEFFF, #96)
+// and the reply-then-navigate ids (0xF000..0xF01F, #96).
 // SoH's own highest custom id is 0x9215
 // (Enhancements/custom-message/CustomMessageTypes.h), and nothing in Message_OpenText's
 // special-case ladder (z_message_PAL.c) touches this range - and `loadFromMessageTable = false`

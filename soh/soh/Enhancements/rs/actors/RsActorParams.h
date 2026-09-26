@@ -5,14 +5,15 @@
 #include "soh/Enhancements/rs/RsAssert.h"
 #include "soh/Enhancements/rs/quest/QuestIds.h"
 #include "soh/Enhancements/rs/dialogue/NpcIds.h"
+#include "soh/Enhancements/rs/stairs/StairDef.h"
 
 // ============================================================================================
 //  WHAT AN RS ACTOR'S `params` CARRIES  (sturdy-bassoon#58 P3 / #64 - the D25 decision)
 // ============================================================================================
 //
 // `ActorEntry.params` is an `s16` in the compiled scene file, and it is the ONLY per-placement
-// datum a scene can hand an actor. It carries the NpcId for a quest-giver, and the (quest, step)
-// pair for a quest item.
+// datum a scene can hand an actor. It carries the NpcId for a quest-giver, the (quest, step)
+// pair for a quest item, and the (staircase, row) pair for a staircase (#147).
 //
 // This is not gated on the grid tool (D24). Placement arrives in three stages: hand-inserted
 // ActorEntry rows in a scene's C source now (all P3's proofs need), standard Blender + Fast64
@@ -98,5 +99,40 @@ RS_STATIC_ASSERT((((RS_ITEM_PARAMS_QUEST_MASK << RS_ITEM_PARAMS_QUEST_SHIFT) | R
 RS_STATIC_ASSERT(((RS_ITEM_PARAMS_QUEST_MASK << RS_ITEM_PARAMS_QUEST_SHIFT) | RS_ITEM_PARAMS_STEP_MASK |
                   (RS_ITEM_PARAMS_STYLE_MASK << RS_ITEM_PARAMS_STYLE_SHIFT) | RS_ITEM_PARAMS_RSVD_MASK) == 0x7FFF,
                  "every item params bit but 15 is a field or reserved");
+
+// --- staircase (sturdy-bassoon#147) -------------------------------------------------------------
+//
+// One placement per STOREY a staircase serves, each naming the staircase and which of its rows it
+// stands on. Every coordinate - where Link lands, which way he faces, which room - is in the
+// staircase's table (stairs/StairTable.cpp), because an s16 cannot hold one.
+//
+// The row is stated rather than inferred from the placement's height. Inferring would make it
+// impossible to mis-author, but only by making "which storey is this" depend on a coordinate a
+// human typed; stated, a mismatch is caught (RsStairs.c compares the placement's y with its row's
+// landing and says so) instead of quietly opening the wrong storey's menu.
+//
+// The row field is 2 bits because the menu caps a staircase at four storeys (StairDef.h). Growing
+// it later takes bit 10 out of the reserved span, which reinterprets nothing: every placement
+// authored before then carries zero there.
+
+#define RS_STAIR_PARAMS_ID_MASK 0x00FF  // bits 0-7: RsStairId
+#define RS_STAIR_PARAMS_ROW_SHIFT 8     // bits 8-9: which row of that staircase this placement is
+#define RS_STAIR_PARAMS_ROW_MASK 0x0003
+#define RS_STAIR_PARAMS_RSVD_MASK 0x7C00 // bits 10-14: reserved, must read zero today
+#define RS_STAIR_PARAMS(stairId, row)                                                                                  \
+    ((int16_t)((((row) & RS_STAIR_PARAMS_ROW_MASK) << RS_STAIR_PARAMS_ROW_SHIFT) |                                     \
+               ((stairId) & RS_STAIR_PARAMS_ID_MASK)))
+#define RS_STAIR_PARAMS_GET_ID(params) ((int32_t)((uint16_t)(params) & RS_STAIR_PARAMS_ID_MASK))
+#define RS_STAIR_PARAMS_GET_ROW(params)                                                                                \
+    ((int32_t)(((uint16_t)(params) >> RS_STAIR_PARAMS_ROW_SHIFT) & RS_STAIR_PARAMS_ROW_MASK))
+#define RS_STAIR_PARAMS_GET_RSVD(params) ((int32_t)((uint16_t)(params) & RS_STAIR_PARAMS_RSVD_MASK))
+
+RS_STATIC_ASSERT(RS_STAIR_MAX <= RS_STAIR_PARAMS_ID_MASK + 1, "a staircase id must fit in the params id field");
+RS_STATIC_ASSERT(RS_STAIR_MAX_ROWS <= RS_STAIR_PARAMS_ROW_MASK + 1, "a row must fit in the params row field");
+RS_STATIC_ASSERT(((RS_STAIR_PARAMS_ROW_MASK << RS_STAIR_PARAMS_ROW_SHIFT) & RS_STAIR_PARAMS_ID_MASK) == 0,
+                 "params fields must not overlap");
+RS_STATIC_ASSERT(((RS_STAIR_PARAMS_ROW_MASK << RS_STAIR_PARAMS_ROW_SHIFT) | RS_STAIR_PARAMS_ID_MASK |
+                  RS_STAIR_PARAMS_RSVD_MASK) == 0x7FFF,
+                 "every stair params bit but 15 is a field or reserved");
 
 #endif // SOH_RS_ACTOR_PARAMS_H
