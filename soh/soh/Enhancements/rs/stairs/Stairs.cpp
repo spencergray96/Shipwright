@@ -179,6 +179,19 @@ bool MenuRenders(const RsDialogueRule& screen) {
 // override and comes back here.
 constexpr int32_t kDefaultFadeTicks = 6;
 
+// WALK INTO IT (#151). ON by default, provisionally, until the owner has played it on and off.
+#define CVAR_RS_STAIRS_BUMP CVAR_ENHANCEMENT("RsStairsBump")
+#define CVAR_RS_STAIRS_BUMP_HOLD CVAR_ENHANCEMENT("RsStairsBumpHold")
+constexpr int32_t kDefaultBump = 1;
+// How long Link must push into a placement before its menu opens: 2 ticks, 0.1 s. Short on purpose,
+// because the hold is not what stops a graze - the aim cone is: every graze in the #151 run met the
+// collider 53 to 87 degrees off-centre, outside the 30-degree cone from its first tick, and never
+// started a count. What the hold decides is how nearly dead-centre a real push must be, because Link
+// SLIDES round a round collider he is not pushing dead into, and an off-centre push slides out of
+// the cone within a few ticks. Measured, running at the shaft from off its centre line: 2 ticks opens
+// within 6 units of dead centre, 4 within 3, 8 only dead on (#151 run record, the sweep).
+constexpr int32_t kDefaultBumpHold = 2;
+
 // Ticks spent at full black after the move, before fading back in. Player's floor raycast runs on
 // its next update, so the first of these is what gives `floorHeight` - and the respawn point, which
 // reads live position - a floor to report; the second is margin for the camera's first real update
@@ -252,8 +265,24 @@ void ReportOutcome(const char* line) {
     sLast = std::strncmp(line, kPrefix, sizeof(kPrefix) - 1) == 0 ? line + sizeof(kPrefix) - 1 : line;
 }
 
+int32_t ClampTicks(int32_t ticks, int32_t lo, int32_t hi) {
+    return ticks < lo ? lo : (ticks > hi ? hi : ticks);
+}
+
 int32_t ClampFade(int32_t ticks) {
-    return ticks < 0 ? 0 : (ticks > RS_STAIR_MAX_FADE_TICKS ? RS_STAIR_MAX_FADE_TICKS : ticks);
+    return ClampTicks(ticks, 0, RS_STAIR_MAX_FADE_TICKS);
+}
+
+int32_t ClampBumpHold(int32_t ticks) {
+    return ClampTicks(ticks, 1, RS_STAIR_MAX_BUMP_HOLD);
+}
+
+// Whether a setting's CVar holds an override. A sentinel default rather than CVarExists:
+// consolevariablebridge.h declares that one, but this libultraship does not define it, and the only
+// symptom is an unresolved external at link.
+int32_t CVarIsSet(const char* name) {
+    constexpr int32_t kUnset = INT32_MIN;
+    return CVarGetInteger(name, kUnset) != kUnset ? 1 : 0;
 }
 
 void SetFill(PlayState* play, int32_t alpha) {
@@ -842,10 +871,43 @@ extern "C" void RsStair_ClearFadeTicks(void) {
 }
 
 extern "C" int32_t RsStair_FadeTicksOverridden(void) {
-    // A sentinel default rather than CVarExists: consolevariablebridge.h declares that one, but this
-    // libultraship does not define it, and the only symptom is an unresolved external at link.
-    constexpr int32_t kUnset = INT32_MIN;
-    return CVarGetInteger(CVAR_RS_STAIRS_FADE, kUnset) != kUnset ? 1 : 0;
+    return CVarIsSet(CVAR_RS_STAIRS_FADE);
+}
+
+extern "C" int32_t RsStair_BumpEnabled(void) {
+    return CVarGetInteger(CVAR_RS_STAIRS_BUMP, kDefaultBump) != 0 ? 1 : 0;
+}
+
+extern "C" void RsStair_SetBumpEnabled(int32_t on) {
+    CVarSetInteger(CVAR_RS_STAIRS_BUMP, on != 0 ? 1 : 0);
+    CVarSave();
+}
+
+extern "C" void RsStair_ClearBumpEnabled(void) {
+    CVarClear(CVAR_RS_STAIRS_BUMP);
+    CVarSave();
+}
+
+extern "C" int32_t RsStair_BumpEnabledOverridden(void) {
+    return CVarIsSet(CVAR_RS_STAIRS_BUMP);
+}
+
+extern "C" int32_t RsStair_GetBumpHold(void) {
+    return ClampBumpHold(CVarGetInteger(CVAR_RS_STAIRS_BUMP_HOLD, kDefaultBumpHold));
+}
+
+extern "C" void RsStair_SetBumpHold(int32_t ticks) {
+    CVarSetInteger(CVAR_RS_STAIRS_BUMP_HOLD, ClampBumpHold(ticks));
+    CVarSave();
+}
+
+extern "C" void RsStair_ClearBumpHold(void) {
+    CVarClear(CVAR_RS_STAIRS_BUMP_HOLD);
+    CVarSave();
+}
+
+extern "C" int32_t RsStair_BumpHoldOverridden(void) {
+    return CVarIsSet(CVAR_RS_STAIRS_BUMP_HOLD);
 }
 
 extern "C" int32_t RsStair_IsMoving(void) {

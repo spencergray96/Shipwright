@@ -117,7 +117,8 @@ int32_t RsStair_MenuDestination(int32_t stairId, int32_t row, int32_t choiceInde
 int32_t RsStair_BeginMove(int32_t stairId, int32_t fromRow, int32_t toRow, const char* source);
 
 // 1 while a move is in flight. Staircases stop offering to talk while it is, so a second menu
-// cannot open on top of the first move.
+// cannot open on top of the first move - and a push into one does not count (`bump_ignored
+// reason=moving`).
 int32_t RsStair_IsMoving(void);
 
 // The fade, in game ticks each way (20 per second); the build default is 6. 0 is a HARD CUT, where
@@ -130,6 +131,23 @@ int32_t RsStair_GetFadeTicks(void);
 void RsStair_SetFadeTicks(int32_t ticks);
 void RsStair_ClearFadeTicks(void);
 int32_t RsStair_FadeTicksOverridden(void); // 1 when the CVar is set, 0 when the build default applies
+
+// WALK INTO IT (sturdy-bassoon#151): pushing into a placement for `hold` ticks opens its menu with
+// no A press. The actor does the detecting (RsStairs.c); these are its two settings, each a CVar
+// override over a build default, the fade's arrangement - so a human can play it on and off, and
+// at different holds, without a rebuild. `stairs bump ...` sets and clears them.
+//
+// The default is ON, provisionally: the owner decides it after playing both (#151). Hold is in game
+// ticks (20 per second), clamped to [1, RS_STAIR_MAX_BUMP_HOLD].
+#define RS_STAIR_MAX_BUMP_HOLD 40
+int32_t RsStair_BumpEnabled(void);
+void RsStair_SetBumpEnabled(int32_t on);
+void RsStair_ClearBumpEnabled(void);
+int32_t RsStair_BumpEnabledOverridden(void);
+int32_t RsStair_GetBumpHold(void);
+void RsStair_SetBumpHold(int32_t ticks);
+void RsStair_ClearBumpHold(void);
+int32_t RsStair_BumpHoldOverridden(void);
 
 #ifdef __cplusplus
 }

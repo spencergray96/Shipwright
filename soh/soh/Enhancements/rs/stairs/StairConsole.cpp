@@ -9,6 +9,7 @@
 #include "Stairs.h"
 #include "soh/Enhancements/console/ConsoleSink.h"
 #include "soh/Enhancements/rs/actors/RsActorParams.h"
+#include "soh/Enhancements/rs/actors/RsStairs.h"
 #include "soh/Enhancements/rs/prefs/FloorText.h"
 #include "soh/Enhancements/rs/prefs/RsPrefs.h"
 
@@ -225,6 +226,41 @@ int32_t Fade(const std::vector<std::string>& args, std::vector<std::string>& lin
     return 0;
 }
 
+// `stairs bump`: the walk-into setting and its hold, each an override over a build default, the
+// fade's shape. Both persist in the owner's config, so a run that sets them clears them again.
+int32_t Bump(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() >= 2) {
+        const std::string& what = args[1];
+        if (what == "on" || what == "off") {
+            RsStair_SetBumpEnabled(what == "on" ? 1 : 0);
+        } else if (what == "default") {
+            RsStair_ClearBumpEnabled();
+        } else if (what == "hold") {
+            int32_t ticks = 0;
+            if (args.size() < 3) {
+                Addf(lines, "op=bump result=error error=missing_ticks range=1..%d", RS_STAIR_MAX_BUMP_HOLD);
+                return 1;
+            }
+            if (args[2] == "default") {
+                RsStair_ClearBumpHold();
+            } else if (!ParseInt(args[2], &ticks) || ticks < 1 || ticks > RS_STAIR_MAX_BUMP_HOLD) {
+                Addf(lines, "op=bump result=error error=bad_ticks range=1..%d", RS_STAIR_MAX_BUMP_HOLD);
+                return 1;
+            } else {
+                RsStair_SetBumpHold(ticks);
+            }
+        } else {
+            lines.push_back(
+                "op=bump result=error error=usage usage=\"stairs bump [on|off|default|hold <ticks|default>]\"");
+            return 1;
+        }
+    }
+    Addf(lines, "op=bump on=%d source=%s hold=%d hold_source=%s", RsStair_BumpEnabled(),
+         RsStair_BumpEnabledOverridden() ? "cvar" : "default", RsStair_GetBumpHold(),
+         RsStair_BumpHoldOverridden() ? "cvar" : "default");
+    return 0;
+}
+
 int32_t Actors(std::vector<std::string>& lines) {
     if (gPlayState == nullptr) {
         lines.push_back("op=actors scene=none actors=0");
@@ -238,14 +274,17 @@ int32_t Actors(std::vector<std::string>& lines) {
             }
             const int32_t stairId = RS_STAIR_PARAMS_GET_ID(actor->params);
             const int32_t row = RS_STAIR_PARAMS_GET_ROW(actor->params);
+            // The walk-into state: `bump=` the count against the hold (`offered=1` once it is reached),
+            // `latched=1` from a conversation's end until the push that was running is let go.
+            const RsStairsBump& bump = reinterpret_cast<const RsStairs*>(actor)->bump;
             Addf(lines,
                  "actor[%d]=rs_stairs stair=%d row=%d params=0x%04X rsvd=%d registered=%d landing=%d room=%d yaw=%d "
-                 "pos=%d,%d,%d",
+                 "pos=%d,%d,%d bump=%d offered=%d latched=%d",
                  found, stairId, row, static_cast<unsigned>(actor->params) & 0xFFFF,
                  RS_STAIR_PARAMS_GET_RSVD(actor->params), RsStair_IsRegistered(stairId),
                  RsStair_GetLanding(stairId, row) != nullptr ? 1 : 0, actor->room, actor->home.rot.y,
                  static_cast<int>(actor->world.pos.x), static_cast<int>(actor->world.pos.y),
-                 static_cast<int>(actor->world.pos.z));
+                 static_cast<int>(actor->world.pos.z), bump.count, bump.offered, bump.latched);
             found++;
         }
     }
@@ -271,7 +310,7 @@ int32_t BadCheck(std::vector<std::string>& lines) {
 
 const char* kUsage =
     "usage: stairs list | dump <id> | menu <id> <row> | where | go <id> <row> | status | fade [ticks|default] | "
-    "actors | badcheck";
+    "bump [on|off|default|hold <ticks|default>] | actors | badcheck";
 
 } // namespace
 
@@ -302,6 +341,9 @@ int32_t RsStairConsole_Run(const std::vector<std::string>& args, std::vector<std
     if (sub == "fade") {
         return Fade(args, lines);
     }
+    if (sub == "bump") {
+        return Bump(args, lines);
+    }
     if (sub == "actors") {
         return Actors(lines);
     }
@@ -321,11 +363,12 @@ namespace {
 const ConsoleSink::Command stairsCommand(
     "stairs", RsStairConsole_Run,
     "Staircases - menu-driven storey moves (sturdy-bassoon#147): list | dump <id> | menu <id> <row> | where | "
-    "go <id> <row> | status | fade [ticks|default] | actors | badcheck. `go` runs the same move a staircase's menu "
-    "does, without the conversation. The move fades by default; `fade 0` makes it a hard cut and "
-    "`fade default` goes back.",
-    { { "list|dump|menu|where|go|status|fade|actors|badcheck", Ship::ArgumentType::TEXT },
-      { "staircase id or ticks", Ship::ArgumentType::TEXT, true },
-      { "row", Ship::ArgumentType::TEXT, true } });
+    "go <id> <row> | status | fade [ticks|default] | bump [on|off|default|hold <ticks|default>] | actors | "
+    "badcheck. `go` runs the same move a staircase's menu does, without the conversation. The move fades by "
+    "default; `fade 0` makes it a hard cut and `fade default` goes back. `bump` is walk-into (#151): pushing into "
+    "a staircase opens its menu after the hold; `bump off` leaves target-and-talk as the only way in.",
+    { { "list|dump|menu|where|go|status|fade|bump|actors|badcheck", Ship::ArgumentType::TEXT },
+      { "staircase id, ticks, or on|off|default|hold", Ship::ArgumentType::TEXT, true },
+      { "row or ticks", Ship::ArgumentType::TEXT, true } });
 
 } // namespace

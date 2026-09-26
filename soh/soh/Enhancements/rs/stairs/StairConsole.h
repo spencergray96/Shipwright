@@ -14,8 +14,9 @@
 //
 // The MOVE reports itself separately, as `rs_stairs stair=<n> event=...` markers written from
 // Stairs.cpp as it happens (move_begin, room_request, room, moved, no_placement, landed, abort,
-// refused), and the actor adds `event=open` and `event=choice`. Those are events; this command is
-// for asking.
+// refused), and the actor adds `event=open` (with `via=bump|talk`) and `event=choice`, and walk-into's
+// `bump_start`, `bump_offer`, `bump_abandon reason=`, `bump_ignored reason=` and `bump_rearm reason=`
+// (RsStairs.c says what each reason means). Those are events; this command is for asking.
 //
 // `args[0]` is the subcommand:
 //   list                    every registered staircase: id, name, scene, rows, the storeys it serves
@@ -37,8 +38,13 @@
 //   fade [ticks|default]    the fade length each way, in game ticks; the build default is 6, and 0
 //                           is a hard cut. A number sets and saves the override CVar (0..40);
 //                           `default` clears it. Reports `source=cvar|default`
+//   bump [on|off|default]   walk-into (#151): pushing into a staircase opens its menu after the hold.
+//   bump hold <n|default>   `on`/`off` set and save the override CVar, `default` clears it; `hold`
+//                           does the same for the hold, in game ticks (1..40). Both report
+//                           `on= source=cvar|default hold= hold_source=cvar|default`
 //   actors                  every live staircase actor: params decoded, reserved bits, room, the
-//                           yaw it faces (which is the landing's facing), pos
+//                           yaw it faces (which is the landing's facing), pos, and its walk-into
+//                           state - `bump=` ticks counted, `offered=`, `latched=`
 //   badcheck                the validator over the malformed table (StairTable.cpp), one line each
 //
 // Returns 0 when the operation succeeded (or for read-only subcommands), 1 otherwise: a refused

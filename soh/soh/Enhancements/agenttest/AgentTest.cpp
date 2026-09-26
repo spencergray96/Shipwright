@@ -178,10 +178,12 @@
  *                                        item whose step is already set, refused at ShouldActorInit during
  *                                        scene load, so a collected item does not come back
  *   rs_stairs stair=<n> event=<open|choice|move_begin|room_request|room|moved|no_placement|landed|abort|refused|
- *             bad_placement> ...
+ *             bad_placement|bump_start|bump_offer|bump_abandon|bump_ignored|bump_latch|bump_rearm> ...
  *                                        a staircase (sturdy-bassoon#147). `open`/`choice` come from the actor
- *                                        (which menu opened, which row was picked and where it goes); the rest
- *                                        from the move controller in rs/stairs/Stairs.cpp as the move happens.
+ *                                        (which menu opened, `via=bump|talk`, which row was picked and where
+ *                                        it goes), and so do the `bump_*` events of walking into it (#151 -
+ *                                        STAIRCASES.md lists what each carries); the rest from the move
+ *                                        controller in rs/stairs/Stairs.cpp as the move happens.
  *                                        `landed` is the one to assert on: `pos=` `yaw=` `room=` are where Link
  *                                        ended up, `floor_y=` and `ground=` that he is standing on something,
  *                                        `respawn=` `respawn_room=` where a void-out would now put him. Gameplay
@@ -333,13 +335,15 @@
  *                                          set us` followed by one of those asserts what a player
  *                                          would actually read
  *   agenttest stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|
- *                    actors|badcheck
+ *                    bump [on|off|default|hold <ticks|default>]|actors|badcheck
  *                                          staircases (sturdy-bassoon#147): the menu-driven storey
  *                                          move. `go` runs the same move a staircase's menu does, with
  *                                          no conversation to drive; `where` says which storey of each
  *                                          staircase in the scene Link is standing on, and `fade <n>`
  *                                          overrides the default 6-tick fade - `fade 0` is a hard cut,
- *                                          `fade default` clears the override, which persists.
+ *                                          `fade default` clears the override, which persists. `bump`
+ *                                          switches walking into a staircase (#151) and sets its hold,
+ *                                          overrides that persist the same way.
  *                                          StairConsole.h documents every line; the move's own
  *                                          `rs_stairs stair=<n> event=...` markers are listed with the
  *                                          other gameplay markers above
@@ -2104,7 +2108,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
-              "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|actors|badcheck | "
+              "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|"
+              "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
@@ -2141,7 +2146,8 @@ void RegisterAgentTest() {
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
-              "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|actors|badcheck | "
+              "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|"
+              "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
