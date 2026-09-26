@@ -16,9 +16,10 @@
 //  HAND EDIT, sturdy-bassoon#147: the RsActorParams.h include above, the sLumbridgeCastleRsActors
 //  list below and the two lines that install it in InitRoom. A re-export DROPS THEM, and the only
 //  symptom is that the two tower shafts quietly stop being usable - so if `stairs actors` in this
-//  scene reports zero, look here first. The landings themselves live in
-//  rs/stairs/StairTable.cpp and survive a re-export; the spiral staircases in the 2x2 shafts are
-//  a separate splice (tools/castle-stairs/add_castle_spirals.py) with the same caveat.
+//  scene reports zero, look here first. The staircase table (rs/stairs/StairTable.cpp) survives a
+//  re-export but holds no coordinates - Link lands in front of these placements - so losing them
+//  loses the landings too. The spiral staircases in the 2x2 shafts are a separate splice
+//  (tools/castle-stairs/add_castle_spirals.py) with the same caveat.
 // ############################################################################################
 
 extern "C" ActorDBEntry* ActorDB_Retrieve(const int id);
@@ -67,16 +68,18 @@ static ActorEntry sLumbridgeCastlePlayerSpawn = {
 };
 
 // The two 1x1 tower shafts (sturdy-bassoon#147): one staircase placement per storey, at the
-// shaft's centre and on that storey's floor height. `params` names the staircase and the row; the
-// landings Link is moved to are in the staircase's table, not here. The placements take no gravity
-// and stand over the hole on purpose - their collider is what stops Link stepping into it.
+// shaft's centre and on that storey's floor height. `params` names the staircase and the row. The
+// placement is also where Link lands: 40 in front of it (the staircase's landForward), facing the
+// way it is turned - so the ROTATION is data. Each tower's placements face into its room: the
+// south tower's +Z (yaw 0), the north tower's -Z (yaw -0x8000). They take no gravity and stand over
+// the hole on purpose - their collider is what stops Link stepping into it.
 static ActorEntry sLumbridgeCastleRsActors[] = {
     { ACTOR_RS_STAIRS, { -60, 0, -400 }, { 0, 0, 0 }, RS_STAIR_PARAMS(RS_STAIR_CASTLE_SOUTH_TOWER, 0) },
     { ACTOR_RS_STAIRS, { -60, 84, -400 }, { 0, 0, 0 }, RS_STAIR_PARAMS(RS_STAIR_CASTLE_SOUTH_TOWER, 1) },
     { ACTOR_RS_STAIRS, { -60, 164, -400 }, { 0, 0, 0 }, RS_STAIR_PARAMS(RS_STAIR_CASTLE_SOUTH_TOWER, 2) },
-    { ACTOR_RS_STAIRS, { -60, 0, 40 }, { 0, 0, 0 }, RS_STAIR_PARAMS(RS_STAIR_CASTLE_NORTH_TOWER, 0) },
-    { ACTOR_RS_STAIRS, { -60, 84, 40 }, { 0, 0, 0 }, RS_STAIR_PARAMS(RS_STAIR_CASTLE_NORTH_TOWER, 1) },
-    { ACTOR_RS_STAIRS, { -60, 164, 40 }, { 0, 0, 0 }, RS_STAIR_PARAMS(RS_STAIR_CASTLE_NORTH_TOWER, 2) },
+    { ACTOR_RS_STAIRS, { -60, 0, 40 }, { 0, -0x8000, 0 }, RS_STAIR_PARAMS(RS_STAIR_CASTLE_NORTH_TOWER, 0) },
+    { ACTOR_RS_STAIRS, { -60, 84, 40 }, { 0, -0x8000, 0 }, RS_STAIR_PARAMS(RS_STAIR_CASTLE_NORTH_TOWER, 1) },
+    { ACTOR_RS_STAIRS, { -60, 164, 40 }, { 0, -0x8000, 0 }, RS_STAIR_PARAMS(RS_STAIR_CASTLE_NORTH_TOWER, 2) },
 };
 
 static RomFile sLumbridgeCastleRoomList[] = {

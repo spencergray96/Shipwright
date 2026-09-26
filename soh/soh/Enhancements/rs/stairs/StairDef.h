@@ -13,13 +13,15 @@
 // Plain C, like QuestJournalDef.h, so a table reads the same from either language. One
 // RsStairDef per staircase, registered from StairTable.cpp; one RsStairLanding per storey it
 // serves. The actor placed on each storey carries (staircase id, row) in `params`
-// (RsActorParams.h) and nothing else - every coordinate lives HERE, because `params` is one s16
-// and cannot hold a position. That is the quest-giver's shape: params names the thing, the rules
-// live in code.
+// (RsActorParams.h).
 //
-// THE LANDING TABLE IS THE WHOLE OF A STAIRCASE'S GEOMETRY. Re-drawing a shaft - the castle's
-// towers may become two one-storey ladders later - is a table edit and a placement edit, and no
-// code changes.
+// THE TABLE HOLDS NO COORDINATES. Where Link lands is read off the PLACEMENT for the storey he is
+// going to: `landForward` units in front of it, on its floor, facing the way it faces
+// (Stairs.cpp, LandingFromPlacement). So everything spatial about a staircase is where its
+// placements stand and which way they are turned - scene data, which an exporter (the grid tool
+// or Blender) emits anyway - and nobody converts grid cells to world units by hand. Moving a
+// landing is moving its placement; resizing a map moves the landings with it. What the table keeps
+// is what a placement cannot say: which storeys the staircase joins, and which room each is in.
 
 // Rows per staircase, and the menu is why. Picking a destination is a choice box, the widest box
 // is four rows (2026-09-07 ADR), and one of the four is Cancel - so three destinations, which is
@@ -33,34 +35,35 @@ typedef struct RsStairLanding {
     // comparison of row numbers and the menu can list them without sorting.
     int32_t storey;
 
-    // Where Link is put down: on the floor of that storey, in world units. Registration cannot see
-    // collision, so a landing in mid-air registers clean and drops him - `stairs dump` prints each
-    // one, and the `landed` marker's `floor_y=` is what proves it in-game.
-    int32_t x;
-    int32_t y;
-    int32_t z;
-
-    // Which way he faces on arrival, s16 binary angle (0 = +Z, 0x4000 = +X, -0x8000 = -Z).
-    // Facing AWAY from the shaft is the convention: stick-forward walks him off rather than back
-    // into the collider that guards the hole.
-    int32_t yaw;
-
-    // The room this landing is in. A move into a different room loads it and retires the old one
-    // (Room_RequestNewRoom / Room_FinishRoomChange), exactly as a door does; within one room it is
-    // a no-op. Checked against the live scene's room count before any move, never here, because
+    // The room this storey's placement - and so its landing - is in. A move into a different room
+    // loads it and retires the old one (Room_RequestNewRoom / Room_FinishRoomChange), exactly as a
+    // door does; within one room it is a no-op. The table has to say, because a placement in a room
+    // that is not loaded does not exist yet: the move loads the room FIRST and then looks for it.
+    // Checked against the live scene's room count before any move, never here, because
     // registration does not know which scene will be loaded.
     int32_t room;
 } RsStairLanding;
+
+// The shortest `landForward` that puts Link down clear of the placement he lands in front of: its
+// collider (20, RsStairs.c) plus adult Link's (12), plus one. Any closer and the collision push
+// shoves him on the first frame, which reads as the landing jittering.
+#define RS_STAIR_MIN_LAND_FORWARD 33
 
 typedef struct RsStairDef {
     int32_t id;       // RsStairId (StairIds.h)
     const char* name; // snake_case token for console lines and markers
 
-    // The scene whose coordinates the landings are in. A staircase is a PLACE, not a character, so
-    // unlike an NpcId it does not travel: a placement in any other scene would put Link down at
-    // coordinates that mean nothing there, and the mover refuses it (`wrong_scene`) rather than
-    // teleporting him into the void. This is the one reason the stairs code reads a scene number.
+    // The scene the staircase is in. A staircase is a PLACE, not a character, so unlike an NpcId it
+    // does not travel: its rooms are that scene's rooms, and the mover refuses a move anywhere else
+    // (`wrong_scene`) rather than loading a room number that means something different there. This
+    // is the one reason the stairs code reads a scene number.
     int32_t sceneId;
+
+    // How far in front of a placement Link is put down, in world units, at least
+    // RS_STAIR_MIN_LAND_FORWARD. "In front" is the placement's own facing (its ActorEntry rot.y),
+    // and he faces that way on arrival - away from the shaft, by convention, so stick-forward walks
+    // him off rather than back into the collider that guards the hole.
+    int32_t landForward;
 
     const RsStairLanding* landings;
     int32_t landingCount; // [2, RS_STAIR_MAX_ROWS]

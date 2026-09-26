@@ -43,6 +43,10 @@ typedef enum RsStairResult {
     RS_STAIR_ERR_NO_PLAY = 4,     // no scene, or Link does not exist yet
     RS_STAIR_ERR_WRONG_SCENE = 5, // the staircase's landings are in a different scene
     RS_STAIR_ERR_BAD_ROOM = 6,    // the landing names a room this scene does not have
+    RS_STAIR_ERR_NO_PLACEMENT = 7, // the destination storey has no placement to land in front of.
+                                   // Refused up front when that storey is in the loaded room; in
+                                   // another room it is only knowable after the room loads, so the
+                                   // move goes back to the room it came from and ends `abort`
     RS_STAIR_RESULT_COUNT,
 } RsStairResult;
 
@@ -70,6 +74,8 @@ typedef enum RsStairProblem {
                                       // a body that wraps or a choice that paginates, under SOME
                                       // floor convention
     RS_STAIR_PROBLEM_ID_TAKEN,        // a different definition already holds this id
+    RS_STAIR_PROBLEM_LAND_FORWARD,    // landForward under RS_STAIR_MIN_LAND_FORWARD: Link would land
+                                      // inside the placement's collider
     RS_STAIR_PROBLEM_COUNT,
 } RsStairProblem;
 
@@ -82,9 +88,14 @@ const RsStairDef* RsStair_GetDef(int32_t stairId);
 int32_t RsStair_IsRegistered(int32_t stairId);
 const RsStairLanding* RsStair_GetLanding(int32_t stairId, int32_t row);
 
-// The row of this staircase whose landing is on Link's storey right now: the nearest by height,
-// and only within half a storey. -1 when he is on none of them. What the console uses as "from";
-// the actor never needs it, because every placement states its own row.
+// Where Link would land on `row` right now, read off that storey's placement: 1 and the landing
+// (position and facing) when the placement is loaded, 0 when it is not - in another room, or never
+// placed. The move uses the same computation; the console prints it.
+int32_t RsStair_PlacedLanding(int32_t stairId, int32_t row, float* x, float* y, float* z, int16_t* yaw);
+
+// The row of this staircase whose placement is on Link's storey right now: the nearest loaded
+// placement by height, and only within half a storey. -1 when he is on none of them. What the
+// console uses as "from"; the actor never needs it, because every placement states its own row.
 int32_t RsStair_RowNearestPlayer(int32_t stairId);
 
 // The menu. `RsStair_Screen` is the screen the renderer lays out for (staircase, row); NULL for a
@@ -95,8 +106,9 @@ int32_t RsStair_RowNearestPlayer(int32_t stairId);
 const RsDialogueRule* RsStair_Screen(int32_t stairId, int32_t row);
 int32_t RsStair_MenuDestination(int32_t stairId, int32_t row, int32_t choiceIndex);
 
-// THE MOVE. Arms the controller: fade out, put Link down on `toRow`'s landing, change rooms if the
-// landing is in another one, point a void-out at where he landed, fade back in, give him back.
+// THE MOVE. Arms the controller: fade out, change rooms if the landing is in another one, put Link
+// down in front of `toRow`'s placement, point a void-out at where he landed, fade back in, give
+// him back.
 // `fromRow` is only reported (-1 = unknown). `source` is a short token for the markers ("menu",
 // "console") and must be a string literal.
 //
@@ -108,9 +120,9 @@ int32_t RsStair_BeginMove(int32_t stairId, int32_t fromRow, int32_t toRow, const
 // cannot open on top of the first move.
 int32_t RsStair_IsMoving(void);
 
-// The fade, in game ticks each way (20 per second). 0 is a HARD CUT - the default - where the move
-// happens on the first tick and nothing is drawn over the screen, except across a room change,
-// which is held black until the new room is the one drawn. An override lives in a CVar, so a human
+// The fade, in game ticks each way (20 per second); the build default is 6. 0 is a HARD CUT, where
+// the move happens on the first tick and nothing is drawn over the screen, except across a room
+// change, which is held black until the new room is the one drawn. An override lives in a CVar, so a human
 // can compare the two without a rebuild; `stairs fade <n>` sets it and `stairs fade default`
 // clears it. Clamped to [0, RS_STAIR_MAX_FADE_TICKS].
 #define RS_STAIR_MAX_FADE_TICKS 40
@@ -127,7 +139,7 @@ int32_t RsStair_FadeTicksOverridden(void); // 1 when the CVar is set, 0 when the
 // C++ only, for the console.
 struct RsStairStatus {
     bool moving;
-    const char* phase; // "idle", "fade_out", "wait_room", "settle", "fade_in"
+    const char* phase; // "idle", "fade_out", "wait_room", "settle", "fade_in", "return_room"
     int32_t stairId;
     int32_t fromRow;
     int32_t toRow;

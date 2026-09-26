@@ -33,11 +33,6 @@
 #define RS_STAIRS_TALK_XZ 70.0f
 #define RS_STAIRS_TALK_Y 30.0f
 
-// How far a placement may sit from its row's landing height before it is called a mistake. The
-// placement and the landing are on the same storey by definition; a gap of half a storey means the
-// params name the wrong row.
-#define RS_STAIRS_ROW_TOLERANCE 40.0f
-
 void RsStairs_Init(Actor* thisx, PlayState* play);
 void RsStairs_Destroy(Actor* thisx, PlayState* play);
 void RsStairs_Update(Actor* thisx, PlayState* play);
@@ -69,7 +64,6 @@ static ColliderCylinderInit sCylinderInit = {
 
 void RsStairs_Init(Actor* thisx, PlayState* play) {
     RsStairs* this = (RsStairs*)thisx;
-    const RsStairLanding* landing;
     char line[192];
 
     this->stairId = RS_STAIR_PARAMS_GET_ID(thisx->params);
@@ -85,17 +79,12 @@ void RsStairs_Init(Actor* thisx, PlayState* play) {
                  this->stairId, this->row, (unsigned)(u16)thisx->params);
         RsAgent_Marker(line);
     }
-    landing = RsStair_GetLanding(this->stairId, this->row);
-    if (landing == NULL) {
+    // Nothing to compare the placement's position against: the placement IS where its storey's
+    // landing is measured from (StairDef.h), so the only thing it can get wrong is which row it names.
+    if (RsStair_GetLanding(this->stairId, this->row) == NULL) {
         LUSLOG_ERROR("RsStairs: stair %d has no row %d in this build", this->stairId, this->row);
         snprintf(line, sizeof(line), "rs_stairs stair=%d event=bad_placement row=%d reason=no_such_row",
                  this->stairId, this->row);
-        RsAgent_Marker(line);
-    } else if (fabsf((f32)landing->y - thisx->home.pos.y) > RS_STAIRS_ROW_TOLERANCE) {
-        // The row is STATED in params rather than inferred from height (RsActorParams.h), and this
-        // is the check that makes stating it safe.
-        snprintf(line, sizeof(line), "rs_stairs stair=%d event=bad_placement row=%d reason=height y=%.1f landing_y=%d",
-                 this->stairId, this->row, thisx->home.pos.y, (int)landing->y);
         RsAgent_Marker(line);
     }
 

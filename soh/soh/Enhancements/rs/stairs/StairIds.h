@@ -35,6 +35,9 @@ typedef enum RsStairId {
     RS_STAIR_DEBUG_ROOMS = 192, // the ROOM-CHANGE fixture, in terrain_f2p_rooms_2x2 (0x62A): two
                                 // landings in two different rooms, so a move has to load one and
                                 // retire the other. The castle is a single room and cannot prove it.
+    RS_STAIR_DEBUG_UNPLACED = 193, // the MISSING-PLACEMENT fixture, same scene: rows but no placements,
+                                   // one storey in the loaded room and one in a room that is not, so
+                                   // both ways a move can find no placement to land in front of
 } RsStairId;
 
 #define RS_STAIR_ID_IS_VALID(id) ((id) >= 0 && (id) < RS_STAIR_MAX)
@@ -49,5 +52,7 @@ RS_STATIC_ASSERT(RS_STAIR_CASTLE_NORTH_TOWER >= 0 && RS_STAIR_CASTLE_NORTH_TOWER
                  "RS_STAIR_CASTLE_NORTH_TOWER must sit in the production band");
 RS_STATIC_ASSERT(RS_STAIR_DEBUG_ROOMS >= RS_STAIR_ID_DEBUG_FIRST && RS_STAIR_DEBUG_ROOMS < RS_STAIR_MAX,
                  "RS_STAIR_DEBUG_ROOMS must sit in the debug band");
+RS_STATIC_ASSERT(RS_STAIR_DEBUG_UNPLACED >= RS_STAIR_ID_DEBUG_FIRST && RS_STAIR_DEBUG_UNPLACED < RS_STAIR_MAX,
+                 "RS_STAIR_DEBUG_UNPLACED must sit in the debug band");
 
 #endif // SOH_RS_STAIR_IDS_H

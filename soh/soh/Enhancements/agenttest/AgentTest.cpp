@@ -177,7 +177,8 @@
  *                                        sets a step, never a spawn. `suppressed` (P4) is the mirror: an
  *                                        item whose step is already set, refused at ShouldActorInit during
  *                                        scene load, so a collected item does not come back
- *   rs_stairs stair=<n> event=<open|choice|move_begin|moved|room_request|room|landed|abort|refused|bad_placement> ...
+ *   rs_stairs stair=<n> event=<open|choice|move_begin|room_request|room|moved|no_placement|landed|abort|refused|
+ *             bad_placement> ...
  *                                        a staircase (sturdy-bassoon#147). `open`/`choice` come from the actor
  *                                        (which menu opened, which row was picked and where it goes); the rest
  *                                        from the move controller in rs/stairs/Stairs.cpp as the move happens.
@@ -337,10 +338,11 @@
  *                                          move. `go` runs the same move a staircase's menu does, with
  *                                          no conversation to drive; `where` says which storey of each
  *                                          staircase in the scene Link is standing on, and `fade <n>`
- *                                          overrides the default hard cut (`fade default` clears the
- *                                          override, which persists). StairConsole.h documents every
- *                                          line; the move's own `rs_stairs stair=<n> event=...` markers
- *                                          are listed with the other gameplay markers above
+ *                                          overrides the default 6-tick fade - `fade 0` is a hard cut,
+ *                                          `fade default` clears the override, which persists.
+ *                                          StairConsole.h documents every line; the move's own
+ *                                          `rs_stairs stair=<n> event=...` markers are listed with the
+ *                                          other gameplay markers above
  *   agenttest menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|
  *                filler [n]|stress [<n> [same]|off|memo <on|off>]|
  *                cursor [left|right|up|down|select|<id>]|probe [on|off]|kaleido|equips|hud|flight ...|song|

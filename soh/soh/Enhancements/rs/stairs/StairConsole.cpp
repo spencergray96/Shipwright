@@ -109,13 +109,25 @@ int32_t Dump(const std::vector<std::string>& args, std::vector<std::string>& lin
     }
     const RsStairDef* def = RsStair_GetDef(stairId);
     const int32_t convention = RsPrefs_GetFloorConvention();
-    Addf(lines, "op=dump stair=%d name=%s scene=0x%X here=%d rows=%d convention=%s", def->id, def->name, def->sceneId,
-         InPlay() && gPlayState->sceneNum == def->sceneId ? 1 : 0, def->landingCount,
-         RsPrefs_FloorConventionName(convention));
+    Addf(lines, "op=dump stair=%d name=%s scene=0x%X here=%d rows=%d land_forward=%d convention=%s", def->id,
+         def->name, def->sceneId, InPlay() && gPlayState->sceneNum == def->sceneId ? 1 : 0, def->landingCount,
+         def->landForward, RsPrefs_FloorConventionName(convention));
+    // Each storey's landing is computed from its placement, so it exists only while that placement
+    // is loaded: `placed=0` is a storey in another room, or one nobody placed.
     for (int32_t row = 0; row < def->landingCount; row++) {
         const RsStairLanding& l = def->landings[row];
-        Addf(lines, "row[%d] storey=%d pos=%d,%d,%d yaw=%d room=%d label=\"%s\"", row, l.storey, l.x, l.y, l.z,
-             static_cast<int16_t>(l.yaw), l.room, RsFloorText_Label(convention, l.storey, false).c_str());
+        float x = 0.0f;
+        float y = 0.0f;
+        float z = 0.0f;
+        int16_t yaw = 0;
+        const int32_t placed = InPlay() ? RsStair_PlacedLanding(stairId, row, &x, &y, &z, &yaw) : 0;
+        if (placed) {
+            Addf(lines, "row[%d] storey=%d room=%d placed=1 landing=%.1f,%.1f,%.1f yaw=%d label=\"%s\"", row, l.storey,
+                 l.room, x, y, z, yaw, RsFloorText_Label(convention, l.storey, false).c_str());
+        } else {
+            Addf(lines, "row[%d] storey=%d room=%d placed=0 label=\"%s\"", row, l.storey, l.room,
+                 RsFloorText_Label(convention, l.storey, false).c_str());
+        }
     }
     for (int32_t row = 0; row < def->landingCount; row++) {
         MenuLines(stairId, row, lines);
@@ -227,11 +239,11 @@ int32_t Actors(std::vector<std::string>& lines) {
             const int32_t stairId = RS_STAIR_PARAMS_GET_ID(actor->params);
             const int32_t row = RS_STAIR_PARAMS_GET_ROW(actor->params);
             Addf(lines,
-                 "actor[%d]=rs_stairs stair=%d row=%d params=0x%04X rsvd=%d registered=%d landing=%d room=%d "
+                 "actor[%d]=rs_stairs stair=%d row=%d params=0x%04X rsvd=%d registered=%d landing=%d room=%d yaw=%d "
                  "pos=%d,%d,%d",
                  found, stairId, row, static_cast<unsigned>(actor->params) & 0xFFFF,
                  RS_STAIR_PARAMS_GET_RSVD(actor->params), RsStair_IsRegistered(stairId),
-                 RsStair_GetLanding(stairId, row) != nullptr ? 1 : 0, actor->room,
+                 RsStair_GetLanding(stairId, row) != nullptr ? 1 : 0, actor->room, actor->home.rot.y,
                  static_cast<int>(actor->world.pos.x), static_cast<int>(actor->world.pos.y),
                  static_cast<int>(actor->world.pos.z));
             found++;
@@ -310,7 +322,7 @@ const ConsoleSink::Command stairsCommand(
     "stairs", RsStairConsole_Run,
     "Staircases - menu-driven storey moves (sturdy-bassoon#147): list | dump <id> | menu <id> <row> | where | "
     "go <id> <row> | status | fade [ticks|default] | actors | badcheck. `go` runs the same move a staircase's menu "
-    "does, without the conversation. The move is a hard cut by default; `fade 6` tries a fade and "
+    "does, without the conversation. The move fades by default; `fade 0` makes it a hard cut and "
     "`fade default` goes back.",
     { { "list|dump|menu|where|go|status|fade|actors|badcheck", Ship::ArgumentType::TEXT },
       { "staircase id or ticks", Ship::ArgumentType::TEXT, true },

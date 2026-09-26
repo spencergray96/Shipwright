@@ -103,13 +103,14 @@ RS_STATIC_ASSERT(((RS_ITEM_PARAMS_QUEST_MASK << RS_ITEM_PARAMS_QUEST_SHIFT) | RS
 // --- staircase (sturdy-bassoon#147) -------------------------------------------------------------
 //
 // One placement per STOREY a staircase serves, each naming the staircase and which of its rows it
-// stands on. Every coordinate - where Link lands, which way he faces, which room - is in the
-// staircase's table (stairs/StairTable.cpp), because an s16 cannot hold one.
+// stands on. The placement is also where that storey's landing is measured from: Link is put down
+// `landForward` in front of it, facing the way it is turned (its ActorEntry rot.y) - so a
+// placement's position and rotation are data, not decoration (stairs/StairDef.h).
 //
-// The row is stated rather than inferred from the placement's height. Inferring would make it
-// impossible to mis-author, but only by making "which storey is this" depend on a coordinate a
-// human typed; stated, a mismatch is caught (RsStairs.c compares the placement's y with its row's
-// landing and says so) instead of quietly opening the wrong storey's menu.
+// The row is stated rather than inferred from the placement's height, because a storey's height is
+// only knowable against the OTHER placements, and those need not be loaded (another room). A
+// placement naming the wrong row shows as the wrong storey in its menu; one naming a row the
+// staircase does not have emits `rs_stairs event=bad_placement reason=no_such_row`.
 //
 // The row field is 2 bits because the menu caps a staircase at four storeys (StairDef.h). Growing
 // it later takes bit 10 out of the reserved span, which reinterprets nothing: every placement

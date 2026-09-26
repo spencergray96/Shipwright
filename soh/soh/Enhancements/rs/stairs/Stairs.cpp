@@ -13,6 +13,7 @@
 
 #include "soh/Enhancements/agenttest/AgentTest.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
+#include "soh/Enhancements/rs/actors/RsActorParams.h"
 #include "soh/Enhancements/rs/actors/RsActors.h"
 #include "soh/Enhancements/rs/music/ZoneDirector.h"
 #include "soh/Enhancements/rs/prefs/FloorText.h"
@@ -170,14 +171,13 @@ bool MenuRenders(const RsDialogueRule& screen) {
 
 #define CVAR_RS_STAIRS_FADE CVAR_ENHANCEMENT("RsStairsFadeTicks")
 
-// The default is a HARD CUT. Both were built and compared on the castle's tower shaft (#147 ADR,
-// run record 2026-09-25-issue-147-storey-actor): a 6-tick fade costs 0.7 s a move and reads as a
-// door or a load for an 80-unit hop the player can see straight down; the cut is 3 ticks and is
-// what RS does. The one thing the fade hid - the camera settling after the snap, which from a
-// tower room started outside the tower - SeatCamera now does before the first frame is drawn.
-// `stairs fade <n>` overrides it per install without a rebuild; `stairs fade default` clears the
-// override.
-constexpr int32_t kDefaultFadeTicks = 0;
+// The default is a 6-tick FADE each way (0.3 s out, 0.1 s held black, 0.3 s in). Both it and a hard
+// cut were built and compared on the castle's tower shaft (#147 ADR, "The fade"): from filmstrips
+// the cut looked cleaner once SeatCamera fixed its first frame, and the owner's play test chose the
+// fade anyway - it reads better in hand. 0 is the hard cut, kept one command away:
+// `stairs fade 0` overrides this per install without a rebuild; `stairs fade default` clears the
+// override and comes back here.
+constexpr int32_t kDefaultFadeTicks = 6;
 
 // Ticks spent at full black after the move, before fading back in. Player's floor raycast runs on
 // its next update, so the first of these is what gives `floorHeight` - and the respawn point, which
@@ -185,10 +185,16 @@ constexpr int32_t kDefaultFadeTicks = 0;
 // from its new position. With a hard cut this is also how long Link stays frozen after landing.
 constexpr int32_t kSettleTicks = 2;
 
-// Half a storey. Within it, Link is "on" a landing's storey.
+// Half a storey. Within it, Link is "on" a placement's storey.
 constexpr float kRowSnap = 40.0f;
 
-enum class Phase { Idle, FadeOut, WaitRoom, Settle, FadeIn };
+// Ticks a cross-room move waits, after the new room is in, for the destination placement to
+// appear. Play_Update processes the room request before Actor_UpdateAll, which spawns the room's
+// setup actors before Player updates - so the placement is normally there on the tick the room
+// finishes. The grace is for the order changing under us, not a known delay.
+constexpr int32_t kArriveTicks = 2;
+
+enum class Phase { Idle, FadeOut, WaitRoom, Arrive, Settle, FadeIn, ReturnRoom };
 
 const char* PhaseName(Phase phase) {
     switch (phase) {
@@ -198,10 +204,14 @@ const char* PhaseName(Phase phase) {
             return "fade_out";
         case Phase::WaitRoom:
             return "wait_room";
+        case Phase::Arrive:
+            return "arrive";
         case Phase::Settle:
             return "settle";
         case Phase::FadeIn:
             return "fade_in";
+        case Phase::ReturnRoom:
+            return "return_room";
     }
     return "unknown";
 }
@@ -216,9 +226,9 @@ struct Move {
     int32_t phaseTick = 0; // within the current phase
     int16_t scene = -1;
     const char* source = "";
-    bool roomChange = false;
+    int32_t roomFrom = -1; // the room Link was in when the move began
+    int32_t roomTo = -1;   // the destination storey's room
     bool roomRequested = false;
-    int32_t roomFrom = -1;
 };
 
 Move sMove;
@@ -287,6 +297,49 @@ void Abort(const char* reason) {
     sMove = Move();
 }
 
+// Ends a move that cannot finish in a scene that carries on: Link has not moved, so the screen
+// comes back and he is given back where he stood. `returned` says whether the move had to load the
+// room he started in again first.
+void CancelInPlace(PlayState* play, const char* reason, int32_t returned) {
+    char line[200];
+    std::snprintf(line, sizeof(line), "rs_stairs stair=%d event=abort reason=%s to_row=%d returned=%d room=%d ticks=%d",
+                  sMove.stairId, reason, sMove.toRow, returned, play->roomCtx.curRoom.num, sMove.ticks);
+    ReportOutcome(line);
+    ClearFill(play);
+    ReleasePlayer(play);
+    sMove = Move();
+}
+
+// The live placement standing on (staircase, row), or null - not placed, or in a room that is not
+// loaded. Staircases are ACTORCAT_PROP (RsActors.cpp), so that one list is the whole search; an
+// actor already killed this frame (update == NULL) does not count.
+Actor* FindPlacement(PlayState* play, int32_t stairId, int32_t row) {
+    for (Actor* actor = play->actorCtx.actorLists[ACTORCAT_PROP].head; actor != nullptr; actor = actor->next) {
+        if (actor->id == ACTOR_RS_STAIRS && actor->update != nullptr &&
+            RS_STAIR_PARAMS_GET_ID(actor->params) == stairId && RS_STAIR_PARAMS_GET_ROW(actor->params) == row) {
+            return actor;
+        }
+    }
+    return nullptr;
+}
+
+// WHERE LINK LANDS, from the placement rather than a table: `landForward` in front of it, on its
+// floor, facing the way it faces. `home` rather than `world`, because home is exactly what the scene
+// authored (Actor_Spawn copies the ActorEntry into it) and nothing ever moves it.
+bool LandingFromPlacement(PlayState* play, const RsStairDef& def, int32_t row, Vec3f* pos, s16* yaw) {
+    const Actor* placement = FindPlacement(play, def.id, row);
+    if (placement == nullptr) {
+        return false;
+    }
+    const s16 facing = placement->home.rot.y;
+    const f32 forward = static_cast<f32>(def.landForward);
+    pos->x = placement->home.pos.x + forward * Math_SinS(facing);
+    pos->y = placement->home.pos.y;
+    pos->z = placement->home.pos.z + forward * Math_CosS(facing);
+    *yaw = facing;
+    return true;
+}
+
 // Seats the freshly snapped camera where Camera_Normal would settle it, so a hard cut's first
 // frame is already the view the next few frames keep.
 //
@@ -325,10 +378,7 @@ void SeatCamera(Camera* camera, s16 yaw) {
 
 // THE MOVE ITSELF - every field #134's source dig found an in-place move must write, and the two
 // `agenttest goto` does not.
-void Teleport(PlayState* play, Player* player, const RsStairLanding& landing) {
-    const Vec3f pos = { static_cast<f32>(landing.x), static_cast<f32>(landing.y), static_cast<f32>(landing.z) };
-    const s16 yaw = static_cast<s16>(landing.yaw);
-
+void Teleport(PlayState* play, Player* player, const Vec3f& pos, s16 yaw) {
     player->actor.world.pos = pos;
     // The wall sweep runs prevPos -> world.pos as though Link walked it in one frame
     // (z_actor.c, BgCheck wall check) and would clamp him to the first poly the line crosses - a
@@ -376,6 +426,64 @@ void Teleport(PlayState* play, Player* player, const RsStairLanding& landing) {
     RsMusic_NotifyWarped("stairs");
 }
 
+// Puts Link down in front of the destination storey's placement and moves on to Settle. False,
+// with nothing moved, when that placement is not in the actor list.
+bool Land(PlayState* play, Player* player) {
+    const RsStairDef* def = RsStair_GetDef(sMove.stairId);
+    const RsStairLanding* landing = RsStair_GetLanding(sMove.stairId, sMove.toRow);
+    Vec3f pos;
+    s16 yaw = 0;
+    if (def == nullptr || landing == nullptr || !LandingFromPlacement(play, *def, sMove.toRow, &pos, &yaw)) {
+        return false;
+    }
+    const Vec3f before = player->actor.world.pos;
+    Teleport(play, player, pos, yaw);
+    // `black=` is whether the screen is held black as the move lands, and `eye=` where the snapped
+    // camera starts - both what a screenshot would have to catch on exactly the right frame to
+    // prove. `room=` is the room Link is in as he lands: on a cross-room move the new room is
+    // already in by then.
+    const Vec3f eye = Play_GetCamera(play, CAM_ID_MAIN)->eye;
+    Marker("rs_stairs stair=%d event=moved to_row=%d storey=%d from=%.1f,%.1f,%.1f pos=%.1f,%.1f,%.1f yaw=%d "
+           "room=%d room_change=%d black=%d eye=%.1f,%.1f,%.1f ticks=%d",
+           sMove.stairId, sMove.toRow, landing->storey, before.x, before.y, before.z, player->actor.world.pos.x,
+           player->actor.world.pos.y, player->actor.world.pos.z, player->actor.shape.rot.y, play->roomCtx.curRoom.num,
+           sMove.roomTo != sMove.roomFrom ? 1 : 0,
+           (play->envCtx.fillScreen && play->envCtx.screenFillColor[3] == 255) ? 1 : 0, eye.x, eye.y, eye.z,
+           sMove.ticks);
+    sMove.phase = Phase::Settle;
+    sMove.phaseTick = 0;
+    return true;
+}
+
+// One step of a room change: request `room` when nothing else is loading, then finish it once it is
+// in. True on the tick the change completes. RoomDist.cpp's shape. The finish is what kills every
+// actor outside the new room - usually including the staircase that opened the menu, which is why
+// none of this lives in the actor.
+bool StepRoomChange(PlayState* play, int32_t room) {
+    RoomContext* roomCtx = &play->roomCtx;
+    if (!sMove.roomRequested) {
+        if (roomCtx->status != 0) {
+            return false; // somebody else's load in flight; ask when it is done
+        }
+        const int32_t from = roomCtx->curRoom.num;
+        if (!Room_RequestNewRoom(play, roomCtx, room)) {
+            return false;
+        }
+        sMove.roomRequested = true;
+        Marker("rs_stairs stair=%d event=room_request from=%d to=%d ticks=%d", sMove.stairId, from, room, sMove.ticks);
+        return false;
+    }
+    if (roomCtx->status != 0) {
+        return false;
+    }
+    const int32_t from = roomCtx->prevRoom.num;
+    Room_FinishRoomChange(play, roomCtx);
+    Marker("rs_stairs stair=%d event=room from=%d to=%d ticks=%d", sMove.stairId, from, roomCtx->curRoom.num,
+           sMove.ticks);
+    sMove.roomRequested = false;
+    return true;
+}
+
 void Finish(PlayState* play, Player* player) {
     const RsStairLanding* landing = RsStair_GetLanding(sMove.stairId, sMove.toRow);
     const RespawnData& respawn = gSaveContext.respawn[RESPAWN_MODE_DOWN];
@@ -397,6 +505,15 @@ void Finish(PlayState* play, Player* player) {
     sMove = Move();
 }
 
+// THE CONTROLLER. One tick per Player update:
+//
+//   FadeOut --same room--> land --> Settle --> FadeIn --> landed
+//      `--other room--> WaitRoom --> Arrive --> land --'
+//                                      `--no placement--> ReturnRoom --> abort, returned=1
+//
+// A cross-room move loads the room BEFORE it lands, because the placement it lands in front of is
+// in that room's actor list and does not exist until the room does. The screen is black for all of
+// it, fade or cut.
 void OnPlayerUpdateStairs() {
     if (sMove.phase == Phase::Idle) {
         return;
@@ -407,75 +524,57 @@ void OnPlayerUpdateStairs() {
         return;
     }
     Player* player = GET_PLAYER(play);
-    const RsStairLanding* landing = RsStair_GetLanding(sMove.stairId, sMove.toRow);
-    if (landing == nullptr) {
-        Abort("landing_gone"); // unreachable: BeginMove checked it and nothing unregisters
-        return;
-    }
     sMove.ticks++;
 
     switch (sMove.phase) {
-        case Phase::FadeOut: {
+        case Phase::FadeOut:
             sMove.phaseTick++;
             if (sMove.phaseTick < sMove.fade) {
                 SetFill(play, FadeAlpha(sMove.phaseTick, sMove.fade));
                 return;
             }
-            if (sMove.fade > 0) {
-                SetFill(play, 255);
-            }
-            const Vec3f before = player->actor.world.pos;
-            Teleport(play, player, *landing);
-            sMove.roomFrom = play->roomCtx.curRoom.num;
-            sMove.roomChange = landing->room != sMove.roomFrom;
             // A hard cut still goes black across a ROOM CHANGE. Until Room_FinishRoomChange the
-            // destination room is not the one being drawn, so a cut would show Link standing in
-            // nothing for the tick or two the load takes. Finish clears it with the rest.
-            if (sMove.fade == 0 && sMove.roomChange) {
+            // destination room is not the one being drawn, so a cut would show the load. Finish or
+            // CancelInPlace clears it.
+            if (sMove.fade > 0 || sMove.roomTo != sMove.roomFrom) {
                 SetFill(play, 255);
             }
-            // `black=` is whether the screen is held black as the move lands, and `eye=` where the
-            // snapped camera starts - both what a screenshot would have to catch on exactly the right
-            // frame to prove.
-            const Vec3f eye = Play_GetCamera(play, CAM_ID_MAIN)->eye;
-            Marker("rs_stairs stair=%d event=moved to_row=%d storey=%d from=%.1f,%.1f,%.1f pos=%.1f,%.1f,%.1f yaw=%d "
-                   "room=%d room_change=%d black=%d eye=%.1f,%.1f,%.1f ticks=%d",
-                   sMove.stairId, sMove.toRow, landing->storey, before.x, before.y, before.z,
-                   player->actor.world.pos.x, player->actor.world.pos.y, player->actor.world.pos.z,
-                   player->actor.shape.rot.y, sMove.roomFrom, sMove.roomChange ? 1 : 0,
-                   (play->envCtx.fillScreen && play->envCtx.screenFillColor[3] == 255) ? 1 : 0, eye.x, eye.y,
-                   eye.z, sMove.ticks);
-            sMove.phase = sMove.roomChange ? Phase::WaitRoom : Phase::Settle;
-            sMove.phaseTick = 0;
-            return;
-        }
-        case Phase::WaitRoom: {
-            // RoomDist.cpp's shape: request, wait for the load to report done, finish. The finish is
-            // what kills every actor outside the new room - including, usually, the staircase that
-            // opened the menu. That is why none of this lives in the actor.
-            RoomContext* roomCtx = &play->roomCtx;
-            if (!sMove.roomRequested) {
-                if (roomCtx->status != 0) {
-                    return; // somebody else's load in flight; ask when it is done
-                }
-                if (!Room_RequestNewRoom(play, roomCtx, landing->room)) {
-                    return;
-                }
-                sMove.roomRequested = true;
-                Marker("rs_stairs stair=%d event=room_request from=%d to=%d ticks=%d", sMove.stairId, sMove.roomFrom,
-                       landing->room, sMove.ticks);
+            if (sMove.roomTo != sMove.roomFrom) {
+                sMove.phase = Phase::WaitRoom;
+                sMove.phaseTick = 0;
                 return;
             }
-            if (roomCtx->status != 0) {
+            // Same room: BeginMove saw the placement, so this fails only if it was killed since.
+            if (!Land(play, player)) {
+                CancelInPlace(play, "no_placement", 0);
+            }
+            return;
+        case Phase::WaitRoom:
+            if (StepRoomChange(play, sMove.roomTo)) {
+                sMove.phase = Phase::Arrive;
+                sMove.phaseTick = 0;
+            }
+            return;
+        case Phase::Arrive:
+            if (Land(play, player)) {
                 return;
             }
-            Room_FinishRoomChange(play, roomCtx);
-            Marker("rs_stairs stair=%d event=room from=%d to=%d ticks=%d", sMove.stairId, sMove.roomFrom,
-                   roomCtx->curRoom.num, sMove.ticks);
-            sMove.phase = Phase::Settle;
+            if (++sMove.phaseTick < kArriveTicks) {
+                return;
+            }
+            // The room is in and the storey has no placement - an authoring mistake, and one only a
+            // room load could reveal. Link has not moved, so load his own room back and give him back
+            // where he stood, rather than leave him standing in a room that is not drawn.
+            Marker("rs_stairs stair=%d event=no_placement to_row=%d room=%d ticks=%d", sMove.stairId, sMove.toRow,
+                   play->roomCtx.curRoom.num, sMove.ticks);
+            sMove.phase = Phase::ReturnRoom;
             sMove.phaseTick = 0;
             return;
-        }
+        case Phase::ReturnRoom:
+            if (StepRoomChange(play, sMove.roomFrom)) {
+                CancelInPlace(play, "no_placement", 1);
+            }
+            return;
         case Phase::Settle:
             if (++sMove.phaseTick < kSettleTicks) {
                 return;
@@ -537,6 +636,8 @@ extern "C" const char* RsStair_ResultName(int32_t result) {
             return "wrong_scene";
         case RS_STAIR_ERR_BAD_ROOM:
             return "bad_room";
+        case RS_STAIR_ERR_NO_PLACEMENT:
+            return "no_placement";
         default:
             return "unknown";
     }
@@ -566,6 +667,8 @@ extern "C" const char* RsStair_ProblemName(int32_t problem) {
             return "menu_overflows";
         case RS_STAIR_PROBLEM_ID_TAKEN:
             return "id_taken";
+        case RS_STAIR_PROBLEM_LAND_FORWARD:
+            return "land_forward";
         default:
             return "unknown";
     }
@@ -584,6 +687,9 @@ extern "C" int32_t RsStair_DefProblem(const RsStairDef* def, int32_t* where) {
     }
     if (!IsToken(def->name)) {
         return RS_STAIR_PROBLEM_BAD_NAME;
+    }
+    if (def->landForward < RS_STAIR_MIN_LAND_FORWARD) {
+        return RS_STAIR_PROBLEM_LAND_FORWARD;
     }
     if (def->landingCount < 2 || def->landingCount > RS_STAIR_MAX_ROWS) {
         return RS_STAIR_PROBLEM_ROW_COUNT;
@@ -668,6 +774,20 @@ extern "C" const RsStairLanding* RsStair_GetLanding(int32_t stairId, int32_t row
     return &def->landings[row];
 }
 
+extern "C" int32_t RsStair_PlacedLanding(int32_t stairId, int32_t row, float* x, float* y, float* z, int16_t* yaw) {
+    const RsStairDef* def = RsStair_GetDef(stairId);
+    Vec3f pos;
+    s16 facing = 0;
+    if (def == nullptr || gPlayState == nullptr || !LandingFromPlacement(gPlayState, *def, row, &pos, &facing)) {
+        return 0;
+    }
+    *x = pos.x;
+    *y = pos.y;
+    *z = pos.z;
+    *yaw = facing;
+    return 1;
+}
+
 extern "C" int32_t RsStair_RowNearestPlayer(int32_t stairId) {
     const RsStairDef* def = RsStair_GetDef(stairId);
     if (def == nullptr || gPlayState == nullptr || GET_PLAYER(gPlayState) == nullptr) {
@@ -677,7 +797,11 @@ extern "C" int32_t RsStair_RowNearestPlayer(int32_t stairId) {
     int32_t best = -1;
     float bestDist = kRowSnap;
     for (int32_t row = 0; row < def->landingCount; row++) {
-        const float dist = std::fabs(static_cast<float>(def->landings[row].y) - y);
+        const Actor* placement = FindPlacement(gPlayState, stairId, row);
+        if (placement == nullptr) {
+            continue; // not in a loaded room, so not the storey he is standing on
+        }
+        const float dist = std::fabs(placement->home.pos.y - y);
         if (dist <= bestDist) {
             bestDist = dist;
             best = row;
@@ -745,6 +869,11 @@ extern "C" int32_t RsStair_BeginMove(int32_t stairId, int32_t fromRow, int32_t t
         result = RS_STAIR_ERR_WRONG_SCENE;
     } else if (landing->room >= gPlayState->numRooms) {
         result = RS_STAIR_ERR_BAD_ROOM;
+    } else if (landing->room == gPlayState->roomCtx.curRoom.num &&
+               FindPlacement(gPlayState, stairId, toRow) == nullptr) {
+        // Knowable now only when the destination is in the loaded room; in another room the move
+        // finds out after loading it, and goes back (the controller's Arrive phase).
+        result = RS_STAIR_ERR_NO_PLACEMENT;
     }
     if (result != RS_STAIR_OK) {
         char line[200];
@@ -766,6 +895,8 @@ extern "C" int32_t RsStair_BeginMove(int32_t stairId, int32_t fromRow, int32_t t
     sMove.fade = RsStair_GetFadeTicks();
     sMove.scene = gPlayState->sceneNum;
     sMove.source = source != nullptr ? source : "";
+    sMove.roomFrom = gPlayState->roomCtx.curRoom.num;
+    sMove.roomTo = landing->room;
 
     // Freeze him, with NO cutscene actor: CsAction 1 turns Link to face its csActor every frame
     // (func_80851314), which would overwrite the landing's facing. From a conversation this is
