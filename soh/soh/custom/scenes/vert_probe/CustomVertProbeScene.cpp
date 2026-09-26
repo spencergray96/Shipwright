@@ -64,7 +64,30 @@ static s16 sVertProbeExitList[] = {
 
 // South-west of fixture A, facing +Z up the lane of steps.
 static ActorEntry sVertProbePlayerSpawn = {
-    ACTOR_PLAYER, { 0, 0, -2600 }, { 0, 0, 0 }, 0x0D00
+    ACTOR_PLAYER, { 0, 0, -2600 }, { 0, 0, 0 }, 0x0D00 // facing +Z, up the lane of steps
+};
+
+// One signpost per fixture, so the probe can be walked without the run record open beside it.
+// En_Kanban turns its own params into a text id (`params | 0x300`, z_en_kanban.c:211); the text for
+// each id is registered in VertProbeSigns.cpp and only answers inside this scene.
+// y = 0 on the ground plane. rot.y 0x8000 points the sign south, at someone walking north into the
+// fixture: EnKanban_Message only offers to talk when the player is within 0x2800 of the direction
+// shape.rot.y faces, and within 68 units (z_en_kanban.c:235-239). The ladder signs sit at z = 700,
+// south of the floor slabs that start at 800.
+static ActorEntry sVertProbeActors[] = {
+    { ACTOR_EN_KANBAN, {   150, 0, -2620 }, { 0, (s16)0x8000, 0 }, 0x01 }, // overview, at the spawn
+    { ACTOR_EN_KANBAN, { -1150, 0, -1900 }, { 0, (s16)0x8000, 0 }, 0x02 }, // A  step lane 16-40
+    { ACTOR_EN_KANBAN, {  -700, 0,  1950 }, { 0, (s16)0x8000, 0 }, 0x03 }, // A2 step boundary 15-19
+    { ACTOR_EN_KANBAN, { -1100, 0,  -900 }, { 0, (s16)0x8000, 0 }, 0x04 }, // B  ramps 20-55
+    { ACTOR_EN_KANBAN, {  1150, 0,  -900 }, { 0, (s16)0x8000, 0 }, 0x05 }, // B2 ramps 58-62
+    { ACTOR_EN_KANBAN, { -1740, 0,   700 }, { 0, (s16)0x8000, 0 }, 0x06 }, // C1 floors reach
+    { ACTOR_EN_KANBAN, {  -540, 0,   700 }, { 0, (s16)0x8000, 0 }, 0x07 }, // C2 60-unit hole
+    { ACTOR_EN_KANBAN, {   660, 0,   700 }, { 0, (s16)0x8000, 0 }, 0x08 }, // C3 far-side floors
+    { ACTOR_EN_KANBAN, { -2740, 0,   700 }, { 0, (s16)0x8000, 0 }, 0x09 }, // C4 proud lip, floor reaches
+    { ACTOR_EN_KANBAN, {  2660, 0,   700 }, { 0, (s16)0x8000, 0 }, 0x0A }, // C5 proud lip, 60-unit hole
+    { ACTOR_EN_KANBAN, { -2140, 0,   700 }, { 0, (s16)0x8000, 0 }, 0x0B }, // C6 proud lip, 20-unit hole
+    { ACTOR_EN_KANBAN, {   260, 0,   700 }, { 0, (s16)0x8000, 0 }, 0x0C }, // C7 balcony - the one that works
+    { ACTOR_EN_KANBAN, {  1860, 0,   700 }, { 0, (s16)0x8000, 0 }, 0x0D }, // D  exit on the landing
 };
 
 static RomFile sVertProbeRoomList[] = {
@@ -137,9 +160,10 @@ extern "C" void CustomVertProbeScene_InitRoom(PlayState* play, RoomContext* room
     roomCtx->curRoom.behaviorType2 = ROOM_BEHAVIOR_TYPE2_0;
     roomCtx->curRoom.lensMode      = LENS_MODE_HIDE_ACTORS;
 
-    // No actors: every fixture is collision.
-    play->numSetupActors = 0;
-    play->setupActorList = nullptr;
+    // The fixtures themselves are collision; the only actors are the signposts explaining them.
+    Object_Spawn(&play->objectCtx, OBJECT_KANBAN);
+    play->numSetupActors = ARRAY_COUNT(sVertProbeActors);
+    play->setupActorList = sVertProbeActors;
 
     Player_SetBootData(play, GET_PLAYER(play));
     Actor_SpawnTransitionActors(play, &play->actorCtx);
