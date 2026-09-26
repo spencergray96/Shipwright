@@ -795,9 +795,19 @@ void EmitPerf() {
     // SOH_STATIC_BAKE=1). tris_baked is *not* included in tris: baked geometry never reaches
     // GfxSpTri1, so it is neither CPU-culled nor counted there, which is exactly why turning the
     // bake on makes tris= fall for a scene that is drawing strictly more than before.
+    //
+    // texcache= is the texture cache's occupancy against its cap, tex_evict= and tex_upload= the
+    // least-recently-used evictions and the cache misses over this interval, and tex_used= the
+    // distinct entries the last completed frame bound (sturdy-bassoon#141). Past the cap the cache
+    // re-uploads instead of failing, so without these a frame bound by re-uploads reads like any
+    // other draw cost. texcache= falls only when entries are cleared or deleted, and a scene change
+    // clears only with alt assets on, so it climbs across a session; tex_used= is the per-frame
+    // figure that must fit.
     const Fast::PerfCounters render = Fast::PerfCountersGet();
     const uint64_t renderFrames = render.frames - sLastRenderCounters.frames;
     const double subMs = renderFrames > 0 ? (render.interpMs - sLastRenderCounters.interpMs) / renderFrames : 0.0;
+    const uint64_t texEvictions = render.texEvictions - sLastRenderCounters.texEvictions;
+    const uint64_t texUploads = render.texUploads - sLastRenderCounters.texUploads;
     sLastRenderCounters = render;
 
     // actors= is the resident actor count and act_near=/act_mid=/act_far= is how the distance-tier
@@ -836,7 +846,7 @@ void EmitPerf() {
                   "tick_max_ms=%.2f mem_mb=%.0f actors=%u act_near=%u act_mid=%u act_far=%u nodes=%u/%u "
                   "cell_max=%u cell_p95=%u cells=%u/%u heap_kb=%u/%u colchk_at=%d/%d colchk_ac=%d/%d "
                   "colchk_oc=%d/%d colchk_rej=%u/%u/%u dynapoly=%d/%d dynapoly_rej=%u fog=%d/%d cap=%u bld=%s "
-                  "scene=%s frame=%u",
+                  "scene=%s frame=%u texcache=%llu/%llu tex_evict=%llu tex_upload=%llu tex_used=%llu",
                   fps, ms, subMs, (unsigned long long)render.lastDraws, (unsigned long long)render.lastTris,
                   (unsigned long long)render.lastFlushes, (unsigned long long)render.lastDrawsBaked,
                   (unsigned long long)render.lastTrisBaked, tickAvg, sTickMaxMs, ResidentMemoryMb(), ResidentActors(),
@@ -847,7 +857,9 @@ void EmitPerf() {
                   colChk.rejectedAC, colChk.rejectedOC, dynaPoly.peak, BG_ACTOR_MAX, dynaPoly.rejected,
                   gPlayState->lightCtx.fogNear, gPlayState->lightCtx.fogFar,
                   OTRGlobals::Instance->GetInterpolationFPS(), buildTier, Hex(gPlayState->sceneNum).c_str(),
-                  gPlayState->state.frames);
+                  gPlayState->state.frames, (unsigned long long)render.texCacheSize,
+                  (unsigned long long)render.texCacheMax, (unsigned long long)texEvictions,
+                  (unsigned long long)texUploads, (unsigned long long)render.lastTexEntriesUsed);
     WriteMarker(buf);
     sTickSumMs = 0.0;
     sTickMaxMs = 0.0;
