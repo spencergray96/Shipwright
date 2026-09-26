@@ -369,13 +369,18 @@ function Invoke-SohBuild {
     <#
     .SYNOPSIS
     Build this tree. The everyday command - see docs/BUILD_GUIDE.md.
+
+    .PARAMETER Config
+    Release is the timing build: it lands in x64\Release, which the build does not
+    populate with runtime files (BUILD_GUIDE.md "Release builds").
     #>
     [CmdletBinding()]
     param(
         [string]$Target,
+        [ValidateSet('Debug', 'Release')][string]$Config = 'Debug',
         [ValidateSet('BelowNormal', 'Low', 'Normal')][string]$Priority = $script:SohDefaultPriority
     )
-    $a = @('--build', $script:SohBuildDir)
+    $a = @('--build', $script:SohBuildDir, '--config', $Config)
     if ($Target) { $a += @('--target', $Target) }
     $a += @('--', '/nodeReuse:false')
     Invoke-SohCMake -Arguments $a -Priority $Priority
