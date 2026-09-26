@@ -35,4 +35,6 @@
     { SCENE_LUMBRIDGE_SCALE_44, CustomLumbridgeScale44Scene_TrySpawn, CustomLumbridgeScale44Scene_InitRoom }, // project c3bf16bd-ce2e-404c-80b0-f8c230466e69 name lumbridge_scale_44
     { SCENE_LUMBRIDGE_LINTEL_HALF, CustomLumbridgeLintelHalfScene_TrySpawn, CustomLumbridgeLintelHalfScene_InitRoom }, // project ce85f467-a5c4-4d76-bc9f-1f1dffd03fec name lumbridge_lintel_half
     { SCENE_RS_AREA_P3, CustomRsAreaP3Scene_TrySpawn, CustomRsAreaP3Scene_InitRoom }, // hand-merge rs_area_p3 (sturdy-bassoon#79 P3b)
+    { SCENE_DRAYNOR_VILLAGE_3, CustomDraynorVillage3Scene_TrySpawn, CustomDraynorVillage3Scene_InitRoom }, // project 4eb53b4e-4dd3-44cb-a74a-948775383bae name draynor_village_3
+    { SCENE_VERT_PROBE, CustomVertProbeScene_TrySpawn, CustomVertProbeScene_InitRoom }, // hand-authored vert_probe (sturdy-bassoon#134)
 // END GRID TOOL EXPORTS

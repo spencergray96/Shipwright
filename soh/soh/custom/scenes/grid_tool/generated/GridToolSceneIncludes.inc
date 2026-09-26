@@ -34,4 +34,6 @@
 #include "../lumbridge_scale_44/CustomLumbridgeScale44Scene.h" // project c3bf16bd-ce2e-404c-80b0-f8c230466e69 name lumbridge_scale_44
 #include "../lumbridge_lintel_half/CustomLumbridgeLintelHalfScene.h" // project ce85f467-a5c4-4d76-bc9f-1f1dffd03fec name lumbridge_lintel_half
 #include "../rs_area_p3/CustomRsAreaP3Scene.h" // hand-merge rs_area_p3 (sturdy-bassoon#79 P3b)
+#include "../draynor_village_3/CustomDraynorVillage3Scene.h" // project 4eb53b4e-4dd3-44cb-a74a-948775383bae name draynor_village_3
+#include "../../vert_probe/CustomVertProbeScene.h" // hand-authored vert_probe (sturdy-bassoon#134)
 // END GRID TOOL EXPORTS
