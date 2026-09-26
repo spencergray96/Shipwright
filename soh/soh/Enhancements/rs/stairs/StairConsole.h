@@ -25,9 +25,12 @@
 //   where                   where Link is (pos, yaw, room) and, for every staircase in this scene,
 //                           which of its rows he is standing on (`row=-1`: none within half a storey)
 //   go <id> <row>           THE MOVE, through the same controller the menu uses, from whichever row
-//                           Link is nearest. A write; the markers above report how it went
-//   status                  the controller: phase, the move in flight, and the last move's final
-//                           marker line (`last="..."`, last on its own line because it has spaces)
+//                           Link is nearest. A write; `op=go result=ok` or `result=error error=<why>`
+//                           (busy, wrong_scene, ...), and the markers above report how it went
+//   status                  the controller: phase, the move in flight, and the last move's outcome
+//                           (`last="stair=<n> event=landed ..."` - the event line WITHOUT its
+//                           `rs_stairs ` prefix, so it never matches a grep for the event itself;
+//                           on its own line because it has spaces)
 //   fade [ticks|default]    the fade length each way, in game ticks; 0 is a hard cut and the build
 //                           default. A number sets and saves the override CVar (0..40); `default`
 //                           clears it. Reports `source=cvar|default`

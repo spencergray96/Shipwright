@@ -137,8 +137,9 @@ int32_t Menu(const std::vector<std::string>& args, std::vector<std::string>& lin
 
 int32_t Where(std::vector<std::string>& lines) {
     if (!InPlay()) {
-        lines.push_back("op=where result=error error=no_play");
-        return 1;
+        // Nothing to report is an answer, not a refusal - `actors` says the same.
+        lines.push_back("op=where scene=none stairs_here=0");
+        return 0;
     }
     Player* player = GET_PLAYER(gPlayState);
     int32_t ids[RS_STAIR_MAX];
@@ -172,10 +173,16 @@ int32_t Go(const std::vector<std::string>& args, std::vector<std::string>& lines
     // "From" is only reported, so the nearest row is good enough - and -1 is an honest answer from
     // somewhere that is not a landing at all.
     const int32_t from = RsStair_RowNearestPlayer(stairId);
+    // `result=ok|error` with the reason in `error=`, the wire format every console shares - so a run
+    // greps one pattern for any refusal. The move's own `refused` marker carries the same name.
     const int32_t result = RsStair_BeginMove(stairId, from, row, "console");
-    Addf(lines, "op=go result=%s stair=%d from_row=%d to_row=%d fade=%d", RsStair_ResultName(result), stairId, from,
-         row, RsStair_GetFadeTicks());
-    return result == RS_STAIR_OK ? 0 : 1;
+    if (result != RS_STAIR_OK) {
+        Addf(lines, "op=go result=error error=%s stair=%d from_row=%d to_row=%d", RsStair_ResultName(result), stairId,
+             from, row);
+        return 1;
+    }
+    Addf(lines, "op=go result=ok stair=%d from_row=%d to_row=%d fade=%d", stairId, from, row, RsStair_GetFadeTicks());
+    return 0;
 }
 
 int32_t Status(std::vector<std::string>& lines) {

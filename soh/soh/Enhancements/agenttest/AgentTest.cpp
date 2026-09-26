@@ -186,8 +186,9 @@
  *                                        `respawn=` `respawn_room=` where a void-out would now put him. Gameplay
  *                                        markers, so they reach the engine log in every session
  *   rs_stairs <line>                     one line of RsStairConsole_Run output per marker, from
- *                                        `agenttest stairs ...` - always `op=...` or an indexed row, never
- *                                        `stair=... event=...`, so the two kinds cannot be confused
+ *                                        `agenttest stairs ...` - always `op=...`, an indexed row or
+ *                                        `last="..."`, never a line that starts `stair=... event=...`,
+ *                                        so a grep for `rs_stairs stair=<n> event=` sees only events
  *   rs_quest quest=<n> event=on_complete a quest's optional completion callback ran (D12). It runs after the
  *                                        declarative rewards with the status already COMPLETE, so counting
  *                                        these markers is how a run proves a reward fired exactly once

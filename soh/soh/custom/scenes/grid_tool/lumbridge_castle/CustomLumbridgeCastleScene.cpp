@@ -13,12 +13,12 @@
 // hand edits will be overwritten.
 //
 // ############################################################################################
-//  HAND EDIT, sturdy-bassoon#147: the sLumbridgeCastleRsActors list below and the two lines
-//  that install it in InitRoom. A re-export DROPS THEM, and the only symptom is that the two
-//  tower shafts quietly stop being usable - so if `stairs actors` in this scene reports zero,
-//  look here first. The landings themselves live in rs/stairs/StairTable.cpp and survive a
-//  re-export; the spiral staircases in the 2x2 shafts are a separate splice
-//  (tools/castle-stairs/add_castle_spirals.py) with the same caveat.
+//  HAND EDIT, sturdy-bassoon#147: the RsActorParams.h include above, the sLumbridgeCastleRsActors
+//  list below and the two lines that install it in InitRoom. A re-export DROPS THEM, and the only
+//  symptom is that the two tower shafts quietly stop being usable - so if `stairs actors` in this
+//  scene reports zero, look here first. The landings themselves live in
+//  rs/stairs/StairTable.cpp and survive a re-export; the spiral staircases in the 2x2 shafts are
+//  a separate splice (tools/castle-stairs/add_castle_spirals.py) with the same caveat.
 // ############################################################################################
 
 extern "C" ActorDBEntry* ActorDB_Retrieve(const int id);

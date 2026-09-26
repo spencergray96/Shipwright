@@ -32,8 +32,9 @@
 extern "C" {
 #endif
 
-// What a staircase call returns. Every refusal is OUTCOME class: a return code and a marker, never
-// an assert - the agent loop walks these paths, and a Debug assert there hangs it.
+// What a MOVE returns. Every refusal is OUTCOME class: a return code and a marker, never an assert -
+// the agent loop walks these paths, and a Debug assert there hangs it. (Registration is the other
+// class - see RsStair_Register.)
 typedef enum RsStairResult {
     RS_STAIR_OK = 0,
     RS_STAIR_ERR_BAD_ID = 1,      // out of range, or no staircase registered under it
@@ -49,7 +50,8 @@ const char* RsStair_ResultName(int32_t result); // "ok", "busy", "wrong_scene", 
 
 // Registration. Idempotent for the same pointer, because ShipInit "*" functions re-run on preset
 // apply and config load; a DIFFERENT definition under a registered id is refused. Returns 0 on
-// success, otherwise the RsStairProblem the definition failed on.
+// success, otherwise the RsStairProblem the definition failed on. A refusal is BUG class, as it is
+// for quests and NPCs: SPDLOG_ERROR, a debug assert and a `refused` marker.
 int32_t RsStair_Register(const RsStairDef* def);
 
 // The validator on its own - "would this register?" with no write, no log and no assert. Returns
@@ -87,7 +89,9 @@ int32_t RsStair_RowNearestPlayer(int32_t stairId);
 
 // The menu. `RsStair_Screen` is the screen the renderer lays out for (staircase, row); NULL for a
 // pair that does not exist. `RsStair_MenuDestination` maps a picked row of that box back to the
-// row it moves to, or -1 for Cancel and -2 for an index the box does not have.
+// row it moves to, or one of the two sentinels below.
+#define RS_STAIR_MENU_CANCEL (-1)    // the Cancel line: close, move nothing
+#define RS_STAIR_MENU_NO_OPTION (-2) // an index the box does not have
 const RsDialogueRule* RsStair_Screen(int32_t stairId, int32_t row);
 int32_t RsStair_MenuDestination(int32_t stairId, int32_t row, int32_t choiceIndex);
 
@@ -130,7 +134,7 @@ struct RsStairStatus {
     int32_t ticks;      // ticks since the move began
     int32_t fadeTicks;  // this move's fade length
     const char* source; // "menu" / "console"; "" when idle
-    std::string last;   // the last move's `landed` line, or its refusal / abort
+    std::string last;   // the last move's `landed` line, or its refusal / abort, minus `rs_stairs `
 };
 RsStairStatus RsStair_GetStatus();
 

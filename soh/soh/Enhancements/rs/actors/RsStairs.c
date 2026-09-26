@@ -27,8 +27,6 @@
 #include "global.h"
 #include "soh/Enhancements/rs/stairs/Stairs.h"
 
-#define RS_STAIRS_FLAGS (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_FRIENDLY | ACTOR_FLAG_UPDATE_CULLING_DISABLED)
-
 // Talk range. XZ reaches the landing (40 from the shaft centre) with margin, so Link can turn round
 // and go straight back; Y is under half a storey, so a placement never answers from the floor above
 // or below.
@@ -80,16 +78,23 @@ void RsStairs_Init(Actor* thisx, PlayState* play) {
     // Loud, never fatal and never an assert - RsNpc's rule. A broken placement still stands there
     // and its menu says what is wrong (RsActors.cpp renders the diagnostic), which is a mistake you
     // can see rather than a staircase that silently is not there.
+    // Each mistake also gets a marker, so a run sees it without reading the engine log.
     if (RS_STAIR_PARAMS_GET_RSVD(thisx->params) != 0) {
         LUSLOG_ERROR("RsStairs: params 0x%04X has reserved bits set (stair %d)", (u16)thisx->params, this->stairId);
+        snprintf(line, sizeof(line), "rs_stairs stair=%d event=bad_placement row=%d reason=reserved_bits params=0x%04X",
+                 this->stairId, this->row, (unsigned)(u16)thisx->params);
+        RsAgent_Marker(line);
     }
     landing = RsStair_GetLanding(this->stairId, this->row);
     if (landing == NULL) {
         LUSLOG_ERROR("RsStairs: stair %d has no row %d in this build", this->stairId, this->row);
+        snprintf(line, sizeof(line), "rs_stairs stair=%d event=bad_placement row=%d reason=no_such_row",
+                 this->stairId, this->row);
+        RsAgent_Marker(line);
     } else if (fabsf((f32)landing->y - thisx->home.pos.y) > RS_STAIRS_ROW_TOLERANCE) {
         // The row is STATED in params rather than inferred from height (RsActorParams.h), and this
         // is the check that makes stating it safe.
-        snprintf(line, sizeof(line), "rs_stairs stair=%d event=bad_placement row=%d y=%.1f landing_y=%d",
+        snprintf(line, sizeof(line), "rs_stairs stair=%d event=bad_placement row=%d reason=height y=%.1f landing_y=%d",
                  this->stairId, this->row, thisx->home.pos.y, (int)landing->y);
         RsAgent_Marker(line);
     }
@@ -157,15 +162,16 @@ static void RsStairs_Talk(RsStairs* this, PlayState* play) {
         // No gating on a staircase menu, so the visible row IS the declared option.
         choice = play->msgCtx.choiceIndex;
         dest = RsStair_MenuDestination(this->stairId, this->row, choice);
-        if (dest == -2) {
+        if (dest == RS_STAIR_MENU_NO_OPTION) {
             return;
         }
         // BeginMove before the box closes, not after: it puts Link in a cutscene action, and
         // Player_Action_Talk takes that up as the box closes, so he goes straight from talking to
         // still - no frame of walking in between.
-        result = dest >= 0 ? RsStair_BeginMove(this->stairId, this->row, dest, "menu") : RS_STAIR_OK;
+        result = dest != RS_STAIR_MENU_CANCEL ? RsStair_BeginMove(this->stairId, this->row, dest, "menu") : RS_STAIR_OK;
         snprintf(line, sizeof(line), "rs_stairs stair=%d event=choice row=%d index=%d to_row=%d result=%s",
-                 this->stairId, this->row, (int)choice, (int)dest, dest >= 0 ? RsStair_ResultName(result) : "cancel");
+                 this->stairId, this->row, (int)choice, (int)dest,
+                 dest != RS_STAIR_MENU_CANCEL ? RsStair_ResultName(result) : "cancel");
         RsAgent_Marker(line);
         Message_CloseTextbox(play);
         this->actionFunc = RsStairs_Wait;

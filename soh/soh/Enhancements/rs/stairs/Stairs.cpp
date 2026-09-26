@@ -1,9 +1,11 @@
 #include "Stairs.h"
 
 #include <array>
+#include <cassert>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
+#include <cstring>
 #include <memory>
 #include <string>
 
@@ -17,6 +19,7 @@
 #include "soh/ShipInit.hpp"
 #include "soh/cvar_prefixes.h"
 #include "soh/frame_interpolation.h"
+#include <spdlog/spdlog.h>
 
 extern "C" {
 #include <z64.h>
@@ -124,7 +127,7 @@ void BuildMenus(const RsStairDef& def, StairMenus& out) {
             }
         }
         options[count] = MakeOption(kCancel);
-        dest[count++] = -1;
+        dest[count++] = RS_STAIR_MENU_CANCEL;
 
         screen.when = nullptr;
         screen.whenCount = 0;
@@ -175,7 +178,6 @@ bool MenuRenders(const RsDialogueRule& screen) {
 // `stairs fade <n>` overrides it per install without a rebuild; `stairs fade default` clears the
 // override.
 constexpr int32_t kDefaultFadeTicks = 0;
-constexpr int32_t kMaxFadeTicks = RS_STAIR_MAX_FADE_TICKS;
 
 // Ticks spent at full black after the move, before fading back in. Player's floor raycast runs on
 // its next update, so the first of these is what gives `floorHeight` - and the respawn point, which
@@ -220,7 +222,7 @@ struct Move {
 };
 
 Move sMove;
-std::string sLast; // the last move's final marker line, for `stairs status`
+std::string sLast; // the last move's outcome, for `stairs status` - see ReportOutcome
 
 void Marker(const char* fmt, ...) {
     char line[320];
@@ -229,6 +231,19 @@ void Marker(const char* fmt, ...) {
     std::vsnprintf(line, sizeof(line), fmt, ap);
     va_end(ap);
     AgentTest_WriteMarker(line);
+}
+
+// A marker that is also a move's OUTCOME - landed, aborted, refused - remembered for
+// `stairs status`. Remembered without its `rs_stairs ` prefix, because status prints it inside
+// `last="..."`: an answer line must never read as an event to a grep for `rs_stairs stair=<n> event=`.
+void ReportOutcome(const char* line) {
+    static const char kPrefix[] = "rs_stairs ";
+    AgentTest_WriteMarker(line);
+    sLast = std::strncmp(line, kPrefix, sizeof(kPrefix) - 1) == 0 ? line + sizeof(kPrefix) - 1 : line;
+}
+
+int32_t ClampFade(int32_t ticks) {
+    return ticks < 0 ? 0 : (ticks > RS_STAIR_MAX_FADE_TICKS ? RS_STAIR_MAX_FADE_TICKS : ticks);
 }
 
 void SetFill(PlayState* play, int32_t alpha) {
@@ -268,8 +283,7 @@ void Abort(const char* reason) {
     char line[200];
     std::snprintf(line, sizeof(line), "rs_stairs stair=%d event=abort reason=%s phase=%s ticks=%d", sMove.stairId,
                   reason, PhaseName(sMove.phase), sMove.ticks);
-    AgentTest_WriteMarker(line);
-    sLast = line;
+    ReportOutcome(line);
     sMove = Move();
 }
 
@@ -377,8 +391,7 @@ void Finish(PlayState* play, Player* player) {
                   player->actor.shape.rot.y, play->roomCtx.curRoom.num, player->actor.floorHeight,
                   (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) ? 1 : 0, respawn.pos.x, respawn.pos.y,
                   respawn.pos.z, respawn.roomIndex, sMove.fade, sMove.ticks, sMove.source);
-    AgentTest_WriteMarker(line);
-    sLast = line;
+    ReportOutcome(line);
     ClearFill(play);
     ReleasePlayer(play);
     sMove = Move();
@@ -613,12 +626,18 @@ extern "C" int32_t RsStair_Register(const RsStairDef* def) {
     int32_t where = -1;
     const int32_t problem = RsStair_DefProblem(def, &where);
     if (problem != RS_STAIR_PROBLEM_NONE) {
-        // Loud and not fatal: the kind and the row, never the prose. A refused staircase leaves its
-        // placements standing, and their menus say what is wrong (RsActors.cpp).
+        // BUG CLASS, as RsNpc_Register and Quest_Register are (QUEST_SYSTEM.md, "Two loudness
+        // classes"): a malformed or duplicate definition is a mistake in the source, so it is an
+        // error, a debug assert and a refusal. The kind and the row, never the prose. Nothing the
+        // agent loop drives can reach this - `stairs badcheck` asks RsStair_DefProblem, which is
+        // silent - so the assert fires only for a table that is actually broken, at boot.
         char line[160];
         std::snprintf(line, sizeof(line), "rs_stairs stair=%d event=refused problem=%s row=%d",
                       def != nullptr ? def->id : -1, RsStair_ProblemName(problem), where);
         AgentTest_WriteMarker(line);
+        SPDLOG_ERROR("RsStairs: register stair {}: {} at row {}", def != nullptr ? def->id : -1,
+                     RsStair_ProblemName(problem), where);
+        assert(false && "staircase definition failed validation");
         return problem;
     }
     if (sStairs[def->id] != nullptr) {
@@ -678,18 +697,18 @@ extern "C" const RsDialogueRule* RsStair_Screen(int32_t stairId, int32_t row) {
 extern "C" int32_t RsStair_MenuDestination(int32_t stairId, int32_t row, int32_t choiceIndex) {
     const RsDialogueRule* screen = RsStair_Screen(stairId, row);
     if (screen == nullptr || choiceIndex < 0 || choiceIndex >= screen->optionCount) {
-        return -2;
+        return RS_STAIR_MENU_NO_OPTION;
     }
     return sStairs[stairId]->dest[row][choiceIndex];
 }
 
 extern "C" int32_t RsStair_GetFadeTicks(void) {
     const int32_t ticks = CVarGetInteger(CVAR_RS_STAIRS_FADE, kDefaultFadeTicks);
-    return ticks < 0 ? 0 : (ticks > kMaxFadeTicks ? kMaxFadeTicks : ticks);
+    return ClampFade(ticks);
 }
 
 extern "C" void RsStair_SetFadeTicks(int32_t ticks) {
-    CVarSetInteger(CVAR_RS_STAIRS_FADE, ticks < 0 ? 0 : (ticks > kMaxFadeTicks ? kMaxFadeTicks : ticks));
+    CVarSetInteger(CVAR_RS_STAIRS_FADE, ClampFade(ticks));
     CVarSave();
 }
 
@@ -731,9 +750,10 @@ extern "C" int32_t RsStair_BeginMove(int32_t stairId, int32_t fromRow, int32_t t
         char line[200];
         std::snprintf(line, sizeof(line), "rs_stairs stair=%d event=refused result=%s from_row=%d to_row=%d source=%s",
                       stairId, RsStair_ResultName(result), fromRow, toRow, source != nullptr ? source : "");
-        AgentTest_WriteMarker(line);
-        if (result != RS_STAIR_ERR_BUSY) {
-            sLast = line; // a busy refusal must not overwrite the move it bounced off
+        if (result == RS_STAIR_ERR_BUSY) {
+            AgentTest_WriteMarker(line); // must not overwrite the outcome of the move it bounced off
+        } else {
+            ReportOutcome(line);
         }
         return result;
     }
