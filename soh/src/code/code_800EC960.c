@@ -5524,6 +5524,17 @@ void Audio_PlayNatureAmbienceSequence(u8 natureAmbienceId) {
     u8 port;
     u8 val;
 
+    // SoH: the table has one entry per scene value, NATURE_ID_GENERAL_NIGHT..NATURE_ID_NONE. An id
+    // past it was read as junk IO and sent to the ambience sequence, whose script then ran off
+    // mapped memory in the audio thread seconds later - which is what 0xFF (NATURE_ID_DISABLED, a
+    // gSaveContext value) did in every compiled-in custom scene at dusk (sturdy-bassoon#156).
+    if (natureAmbienceId >= ARRAY_COUNT(sNatureAmbienceDataIO)) {
+        LUSLOG_WARN("Audio_PlayNatureAmbienceSequence: natureAmbienceId 0x%X is past the %d-entry table; playing "
+                    "none. A scene with no ambience sets NATURE_ID_NONE (0x%X).",
+                    natureAmbienceId, (s32)ARRAY_COUNT(sNatureAmbienceDataIO), NATURE_ID_NONE);
+        return;
+    }
+
     if ((gActiveSeqs[SEQ_PLAYER_BGM_MAIN].seqId == NA_BGM_DISABLED) ||
         !(Audio_GetSeqFlags(((u8)gActiveSeqs[SEQ_PLAYER_BGM_MAIN].seqId) & 0xFF) & 0x80)) {
 

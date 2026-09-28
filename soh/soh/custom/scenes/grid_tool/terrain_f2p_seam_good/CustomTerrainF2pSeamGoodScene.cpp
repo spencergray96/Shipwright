@@ -108,7 +108,9 @@ static void InitScene(PlayState* play, s32 spawn) {
     play->envCtx.skyboxDisabled  = 0;
     play->envCtx.sunMoonDisabled = 0;
     play->sequenceCtx.seqId            = NA_BGM_KAKARIKO_KID;
-    play->sequenceCtx.natureAmbienceId = 0xFF;
+    // NATURE_ID_NONE, never 0xFF: that is NATURE_ID_DISABLED, a save-context value past the end of
+    // the ambience table, which z_kankyo.c played at dusk and crashed the audio thread (sturdy-bassoon#156).
+    play->sequenceCtx.natureAmbienceId = NATURE_ID_NONE;
 
     // Normal scenes get this from SCENE_CMD_SOUND_SETTINGS, which resets the audio heap/SFX
     // banks. Our hand-rolled init bypasses the scene command list entirely, so without this call

@@ -118,7 +118,9 @@ static void InitScene(PlayState* play, s32 spawn) {
     play->envCtx.sunMoonDisabled = 0;
     // The same track lumbridge_castle uses, so the pair differs in geometry only.
     play->sequenceCtx.seqId            = NA_BGM_KAKARIKO_KID;
-    play->sequenceCtx.natureAmbienceId = 0xFF;
+    // NATURE_ID_NONE, never 0xFF: that is NATURE_ID_DISABLED, a save-context value past the end of
+    // the ambience table, which z_kankyo.c played at dusk and crashed the audio thread (sturdy-bassoon#156).
+    play->sequenceCtx.natureAmbienceId = NATURE_ID_NONE;
 
     // See the note in CustomLumbridgeCastleScene.cpp: this hand-rolled init bypasses
     // SCENE_CMD_SOUND_SETTINGS, and without this reset every one-shot SFX is silently dropped.
