@@ -116,6 +116,23 @@ int32_t RsStair_MenuDestination(int32_t stairId, int32_t row, int32_t choiceInde
 // csActor would make him turn to face it every frame, which overwrites the landing's facing.
 int32_t RsStair_BeginMove(int32_t stairId, int32_t fromRow, int32_t toRow, const char* source);
 
+// THE SAME MOVE, for a STEP WARP (sturdy-bassoon#154, rs/warps/Warps.h): the caller has already
+// worked out the landing - from the destination tile's collision - so there is no placement to find
+// and nothing to wait for after a room change. Everything else is the staircase's move: the freeze,
+// the fade, the room change first, the teleport and camera seat, the respawn point, the release.
+// Reports itself as `rs_warp tile=<fromTile> event=move_begin|room_request|room|moved|landed|abort|
+// move_refused ... to=<toTile>`, so a staircase's `rs_stairs` lines are unchanged byte for byte.
+// Refuses `busy`, `no_play` and `bad_room` (RsStairResult) as `move_refused result=` - not
+// `refused`, which is the detector's word for a tile that did not fire (`reason=`).
+typedef struct RsWarpMoveDest {
+    int32_t fromTile; // reported only
+    int32_t toTile;   // the tile Link lands beside - reported
+    float x, y, z;    // the landing
+    int16_t yaw;      // the way he faces on it
+    int32_t room;     // the room the landing is in
+} RsWarpMoveDest;
+int32_t RsStair_BeginWarpMove(const RsWarpMoveDest* dest, const char* source);
+
 // 1 while a move is in flight. Staircases stop offering to talk while it is, so a second menu
 // cannot open on top of the first move - and a push into one does not count (`bump_ignored
 // reason=moving`).
@@ -163,8 +180,13 @@ struct RsStairStatus {
     int32_t toRow;
     int32_t ticks;      // ticks since the move began
     int32_t fadeTicks;  // this move's fade length
-    const char* source; // "menu" / "console"; "" when idle
-    std::string last;   // the last move's `landed` line, or its refusal / abort, minus `rs_stairs `
+    const char* source; // "menu" / "console" / "warp"; "" when idle
+    // The last move's `landed` line, or its refusal / abort, minus its `rs_stairs ` or `rs_warp `
+    // prefix. A step warp's move is this controller's too, so this is whichever kind ran last.
+    std::string last;
+    bool warp;        // the move in flight is a step warp's (then stairId is -1)
+    int32_t fromTile; // a warp move's tiles, -1 otherwise
+    int32_t toTile;
 };
 RsStairStatus RsStair_GetStatus();
 

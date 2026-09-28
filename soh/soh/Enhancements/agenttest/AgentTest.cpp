@@ -192,6 +192,23 @@
  *                                        `agenttest stairs ...` - always `op=...`, an indexed row or
  *                                        `last="..."`, never a line that starts `stair=... event=...`,
  *                                        so a grep for `rs_stairs stair=<n> event=` sees only events
+ *   rs_warp tile=<n> event=<fired|refused|latch|rearm|bad_tile|move_begin|room_request|room|moved|landed|
+ *           abort|move_refused> ...      a step warp (sturdy-bassoon#154): a tile that moves Link in place
+ *                                        when he steps onto it. `fired` (to=, pick=, choices=) and
+ *                                        `refused reason=<inert|moving|busy|airborne|disarmed|landing_only|
+ *                                        aim>` come from the detector in rs/warps/Warps.cpp, once per contact
+ *                                        per reason - `refused` is the marker that proves Link reached the
+ *                                        tile. `latch`/`rearm` are the re-fire guard. The move's own lines
+ *                                        come from the staircase controller, and `landed` is the one to
+ *                                        assert on, with the same fields a staircase's carries; the
+ *                                        controller refusing a warp's move is `move_refused result=`. Plus one
+ *                                        `rs_warp event=loaded scene= table= tiles= ok= bad=` per scene that
+ *                                        has a route table, and `rs_warp event=refused problem= scene= row=`
+ *                                        when registration refuses a malformed table (bug class, at boot).
+ *                                        Gameplay markers, in every session
+ *   rs_warp <line>                       one line of RsWarpConsole_Run output per marker, from
+ *                                        `agenttest warps ...` - `op=...`, an indexed row, or a quoted
+ *                                        `last_*="..."`, never `tile=<n> event=...`
  *   rs_quest quest=<n> event=on_complete a quest's optional completion callback ran (D12). It runs after the
  *                                        declarative rewards with the status already COMPLETE, so counting
  *                                        these markers is how a run proves a reward fired exactly once
@@ -347,6 +364,13 @@
  *                                          StairConsole.h documents every line; the move's own
  *                                          `rs_stairs stair=<n> event=...` markers are listed with the
  *                                          other gameplay markers above
+ *   agenttest warps list|dump|where|status|badcheck
+ *                                          step warps (sturdy-bassoon#154). `dump` is every warp tile
+ *                                          in this scene as the scan found it - where it is, where it
+ *                                          lands Link, whether it is armed, why any is inert - and
+ *                                          `where` is the tile under Link with what the guards read.
+ *                                          WarpConsole.h documents every line; the tiles' own
+ *                                          `rs_warp tile=<n> event=...` markers are listed above
  *   agenttest menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|
  *                filler [n]|stress [<n> [same]|off|memo <on|off>]|
  *                cursor [left|right|up|down|select|<id>]|probe [on|off]|kaleido|equips|hud|flight ...|song|
@@ -416,6 +440,7 @@
 #include "soh/Enhancements/rs/dialogue/NpcConsole.h"
 #include "soh/Enhancements/rs/prefs/RegionConsole.h"
 #include "soh/Enhancements/rs/stairs/StairConsole.h"
+#include "soh/Enhancements/rs/warps/WarpConsole.h"
 #include "soh/Enhancements/rs/menu/MenuConsole.h"
 #include "AgentTest.h"
 #include "soh/ActorDB.h"
@@ -2088,6 +2113,12 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(RsStairConsole_Run, sub, "rs_stairs ", output, WriteMarker);
     }
+    // Step warps (sturdy-bassoon#154). Same prefix as the tiles' own event markers, for the stairs'
+    // reason: `rs_warp op=…` is an answer, `rs_warp tile=<n> event=…` is a tile reporting itself.
+    if (args.size() >= 3 && args[1] == "warps") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(RsWarpConsole_Run, sub, "rs_warp ", output, WriteMarker);
+    }
     // The mod-owned pause interface (sturdy-bassoon#111). Same arrangement again: one
     // implementation (RsMenuConsole_Run) behind two sinks. This one carries more weight than the
     // others, because a full-screen menu has no gameplay side effect for a run to observe - without
@@ -2122,6 +2153,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
               "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|"
               "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
+              "warps list|dump|where|status|badcheck | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
@@ -2160,6 +2192,7 @@ void RegisterAgentTest() {
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
               "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|"
               "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
+              "warps list|dump|where|status|badcheck | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "

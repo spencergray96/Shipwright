@@ -37,4 +37,5 @@
     { SCENE_RS_AREA_P3, CustomRsAreaP3Scene_TrySpawn, CustomRsAreaP3Scene_InitRoom }, // hand-merge rs_area_p3 (sturdy-bassoon#79 P3b)
     { SCENE_DRAYNOR_VILLAGE_3, CustomDraynorVillage3Scene_TrySpawn, CustomDraynorVillage3Scene_InitRoom }, // project 4eb53b4e-4dd3-44cb-a74a-948775383bae name draynor_village_3
     { SCENE_VERT_PROBE, CustomVertProbeScene_TrySpawn, CustomVertProbeScene_InitRoom }, // hand-authored vert_probe (sturdy-bassoon#134)
+    { SCENE_STEP_WARP_FIXTURE, CustomStepWarpFixtureScene_TrySpawn, CustomStepWarpFixtureScene_InitRoom }, // project b29249a3-a38d-403b-8ec2-26433c994a6c name step_warp_fixture
 // END GRID TOOL EXPORTS

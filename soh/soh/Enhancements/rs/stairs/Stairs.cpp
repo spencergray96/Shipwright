@@ -243,10 +243,29 @@ struct Move {
     int32_t roomFrom = -1; // the room Link was in when the move began
     int32_t roomTo = -1;   // the destination storey's room
     bool roomRequested = false;
+    // A STEP WARP's move (sturdy-bassoon#154, rs/warps/): the landing was worked out by the caller,
+    // from the destination tile's collision, so Land puts Link at `warpPos` rather than looking for
+    // a placement. stairId and the rows stay -1.
+    bool warp = false;
+    int32_t fromTile = -1;
+    int32_t toTile = -1;
+    Vec3f warpPos = {};
+    s16 warpYaw = 0;
 };
 
 Move sMove;
 std::string sLast; // the last move's outcome, for `stairs status` - see ReportOutcome
+
+// Who a move's own markers are about. A staircase's and a step warp's lines differ only in this
+// prefix, so each controller event is one format string - and a staircase's comes out exactly as it
+// did before warps existed.
+void Tag(char* out, size_t size) {
+    if (sMove.warp) {
+        std::snprintf(out, size, "rs_warp tile=%d", sMove.fromTile);
+    } else {
+        std::snprintf(out, size, "rs_stairs stair=%d", sMove.stairId);
+    }
+}
 
 void Marker(const char* fmt, ...) {
     char line[320];
@@ -258,12 +277,20 @@ void Marker(const char* fmt, ...) {
 }
 
 // A marker that is also a move's OUTCOME - landed, aborted, refused - remembered for
-// `stairs status`. Remembered without its `rs_stairs ` prefix, because status prints it inside
-// `last="..."`: an answer line must never read as an event to a grep for `rs_stairs stair=<n> event=`.
+// `stairs status`. Remembered without its `rs_stairs ` (or a step warp's `rs_warp `) prefix, because
+// status prints it inside `last="..."`: an answer line must never read as an event to a grep for
+// `rs_stairs stair=<n> event=` or `rs_warp tile=<n> event=`.
 void ReportOutcome(const char* line) {
-    static const char kPrefix[] = "rs_stairs ";
+    static const char kStairPrefix[] = "rs_stairs ";
+    static const char kWarpPrefix[] = "rs_warp ";
     AgentTest_WriteMarker(line);
-    sLast = std::strncmp(line, kPrefix, sizeof(kPrefix) - 1) == 0 ? line + sizeof(kPrefix) - 1 : line;
+    if (std::strncmp(line, kStairPrefix, sizeof(kStairPrefix) - 1) == 0) {
+        sLast = line + sizeof(kStairPrefix) - 1;
+    } else if (std::strncmp(line, kWarpPrefix, sizeof(kWarpPrefix) - 1) == 0) {
+        sLast = line + sizeof(kWarpPrefix) - 1;
+    } else {
+        sLast = line;
+    }
 }
 
 int32_t ClampTicks(int32_t ticks, int32_t lo, int32_t hi) {
@@ -320,9 +347,11 @@ void Abort(const char* reason) {
     if (sMove.phase == Phase::Idle) {
         return;
     }
+    char tag[48];
     char line[200];
-    std::snprintf(line, sizeof(line), "rs_stairs stair=%d event=abort reason=%s phase=%s ticks=%d", sMove.stairId,
-                  reason, PhaseName(sMove.phase), sMove.ticks);
+    Tag(tag, sizeof(tag));
+    std::snprintf(line, sizeof(line), "%s event=abort reason=%s phase=%s ticks=%d", tag, reason,
+                  PhaseName(sMove.phase), sMove.ticks);
     ReportOutcome(line);
     sMove = Move();
 }
@@ -459,6 +488,23 @@ void Teleport(PlayState* play, Player* player, const Vec3f& pos, s16 yaw) {
 // Puts Link down in front of the destination storey's placement and moves on to Settle. False,
 // with nothing moved, when that placement is not in the actor list.
 bool Land(PlayState* play, Player* player) {
+    if (sMove.warp) {
+        // A step warp's landing is already known - the destination tile's collision said where
+        // (Warps.cpp) - so there is nothing to look up and nothing that can be missing.
+        const Vec3f before = player->actor.world.pos;
+        Teleport(play, player, sMove.warpPos, sMove.warpYaw);
+        const Vec3f eye = Play_GetCamera(play, CAM_ID_MAIN)->eye;
+        Marker("rs_warp tile=%d event=moved to=%d from=%.1f,%.1f,%.1f pos=%.1f,%.1f,%.1f yaw=%d room=%d room_change=%d "
+               "black=%d eye=%.1f,%.1f,%.1f ticks=%d",
+               sMove.fromTile, sMove.toTile, before.x, before.y, before.z, player->actor.world.pos.x,
+               player->actor.world.pos.y, player->actor.world.pos.z, player->actor.shape.rot.y,
+               play->roomCtx.curRoom.num, sMove.roomTo != sMove.roomFrom ? 1 : 0,
+               (play->envCtx.fillScreen && play->envCtx.screenFillColor[3] == 255) ? 1 : 0, eye.x, eye.y, eye.z,
+               sMove.ticks);
+        sMove.phase = Phase::Settle;
+        sMove.phaseTick = 0;
+        return true;
+    }
     const RsStairDef* def = RsStair_GetDef(sMove.stairId);
     const RsStairLanding* landing = RsStair_GetLanding(sMove.stairId, sMove.toRow);
     Vec3f pos;
@@ -500,7 +546,9 @@ bool StepRoomChange(PlayState* play, int32_t room) {
             return false;
         }
         sMove.roomRequested = true;
-        Marker("rs_stairs stair=%d event=room_request from=%d to=%d ticks=%d", sMove.stairId, from, room, sMove.ticks);
+        char tag[48];
+        Tag(tag, sizeof(tag));
+        Marker("%s event=room_request from=%d to=%d ticks=%d", tag, from, room, sMove.ticks);
         return false;
     }
     if (roomCtx->status != 0) {
@@ -508,8 +556,9 @@ bool StepRoomChange(PlayState* play, int32_t room) {
     }
     const int32_t from = roomCtx->prevRoom.num;
     Room_FinishRoomChange(play, roomCtx);
-    Marker("rs_stairs stair=%d event=room from=%d to=%d ticks=%d", sMove.stairId, from, roomCtx->curRoom.num,
-           sMove.ticks);
+    char tag[48];
+    Tag(tag, sizeof(tag));
+    Marker("%s event=room from=%d to=%d ticks=%d", tag, from, roomCtx->curRoom.num, sMove.ticks);
     sMove.roomRequested = false;
     return true;
 }
@@ -518,6 +567,22 @@ void Finish(PlayState* play, Player* player) {
     const RsStairLanding* landing = RsStair_GetLanding(sMove.stairId, sMove.toRow);
     const RespawnData& respawn = gSaveContext.respawn[RESPAWN_MODE_DOWN];
     char line[320];
+    if (sMove.warp) {
+        // A step warp's `landed`: the same fields as a staircase's, keyed on tiles, not rows.
+        std::snprintf(line, sizeof(line),
+                      "rs_warp tile=%d event=landed to=%d pos=%.1f,%.1f,%.1f yaw=%d room=%d floor_y=%.1f ground=%d "
+                      "respawn=%.1f,%.1f,%.1f respawn_room=%d fade=%d ticks=%d source=%s",
+                      sMove.fromTile, sMove.toTile, player->actor.world.pos.x, player->actor.world.pos.y,
+                      player->actor.world.pos.z, player->actor.shape.rot.y, play->roomCtx.curRoom.num,
+                      player->actor.floorHeight, (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) ? 1 : 0,
+                      respawn.pos.x, respawn.pos.y, respawn.pos.z, respawn.roomIndex, sMove.fade, sMove.ticks,
+                      sMove.source);
+        ReportOutcome(line);
+        ClearFill(play);
+        ReleasePlayer(play);
+        sMove = Move();
+        return;
+    }
     // THE assertion line. pos= and room= are where Link is; floor_y= and ground= prove he is
     // standing on something rather than falling past it; respawn= and respawn_room= are where a
     // void-out would put him, which is the other half of "landed on the right storey".
@@ -972,6 +1037,49 @@ extern "C" int32_t RsStair_BeginMove(int32_t stairId, int32_t fromRow, int32_t t
     return RS_STAIR_OK;
 }
 
+extern "C" int32_t RsStair_BeginWarpMove(const RsWarpMoveDest* dest, const char* source) {
+    int32_t result = RS_STAIR_OK;
+    if (dest == nullptr || gPlayState == nullptr || GET_PLAYER(gPlayState) == nullptr) {
+        result = RS_STAIR_ERR_NO_PLAY;
+    } else if (sMove.phase != Phase::Idle) {
+        result = RS_STAIR_ERR_BUSY;
+    } else if (dest->room < 0 || dest->room >= gPlayState->numRooms) {
+        result = RS_STAIR_ERR_BAD_ROOM;
+    }
+    if (result != RS_STAIR_OK) {
+        char line[200];
+        std::snprintf(line, sizeof(line), "rs_warp tile=%d event=move_refused result=%s to=%d source=%s",
+                      dest != nullptr ? dest->fromTile : -1, RsStair_ResultName(result),
+                      dest != nullptr ? dest->toTile : -1, source != nullptr ? source : "");
+        if (result == RS_STAIR_ERR_BUSY) {
+            AgentTest_WriteMarker(line); // must not overwrite the outcome of the move it bounced off
+        } else {
+            ReportOutcome(line);
+        }
+        return result;
+    }
+
+    sMove = Move();
+    sMove.phase = Phase::FadeOut;
+    sMove.warp = true;
+    sMove.fromTile = dest->fromTile;
+    sMove.toTile = dest->toTile;
+    sMove.warpPos = { dest->x, dest->y, dest->z };
+    sMove.warpYaw = dest->yaw;
+    sMove.fade = RsStair_GetFadeTicks(); // the staircase's fade, and its `stairs fade` override
+    sMove.scene = gPlayState->sceneNum;
+    sMove.source = source != nullptr ? source : "";
+    sMove.roomFrom = gPlayState->roomCtx.curRoom.num;
+    sMove.roomTo = dest->room;
+
+    // Frozen the same way, for the same reason - see RsStair_BeginMove.
+    Player_SetCsAction(gPlayState, nullptr, 1);
+
+    Marker("rs_warp tile=%d event=move_begin to=%d room_from=%d room_to=%d fade=%d source=%s", dest->fromTile,
+           dest->toTile, sMove.roomFrom, sMove.roomTo, sMove.fade, sMove.source);
+    return RS_STAIR_OK;
+}
+
 // --- C++ surface --------------------------------------------------------------------------------
 
 RsStairStatus RsStair_GetStatus() {
@@ -985,6 +1093,9 @@ RsStairStatus RsStair_GetStatus() {
     status.fadeTicks = sMove.fade;
     status.source = sMove.source;
     status.last = sLast;
+    status.warp = sMove.warp;
+    status.fromTile = sMove.fromTile;
+    status.toTile = sMove.toTile;
     return status;
 }
 
