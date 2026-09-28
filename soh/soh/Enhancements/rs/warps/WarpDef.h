@@ -36,6 +36,10 @@ typedef enum RsWarpEntry {
     // which for a ladder against a wall is "into the wall". Walking across it, or standing on it,
     // does not fire - so a ladder's tile in an open room is not a trap for someone walking along the
     // wall (`refused reason=aim`).
+    //
+    // KEPT, BUT NO CONTENT USES IT (the owner, 2026-09-28): ladders are STEP tiles, which fire on any
+    // step like a vanilla grotto exit - crossing a push ladder at a shallow angle walked straight over
+    // it. It stays for a later use; the #154 fixture (step_warp_fixture) still exercises it.
     RS_WARP_ENTRY_PUSH = 1,
     RS_WARP_ENTRY_COUNT,
 } RsWarpEntry;

@@ -63,9 +63,14 @@ const RsWarpSceneDef kFixtureScene = {
 //
 // The #148 test maps: getting Link from an overworld into an underground area and back, where the
 // underground area is ITS OWN SCENE. A REFERENCE FIXTURE, like the one above: tiles spliced, never
-// re-exported over. Each pair is a trapdoor (a step tile, against a hut's north wall) and a ladder
-// (a push tile, against a cellar's north wall) that send Link to each other across the two scenes.
-// The two cellars share one scene and one room - grouped basements, in miniature.
+// re-exported over. Each pair is a trapdoor (against a hut's north wall) and a ladder (against a
+// cellar's north wall) that send Link to each other across the two scenes. The two cellars share one
+// scene and one room - grouped basements, in miniature.
+//
+// Both ends are STEP tiles, the ladders included: they fire on any step onto them, from any
+// direction, the way a vanilla grotto exit does. The ladders were push tiles until the owner played
+// them (2026-09-28): crossing one at a shallow angle walked straight over it, and he wanted the
+// vanilla behaviour. `push` stays in the code for a later use; the fixture above still exercises it.
 //
 //   overworld 1 <-> basements 1   hut A's trapdoor and cellar 1's ladder
 //   overworld 2 <-> basements 2   hut B's trapdoor and cellar 2's ladder
@@ -80,8 +85,8 @@ const RsWarpTileDef kUndergroundOverworldTiles[] = {
 };
 
 const RsWarpTileDef kUndergroundBasementsTiles[] = {
-    { 1, RS_WARP_ENTRY_PUSH, 0, kToHutA, ARRAY_COUNT(kToHutA) },
-    { 2, RS_WARP_ENTRY_PUSH, 0, kToHutB, ARRAY_COUNT(kToHutB) },
+    { 1, RS_WARP_ENTRY_STEP, 0, kToHutA, ARRAY_COUNT(kToHutA) },
+    { 2, RS_WARP_ENTRY_STEP, 0, kToHutB, ARRAY_COUNT(kToHutB) },
 };
 
 const RsWarpSceneDef kUndergroundOverworldScene = {
