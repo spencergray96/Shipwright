@@ -158,8 +158,9 @@ extern "C" {
  *
  * Call this from anything that moves Link discontinuously. Today: the AfterSceneCommands handler
  * inside this file (which covers scene loads, entrance warps, save-game loads and death respawns,
- * since all four go through a scene load) and `agenttest goto`. Teleport spells and tablets, when
- * they exist, call it too.
+ * since all four go through a scene load), `agenttest goto`, and the staircase move
+ * (rs/stairs/Stairs.cpp, sturdy-bassoon#147). Teleport spells and tablets, when they exist, call it
+ * too.
  */
 void RsMusic_NotifyWarped(const char* reason);
 

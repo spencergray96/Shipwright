@@ -2,6 +2,7 @@
 #include "RsActorParams.h"
 #include "RsNpc.h"
 #include "RsQuestItem.h"
+#include "RsStairs.h"
 
 #include <cstdio>
 #include <string>
@@ -18,6 +19,7 @@
 #include "soh/Enhancements/rs/quest/Quest.h"
 #include "soh/Enhancements/rs/quest/QuestDef.h"
 #include "soh/Enhancements/rs/quest/QuestStore.h"
+#include "soh/Enhancements/rs/stairs/Stairs.h"
 #include "soh/ShipInit.hpp"
 
 extern "C" {
@@ -38,6 +40,10 @@ void RsQuestItem_Init(Actor* thisx, PlayState* play);
 void RsQuestItem_Destroy(Actor* thisx, PlayState* play);
 void RsQuestItem_Update(Actor* thisx, PlayState* play);
 void RsQuestItem_Draw(Actor* thisx, PlayState* play);
+
+void RsStairs_Init(Actor* thisx, PlayState* play);
+void RsStairs_Destroy(Actor* thisx, PlayState* play);
+void RsStairs_Update(Actor* thisx, PlayState* play);
 }
 
 // The C++ half of the mod's actors (sturdy-bassoon#58 P3 / #64):
@@ -200,8 +206,41 @@ CustomMessage BuildPlainMessage(const char* text) {
     return msg;
 }
 
+// Renders one SCREEN - a body plus up to four options - into the open textbox. Shared by the
+// quest-giver's rules and nodes and by a staircase's menu (#147), which is the point of a staircase
+// menu being an RsDialogueRule: one renderer, one set of layout rules, one box-geometry switch.
+void LoadScreen(const RsDialogueRule& screen, bool* loadFromMessageTable) {
+    // The options actually on offer right now (#96 P2). The renderer lays out exactly these, and
+    // the actor maps the cursor row back through the same list.
+    int32_t slots[RS_DIALOGUE_MAX_OPTIONS];
+    const int32_t visibleCount = RsNpc_VisibleOptions(&screen, slots, RS_DIALOGUE_MAX_OPTIONS);
+
+    // The one place the box grows, and it keys off the VISIBLE count, not the declared one: a
+    // four-option screen showing three needs the four-row box, and a three-option screen can never
+    // need the five-row one. Registration has already proven this screen renders inside whichever
+    // it gets.
+    //
+    // Navigating from a three-option node to a four-option one sizes correctly because
+    // Message_ContinueTextbox calls Message_OpenText, so this hook fires on a continued box too,
+    // and RsText_ApplyBoxGeometry writes the LIVE height pair rather than only the targets -
+    // precisely because ContinueTextbox never calls Message_GrowTextbox. It snaps rather than
+    // animates, which mid-conversation is arguably better. Do not regress it.
+    if (visibleCount == 4) {
+        RsText_ApplyBoxGeometry(true);
+    }
+
+    CustomMessage msg = BuildScreenMessage(screen, slots, visibleCount);
+    msg.LoadIntoFont();
+    *loadFromMessageTable = false;
+}
+
 // The unfiltered OnOpenText bucket, which GameInteractor_ExecuteOnOpenText runs before the per-id
 // and filter buckets. Everything outside our band is left alone.
+//
+// ONE hook for every rs/ textbox, staircase menus included (#147), and that is not tidiness: hooks
+// on one event run in hash-bucket order (MODDING_HOOKS.md), and the first thing this one does is
+// put the box back to vanilla size. A second OnOpenText hook that grew the box for a four-line
+// staircase menu could run before this one and be undone by it.
 void RsText_OnOpenText(uint16_t* textId, bool* loadFromMessageTable) {
     const uint16_t id = *textId;
 
@@ -244,6 +283,25 @@ void RsText_OnOpenText(uint16_t* textId, bool* loadFromMessageTable) {
         return;
     }
 
+    // A staircase's menu (#147): the id carries the staircase and the row the placement stands on,
+    // so like an NPC's entry box it renders from nothing but the id.
+    if (RS_TEXT_IS_STAIR(id)) {
+        const int32_t stairId = RS_TEXT_STAIR_GET_ID(id);
+        const int32_t row = RS_TEXT_STAIR_GET_ROW(id);
+        const RsDialogueRule* screen = RsStair_Screen(stairId, row);
+        if (screen == nullptr) {
+            // A placement naming a staircase or row this build does not have. Init has already said
+            // so in the log; this is the half the player and a screenshot see.
+            CustomMessage msg = BuildPlainMessage(
+                ("<staircase " + std::to_string(stairId) + " has no row " + std::to_string(row) + ">").c_str());
+            msg.LoadIntoFont();
+            *loadFromMessageTable = false;
+            return;
+        }
+        LoadScreen(*screen, loadFromMessageTable);
+        return;
+    }
+
     int32_t npcId = 0;
     int32_t index = 0;
     const int32_t kind = RsNpc_DecodeScreen(id, &npcId, &index);
@@ -271,28 +329,7 @@ void RsText_OnOpenText(uint16_t* textId, bool* loadFromMessageTable) {
         return;
     }
 
-    // The options actually on offer right now (#96 P2). The renderer lays out exactly these, and
-    // the actor maps the cursor row back through the same list.
-    int32_t slots[RS_DIALOGUE_MAX_OPTIONS];
-    const int32_t visibleCount = RsNpc_VisibleOptions(screen, slots, RS_DIALOGUE_MAX_OPTIONS);
-
-    // The one place the box grows, and it keys off the VISIBLE count, not the declared one: a
-    // four-option screen showing three needs the four-row box, and a three-option screen can never
-    // need the five-row one. Registration has already proven this screen renders inside whichever
-    // it gets.
-    //
-    // Navigating from a three-option node to a four-option one sizes correctly because
-    // Message_ContinueTextbox calls Message_OpenText, so this hook fires on a continued box too,
-    // and RsText_ApplyBoxGeometry writes the LIVE height pair rather than only the targets -
-    // precisely because ContinueTextbox never calls Message_GrowTextbox. It snaps rather than
-    // animates, which mid-conversation is arguably better. Do not regress it.
-    if (visibleCount == 4) {
-        RsText_ApplyBoxGeometry(true);
-    }
-
-    CustomMessage msg = BuildScreenMessage(*screen, slots, visibleCount);
-    msg.LoadIntoFont();
-    *loadFromMessageTable = false;
+    LoadScreen(*screen, loadFromMessageTable);
 }
 
 // --- already-collected items do not spawn (P4) --------------------------------------------------
@@ -377,6 +414,24 @@ void RegisterRsActors() {
             nullptr,
         };
         ActorDB::Instance->AddEntry(item);
+
+        // No draw function: the shaft is the visible thing (RsStairs.h). ActorDB and Actor_DrawAll
+        // both take a null draw - the actor is still projected, so it can still be targeted.
+        ActorDBInit stairs = {
+            "Rs_Stairs",
+            "RS staircase (menu-driven storey move)",
+            ACTOR_RS_STAIRS,
+            ACTORCAT_PROP,
+            (u32)(ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_FRIENDLY | ACTOR_FLAG_UPDATE_CULLING_DISABLED),
+            OBJECT_GAMEPLAY_KEEP,
+            sizeof(RsStairs),
+            (ActorFunc)RsStairs_Init,
+            (ActorFunc)RsStairs_Destroy,
+            (ActorFunc)RsStairs_Update,
+            nullptr,
+            nullptr,
+        };
+        ActorDB::Instance->AddEntry(stairs);
 
         sAddedToActorDB = true;
     }

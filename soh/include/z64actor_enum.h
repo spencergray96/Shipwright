@@ -29,6 +29,7 @@ enum ActorIDExtra {
     // sane (D6), and adding a name here does not put them in it.
     /* 0x01D9 */ ACTOR_RS_NPC,        // Enhancements/rs/actors/RsNpc.c - a quest-giver; params = NpcId
     /* 0x01DA */ ACTOR_RS_QUEST_ITEM, // Enhancements/rs/actors/RsQuestItem.c - params = (quest, step)
+    /* 0x01DB */ ACTOR_RS_STAIRS,     // Enhancements/rs/actors/RsStairs.c - params = (staircase, row)
     // #endregion
     ACTOR_ID_EXTRA_MAX
 };

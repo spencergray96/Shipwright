@@ -177,6 +177,21 @@
  *                                        sets a step, never a spawn. `suppressed` (P4) is the mirror: an
  *                                        item whose step is already set, refused at ShouldActorInit during
  *                                        scene load, so a collected item does not come back
+ *   rs_stairs stair=<n> event=<open|choice|move_begin|room_request|room|moved|no_placement|landed|abort|refused|
+ *             bad_placement|bump_start|bump_offer|bump_abandon|bump_ignored|bump_latch|bump_rearm> ...
+ *                                        a staircase (sturdy-bassoon#147). `open`/`choice` come from the actor
+ *                                        (which menu opened, `via=bump|talk`, which row was picked and where
+ *                                        it goes), and so do the `bump_*` events of walking into it (#151 -
+ *                                        STAIRCASES.md lists what each carries); the rest from the move
+ *                                        controller in rs/stairs/Stairs.cpp as the move happens.
+ *                                        `landed` is the one to assert on: `pos=` `yaw=` `room=` are where Link
+ *                                        ended up, `floor_y=` and `ground=` that he is standing on something,
+ *                                        `respawn=` `respawn_room=` where a void-out would now put him. Gameplay
+ *                                        markers, so they reach the engine log in every session
+ *   rs_stairs <line>                     one line of RsStairConsole_Run output per marker, from
+ *                                        `agenttest stairs ...` - always `op=...`, an indexed row or
+ *                                        `last="..."`, never a line that starts `stair=... event=...`,
+ *                                        so a grep for `rs_stairs stair=<n> event=` sees only events
  *   rs_quest quest=<n> event=on_complete a quest's optional completion callback ran (D12). It runs after the
  *                                        declarative rewards with the status already COMPLETE, so counting
  *                                        these markers is how a run proves a reward fired exactly once
@@ -319,6 +334,19 @@
  *                                          `npc dump`/`npc resolve` print the COMPOSED body, `region
  *                                          set us` followed by one of those asserts what a player
  *                                          would actually read
+ *   agenttest stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|
+ *                    bump [on|off|default|hold <ticks|default>]|actors|badcheck
+ *                                          staircases (sturdy-bassoon#147): the menu-driven storey
+ *                                          move. `go` runs the same move a staircase's menu does, with
+ *                                          no conversation to drive; `where` says which storey of each
+ *                                          staircase in the scene Link is standing on, and `fade <n>`
+ *                                          overrides the default 6-tick fade - `fade 0` is a hard cut,
+ *                                          `fade default` clears the override, which persists. `bump`
+ *                                          switches walking into a staircase (#151) and sets its hold,
+ *                                          overrides that persist the same way.
+ *                                          StairConsole.h documents every line; the move's own
+ *                                          `rs_stairs stair=<n> event=...` markers are listed with the
+ *                                          other gameplay markers above
  *   agenttest menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|
  *                filler [n]|stress [<n> [same]|off|memo <on|off>]|
  *                cursor [left|right|up|down|select|<id>]|probe [on|off]|kaleido|equips|hud|flight ...|song|
@@ -387,6 +415,7 @@
 #include "soh/Enhancements/rs/quest/QuestConsole.h"
 #include "soh/Enhancements/rs/dialogue/NpcConsole.h"
 #include "soh/Enhancements/rs/prefs/RegionConsole.h"
+#include "soh/Enhancements/rs/stairs/StairConsole.h"
 #include "soh/Enhancements/rs/menu/MenuConsole.h"
 #include "AgentTest.h"
 #include "soh/ActorDB.h"
@@ -2052,6 +2081,13 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(RsRegionConsole_Run, sub, "rs_region ", output, WriteMarker);
     }
+    // Staircases (sturdy-bassoon#147). Same prefix as the move's own event markers, which is
+    // deliberate: `rs_stairs op=…` is an answer to a question, `rs_stairs stair=<n> event=…` is the
+    // move reporting itself, and a run greps the one it is waiting for.
+    if (args.size() >= 3 && args[1] == "stairs") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(RsStairConsole_Run, sub, "rs_stairs ", output, WriteMarker);
+    }
     // The mod-owned pause interface (sturdy-bassoon#111). Same arrangement again: one
     // implementation (RsMenuConsole_Run) behind two sinks. This one carries more weight than the
     // others, because a full-screen menu has no gameplay side effect for a run to observe - without
@@ -2084,6 +2120,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
+              "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|"
+              "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
@@ -2120,6 +2158,8 @@ void RegisterAgentTest() {
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
+              "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|"
+              "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
