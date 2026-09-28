@@ -234,7 +234,8 @@
  *                                        cannot say which page the ring is on or whether the world
  *                                        is really frozen
  *   mark <text>                          echoed from "agenttest mark <text>"
- *   input_done [reason=scene_change]     a walk/press injection finished (or was cancelled by a scene change)
+ *   input_done [reason=scene_change]     a walk/press injection finished (or was cancelled by a scene change,
+ *                                        unless "agenttest keepinput" was armed for it)
  *
  * Console command registered here:
  *   agenttest perf <ticks>                 set the perf marker interval (game ticks, 20/s); 0 disables

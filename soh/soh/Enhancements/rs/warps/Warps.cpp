@@ -109,11 +109,16 @@ bool IsEntrance(int32_t entrance) {
     return entrance >= 0 && entrance < ENTR_MAX;
 }
 
-// The row a destination in another scene names in THAT scene's table, or null: no table there, or no
-// such tile in it. Only meaningful for a destination that is not IsHere, with a valid entrance.
-const RsWarpTileDef* ThereDef(const RsWarpDest& dest) {
-    const RsWarpSceneDef* there = RsWarp_GetSceneDef(gEntranceTable[dest.entrance].scene);
-    return there != nullptr ? FindTileDef(*there, dest.tile) : nullptr;
+// The scene an entrance loads. Only for IsEntrance.
+int16_t EntranceScene(int32_t entrance) {
+    return gEntranceTable[entrance].scene;
+}
+
+// The row a destination in another scene names in THAT scene's table, or null: no table for that
+// scene, or no such tile in it. Only for a destination that is not IsHere, with a valid entrance.
+const RsWarpTileDef* OtherSceneRow(const RsWarpDest& dest) {
+    const RsWarpSceneDef* otherScene = RsWarp_GetSceneDef(EntranceScene(dest.entrance));
+    return otherScene != nullptr ? FindTileDef(*otherScene, dest.tile) : nullptr;
 }
 
 // "2" for a tile here, "1@0x63E" for tile 1 through entrance 0x63E - for console lines.
@@ -349,7 +354,7 @@ void Scan(PlayState* play) {
             continue;
         }
         for (int32_t k = 0; k < t.def->destCount; k++) {
-            if (!IsHere(t.def->dests[k]) && ThereDef(t.def->dests[k]) == nullptr) {
+            if (!IsHere(t.def->dests[k]) && OtherSceneRow(t.def->dests[k]) == nullptr) {
                 t.bad = "dest_unrouted";
                 break;
             }
@@ -495,16 +500,16 @@ void Fire(Player* player, int32_t id) {
     const RsWarpDest& to = t.def->dests[pick];
 
     // To another scene, the line says where: an in-place line is unchanged.
-    char there[64] = "";
+    char sceneFields[64] = "";
     if (!IsHere(to)) {
-        std::snprintf(there, sizeof(there), " entrance=0x%X scene_to=0x%X", to.entrance,
-                      gEntranceTable[to.entrance].scene);
+        std::snprintf(sceneFields, sizeof(sceneFields), " entrance=0x%X scene_to=0x%X", to.entrance,
+                      EntranceScene(to.entrance));
     }
     Event("rs_warp tile=%d event=fired to=%d pick=%d choices=%d entry=%s pos=%.1f,%.1f,%.1f floor_y=%.1f "
           "move_yaw=%d aim=%d speed=%.1f%s",
           id, to.tile, pick, choices, RsWarp_EntryName(t.def->entry), player->actor.world.pos.x,
           player->actor.world.pos.y, player->actor.world.pos.z, player->actor.floorHeight, player->actor.world.rot.y,
-          Degrees(AimOff(t, player)), player->linearVelocity, there);
+          Degrees(AimOff(t, player)), player->linearVelocity, sceneFields);
 
     RsWarpMoveDest dest = {};
     dest.fromTile = id;
@@ -520,7 +525,7 @@ void Fire(Player* player, int32_t id) {
     } else {
         // The landing is in the other scene's collision; its scan works it out when it loads. The
         // room is its table's - the scan made sure the row is there (`dest_unrouted`).
-        const RsWarpTileDef* row = ThereDef(to);
+        const RsWarpTileDef* row = OtherSceneRow(to);
         dest.room = row != nullptr ? row->room : 0;
         dest.entrance = to.entrance;
     }
@@ -651,7 +656,8 @@ void OnSceneInitWarps(int16_t sceneNum) {
     Scan(play);
     const TileState* t = tile >= 1 && tile <= RS_WARP_TILE_ID_MAX ? &sState.tiles[tile] : nullptr;
     if (t != nullptr && t->present && t->bad == nullptr) {
-        RsStair_PlaceSceneArrival(t->landing.x, t->landing.y, t->landing.z, t->yaw, 1);
+        // A tile that is not bad has a row, and the scan checked its room against this scene's.
+        RsStair_PlaceSceneArrival(t->landing.x, t->landing.y, t->landing.z, t->yaw, t->def->room, 1);
         sState.pendingLatch = tile;
         return;
     }
@@ -662,7 +668,8 @@ void OnSceneInitWarps(int16_t sceneNum) {
     Marker("rs_warp tile=%d event=arrival_failed to=%d scene=0x%X reason=%s", fromTile, tile, sceneNum, why);
     if (play->linkActorEntry != nullptr) {
         const ActorEntry* spawn = play->linkActorEntry;
-        RsStair_PlaceSceneArrival(spawn->pos.x, spawn->pos.y, spawn->pos.z, spawn->rot.y, 0);
+        const int32_t room = play->setupEntranceList != nullptr ? play->setupEntranceList[play->curSpawn].room : 0;
+        RsStair_PlaceSceneArrival(spawn->pos.x, spawn->pos.y, spawn->pos.z, spawn->rot.y, room, 0);
     }
 }
 
@@ -767,7 +774,7 @@ extern "C" int32_t RsWarp_SceneDefProblem(const RsWarpSceneDef* def, int32_t* wh
             if (!IsEntrance(dest.entrance)) {
                 return RS_WARP_PROBLEM_BAD_ENTRANCE;
             }
-            if (gEntranceTable[dest.entrance].scene == def->sceneId) {
+            if (EntranceScene(dest.entrance) == def->sceneId) {
                 return RS_WARP_PROBLEM_ENTRANCE_HERE;
             }
             if (dest.tile < 1 || dest.tile > RS_WARP_TILE_ID_MAX) {

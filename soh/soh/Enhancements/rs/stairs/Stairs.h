@@ -129,11 +129,12 @@ int32_t RsStair_BeginMove(int32_t stairId, int32_t fromRow, int32_t toRow, const
 //
 // TO ANOTHER SCENE (sturdy-bassoon#148), when `entrance` is not RS_WARP_HERE (WarpDef.h): the landing
 // is not knowable yet - it is in the other scene's collision - so x/y/z/yaw are ignored. The move
-// fades out as always, arms respawn slot RETURN with `respawnFlag = 2` (the room, idle arrival, no
-// void-out penalty; the position comes later) and starts an instant transition to `entrance`,
-// holding the screen black. When the scene loads, the warp scan fills in the landing at OnSceneInit
-// (RsStair_SceneArrival), Player_Init stands Link on it, and the move settles, fades in and releases
-// him exactly as in place: `scene_warp`, then `arrived` in the new scene, then `landed`. Also refuses
+// fades out as always, arms respawn slot RETURN with `respawnFlag = 2` (room 0, idle arrival, no
+// void-out penalty; the position comes later) and, once the engine's transition is idle, starts an
+// instant transition to `entrance`, holding the screen black. When the scene loads, the warp scan
+// fills in the landing at OnSceneInit (RsStair_PlaceSceneArrival), Player_Init stands Link on it, the
+// move changes to the tile's room if that is not room 0, and it settles, fades in and releases him
+// exactly as in place: `scene_warp`, then `arrived` in the new scene, then `landed`. Also refuses
 // `bad_entrance`.
 typedef struct RsWarpMoveDest {
     int32_t fromTile; // reported only
@@ -148,9 +149,10 @@ int32_t RsStair_BeginWarpMove(const RsWarpMoveDest* dest, const char* source);
 // For the warp scan, at a scene's OnSceneInit: whether a step warp's move is bringing Link into
 // `sceneNum`, and from and to which tile. 1 and the tiles when it is; 0 otherwise.
 int32_t RsStair_SceneArrival(int16_t sceneNum, int32_t* toTile, int32_t* fromTile);
-// ...and where Player_Init is to stand him: the destination tile's landing (`onLanding` 1), or the
-// scene's spawn when that tile is broken here (0). Only while such a move is arriving.
-void RsStair_PlaceSceneArrival(float x, float y, float z, int16_t yaw, int32_t onLanding);
+// ...and where Player_Init is to stand him, and in which room: the destination tile's landing
+// (`onLanding` 1), or the scene's spawn when that tile is broken here (0). Only while such a move is
+// arriving.
+void RsStair_PlaceSceneArrival(float x, float y, float z, int16_t yaw, int32_t room, int32_t onLanding);
 
 // 1 while a move is in flight. Staircases stop offering to talk while it is, so a second menu
 // cannot open on top of the first move - and a push into one does not count (`bump_ignored

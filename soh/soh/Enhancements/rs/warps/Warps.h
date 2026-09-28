@@ -16,7 +16,8 @@
 //
 // Three jobs, in the order a player meets them:
 //
-//   1. THE SCAN. The first Player update in a scene reads every static collision polygon once, finds
+//   1. THE SCAN. The first Player update in a scene (or its OnSceneInit, when a step warp from another
+//      scene is arriving - below) reads every static collision polygon once, finds
 //      the warp tiles, works out each one's centre, size and landing (the tile one tile-width away in
 //      its landing direction, dead centre, facing that way), and checks it against the scene's route
 //      table (WarpTable.cpp). A tile that fails any check is INERT for the visit, reported once as
@@ -78,7 +79,8 @@ typedef enum RsWarpProblem {
     RS_WARP_PROBLEM_BAD_ENTRY,   // not an RsWarpEntry
     RS_WARP_PROBLEM_BAD_ROOM,    // negative or past 255 - a room index is a u8 in the engine
     RS_WARP_PROBLEM_DEST_COUNT,  // negative, over RS_WARP_MAX_DESTS, or a count over a NULL array
-    RS_WARP_PROBLEM_BAD_DEST,    // a destination that is not a tile in this table
+    RS_WARP_PROBLEM_BAD_DEST,    // a destination in this scene that is not a tile in this table, or
+                                 // one in another scene whose tile id is outside 1..RS_WARP_TILE_ID_MAX
     RS_WARP_PROBLEM_SELF_DEST,   // a tile that sends Link to itself
     RS_WARP_PROBLEM_SCENE_TAKEN, // a different table is already registered for this scene
     // Another scene's tile (#148). Whether that scene's table HAS the tile is not checked here -
@@ -118,7 +120,7 @@ struct RsWarpTileReport {
     bool mustLeave;   // disarmed until he steps off it
     bool latched;     // disarmed until he lets go
     int32_t fires;
-    std::string picks; // fires per destination, "5:3,7:4"
+    std::string picks; // fires per destination, "5:3,7:4" or "1@0x63E:2"
 };
 
 struct RsWarpSceneReport {

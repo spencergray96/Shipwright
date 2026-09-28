@@ -19,6 +19,7 @@
 //  a ladder in underground_entry_basements, the other scene. To experiment, Save As a copy of the
 //  project (its JSON is in that run record) and export the copy. What each tile does is its row in
 //  rs/warps/WarpTable.cpp.
+// ############################################################################################
 
 extern "C" ActorDBEntry* ActorDB_Retrieve(const int id);
 

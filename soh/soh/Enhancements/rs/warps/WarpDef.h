@@ -8,11 +8,12 @@
 //  WHAT A STEP WARP IS, AS DATA  (sturdy-bassoon#154)
 // ============================================================================================
 //
-// A STEP WARP moves Link in place - no scene load, every actor carries on - when he steps onto a
-// WARP TILE: one full tile whose floor polygons carry a tile id in their SurfaceType (WarpBits.h).
-// The move itself is the staircase's storey-move controller (Stairs.cpp, RsStair_BeginWarpMove),
-// so the fade, the room change, the camera seat and the respawn point are all the same. A tile may
-// also send Link to a tile in ANOTHER scene (sturdy-bassoon#148) - see RsWarpDest.
+// A STEP WARP moves Link when he steps onto a WARP TILE: one full tile whose floor polygons carry a
+// tile id in their SurfaceType (WarpBits.h). To a tile in the same scene the move is IN PLACE - no
+// scene load, every actor carries on; to a tile in ANOTHER scene (sturdy-bassoon#148) it is a real
+// transition inside the same fade - see RsWarpDest. Either way the move is the staircase's
+// storey-move controller (Stairs.cpp, RsStair_BeginWarpMove), so the fade, the room change, the
+// camera seat and the respawn point are all the same.
 //
 // The unit is the TILE, not a pair. Each tile has its own entry and its own destinations:
 //   - a PAIR is two tiles that send Link to each other;
