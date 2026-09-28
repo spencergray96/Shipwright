@@ -1048,7 +1048,7 @@ extern "C" int32_t RsStair_BeginWarpMove(const RsWarpMoveDest* dest, const char*
     }
     if (result != RS_STAIR_OK) {
         char line[200];
-        std::snprintf(line, sizeof(line), "rs_warp tile=%d event=refused result=%s to=%d source=%s",
+        std::snprintf(line, sizeof(line), "rs_warp tile=%d event=move_refused result=%s to=%d source=%s",
                       dest != nullptr ? dest->fromTile : -1, RsStair_ResultName(result),
                       dest != nullptr ? dest->toTile : -1, source != nullptr ? source : "");
         if (result == RS_STAIR_ERR_BUSY) {

@@ -26,12 +26,11 @@ bool InPlay() {
 }
 
 int32_t List(std::vector<std::string>& lines) {
-    const RsWarpSceneDef* defs[64];
-    const int32_t count = RsWarp_ListScenes(defs, 64);
-    Addf(lines, "op=list scenes=%d", count);
-    for (int32_t i = 0; i < count; i++) {
-        Addf(lines, "scene[0x%X] name=%s tiles=%d here=%d", defs[i]->sceneId, defs[i]->name, defs[i]->tileCount,
-             InPlay() && gPlayState->sceneNum == defs[i]->sceneId ? 1 : 0);
+    const std::vector<const RsWarpSceneDef*> defs = RsWarp_ListScenes();
+    Addf(lines, "op=list scenes=%d", static_cast<int>(defs.size()));
+    for (const RsWarpSceneDef* def : defs) {
+        Addf(lines, "scene[0x%X] name=%s tiles=%d here=%d", def->sceneId, def->name, def->tileCount,
+             InPlay() && gPlayState->sceneNum == def->sceneId ? 1 : 0);
     }
     return 0;
 }

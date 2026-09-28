@@ -121,8 +121,9 @@ int32_t RsStair_BeginMove(int32_t stairId, int32_t fromRow, int32_t toRow, const
 // and nothing to wait for after a room change. Everything else is the staircase's move: the freeze,
 // the fade, the room change first, the teleport and camera seat, the respawn point, the release.
 // Reports itself as `rs_warp tile=<fromTile> event=move_begin|room_request|room|moved|landed|abort|
-// refused ... to=<toTile>`, so a staircase's `rs_stairs` lines are unchanged byte for byte.
-// Refuses `busy`, `no_play` and `bad_room` (RsStairResult), with a `refused` marker.
+// move_refused ... to=<toTile>`, so a staircase's `rs_stairs` lines are unchanged byte for byte.
+// Refuses `busy`, `no_play` and `bad_room` (RsStairResult) as `move_refused result=` - not
+// `refused`, which is the detector's word for a tile that did not fire (`reason=`).
 typedef struct RsWarpMoveDest {
     int32_t fromTile; // reported only
     int32_t toTile;   // the tile Link lands beside - reported

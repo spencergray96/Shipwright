@@ -193,16 +193,19 @@
  *                                        `last="..."`, never a line that starts `stair=... event=...`,
  *                                        so a grep for `rs_stairs stair=<n> event=` sees only events
  *   rs_warp tile=<n> event=<fired|refused|latch|rearm|bad_tile|move_begin|room_request|room|moved|landed|
- *           abort> ...                   a step warp (sturdy-bassoon#154): a tile that moves Link in place
+ *           abort|move_refused> ...      a step warp (sturdy-bassoon#154): a tile that moves Link in place
  *                                        when he steps onto it. `fired` (to=, pick=, choices=) and
  *                                        `refused reason=<inert|moving|busy|airborne|disarmed|landing_only|
  *                                        aim>` come from the detector in rs/warps/Warps.cpp, once per contact
  *                                        per reason - `refused` is the marker that proves Link reached the
  *                                        tile. `latch`/`rearm` are the re-fire guard. The move's own lines
  *                                        come from the staircase controller, and `landed` is the one to
- *                                        assert on, with the same fields a staircase's carries. Plus one
+ *                                        assert on, with the same fields a staircase's carries; the
+ *                                        controller refusing a warp's move is `move_refused result=`. Plus one
  *                                        `rs_warp event=loaded scene= table= tiles= ok= bad=` per scene that
- *                                        has warp tiles. Gameplay markers, in every session
+ *                                        has a route table, and `rs_warp event=refused problem= scene= row=`
+ *                                        when registration refuses a malformed table (bug class, at boot).
+ *                                        Gameplay markers, in every session
  *   rs_warp <line>                       one line of RsWarpConsole_Run output per marker, from
  *                                        `agenttest warps ...` - `op=...`, an indexed row, or a quoted
  *                                        `last_*="..."`, never `tile=<n> event=...`

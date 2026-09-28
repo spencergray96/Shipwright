@@ -40,8 +40,11 @@ constexpr float kStickHeld = 15.0f;
 // counts - #151's "10 beyond the landing".
 constexpr float kClearBeyond = 10.0f;
 
-// Off a tile's storey: under half a storey (80) away in height, #147's talk gate.
-constexpr float kStoreyY = 30.0f;
+// How near a tile's floor Link's feet must be to count as on it - and, for a latched tile, how far
+// above or below it he must be to have left its storey. Under half a storey (a storey is 80 at 40 a
+// tile), #147's talk gate: a tile a storey below him, seen through a hole or from a deck's edge, is
+// not one he is on, even while it is the floor under his centre.
+constexpr float kOnTileY = 30.0f;
 
 // A PUSH tile fires only while Link moves within this of "into" it - the direction opposite its
 // landing: 45 degrees either side. And moving at all: standing on it is not pushing.
@@ -60,16 +63,14 @@ constexpr float kLandingFloorY = 10.0f;
 // probe sits at feet + 26 (ladder ADR).
 constexpr float kWallProbeY = 26.0f;
 
-constexpr int32_t kMaxScenes = 64;
-
 // Why a tile did not fire, in the order they are asked.
 enum class Why { Ok, Inert, Moving, Busy, Airborne, Disarmed, LandingOnly, Aim, Count };
 
 const char* const kWhyNames[] = { "ok", "inert", "moving", "busy", "airborne", "disarmed", "landing_only", "aim" };
 static_assert(sizeof(kWhyNames) / sizeof(kWhyNames[0]) == static_cast<size_t>(Why::Count), "one name per Why");
 
-const char* EntryName(int32_t entry) {
-    return RsWarp_EntryName(entry);
+uint32_t WhyBit(Why why) {
+    return 1u << static_cast<uint32_t>(why);
 }
 
 const float kDirX[] = { 0.0f, 1.0f, 0.0f, -1.0f };
@@ -130,10 +131,9 @@ struct State {
     int32_t present = 0;
     int32_t ok = 0;
     int32_t bad = 0;
-    bool firstTick = true;
-    int32_t onTile = 0;
-    int32_t refusedTile = 0;
-    int32_t refusedWhy = -1;
+    bool arrived = false;     // the first grounded tick in the scene has happened
+    int32_t onTile = 0;       // the tile under him last tick: a CONTACT lasts while this holds
+    uint32_t refusedMask = 0; // the reasons already reported this contact, by WhyBit
     int32_t pendingLatch = 0;
     std::string last;
 };
@@ -213,7 +213,8 @@ void Measure(PlayState* play, TileState& t) {
         return;
     }
     // Something to stand on at the landing, on the tile's own storey, that is not itself a warp tile.
-    Vec3f probe = { t.landing.x, t.landing.y + 50.0f, t.landing.z };
+    // From one tile-width up: a storey is two, so this is under the floor above at any grid scale.
+    Vec3f probe = { t.landing.x, t.landing.y + t.width, t.landing.z };
     CollisionPoly* floor = nullptr;
     s32 floorBg = BGCHECK_SCENE;
     const f32 floorY = BgCheck_EntityRaycastFloor3(&play->colCtx, &floor, &floorBg, &probe);
@@ -245,6 +246,12 @@ void Scan(PlayState* play) {
     sState.sceneNum = play->sceneNum;
     sState.def = RsWarp_GetSceneDef(play->sceneNum);
 
+    // A scene with no route table has no warp tiles, whatever its collision says. The engine never
+    // reads these bits, but nothing proves every vanilla scene's data leaves them at zero - so vanilla
+    // scenes, and any other scene nobody routed, are never looked at.
+    if (sState.def == nullptr) {
+        return;
+    }
     const CollisionHeader* col = play->colCtx.colHeader;
     if (col != nullptr && col->polyList != nullptr && col->surfaceTypeList != nullptr && col->vtxList != nullptr) {
         for (u32 i = 0; i < col->numPolygons; i++) {
@@ -356,6 +363,11 @@ int32_t TileUnder(PlayState* play, Player* player) {
     if (poly == nullptr || player->actor.floorBgId != BGCHECK_SCENE || play->colCtx.colHeader == nullptr) {
         return 0;
     }
+    // The floor under his centre, but only near his feet: jumping off a deck, the ground a storey
+    // below is under him too, and he is not on it.
+    if (std::fabs(player->actor.world.pos.y - player->actor.floorHeight) > kOnTileY) {
+        return 0;
+    }
     return TileIdOf(play->colCtx.colHeader, poly);
 }
 
@@ -371,8 +383,8 @@ void Latch(int32_t id, const char* reason, float stick) {
         return;
     }
     t.latched = true;
-    if (sState.refusedTile == id) {
-        sState.refusedWhy = -1; // a push refused by the latch is a new thing to report
+    if (sState.onTile == id) {
+        sState.refusedMask &= ~WhyBit(Why::Disarmed); // refused by the latch now: a new thing to say
     }
     Marker("rs_warp tile=%d event=latch reason=%s stick=%d", id, reason, static_cast<int>(stick));
 }
@@ -389,7 +401,7 @@ void Rearm(int32_t id, const char* reason) {
     // (Found in the #154 run: the latch lifted `released` with Link still on tile 1.)
     if (sState.onTile == id) {
         t.mustLeave = true;
-        sState.refusedWhy = -1; // still `disarmed`, now for this reason: worth saying again
+        sState.refusedMask &= ~WhyBit(Why::Disarmed); // still `disarmed`, now for this reason
     }
     Marker("rs_warp tile=%d event=rearm reason=%s on_tile=%d", id, reason, sState.onTile == id ? 1 : 0);
 }
@@ -405,6 +417,9 @@ Why Evaluate(PlayState* play, Player* player, const TileState& t) {
     if (t.bad != nullptr) {
         return Why::Inert;
     }
+    // Written by the controller's own OnPlayerUpdate hook, and hooks on one event run in no set order
+    // (MODDING_HOOKS.md) - so at a move's end this can read it a tick late. Harmless: a move begins
+    // inside Fire, on this hook's own tick, and a move ends with him on a landing, never on a tile.
     if (RsStair_IsMoving()) {
         return Why::Moving;
     }
@@ -442,7 +457,7 @@ void Fire(Player* player, int32_t id) {
 
     Event("rs_warp tile=%d event=fired to=%d pick=%d choices=%d entry=%s pos=%.1f,%.1f,%.1f floor_y=%.1f "
           "move_yaw=%d aim=%d speed=%.1f",
-          id, to, pick, choices, EntryName(t.def->entry), player->actor.world.pos.x, player->actor.world.pos.y,
+          id, to, pick, choices, RsWarp_EntryName(t.def->entry), player->actor.world.pos.x, player->actor.world.pos.y,
           player->actor.world.pos.z, player->actor.floorHeight, player->actor.world.rot.y, Degrees(AimOff(t, player)),
           player->linearVelocity);
 
@@ -454,17 +469,17 @@ void Fire(Player* player, int32_t id) {
     dest.z = d.landing.z;
     dest.yaw = d.yaw;
     dest.room = d.def->room;
+    // Disarmed until he steps off it, whatever the controller says: after a move he is frozen on it
+    // for the fade, and after a refused one (`move_refused`) he is still standing on it - which must
+    // not fire again next tick. The scan's checks leave the controller nothing to refuse today.
+    t.mustLeave = true;
     if (RsStair_BeginWarpMove(&dest, "warp") == RS_STAIR_OK) {
-        // He is still standing on it, frozen, for the whole fade - `disarmed` would say so once the
-        // move is over, if the landing were ever on it; `moving` says so until then.
-        t.mustLeave = true;
         t.fires++;
         t.picks[pick]++;
         sState.pendingLatch = to;
     }
     // So the `moving` refusal that follows on this same tile is reported.
-    sState.refusedTile = 0;
-    sState.refusedWhy = -1;
+    sState.refusedMask = 0;
 }
 
 void OnPlayerUpdateWarps() {
@@ -481,25 +496,26 @@ void OnPlayerUpdateWarps() {
     Player* player = GET_PLAYER(play);
     const int32_t tile = TileUnder(play, player);
 
-    // Arriving in the scene on a tile - a spawn, a void-out - is not stepping onto it.
-    if (sState.firstTick) {
-        sState.firstTick = false;
+    const bool grounded = (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) != 0;
+    if (tile != sState.onTile) {
         sState.onTile = tile;
+        sState.refusedMask = 0; // a new contact
+    }
+    // Arriving in the scene on a tile - a spawn, a void-out - is not stepping onto it. Counted on his
+    // first GROUNDED tick, not his first tick: he may spawn in the air, or the first update may not
+    // have read the floor yet, and the tile he lands on is the one he arrived on.
+    if (!sState.arrived && grounded) {
+        sState.arrived = true;
         if (tile != 0) {
             sState.tiles[tile].mustLeave = true;
         }
-    }
-    if (tile != sState.onTile) {
-        sState.onTile = tile;
-        sState.refusedTile = 0; // a new contact
-        sState.refusedWhy = -1;
     }
     // STEPPING OFF a tile is standing on some other floor - GROUNDED on it, not just a different
     // polygon under his centre. At a ledge his centre can cross the edge for a tick with nothing
     // under him but the ground a storey below, then settle back: counting that as stepping off
     // re-armed the covered hole at the deck's edge in the #154 run, and it fired under a stick that
     // had only just been let go.
-    if (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) {
+    if (grounded && sState.arrived) {
         for (int32_t id = 1; id <= RS_WARP_TILE_ID_MAX; id++) {
             if (id != tile) {
                 sState.tiles[id].mustLeave = false;
@@ -528,7 +544,7 @@ void OnPlayerUpdateWarps() {
             Rearm(id, "released");
         } else if (XZDist(player->actor.world.pos, t.centre) > t.width + kClearBeyond) {
             Rearm(id, "clear");
-        } else if (std::fabs(player->actor.world.pos.y - t.centre.y) > kStoreyY) {
+        } else if (std::fabs(player->actor.world.pos.y - t.centre.y) > kOnTileY) {
             Rearm(id, "left");
         }
     }
@@ -543,17 +559,16 @@ void OnPlayerUpdateWarps() {
         return;
     }
     const int32_t whyIndex = static_cast<int32_t>(why);
-    if (tile == sState.refusedTile && whyIndex == sState.refusedWhy) {
+    if (sState.refusedMask & WhyBit(why)) {
         return; // said already, this contact
     }
-    sState.refusedTile = tile;
-    sState.refusedWhy = whyIndex;
+    sState.refusedMask |= WhyBit(why);
     // THE marker that proves a negative was challenged: Link was ON the tile, and this is why it did
     // not fire - as opposed to him never reaching it.
     Event("rs_warp tile=%d event=refused reason=%s entry=%s pos=%.1f,%.1f,%.1f move_yaw=%d aim=%d speed=%.1f stick=%d "
           "latched=%d must_leave=%d",
-          tile, kWhyNames[whyIndex], t.def != nullptr ? EntryName(t.def->entry) : "none", player->actor.world.pos.x,
-          player->actor.world.pos.y, player->actor.world.pos.z, player->actor.world.rot.y,
+          tile, kWhyNames[whyIndex], t.def != nullptr ? RsWarp_EntryName(t.def->entry) : "none",
+          player->actor.world.pos.x, player->actor.world.pos.y, player->actor.world.pos.z, player->actor.world.rot.y,
           t.bad == nullptr ? Degrees(AimOff(t, player)) : 0, player->linearVelocity, static_cast<int>(stick),
           t.latched ? 1 : 0, t.mustLeave ? 1 : 0);
 }
@@ -667,9 +682,15 @@ extern "C" int32_t RsWarp_RegisterScene(const RsWarpSceneDef* def) {
     const int32_t problem = RsWarp_SceneDefProblem(def, &where);
     if (problem != RS_WARP_PROBLEM_NONE) {
         // BUG CLASS, as RsStair_Register is: the kind and the row, never the prose.
+        char scene[16];
+        if (def != nullptr) {
+            std::snprintf(scene, sizeof(scene), "0x%X", def->sceneId);
+        } else {
+            std::snprintf(scene, sizeof(scene), "none");
+        }
         char line[160];
-        std::snprintf(line, sizeof(line), "rs_warp event=refused problem=%s scene=0x%X row=%d",
-                      RsWarp_ProblemName(problem), def != nullptr ? def->sceneId : -1, where);
+        std::snprintf(line, sizeof(line), "rs_warp event=refused problem=%s scene=%s row=%d",
+                      RsWarp_ProblemName(problem), scene, where);
         AgentTest_WriteMarker(line);
         SPDLOG_ERROR("RsWarps: register scene 0x{:X}: {} at row {}", def != nullptr ? def->sceneId : -1,
                      RsWarp_ProblemName(problem), where);
@@ -678,10 +699,6 @@ extern "C" int32_t RsWarp_RegisterScene(const RsWarpSceneDef* def) {
     }
     if (RsWarp_GetSceneDef(def->sceneId) == def) {
         return 0; // the same pointer again: a ShipInit re-run
-    }
-    if (static_cast<int32_t>(sScenes.size()) >= kMaxScenes) {
-        SPDLOG_ERROR("RsWarps: more than {} scenes have warp tables", kMaxScenes);
-        return RS_WARP_PROBLEM_SCENE_TAKEN;
     }
     sScenes.push_back(def);
     return 0;
@@ -698,15 +715,8 @@ extern "C" const RsWarpSceneDef* RsWarp_GetSceneDef(int32_t sceneId) {
 
 // --- C++ surface --------------------------------------------------------------------------------
 
-int32_t RsWarp_ListScenes(const RsWarpSceneDef** out, int32_t max) {
-    int32_t count = 0;
-    for (const RsWarpSceneDef* def : sScenes) {
-        if (count >= max) {
-            break;
-        }
-        out[count++] = def;
-    }
-    return count;
+std::vector<const RsWarpSceneDef*> RsWarp_ListScenes() {
+    return sScenes;
 }
 
 int32_t RsWarp_TileUnderPlayer() {

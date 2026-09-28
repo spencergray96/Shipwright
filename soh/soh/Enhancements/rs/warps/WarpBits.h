@@ -43,7 +43,8 @@
 #define RS_WARP_DATA1(id, dir) ((((uint32_t)(id)) & 0xFu) << 28)
 
 // Read them back. 0 = not a warp tile.
-#define RS_WARP_TILE_ID(data0, data1) ((int32_t)(((((uint32_t)(data0)) >> 20 & 1u) << 4) | (((uint32_t)(data1)) >> 28 & 0xFu)))
+#define RS_WARP_TILE_ID(data0, data1) \
+    ((int32_t)(((((uint32_t)(data0)) >> 20 & 1u) << 4) | (((uint32_t)(data1)) >> 28 & 0xFu)))
 #define RS_WARP_TILE_DIR(data0) ((int32_t)(((uint32_t)(data0)) >> 18 & 3u))
 
 #endif // SOH_RS_WARP_BITS_H

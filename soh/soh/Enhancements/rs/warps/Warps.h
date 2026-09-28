@@ -21,7 +21,9 @@
 //      its landing direction, dead centre, facing that way), and checks it against the scene's route
 //      table (WarpTable.cpp). A tile that fails any check is INERT for the visit, reported once as
 //      `rs_warp tile=<n> event=bad_tile reason=...` - an authoring mistake you can see, never an
-//      assert. Then one `rs_warp event=loaded ...` line. A scene with no warp tiles and no table says
+//      assert. Then one `rs_warp event=loaded ...` line. Only a scene WITH a route table is scanned:
+//      the engine never reads these bits, but nothing proves every vanilla scene's data leaves them
+//      at zero, so a scene nobody routed has no warp tiles whatever its collision says, and says
 //      nothing at all.
 //   2. THE DETECTOR. Every Player update, the polygon under Link says which tile, if any, he is on.
 //      On one, the tile fires unless a guard refuses it - asked in a fixed order, so the reason
@@ -30,7 +32,8 @@
 //        inert         the scan found it broken
 //        moving        a move is in flight - which is also every tick of the fade after it fired
 //        busy          a textbox is open, or Link is in a cutscene
-//        airborne      not standing on it (a jump over it fires on landing, if armed)
+//        airborne      over it, within kOnTileY (30) of it, but not standing on it - a drop onto it
+//                      fires on landing, if armed. Further above it than that, he is not on it at all
 //        disarmed      he has not stepped off it since arriving on it - at a scene start, a void-out,
 //                      or the move it fired - or it is LATCHED (below). Stepping off is standing,
 //                      grounded, on some other floor: a tick with his centre past a ledge is not it
@@ -119,7 +122,7 @@ struct RsWarpSceneReport {
 };
 
 RsWarpSceneReport RsWarp_Report();
-int32_t RsWarp_ListScenes(const RsWarpSceneDef** out, int32_t max);
+std::vector<const RsWarpSceneDef*> RsWarp_ListScenes(); // every registered table, in registration order
 
 // The tile id under Link right now (0 for none), read the way the detector reads it.
 int32_t RsWarp_TileUnderPlayer();
