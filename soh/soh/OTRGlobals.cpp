@@ -61,6 +61,7 @@
 #endif
 
 #include <fast/interpreter.h>
+#include <fast/StaticMeshCache.h>
 
 #ifdef __APPLE__
 #include <SDL_scancode.h>
@@ -1871,6 +1872,9 @@ extern "C" void Graph_ProcessGfxCommands(Gfx* commands) {
         prevAltAssets = curAltAssets;
         Ship::Context::GetRawInstance()->GetResourceManager()->SetAltAssetsEnabled(curAltAssets);
         gfx_texture_cache_clear();
+        // A baked room holds its own textures, which the clear above does not reach, so the bakes
+        // have to be re-recorded against the swapped assets (sturdy-bassoon#142).
+        Fast::StaticBakeInvalidateAll();
         SOH::SkeletonPatcher::UpdateSkeletons();
         GameInteractor::Instance->ExecuteHooks<GameInteractor::OnAssetAltChange>();
     }

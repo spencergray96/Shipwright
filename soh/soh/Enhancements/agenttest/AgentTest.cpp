@@ -149,6 +149,10 @@
  *   altassets cvar=<0|1> live=<0|1>      from "agenttest altassets": cvar= is the AltAssets setting, live= is the
  *                                        resource manager's current state. They differ for one frame after a
  *                                        flip - OTRGlobals applies the CVar at the end of the next frame
+ *   staticbake <line>                    one line of StaticBakeConsole_Run output per marker, from
+ *                                        `agenttest staticbake [status|on|off|rebake]`: `op=<sub> result=ok
+ *                                        active=<0|1> registered=<n> baked=<n> rejected=<n>`. Same renderer as
+ *                                        the human `staticbake` command (sturdy-bassoon#142)
  *   quest <line>                         one line of QuestConsole_Run output per marker, from
  *                                        "agenttest quest ..." (sturdy-bassoon#58 P1): the Describe line
  *                                        `id=<n> name=<s> tier=<s> status=<s> steps=0x<mask>/<count>
@@ -442,6 +446,7 @@
 #include "soh/Enhancements/rs/stairs/StairConsole.h"
 #include "soh/Enhancements/rs/warps/WarpConsole.h"
 #include "soh/Enhancements/rs/menu/MenuConsole.h"
+#include "soh/Enhancements/staticbake/StaticBakeConsole.h"
 #include "AgentTest.h"
 #include "soh/ActorDB.h"
 #include "soh/ShipInit.hpp"
@@ -845,10 +850,11 @@ void EmitPerf() {
     // decides whether geometry caching or batching is the useful lever.
     //
     // draws_baked=/tris_baked= are the subset of that frame's draws which replayed a pre-recorded
-    // static mesh instead of walking a display list (sturdy-bassoon#40 Stage 1; zero unless
-    // SOH_STATIC_BAKE=1). tris_baked is *not* included in tris: baked geometry never reaches
-    // GfxSpTri1, so it is neither CPU-culled nor counted there, which is exactly why turning the
-    // bake on makes tris= fall for a scene that is drawing strictly more than before.
+    // static mesh instead of walking a display list (sturdy-bassoon#40, #142; zero while the bake is
+    // off - SOH_STATIC_BAKE=1 starts it on, `staticbake on|off` flips it). tris_baked is *not*
+    // included in tris: baked geometry never reaches GfxSpTri1, so it is neither CPU-culled nor
+    // counted there, which is exactly why turning the bake on makes tris= fall for a scene that is
+    // drawing strictly more than before.
     //
     // texcache= is the texture cache's occupancy against its cap, tex_evict= and tex_upload= the
     // least-recently-used evictions and the cache misses over this interval, and tex_used= the
@@ -2129,6 +2135,15 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(RsMenuConsole_Run, sub, "rs_menu ", output, WriteMarker);
     }
+    // The static bake's runtime switch (sturdy-bassoon#142). Same arrangement as `region` above: one
+    // implementation (StaticBakeConsole_Run) behind two sinks. `>= 2`, like `music`: a bare
+    // `agenttest staticbake` is the status report. This is the leg that makes a baked/interpreted
+    // picture A/B possible inside one session - `staticbake off`, screenshot, `staticbake on`,
+    // screenshot - with the camera and the time of day exactly where they were.
+    if (args.size() >= 2 && args[1] == "staticbake") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(StaticBakeConsole_Run, sub, "staticbake ", output, WriteMarker);
+    }
     if (args.size() >= 2 && args[1] == "mark") {
         std::string text;
         for (size_t i = 2; i < args.size(); i++) {
@@ -2159,7 +2174,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|fadein <s>|"
               "baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
-            "kaleidoinput [on|off] | altassets [on|off] | save <fileNum> | loadsave <fileNum> | mark <text>";
+            "kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake] | save <fileNum> | "
+            "loadsave <fileNum> | mark <text>";
     }
     return 1;
 }
@@ -2198,7 +2214,8 @@ void RegisterAgentTest() {
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|"
               "fadein <s>|baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
-              "kaleidoinput [on|off] | altassets [on|off] | save <fileNum> | loadsave <fileNum> | mark <text>. "
+              "kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake] | save <fileNum> | "
+              "loadsave <fileNum> | mark <text>. "
               "walk/press inject controller 1 for N frames and end with an input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });
     }
