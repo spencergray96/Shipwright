@@ -34,13 +34,13 @@ namespace {
 //   5, 6, 7   the random group: 5 pushes into the hut's outer side wall (storey 0), 6 is a hole in
 //             deck A's corner (storey 1), 7 is a plain tile in the yard (storey 0). Each sends Link
 //             to one of the other two, picked every time it fires.
-const int32_t kTo1[] = { 1 };
-const int32_t kTo2[] = { 2 };
-const int32_t kTo3[] = { 3 };
-const int32_t kTo4[] = { 4 };
-const int32_t kFrom5[] = { 6, 7 };
-const int32_t kFrom6[] = { 5, 7 };
-const int32_t kFrom7[] = { 5, 6 };
+const RsWarpDest kTo1[] = { RS_WARP_TO(1) };
+const RsWarpDest kTo2[] = { RS_WARP_TO(2) };
+const RsWarpDest kTo3[] = { RS_WARP_TO(3) };
+const RsWarpDest kTo4[] = { RS_WARP_TO(4) };
+const RsWarpDest kFrom5[] = { RS_WARP_TO(6), RS_WARP_TO(7) };
+const RsWarpDest kFrom6[] = { RS_WARP_TO(5), RS_WARP_TO(7) };
+const RsWarpDest kFrom7[] = { RS_WARP_TO(5), RS_WARP_TO(6) };
 
 const RsWarpTileDef kFixtureTiles[] = {
     { 1, RS_WARP_ENTRY_PUSH, 0, kTo2, ARRAY_COUNT(kTo2) },
@@ -59,8 +59,49 @@ const RsWarpSceneDef kFixtureScene = {
     ARRAY_COUNT(kFixtureTiles),
 };
 
+// --- underground_entry_overworld (0x94, entrance 0x63D) and _basements (0x95, entrance 0x63E) ------
+//
+// The #148 test maps: getting Link from an overworld into an underground area and back, where the
+// underground area is ITS OWN SCENE. A REFERENCE FIXTURE, like the one above: tiles spliced, never
+// re-exported over. Each pair is a trapdoor (a step tile, against a hut's north wall) and a ladder
+// (a push tile, against a cellar's north wall) that send Link to each other across the two scenes.
+// The two cellars share one scene and one room - grouped basements, in miniature.
+//
+//   overworld 1 <-> basements 1   hut A's trapdoor and cellar 1's ladder
+//   overworld 2 <-> basements 2   hut B's trapdoor and cellar 2's ladder
+const RsWarpDest kToCellar1[] = { RS_WARP_TO_SCENE(ENTR_UNDERGROUND_ENTRY_BASEMENTS_0, 1) };
+const RsWarpDest kToCellar2[] = { RS_WARP_TO_SCENE(ENTR_UNDERGROUND_ENTRY_BASEMENTS_0, 2) };
+const RsWarpDest kToHutA[] = { RS_WARP_TO_SCENE(ENTR_UNDERGROUND_ENTRY_OVERWORLD_0, 1) };
+const RsWarpDest kToHutB[] = { RS_WARP_TO_SCENE(ENTR_UNDERGROUND_ENTRY_OVERWORLD_0, 2) };
+
+const RsWarpTileDef kUndergroundOverworldTiles[] = {
+    { 1, RS_WARP_ENTRY_STEP, 0, kToCellar1, ARRAY_COUNT(kToCellar1) },
+    { 2, RS_WARP_ENTRY_STEP, 0, kToCellar2, ARRAY_COUNT(kToCellar2) },
+};
+
+const RsWarpTileDef kUndergroundBasementsTiles[] = {
+    { 1, RS_WARP_ENTRY_PUSH, 0, kToHutA, ARRAY_COUNT(kToHutA) },
+    { 2, RS_WARP_ENTRY_PUSH, 0, kToHutB, ARRAY_COUNT(kToHutB) },
+};
+
+const RsWarpSceneDef kUndergroundOverworldScene = {
+    SCENE_UNDERGROUND_ENTRY_OVERWORLD,
+    "underground_entry_overworld",
+    kUndergroundOverworldTiles,
+    ARRAY_COUNT(kUndergroundOverworldTiles),
+};
+
+const RsWarpSceneDef kUndergroundBasementsScene = {
+    SCENE_UNDERGROUND_ENTRY_BASEMENTS,
+    "underground_entry_basements",
+    kUndergroundBasementsTiles,
+    ARRAY_COUNT(kUndergroundBasementsTiles),
+};
+
 void RegisterWarpTables() {
     RsWarp_RegisterScene(&kFixtureScene);
+    RsWarp_RegisterScene(&kUndergroundOverworldScene);
+    RsWarp_RegisterScene(&kUndergroundBasementsScene);
 }
 
 RegisterShipInitFunc warpTableInitFunc(RegisterWarpTables);
@@ -69,9 +110,15 @@ RegisterShipInitFunc warpTableInitFunc(RegisterWarpTables);
 //
 // One per refusal the validator makes. APPEND ONLY: a run names these by index. Scene 0 is never
 // registered, except where the row is ABOUT a scene clash.
-const int32_t kToSelf[] = { 1 };
-const int32_t kToNowhere[] = { 9 };
-const int32_t kTooMany[RS_WARP_MAX_DESTS + 1] = { 2, 2, 2, 2, 2, 2, 2, 2, 2 };
+const RsWarpDest kToSelf[] = { RS_WARP_TO(1) };
+const RsWarpDest kToNowhere[] = { RS_WARP_TO(9) };
+const RsWarpDest kTooMany[RS_WARP_MAX_DESTS + 1] = { RS_WARP_TO(2), RS_WARP_TO(2), RS_WARP_TO(2),
+                                                     RS_WARP_TO(2), RS_WARP_TO(2), RS_WARP_TO(2),
+                                                     RS_WARP_TO(2), RS_WARP_TO(2), RS_WARP_TO(2) };
+// Another scene's tile, badly (#148): an entrance past the table, and one into the table's own scene
+// (scene 0 is the Deku Tree, which ENTR_DEKU_TREE_ENTRANCE loads).
+const RsWarpDest kToNoEntrance[] = { RS_WARP_TO_SCENE(ENTR_MAX, 1) };
+const RsWarpDest kToOwnScene[] = { RS_WARP_TO_SCENE(ENTR_DEKU_TREE_ENTRANCE, 1) };
 
 const RsWarpTileDef kBadId0[] = { { 0, RS_WARP_ENTRY_STEP, 0, kTo2, 1 }, { 2, RS_WARP_ENTRY_STEP, 0, nullptr, 0 } };
 const RsWarpTileDef kBadId32[] = { { RS_WARP_TILE_ID_MAX + 1, RS_WARP_ENTRY_STEP, 0, nullptr, 0 } };
@@ -84,6 +131,8 @@ const RsWarpTileDef kBadNullDests[] = { { 1, RS_WARP_ENTRY_STEP, 0, nullptr, 1 }
 const RsWarpTileDef kBadSelf[] = { { 1, RS_WARP_ENTRY_STEP, 0, kToSelf, 1 } };
 const RsWarpTileDef kBadDest[] = { { 1, RS_WARP_ENTRY_STEP, 0, kToNowhere, 1 } };
 const RsWarpTileDef kGood[] = { { 1, RS_WARP_ENTRY_STEP, 0, kTo2, 1 }, { 2, RS_WARP_ENTRY_STEP, 0, kTo1, 1 } };
+const RsWarpTileDef kBadEntrance[] = { { 1, RS_WARP_ENTRY_STEP, 0, kToNoEntrance, 1 } };
+const RsWarpTileDef kBadEntranceHere[] = { { 1, RS_WARP_ENTRY_STEP, 0, kToOwnScene, 1 } };
 
 const RsWarpSceneDef kBadDefs[] = {
     /* 0 */ { 0, "has space", kGood, ARRAY_COUNT(kGood) },
@@ -98,6 +147,8 @@ const RsWarpSceneDef kBadDefs[] = {
     /* 9 */ { 0, "to_itself", kBadSelf, ARRAY_COUNT(kBadSelf) },
     /* 10 */ { 0, "to_nowhere", kBadDest, ARRAY_COUNT(kBadDest) },
     /* 11 */ { SCENE_STEP_WARP_FIXTURE, "scene_taken", kGood, ARRAY_COUNT(kGood) },
+    /* 12 */ { 0, "no_such_entrance", kBadEntrance, ARRAY_COUNT(kBadEntrance) },
+    /* 13 */ { SCENE_DEKU_TREE, "entrance_into_itself", kBadEntranceHere, ARRAY_COUNT(kBadEntranceHere) },
 };
 
 } // namespace

@@ -146,6 +146,11 @@
  *                                        field carries whatever band is actually live
  *   kaleidoinput on=<0|1>                from "agenttest kaleidoinput": whether injected frames count while vanilla
  *                                        pause is up (sturdy-bassoon#111 stage 8)
+ *   keepinput armed=<0|1>                from "agenttest keepinput": whether the walk/press in flight at the next
+ *                                        scene load carries on through it (sturdy-bassoon#148)
+ *   input_kept reason=scene_change frames_left=<n>
+ *                                        a scene load that `keepinput` let the input in flight survive, instead
+ *                                        of the usual `input_done reason=scene_change`
  *   altassets cvar=<0|1> live=<0|1>      from "agenttest altassets": cvar= is the AltAssets setting, live= is the
  *                                        resource manager's current state. They differ for one frame after a
  *                                        flip - OTRGlobals applies the CVar at the end of the next frame
@@ -279,6 +284,12 @@
  *                                          Environment_Init re-arms scene control on every scene load, so the
  *                                          override must be re-applied after each entrance - which is also the
  *                                          safety net against leaking it into a later run
+ *   agenttest keepinput [on|off]           ONE-SHOT: the walk/press in flight at the NEXT scene load is not cancelled
+ *                                          by it but carries on in the new scene - a stick held through a load, as
+ *                                          a player holds one through a step warp to another scene (sturdy-bassoon
+ *                                          #148's latch). Frames still count only while Player reads them, so the
+ *                                          load itself uses none. Disarmed by that load whether or not an input
+ *                                          was in flight, so it never leaks into a later one
  *   agenttest kaleidoinput [on|off]        let injected frames (walk/press) count while vanilla pause (kaleido) is up.
  *                                          OFF by default and off again at every scene load: normally a frame only
  *                                          counts when Player reads it, so a `press START` that opens kaleido never
@@ -516,6 +527,9 @@ bool sInputPressPending = false; // first injected frame also sets press.button 
 // `agenttest kaleidoinput on`: injected frames also count while kaleido is up. Session state, cleared on
 // every scene load, so a run that forgets to turn it off cannot carry it into the next test.
 bool sKaleidoInput = false;
+// `agenttest keepinput`: the input in flight at the next scene load survives it (sturdy-bassoon#148).
+// One-shot - that load disarms it either way.
+bool sKeepInput = false;
 // Mid-walk button press (walk's optional [buttons] [at_frame] args): once sInputFramesLeft counts
 // down to sDeferredAtFramesLeft, these buttons join sInputButtons with a fresh press edge and stay
 // held for the rest of the injection. This is how a roll is driven - A must land while running.
@@ -1222,7 +1236,12 @@ void OnZTitleUpdateAgentTest(void* gameState) {
 void OnSceneInitAgentTest(int16_t sceneNum) {
     sReady = false;
     sLastRoom = -1;
-    CancelInput("scene_change");
+    if (sKeepInput && sInputFramesLeft > 0) {
+        WriteMarker("input_kept reason=scene_change frames_left=" + std::to_string(sInputFramesLeft));
+    } else {
+        CancelInput("scene_change");
+    }
+    sKeepInput = false;
     sKaleidoInput = false;
     if (sAgentMode) {
         WriteMarker("scene_loaded scene=" + Hex(sceneNum) + " entrance=" + Hex(gSaveContext.entranceIndex));
@@ -1714,6 +1733,24 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         }
         return 0;
     }
+    // One-shot, see sKeepInput: arm it before the walk that crosses the load.
+    if (args.size() >= 2 && args[1] == "keepinput") {
+        if (args.size() >= 3) {
+            if (args[2] != "on" && args[2] != "off") {
+                if (output) {
+                    *output += "keepinput needs on|off, or nothing to report";
+                }
+                return 1;
+            }
+            sKeepInput = args[2] == "on";
+        }
+        const std::string line = std::string("keepinput armed=") + (sKeepInput ? "1" : "0");
+        WriteMarker(line);
+        if (output) {
+            *output += line;
+        }
+        return 0;
+    }
     // Opt-in only, and it never outlives the scene: see sKaleidoInput. The stock rule - a frame counts
     // only while Player reads it - is what stops a walk from being eaten by a pause; this lifts it for
     // runs that mean to drive the pause itself.
@@ -2159,7 +2196,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|fadein <s>|"
               "baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
-            "kaleidoinput [on|off] | altassets [on|off] | save <fileNum> | loadsave <fileNum> | mark <text>";
+            "keepinput [on|off] | kaleidoinput [on|off] | altassets [on|off] | save <fileNum> | loadsave <fileNum> | "
+            "mark <text>";
     }
     return 1;
 }
@@ -2198,7 +2236,8 @@ void RegisterAgentTest() {
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|"
               "fadein <s>|baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
-              "kaleidoinput [on|off] | altassets [on|off] | save <fileNum> | loadsave <fileNum> | mark <text>. "
+              "keepinput [on|off] | kaleidoinput [on|off] | altassets [on|off] | save <fileNum> | loadsave <fileNum> | "
+              "mark <text>. "
               "walk/press inject controller 1 for N frames and end with an input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });
     }

@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cassert>
+#include <chrono>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
@@ -17,6 +18,7 @@
 #include "soh/Enhancements/rs/actors/RsActors.h"
 #include "soh/Enhancements/rs/music/ZoneDirector.h"
 #include "soh/Enhancements/rs/prefs/FloorText.h"
+#include "soh/Enhancements/rs/warps/WarpDef.h"
 #include "soh/ShipInit.hpp"
 #include "soh/cvar_prefixes.h"
 #include "soh/frame_interpolation.h"
@@ -208,7 +210,21 @@ constexpr float kRowSnap = 40.0f;
 // finishes. The grace is for the order changing under us, not a known delay.
 constexpr int32_t kArriveTicks = 2;
 
-enum class Phase { Idle, FadeOut, WaitRoom, Arrive, Settle, FadeIn, ReturnRoom };
+// Ticks a step warp to another scene waits, after asking for the transition, for the scene to change.
+// An instant transition goes on the next tick or two (z_play.c, TRANS_MODE_INSTANT); this is only
+// for one that never starts - another transition already running - so Link is not left frozen.
+constexpr int32_t kSceneLoadTicks = 20;
+
+// Where a step warp to another scene lands him, and how: respawn slot RETURN with respawnFlag 2.
+// Player_Init stands Link at the slot's position and yaw, in the slot's room (z_room.c), with the
+// slot's params: 0xDFF is the idle arrival every grid-tool spawn uses. Flag 2 rather than DOWN's 1,
+// because 1 charges the void-out penalty; and not TOP's 3, which Farore's Wind restores over at
+// actor init. The one thing flag 2 skips - rewriting the void-out point on arrival - Settle does.
+constexpr int32_t kSceneWarpRespawnMode = RESPAWN_MODE_RETURN;
+constexpr int32_t kSceneWarpRespawnFlag = RESPAWN_MODE_RETURN + 1;
+constexpr u16 kSceneWarpPlayerParams = 0xDFF;
+
+enum class Phase { Idle, FadeOut, WaitRoom, Arrive, Settle, FadeIn, ReturnRoom, SceneLoad, SceneArrive };
 
 const char* PhaseName(Phase phase) {
     switch (phase) {
@@ -226,8 +242,18 @@ const char* PhaseName(Phase phase) {
             return "fade_in";
         case Phase::ReturnRoom:
             return "return_room";
+        case Phase::SceneLoad:
+            return "scene_load";
+        case Phase::SceneArrive:
+            return "scene_arrive";
     }
     return "unknown";
+}
+
+using Clock = std::chrono::steady_clock;
+
+int32_t MsSince(Clock::time_point since) {
+    return static_cast<int32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - since).count());
 }
 
 struct Move {
@@ -251,10 +277,27 @@ struct Move {
     int32_t toTile = -1;
     Vec3f warpPos = {};
     s16 warpYaw = 0;
+    // A step warp to ANOTHER scene (sturdy-bassoon#148): `entrance` is where the transition goes and
+    // `targetScene` the scene it loads. `scene` follows Link into it on arrival; `fromScene` does not.
+    int32_t entrance = RS_WARP_HERE;
+    int16_t targetScene = -1;
+    int16_t fromScene = -1;
+    // Wall clock, for the markers: a scene load is not in ticks - nothing ticks while it runs.
+    Clock::time_point began;
+    Clock::time_point loadAsked; // the transition was asked for
+    Clock::time_point arrived;   // the first Player update in the new scene
+    int32_t loadMs = -1;         // loadAsked -> arrived: tear-down, Play_Init, the scene's own init
+    int32_t settleMs = -1;       // arrived -> the fade in begins: includes the first frame drawn,
+                                 // which is when the static bake records
+    int32_t placed = -1;         // the warp scan put him on: 1 the tile's landing, 0 the spawn, -1 neither
 };
 
 Move sMove;
 std::string sLast; // the last move's outcome, for `stairs status` - see ReportOutcome
+
+bool CrossScene() {
+    return sMove.warp && sMove.entrance != RS_WARP_HERE;
+}
 
 // Who a move's own markers are about. A staircase's and a step warp's lines differ only in this
 // prefix, so each controller event is one format string - and a staircase's comes out exactly as it
@@ -435,6 +478,27 @@ void SeatCamera(Camera* camera, s16 yaw) {
     camera->camDir.x = bestPitch;
 }
 
+// The camera, snapped behind him - Play_Init's own call for "Link just appeared here". Left to
+// itself the camera would chase him up the shaft over several frames, through a slab. Only the
+// main camera: a subcamera belongs to whatever cutscene owns it.
+//
+// Then re-seated where the camera would settle. InitPlayerSettings puts the eye a fixed 180
+// behind him at a 10-degree pitch with no collision check - which, from a landing in a 4-cell
+// tower room, is OUTSIDE the tower and above the ceiling. On a hard cut the next few
+// Camera_Normal updates are on screen: the camera swooping in through the wall, then out of
+// the slab (#147 run record, the cut filmstrips). A step warp arriving from another scene needs
+// the same: Play_Init snapped the camera behind him, but did not seat it.
+void SnapCamera(PlayState* play, Player* player, s16 yaw) {
+    if (play->activeCamera == CAM_ID_MAIN) {
+        Camera* camera = Play_GetCamera(play, CAM_ID_MAIN);
+        Camera_InitPlayerSettings(camera, player);
+        SeatCamera(camera, yaw);
+    }
+    // One rendered frame interpolated between the old camera and the new would draw a streak
+    // through the building. Every other in-engine camera cut says the same thing.
+    FrameInterpolation_DontInterpolateCamera();
+}
+
 // THE MOVE ITSELF - every field #134's source dig found an in-place move must write, and the two
 // `agenttest goto` does not.
 void Teleport(PlayState* play, Player* player, const Vec3f& pos, s16 yaw) {
@@ -462,23 +526,7 @@ void Teleport(PlayState* play, Player* player, const Vec3f& pos, s16 yaw) {
     // just used is: he would come out of the move turned to face the storey he left.
     Player_ReleaseLockOn(player);
 
-    // The camera, snapped behind him - Play_Init's own call for "Link just appeared here". Left to
-    // itself the camera would chase him up the shaft over several frames, through a slab. Only the
-    // main camera: a subcamera belongs to whatever cutscene owns it.
-    //
-    // Then re-seated where the camera would settle. InitPlayerSettings puts the eye a fixed 180
-    // behind him at a 10-degree pitch with no collision check - which, from a landing in a 4-cell
-    // tower room, is OUTSIDE the tower and above the ceiling. On a hard cut the next few
-    // Camera_Normal updates are on screen: the camera swooping in through the wall, then out of
-    // the slab (#147 run record, the cut filmstrips).
-    if (play->activeCamera == CAM_ID_MAIN) {
-        Camera* camera = Play_GetCamera(play, CAM_ID_MAIN);
-        Camera_InitPlayerSettings(camera, player);
-        SeatCamera(camera, yaw);
-    }
-    // One rendered frame interpolated between the old camera and the new would draw a streak
-    // through the building. Every other in-engine camera cut says the same thing.
-    FrameInterpolation_DontInterpolateCamera();
+    SnapCamera(play, player, yaw);
 
     // Anything that moves Link discontinuously tells the zone music director, which otherwise
     // waits out its walking dwell before switching (ZoneDirector.h).
@@ -563,20 +611,113 @@ bool StepRoomChange(PlayState* play, int32_t room) {
     return true;
 }
 
+// A STEP WARP TO ANOTHER SCENE (sturdy-bassoon#148), at the end of the fade out: the transition.
+// The screen is black already - the fade ended here, or a hard cut went straight to black - and it
+// stays black through the load: the new scene sets the fill at OnSceneInit, before anything draws,
+// and nothing clears it until Finish. So the only difference from a move in place is the load in
+// the middle of the black.
+void StartSceneLoad(PlayState* play, Player* player) {
+    SetFill(play, 255);
+
+    // Where he will stand is in the other scene's collision, which the warp scan reads at that
+    // scene's OnSceneInit and writes into this slot's pos and yaw (RsStair_SceneArrival). Until then
+    // it holds where he is now, so nothing ever reads a stale slot.
+    RespawnData& slot = gSaveContext.respawn[kSceneWarpRespawnMode];
+    slot.pos = player->actor.world.pos;
+    slot.yaw = player->actor.shape.rot.y;
+    slot.playerParams = static_cast<s16>(kSceneWarpPlayerParams);
+    slot.entranceIndex = static_cast<s16>(sMove.entrance);
+    slot.roomIndex = static_cast<u8>(sMove.roomTo); // read before OnSceneInit, to pick the room
+    slot.data = 0;
+    // Player_Init restores these for any respawnFlag but -3. A scene arrived in fresh has none of the
+    // scene it came from.
+    slot.tempSwchFlags = 0;
+    slot.tempCollectFlags = 0;
+    gSaveContext.respawnFlag = kSceneWarpRespawnFlag;
+
+    // The console's `entrance`, plus the fade in: none of the transition's own on either side,
+    // because this move fades in itself once he is standing there.
+    play->nextEntranceIndex = sMove.entrance;
+    play->transitionTrigger = TRANS_TRIGGER_START;
+    play->transitionType = TRANS_TYPE_INSTANT;
+    gSaveContext.nextTransitionType = TRANS_TYPE_INSTANT;
+
+    sMove.loadAsked = Clock::now();
+    sMove.phase = Phase::SceneLoad;
+    sMove.phaseTick = 0;
+    Marker("rs_warp tile=%d event=scene_warp to=%d entrance=0x%X scene_to=0x%X room_to=%d ticks=%d ms=%d",
+           sMove.fromTile, sMove.toTile, sMove.entrance, sMove.targetScene, sMove.roomTo, sMove.ticks,
+           MsSince(sMove.began));
+}
+
+// The transition was asked for and the scene never changed - another one already running. Link has
+// not moved: give him back where he stands, and take back the slot so a later load does not use it.
+void CancelSceneLoad(PlayState* play) {
+    gSaveContext.respawnFlag = 0;
+    gSaveContext.nextTransitionType = TRANS_NEXT_TYPE_DEFAULT;
+    char line[200];
+    std::snprintf(line, sizeof(line), "rs_warp tile=%d event=abort reason=no_transition to=%d entrance=0x%X ticks=%d",
+                  sMove.fromTile, sMove.toTile, sMove.entrance, sMove.ticks);
+    ReportOutcome(line);
+    ClearFill(play);
+    ReleasePlayer(play);
+    sMove = Move();
+}
+
+// The first Player update in the scene a step warp loaded. Player_Init has stood Link on the
+// destination tile's landing (or, if that tile turned out broken, on the scene's spawn - the scan
+// said so with `arrival_failed`). Freeze him for the settle and the fade in, as in place, and seat
+// the camera: Play_Init snapped it behind him but did not pull it in off the walls.
+void ArriveFromScene(PlayState* play, Player* player) {
+    sMove.arrived = Clock::now();
+    sMove.loadMs = static_cast<int32_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(sMove.arrived - sMove.loadAsked).count());
+    // Read BEFORE this tick sets it: whether the black OnSceneInit put up survived the rest of Play_Init
+    // to the first update, which runs before the first frame is drawn. `black=1` is the proof the load
+    // never showed.
+    const int32_t black = (play->envCtx.fillScreen && play->envCtx.screenFillColor[3] == 255) ? 1 : 0;
+    Player_SetCsAction(play, nullptr, 1);
+    SetFill(play, 255);
+    const s16 yaw = player->actor.shape.rot.y;
+    player->actor.world.rot.y = yaw;
+    player->yaw = yaw;
+    SnapCamera(play, player, yaw);
+    const Vec3f eye = Play_GetCamera(play, CAM_ID_MAIN)->eye;
+    // `at=` is what the warp scan stood him on: `landing` is the tile's, `spawn` the scene's own (the
+    // tile is broken here - `arrival_failed` says why), `none` if the scan never answered.
+    const char* at = sMove.placed == 1 ? "landing" : (sMove.placed == 0 ? "spawn" : "none");
+    Marker("rs_warp tile=%d event=arrived to=%d scene=0x%X from_scene=0x%X entrance=0x%X at=%s pos=%.1f,%.1f,%.1f "
+           "yaw=%d room=%d black=%d eye=%.1f,%.1f,%.1f load_ms=%d ticks=%d",
+           sMove.fromTile, sMove.toTile, play->sceneNum, sMove.fromScene, sMove.entrance, at,
+           player->actor.world.pos.x, player->actor.world.pos.y, player->actor.world.pos.z, yaw,
+           play->roomCtx.curRoom.num, black, eye.x, eye.y, eye.z, sMove.loadMs, sMove.ticks);
+    sMove.phase = Phase::Settle;
+    sMove.phaseTick = 0;
+}
+
 void Finish(PlayState* play, Player* player) {
     const RsStairLanding* landing = RsStair_GetLanding(sMove.stairId, sMove.toRow);
     const RespawnData& respawn = gSaveContext.respawn[RESPAWN_MODE_DOWN];
-    char line[320];
+    char line[420];
     if (sMove.warp) {
-        // A step warp's `landed`: the same fields as a staircase's, keyed on tiles, not rows.
-        std::snprintf(line, sizeof(line),
-                      "rs_warp tile=%d event=landed to=%d pos=%.1f,%.1f,%.1f yaw=%d room=%d floor_y=%.1f ground=%d "
-                      "respawn=%.1f,%.1f,%.1f respawn_room=%d fade=%d ticks=%d source=%s",
-                      sMove.fromTile, sMove.toTile, player->actor.world.pos.x, player->actor.world.pos.y,
-                      player->actor.world.pos.z, player->actor.shape.rot.y, play->roomCtx.curRoom.num,
-                      player->actor.floorHeight, (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) ? 1 : 0,
-                      respawn.pos.x, respawn.pos.y, respawn.pos.z, respawn.roomIndex, sMove.fade, sMove.ticks,
-                      sMove.source);
+        // A step warp's `landed`: the same fields as a staircase's, keyed on tiles, not rows - then
+        // the scene he is in and the wall-clock time since it fired. From another scene (#148), also
+        // where he came from, the load, the settle (which holds the first frame drawn, when the static
+        // bake records) and the void-out point's entrance: THIS scene's, not the one he left - the
+        // trap vanilla's grotto return falls into.
+        const int n = std::snprintf(
+            line, sizeof(line),
+            "rs_warp tile=%d event=landed to=%d pos=%.1f,%.1f,%.1f yaw=%d room=%d floor_y=%.1f ground=%d "
+            "respawn=%.1f,%.1f,%.1f respawn_room=%d fade=%d ticks=%d source=%s scene=0x%X ms=%d",
+            sMove.fromTile, sMove.toTile, player->actor.world.pos.x, player->actor.world.pos.y,
+            player->actor.world.pos.z, player->actor.shape.rot.y, play->roomCtx.curRoom.num, player->actor.floorHeight,
+            (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) ? 1 : 0, respawn.pos.x, respawn.pos.y, respawn.pos.z,
+            respawn.roomIndex, sMove.fade, sMove.ticks, sMove.source, play->sceneNum, MsSince(sMove.began));
+        if (CrossScene() && n > 0 && static_cast<size_t>(n) < sizeof(line)) {
+            std::snprintf(line + n, sizeof(line) - n,
+                          " from_scene=0x%X entrance=0x%X load_ms=%d settle_ms=%d respawn_entrance=0x%X",
+                          sMove.fromScene, sMove.entrance, sMove.loadMs, sMove.settleMs, respawn.entranceIndex);
+        }
         ReportOutcome(line);
         ClearFill(play);
         ReleasePlayer(play);
@@ -628,6 +769,11 @@ void OnPlayerUpdateStairs() {
                 SetFill(play, FadeAlpha(sMove.phaseTick, sMove.fade));
                 return;
             }
+            // Another scene (#148): the transition, black whatever the fade.
+            if (CrossScene()) {
+                StartSceneLoad(play, player);
+                return;
+            }
             // A hard cut still goes black across a ROOM CHANGE. Until Room_FinishRoomChange the
             // destination room is not the one being drawn, so a cut would show the load. Finish or
             // CancelInPlace clears it.
@@ -670,14 +816,32 @@ void OnPlayerUpdateStairs() {
                 CancelInPlace(play, "no_placement", 1);
             }
             return;
+        case Phase::SceneLoad:
+            // Waiting for the transition to take this PlayState down. Nothing to do but stay black.
+            SetFill(play, 255);
+            if (++sMove.phaseTick < kSceneLoadTicks) {
+                return;
+            }
+            CancelSceneLoad(play);
+            return;
+        case Phase::SceneArrive:
+            ArriveFromScene(play, player);
+            return;
         case Phase::Settle:
+            // Arrived from another scene, the first of these ticks is followed by the scene's first
+            // drawn frame - which is when the static bake records it, the long freeze of a big scene.
+            // So the fade in cannot begin until that frame is done, and the screen is black through it.
             if (++sMove.phaseTick < kSettleTicks) {
                 return;
             }
             // After the move AND the room change: it reads live position, yaw and the CURRENT room
             // (z_play.c), which is what a door does after its own room change. The room is what
-            // decides which storey a void-out puts him back on.
+            // decides which storey a void-out puts him back on. From another scene it also writes
+            // THIS scene's entrance, which respawnFlag 2's own arrival skips (#148).
             Play_SetupRespawnPoint(play, RESPAWN_MODE_DOWN, 0xDFF);
+            if (CrossScene()) {
+                sMove.settleMs = MsSince(sMove.arrived);
+            }
             sMove.phase = Phase::FadeIn;
             sMove.phaseTick = sMove.fade;
             if (sMove.fade > 0) {
@@ -700,7 +864,24 @@ void OnPlayerUpdateStairs() {
 
 // A scene change is the one thing that can happen to a move from outside - a death, a warp, a
 // console `entrance`. Play_Init resets the screen fill itself; this forgets the move.
+//
+// Except the scene a step warp's own transition asked for (#148): then the move carries on in it.
+// Black from here, before anything draws - Environment_Init has already run in the scene's init.
 void OnSceneInitStairs(int16_t sceneNum) {
+    if (sMove.phase == Phase::SceneLoad) {
+        if (sceneNum == sMove.targetScene && gPlayState != nullptr) {
+            sMove.scene = sceneNum;
+            sMove.phase = Phase::SceneArrive;
+            sMove.phaseTick = 0;
+            SetFill(gPlayState, 255);
+            return;
+        }
+        // Some other load won - a console `entrance` during the fade. Do not stand Link at this
+        // move's slot in a scene it was not for: Player_Init has not run yet, so this still counts.
+        gSaveContext.respawnFlag = 0;
+        Abort("wrong_scene");
+        return;
+    }
     Abort("scene_init");
 }
 
@@ -733,6 +914,8 @@ extern "C" const char* RsStair_ResultName(int32_t result) {
             return "bad_room";
         case RS_STAIR_ERR_NO_PLACEMENT:
             return "no_placement";
+        case RS_STAIR_ERR_BAD_ENTRANCE:
+            return "bad_entrance";
         default:
             return "unknown";
     }
@@ -1039,11 +1222,16 @@ extern "C" int32_t RsStair_BeginMove(int32_t stairId, int32_t fromRow, int32_t t
 
 extern "C" int32_t RsStair_BeginWarpMove(const RsWarpMoveDest* dest, const char* source) {
     int32_t result = RS_STAIR_OK;
+    const bool crossScene = dest != nullptr && dest->entrance != RS_WARP_HERE;
     if (dest == nullptr || gPlayState == nullptr || GET_PLAYER(gPlayState) == nullptr) {
         result = RS_STAIR_ERR_NO_PLAY;
     } else if (sMove.phase != Phase::Idle) {
         result = RS_STAIR_ERR_BUSY;
-    } else if (dest->room < 0 || dest->room >= gPlayState->numRooms) {
+    } else if (crossScene && (dest->entrance < 0 || dest->entrance >= ENTR_MAX ||
+                              gEntranceTable[dest->entrance].scene == gPlayState->sceneNum)) {
+        result = RS_STAIR_ERR_BAD_ENTRANCE;
+    } else if (dest->room < 0 || dest->room > 255 || (!crossScene && dest->room >= gPlayState->numRooms)) {
+        // Another scene's rooms are only countable once it loads; its scan checks the tile's room.
         result = RS_STAIR_ERR_BAD_ROOM;
     }
     if (result != RS_STAIR_OK) {
@@ -1071,13 +1259,56 @@ extern "C" int32_t RsStair_BeginWarpMove(const RsWarpMoveDest* dest, const char*
     sMove.source = source != nullptr ? source : "";
     sMove.roomFrom = gPlayState->roomCtx.curRoom.num;
     sMove.roomTo = dest->room;
+    sMove.began = Clock::now();
+    sMove.fromScene = gPlayState->sceneNum;
+    sMove.entrance = dest->entrance;
+    if (crossScene) {
+        sMove.targetScene = gEntranceTable[dest->entrance].scene;
+    }
 
     // Frozen the same way, for the same reason - see RsStair_BeginMove.
     Player_SetCsAction(gPlayState, nullptr, 1);
 
-    Marker("rs_warp tile=%d event=move_begin to=%d room_from=%d room_to=%d fade=%d source=%s", dest->fromTile,
-           dest->toTile, sMove.roomFrom, sMove.roomTo, sMove.fade, sMove.source);
+    if (crossScene) {
+        Marker("rs_warp tile=%d event=move_begin to=%d room_from=%d room_to=%d fade=%d source=%s entrance=0x%X "
+               "scene_to=0x%X",
+               dest->fromTile, dest->toTile, sMove.roomFrom, sMove.roomTo, sMove.fade, sMove.source, sMove.entrance,
+               sMove.targetScene);
+    } else {
+        Marker("rs_warp tile=%d event=move_begin to=%d room_from=%d room_to=%d fade=%d source=%s", dest->fromTile,
+               dest->toTile, sMove.roomFrom, sMove.roomTo, sMove.fade, sMove.source);
+    }
     return RS_STAIR_OK;
+}
+
+static bool Arriving(int16_t sceneNum) {
+    // Asked from the warp scan's own OnSceneInit hook, which may run before or after this file's:
+    // SceneLoad (not yet moved on) and SceneArrive (moved on) both mean "this move is arriving".
+    return CrossScene() && (sMove.phase == Phase::SceneLoad || sMove.phase == Phase::SceneArrive) &&
+           sMove.targetScene == sceneNum;
+}
+
+extern "C" int32_t RsStair_SceneArrival(int16_t sceneNum, int32_t* toTile, int32_t* fromTile) {
+    if (!Arriving(sceneNum)) {
+        return 0;
+    }
+    if (toTile != nullptr) {
+        *toTile = sMove.toTile;
+    }
+    if (fromTile != nullptr) {
+        *fromTile = sMove.fromTile;
+    }
+    return 1;
+}
+
+extern "C" void RsStair_PlaceSceneArrival(float x, float y, float z, int16_t yaw, int32_t onLanding) {
+    if (gPlayState == nullptr || !Arriving(gPlayState->sceneNum)) {
+        return;
+    }
+    RespawnData& slot = gSaveContext.respawn[kSceneWarpRespawnMode];
+    slot.pos = { x, y, z };
+    slot.yaw = yaw;
+    sMove.placed = onLanding != 0 ? 1 : 0;
 }
 
 // --- C++ surface --------------------------------------------------------------------------------
