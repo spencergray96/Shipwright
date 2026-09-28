@@ -61,7 +61,9 @@ typedef CamData BgCamInfo;
 //   bgCamIndex     [7:0]   SurfaceType_GetCamDataIndex
 //   exitIndex      [12:8]  SurfaceType_GetSceneExitIndex
 //   floorType      [17:13] SurfaceType_GetFloorType
-//   unk18          [20:18] func_80041D70
+//   unk18          [20:18] func_80041D70 - which nothing calls. A step warp's tile id bit 4 and
+//                          landing direction live here (rs/warps/WarpBits.h, sturdy-bassoon#154),
+//                          OR'd in beside this macro rather than through it
 //   wallType       [25:21] func_80041D94 (indexes D_80119D90 for the wall flags)
 //   floorProperty  [29:26] func_80041E80 / func_80041EA4
 //   isSoft         [30]    func_80041EC8
@@ -88,6 +90,9 @@ typedef CamData BgCamInfo;
 //   conveyorDirection [26:21] SurfaceType_GetConveyorDirection - 360/64-degree units: 0 pushes +Z,
 //                             16 +X, 32 -Z, 48 -X
 //   isWallDamage      [27]    SurfaceType_IsWallDamage
+//   (unused)          [31:28] read by nothing in the engine. A step warp's tile id bits 0-3 live
+//                             here (rs/warps/WarpBits.h, sturdy-bassoon#154) - OR'd in beside this
+//                             macro, which still leaves them zero, as its assert below checks
 #define SURFACETYPE1(material, floorEffect, lightSetting, echo, canHookshot, conveyorSpeed,        \
                      conveyorDirection, isWallDamage)                                              \
     (((u32)(material) & 0x0Fu) | (((u32)(floorEffect) & 0x03u) << 4) |                             \
