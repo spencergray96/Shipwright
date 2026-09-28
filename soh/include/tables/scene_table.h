@@ -161,4 +161,5 @@
 /* 0x90 */ DEFINE_SCENE(rs_area_p3_scene, none, SCENE_RS_AREA_P3, SDC_DEFAULT, 0, 0) // hand-merge rs_area_p3 (sturdy-bassoon#79 P3b)
 /* 0x91 */ DEFINE_SCENE(draynor_village_3_scene, none, SCENE_DRAYNOR_VILLAGE_3, SDC_DEFAULT, 0, 0) // project 4eb53b4e-4dd3-44cb-a74a-948775383bae name draynor_village_3
 /* 0x92 */ DEFINE_SCENE(vert_probe_scene, none, SCENE_VERT_PROBE, SDC_DEFAULT, 0, 0) // hand-authored vertical-traversal probe (sturdy-bassoon#134)
+/* 0x93 */ DEFINE_SCENE(step_warp_fixture_scene, none, SCENE_STEP_WARP_FIXTURE, SDC_DEFAULT, 0, 0) // project b29249a3-a38d-403b-8ec2-26433c994a6c name step_warp_fixture
 // END GRID TOOL EXPORTS

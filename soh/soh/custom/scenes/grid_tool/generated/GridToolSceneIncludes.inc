@@ -36,4 +36,5 @@
 #include "../rs_area_p3/CustomRsAreaP3Scene.h" // hand-merge rs_area_p3 (sturdy-bassoon#79 P3b)
 #include "../draynor_village_3/CustomDraynorVillage3Scene.h" // project 4eb53b4e-4dd3-44cb-a74a-948775383bae name draynor_village_3
 #include "../../vert_probe/CustomVertProbeScene.h" // hand-authored vert_probe (sturdy-bassoon#134)
+#include "../step_warp_fixture/CustomStepWarpFixtureScene.h" // project b29249a3-a38d-403b-8ec2-26433c994a6c name step_warp_fixture
 // END GRID TOOL EXPORTS
