@@ -37,4 +37,6 @@
 #include "../draynor_village_3/CustomDraynorVillage3Scene.h" // project 4eb53b4e-4dd3-44cb-a74a-948775383bae name draynor_village_3
 #include "../../vert_probe/CustomVertProbeScene.h" // hand-authored vert_probe (sturdy-bassoon#134)
 #include "../step_warp_fixture/CustomStepWarpFixtureScene.h" // project b29249a3-a38d-403b-8ec2-26433c994a6c name step_warp_fixture
+#include "../underground_entry_overworld/CustomUndergroundEntryOverworldScene.h" // project 4a8f1c2e-148a-4d0e-9a11-0f3c2b7e1a01 name underground_entry_overworld
+#include "../underground_entry_basements/CustomUndergroundEntryBasementsScene.h" // project 4a8f1c2e-148b-4d0e-9a11-0f3c2b7e1a02 name underground_entry_basements
 // END GRID TOOL EXPORTS

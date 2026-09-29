@@ -146,6 +146,11 @@
  *                                        field carries whatever band is actually live
  *   kaleidoinput on=<0|1>                from "agenttest kaleidoinput": whether injected frames count while vanilla
  *                                        pause is up (sturdy-bassoon#111 stage 8)
+ *   keepinput armed=<0|1>                from "agenttest keepinput": whether the walk/press in flight at the next
+ *                                        scene load carries on through it (sturdy-bassoon#148)
+ *   input_kept reason=scene_change frames_left=<n>
+ *                                        a scene load that `keepinput` let the input in flight survive, instead
+ *                                        of the usual `input_done reason=scene_change`
  *   altassets cvar=<0|1> live=<0|1>      from "agenttest altassets": cvar= is the AltAssets setting, live= is the
  *                                        resource manager's current state. They differ for one frame after a
  *                                        flip - OTRGlobals applies the CVar at the end of the next frame
@@ -216,6 +221,16 @@
  *   rs_warp <line>                       one line of RsWarpConsole_Run output per marker, from
  *                                        `agenttest warps ...` - `op=...`, an indexed row, or a quoted
  *                                        `last_*="..."`, never `tile=<n> event=...`
+ *   rs_suns event=<begin|swap|done|abort> ...
+ *                                        the Sun's Song changing the time in place in a custom scene
+ *                                        (sturdy-bassoon#159, rs/time/SunsSong.h): `begin` (scene=, from=, to=,
+ *                                        fill=, pos=), `swap` (time=, night=, total_days=), `done` (ticks=, time=,
+ *                                        pos=), or `abort reason=scene_changed`. begin's and done's pos=
+ *                                        agreeing is the "no teleport" claim. No rs_suns line after the song
+ *                                        means vanilla reloaded the scene. Gameplay markers, in every session
+ *   display window=<w>x<h> render=<w>x<h> aspect=<f> adv_res=<0|1> adv_aspect=<x>:<y> low_res=<n>
+ *                                        from "agenttest display" (sturdy-bassoon#139): the OS window against
+ *                                        the frame the game renders; aspect= is the game's, not the window's
  *   rs_quest quest=<n> event=on_complete a quest's optional completion callback ran (D12). It runs after the
  *                                        declarative rewards with the status already COMPLETE, so counting
  *                                        these markers is how a run proves a reward fired exactly once
@@ -236,7 +251,26 @@
  *                                        cannot say which page the ring is on or whether the world
  *                                        is really frozen
  *   mark <text>                          echoed from "agenttest mark <text>"
- *   input_done [reason=scene_change]     a walk/press injection finished (or was cancelled by a scene change)
+ *   input_done [reason=scene_change|ocarina_not_listening]
+ *                                        a walk/press/look/ocarina/song injection finished, or was cancelled:
+ *                                        by a scene change (unless "agenttest keepinput" was armed for
+ *                                        it), or by `song` giving up on the ocarina ever
+ *                                        taking notes (sturdy-bassoon#161)
+ *   input_suspended reason=<transition|pause> frames_left=<n> buttons=<list|none> game_press=0x<h> game_rel=0x<h>
+ *   input_resumed frames_left=<n> buttons=<list|none> game_press=0x<h> game_rel=0x<h>
+ *                                        a walk/press/look stopped counting frames mid-way (a transition, or
+ *                                        vanilla pause without kaleidoinput) and started again. Its buttons
+ *                                        stay held for the edges across the gap: no release, no second press
+ *                                        (sturdy-bassoon#161). game_press/game_rel are the edges game code got
+ *                                        that tick (gameState->input[0]) - the proof: neither may hold the
+ *                                        injection's buttons. Once per gap, never per frame
+ *   stats rolls=<n> sword_swings=<n>     from "agenttest stats": SoH's own gameplay counters (the Stats window)
+ *   hold buttons=<list|none> [reason=scene_change]
+ *                                        from "agenttest hold": the buttons now held under every injection
+ *   ocarina_note pitch=<n> note=<A|CDOWN|CRIGHT|CLEFT|CUP|other>
+ *                                        the ocarina started sounding a note - one line per note, whoever
+ *                                        pressed it (sturdy-bassoon#161). pitch= is OcarinaPitch (D4=2, F4=5,
+ *                                        A4=9, B4=11, D5=14); a flattened or sharpened note reads `other`
  *
  * Console command registered here:
  *   agenttest perf <ticks>                 set the perf marker interval (game ticks, 20/s); 0 disables
@@ -253,6 +287,25 @@
  *                                          SoH's free-look camera input. Ends with input_done.
  *   agenttest press <BUTTONS> [frames]     hold A,B,Z,R,L,START,DUP..,CUP.. (comma list) for N frames, default 2.
  *                                          "press Z" with nothing targeted re-centres the camera behind Link.
+ *   agenttest hold [<BUTTONS>|none]        keep buttons held until `hold none`, under and between every other
+ *                                          injection - "hold Z" then "walk 6 0 -80 A 3" is a backflip, Z held
+ *                                          while A is tapped. Does not block the command channel; cleared at
+ *                                          every scene load; applies only in normal play (accepted anywhere,
+ *                                          inert on the title screen). With no argument it only reports
+ *   agenttest stats                        one "stats" marker: SoH's roll and sword-swing counters - the count of
+ *                                          an action where a position only shows its result
+ *   agenttest ocarina <NOTES> [hold] [gap] play notes on the ocarina that is already out: a comma list of
+ *                                          A,CDOWN,CRIGHT,CLEFT,CUP (or D4,F4,A4,B4,D5), each held `hold`
+ *                                          frames (default 6) then released `gap` frames (default 4). Each note
+ *                                          is pressed on whichever button the ocarina maps it to, custom
+ *                                          ocarina controls included. Counts frames under vanilla pause too, so
+ *                                          it plays the pause menu's play-along. Ends with input_done
+ *   agenttest song <name>                  take the ocarina out if it is not (its C-button), wait until it
+ *                                          takes notes, then play a named song: zelda epona saria sun time
+ *                                          storms minuet bolero serenade requiem nocturne prelude. With either
+ *                                          pause menu up (a play-along) it skips the take-out and waits. Ends with input_done;
+ *                                          `input_done reason=ocarina_not_listening` if the ocarina never got
+ *                                          ready (sturdy-bassoon#161)
  *   agenttest rooms                        one "transition idx= id= rooms=A,B pos= rotY=" marker per transition
  *                                          actor in the scene: where the room boundaries are
  *   agenttest camclear                     one "camclear" marker: whether the active camera's near clip plane
@@ -263,6 +316,13 @@
  *                                          nightFlag by the engine's own threshold (night when > 0xC000 or
  *                                          < 0x4555). Presets dawn=0x4000, day=0x8000, dusk=0xC001, night=0;
  *                                          value is 0..65535, decimal or 0x-hex. Emits a state marker
+ *   agenttest sunssong                     finish a Sun's Song without the ocarina: sets sunsSongState to START,
+ *                                          as Oceff_Spot does, and the next Interface_Update takes it from there -
+ *                                          in place in a custom scene (rs_suns markers), by reload elsewhere.
+ *                                          Refused (rc=1) outside normal play. The shortcut: `song sun` plays
+ *                                          the real thing
+ *   agenttest display                      one "display" marker: window size, render size, the game's aspect and
+ *                                          the resolution settings that decide it (sturdy-bassoon#139)
  *   agenttest trace <ticks>                emit a "trace" marker pair (pre/post) around each of the next N game
  *                                          ticks (0 cancels, max MAX_TRACE_TICKS). The tick the command lands in
  *                                          contributes its post only. Diagnostic for teleport/movement bugs
@@ -286,6 +346,12 @@
  *                                          Environment_Init re-arms scene control on every scene load, so the
  *                                          override must be re-applied after each entrance - which is also the
  *                                          safety net against leaking it into a later run
+ *   agenttest keepinput [on|off]           ONE-SHOT: the walk/press in flight at the NEXT scene load is not cancelled
+ *                                          by it but carries on in the new scene - a stick held through a load, as
+ *                                          a player holds one through a step warp to another scene (sturdy-bassoon
+ *                                          #148's latch). Frames still count only while Player reads them, so the
+ *                                          load itself uses none. Disarmed by that load whether or not an input
+ *                                          was in flight, so it never leaks into a later one
  *   agenttest kaleidoinput [on|off]        let injected frames (walk/press) count while vanilla pause (kaleido) is up.
  *                                          OFF by default and off again at every scene load: normally a frame only
  *                                          counts when Player reads it, so a `press START` that opens kaleido never
@@ -294,7 +360,8 @@
  *                                          run can open vanilla pause, move its cursor and close it again - the
  *                                          vanilla half of the pause scroll's differential tests (sturdy-bassoon#111
  *                                          stage 8; `menu kaleido` reads the cursor). Still no frames count mid-
- *                                          transition. With no argument it only reports
+ *                                          transition. With no argument it only reports. `ocarina`/`song` need
+ *                                          none of this: their frames always count under pause
  *   agenttest altassets [on|off]           flip SoH's alt-asset setting (the texture pack, OoT Reloaded here) the
  *                                          way the mods menu's checkbox does; with no argument it only reports.
  *                                          Writes the CVar, so it SURVIVES the session - put it back. Exists so a
@@ -426,6 +493,7 @@
 #include <spdlog/spdlog.h>
 #include <ship/Context.h>
 #include <ship/debug/Console.h>
+#include <ship/window/Window.h>
 #include <fast/PerfCounters.h>
 #include <libultraship/bridge/consolevariablebridge.h>
 #include "soh/OTRGlobals.h"
@@ -449,6 +517,7 @@
 #include "soh/Enhancements/rs/stairs/StairConsole.h"
 #include "soh/Enhancements/rs/warps/WarpConsole.h"
 #include "soh/Enhancements/rs/menu/MenuConsole.h"
+#include "soh/Enhancements/rs/menu/RsMenu.h"
 #include "soh/Enhancements/staticbake/StaticBakeConsole.h"
 #include "AgentTest.h"
 #include "soh/ActorDB.h"
@@ -466,8 +535,13 @@ extern "C" {
 #include "macros.h"
 extern PlayState* gPlayState;
 void Sram_InitDebugSave(void);
-// OTRGlobals.h declares this only for C (#ifndef __cplusplus); the definition is extern "C".
+// OTRGlobals.h declares these only for C (#ifndef __cplusplus); the definitions are extern "C".
 float OTRGetAspectRatio(void);
+uint32_t OTRGetGameRenderWidth(void);
+uint32_t OTRGetGameRenderHeight(void);
+// code_800EC960.c, SoH [agenttest] (sturdy-bassoon#161).
+CONTROLLERBUTTONS_T AudioOcarina_GetNoteButton(u8 ocarinaBtnIndex);
+s32 AudioOcarina_IsListening(void);
 }
 
 #ifdef _WIN32
@@ -508,8 +582,9 @@ constexpr int32_t BOOT_ENTRANCE = ENTR_LINKS_HOUSE_0_1;
 // State
 bool sAgentMode = false; // decided once at the console logo from SOH_AGENT_TEST; never re-checked
 
-// Input injection: while sInputFramesLeft > 0, OnGameStateMainStart overwrites controller 1 with
-// these values. Command consumption pauses until it finishes, so queued lines run in order.
+// Input injection: while sInputFramesLeft > 0, AgentTest_InjectPad overwrites controller 1 with
+// these values, in the pad manager's own copy (sturdy-bassoon#161). Command consumption pauses until
+// it finishes, so queued lines run in order.
 int32_t sInputFramesLeft = 0;
 int8_t sInputStickX = 0;
 int8_t sInputStickY = 0;
@@ -519,15 +594,40 @@ constexpr int32_t kInjectStickMax = 85;
 // cannot be challenged without it. Zero for every other injection.
 int8_t sInputRightX = 0;
 int8_t sInputRightY = 0;
-uint16_t sInputButtons = 0;
+CONTROLLERBUTTONS_T sInputButtons = 0;
 bool sInputPressPending = false; // first injected frame also sets press.button (a fresh press)
+// `agenttest hold`: buttons held on every frame the pad is read in play, under and between injections,
+// until `hold none` or the next scene load. The one way to keep Z down while A is tapped and let go.
+CONTROLLERBUTTONS_T sHeldButtons = 0;
+// `ocarina`/`song`: the buttons for each injected frame in turn, in place of one held set. Each note is
+// a run of frames with its button then a run without, so every note gets a fresh edge both in the pad
+// manager and in the ocarina's own sOcarinaInputButtonPrev. Empty for every other injection.
+std::vector<CONTROLLERBUTTONS_T> sInputSchedule;
+size_t sScheduleNext = 0;
+// `song`: the schedule index that waits for AudioOcarina_IsListening before it is played, and how many
+// counted frames it may wait - the ocarina takes a moment to come out. -1 = no gate.
+int32_t sListenGate = -1;
+int32_t sListenWaitLeft = 0;
+constexpr int32_t kListenWaitFrames = 5 * 20;
+// `ocarina`/`song` frames count under vanilla pause too: that is where the play-along is.
+bool sInputCountsInPause = false;
+// An injection in flight whose last frame did not count (pause, transition): see InjectPad.
+bool sInputSuspended = false;
+// input_suspended/input_resumed, queued by InjectPad and written by OnGameStateMainStart the same frame,
+// once the edges game code received are known.
+std::string sEdgeMarker;
+// The last pitch OnOcarinaNote reported, so the ocarina_note marker fires once per note, not per frame.
+uint8_t sLastOcarinaPitch = OCARINA_PITCH_NONE;
 // `agenttest kaleidoinput on`: injected frames also count while kaleido is up. Session state, cleared on
 // every scene load, so a run that forgets to turn it off cannot carry it into the next test.
 bool sKaleidoInput = false;
+// `agenttest keepinput`: the input in flight at the next scene load survives it (sturdy-bassoon#148).
+// One-shot - that load disarms it either way.
+bool sKeepInput = false;
 // Mid-walk button press (walk's optional [buttons] [at_frame] args): once sInputFramesLeft counts
 // down to sDeferredAtFramesLeft, these buttons join sInputButtons with a fresh press edge and stay
 // held for the rest of the injection. This is how a roll is driven - A must land while running.
-uint16_t sDeferredButtons = 0;
+CONTROLLERBUTTONS_T sDeferredButtons = 0;
 int32_t sDeferredAtFramesLeft = 0;
 bool sReady = false;             // true from the first Player update after the latest OnSceneInit
 int32_t sTraceTicksLeft = 0;     // while > 0, emit a trace marker pair (pre/post) around every game tick
@@ -1054,7 +1154,9 @@ void OnGameFrameUpdateAgentTest() {
     }
 }
 
-// Fires after the pad data for this tick was read and before Player_Update consumes it.
+// Fires after the pad data for this tick was read and before Player_Update consumes it. The injection
+// used to live here, writing gameState->input[0]; it moved into the pad manager (InjectPad) because the
+// ocarina never reads that copy (sturdy-bassoon#161). What is left is the tick clock and the trace.
 void OnGameStateMainStartAgentTest() {
     if (!sAgentMode) {
         return;
@@ -1070,48 +1172,122 @@ void OnGameStateMainStartAgentTest() {
     }
     sTickStart = std::chrono::steady_clock::now();
     sTickStarted = true;
-    if (sInputFramesLeft <= 0 || !InNormalPlay()) {
-        return;
+    // The suspend/resume line InjectPad queued this frame, finished with the edges game code actually
+    // received from it: gameState->input[0] was filled from the pad manager a moment ago. A resumed
+    // injection must show no fresh press of its own buttons, a suspended one no release.
+    if (!sEdgeMarker.empty() && InNormalPlay()) {
+        const Input& in = gPlayState->state.input[0];
+        char edges[48];
+        std::snprintf(edges, sizeof(edges), " game_press=0x%04X game_rel=0x%04X",
+                      static_cast<unsigned>(in.press.button & 0xFFFF), static_cast<unsigned>(in.rel.button & 0xFFFF));
+        WriteMarker(sEdgeMarker + edges);
     }
-    // Only frames Player_Update will actually read count: paused or mid-transition the stick is ignored.
-    // `kaleidoinput on` lifts the pause half: kaleido reads the same input struct Player does.
-    if ((!sKaleidoInput && (gPlayState->pauseCtx.state != 0 || gPlayState->pauseCtx.debugState != 0)) ||
-        gPlayState->transitionTrigger != TRANS_TRIGGER_OFF) {
-        return;
-    }
-    if (sDeferredButtons != 0 && sInputFramesLeft == sDeferredAtFramesLeft) {
-        sInputButtons |= sDeferredButtons;
-        sInputPressPending = true;
-        sDeferredButtons = 0;
-    }
-    Input* input = &gPlayState->state.input[0];
-    input->cur.stick_x = sInputStickX;
-    input->cur.stick_y = sInputStickY;
-    input->cur.right_stick_x = sInputRightX;
-    input->cur.right_stick_y = sInputRightY;
-    PadUtils_UpdateRelXY(input); // same dead zone and clamp a real pad gets
-    input->cur.button |= sInputButtons;
-    if (sInputPressPending) {
-        input->press.button |= sInputButtons;
-        sInputPressPending = false;
-    }
-    sInputFramesLeft--;
-    if (sInputFramesLeft == 0) {
-        WriteMarker("input_done");
-    }
+    sEdgeMarker.clear();
+}
+
+std::string DescribeButtons(CONTROLLERBUTTONS_T mask);
+
+// Vanilla pause (kaleido) or its debug menu is up. Requires InNormalPlay().
+bool VanillaPauseUp() {
+    return gPlayState->pauseCtx.state != 0 || gPlayState->pauseCtx.debugState != 0;
 }
 
 void CancelInput(const char* reason) {
     if (sInputFramesLeft > 0) {
         sInputFramesLeft = 0;
         sInputPressPending = false;
+        sInputSuspended = false;
         sDeferredButtons = 0;
+        sInputSchedule.clear();
+        sListenGate = -1;
         WriteMarker(std::string("input_done reason=") + reason);
     }
 }
 
-void StartInput(int32_t frames, int8_t stickX, int8_t stickY, uint16_t buttons, uint16_t deferredButtons = 0,
-                int32_t deferredAtFrame = 0) {
+// Controller 1 in the pad manager's own Input (padmgr.c, PadMgr_ProcessInputs), after the real pad was
+// copied in and before press/rel are derived from prev -> cur. Every reader downstream sees the result:
+// game.c's per-tick copy that Player and kaleido read, and AudioOcarina_ReadControllerInput, which asks
+// the pad manager directly. That second one is why this is here and not in OnGameStateMainStart, which
+// wrote only the per-tick copy and so could never play a note (sturdy-bassoon#161).
+//
+// The gating decision reads the play state as the previous tick left it - which is what the old hook
+// saw too, since nothing runs between the two.
+void InjectPad(Input* input) {
+    if (!sAgentMode || !InNormalPlay()) {
+        return;
+    }
+    // A held button is a pad state, not a timed injection: it is down on every frame, paused or not.
+    input->cur.button |= sHeldButtons;
+    if (sInputFramesLeft <= 0) {
+        return;
+    }
+    // Only frames Player_Update will actually read count: paused or mid-transition the stick is ignored.
+    // `kaleidoinput on` lifts the pause half: kaleido reads the same input struct Player does. The ocarina
+    // reads the pad under pause regardless, so `ocarina`/`song` count there on their own.
+    if ((VanillaPauseUp() && !sKaleidoInput && !sInputCountsInPause) ||
+        gPlayState->transitionTrigger != TRANS_TRIGGER_OFF) {
+        // Suspended, not ended: the old per-tick injection simply kept holding across these frames, with
+        // no release and no second press. Hide the real pad's gap from the edges the pad manager derives -
+        // no `rel` now, and (below) no fresh press when the injection resumes. Not for a schedule, whose
+        // buttons change frame to frame and whose notes each want their own edge.
+        if (sInputSchedule.empty()) {
+            input->prev.button &= ~sInputButtons;
+            if (!sInputSuspended) {
+                sEdgeMarker = std::string("input_suspended reason=") +
+                            (gPlayState->transitionTrigger != TRANS_TRIGGER_OFF ? "transition" : "pause") +
+                            " frames_left=" + std::to_string(sInputFramesLeft) +
+                              " buttons=" + DescribeButtons(sInputButtons);
+            }
+            sInputSuspended = true;
+        }
+        return;
+    }
+    if (sInputSuspended) {
+        if (!sInputPressPending) {
+            input->prev.button |= sInputButtons;
+        }
+        sInputSuspended = false;
+        sEdgeMarker = "input_resumed frames_left=" + std::to_string(sInputFramesLeft) +
+                      " buttons=" + DescribeButtons(sInputButtons);
+    }
+    if (!sInputSchedule.empty()) {
+        // `song`'s gate: the note schedule waits here, uncounted, until the ocarina is out and listening.
+        if (static_cast<int32_t>(sScheduleNext) == sListenGate && !AudioOcarina_IsListening()) {
+            if (--sListenWaitLeft <= 0) {
+                CancelInput("ocarina_not_listening");
+            }
+            return;
+        }
+        sInputButtons = sInputSchedule[sScheduleNext++];
+    }
+    if (sDeferredButtons != 0 && sInputFramesLeft == sDeferredAtFramesLeft) {
+        sInputButtons |= sDeferredButtons;
+        sInputPressPending = true;
+        sDeferredButtons = 0;
+    }
+    // The stick replaces the real pad's; PadMgr_ProcessInputs applies the dead zone and clamp a real pad
+    // gets (PadUtils_UpdateRelXY) right after this returns.
+    input->cur.stick_x = sInputStickX;
+    input->cur.stick_y = sInputStickY;
+    input->cur.right_stick_x = sInputRightX;
+    input->cur.right_stick_y = sInputRightY;
+    input->cur.button |= sInputButtons;
+    // The edge PadMgr_ProcessInputs derives misses one case: a press straight after a press of the same
+    // button, with no released frame between them. Forcing it keeps `press A` meaning a fresh press.
+    if (sInputPressPending) {
+        input->press.button |= sInputButtons;
+        sInputPressPending = false;
+    }
+    sInputFramesLeft--;
+    if (sInputFramesLeft == 0) {
+        sInputSchedule.clear();
+        sListenGate = -1;
+        WriteMarker("input_done");
+    }
+}
+
+void StartInput(int32_t frames, int8_t stickX, int8_t stickY, CONTROLLERBUTTONS_T buttons,
+                CONTROLLERBUTTONS_T deferredButtons = 0, int32_t deferredAtFrame = 0) {
     sInputStickX = stickX;
     sInputStickY = stickY;
     sInputRightX = 0;
@@ -1119,21 +1295,40 @@ void StartInput(int32_t frames, int8_t stickX, int8_t stickY, uint16_t buttons, 
     sInputButtons = buttons;
     sInputPressPending = buttons != 0;
     // deferredAtFrame is 1-based from the start of the injection; convert to the frames-left
-    // value OnGameStateMainStart counts down through.
+    // value InjectPad counts down through.
     sDeferredButtons = deferredButtons;
     sDeferredAtFramesLeft = frames - (deferredAtFrame - 1);
+    sInputSchedule.clear();
+    sScheduleNext = 0;
+    sListenGate = -1;
+    sInputCountsInPause = false;
+    sInputSuspended = false;
     sInputFramesLeft = frames;
 }
 
-// "A,Z,CUP" -> button mask; returns false on an unknown name.
-bool ParseButtons(const std::string& text, uint16_t* mask) {
-    static const std::vector<std::pair<const char*, uint16_t>> names = {
+// `ocarina`/`song`: a per-frame schedule, edges derived by the pad manager rather than forced.
+// listenGate is the schedule index that waits for the ocarina to listen, or -1.
+void StartSchedule(std::vector<CONTROLLERBUTTONS_T> schedule, int32_t listenGate) {
+    StartInput(static_cast<int32_t>(schedule.size()), 0, 0, 0);
+    sInputSchedule = std::move(schedule);
+    sListenGate = listenGate;
+    sListenWaitLeft = kListenWaitFrames;
+    sInputCountsInPause = true;
+}
+
+const std::vector<std::pair<const char*, CONTROLLERBUTTONS_T>>& ButtonNames() {
+    static const std::vector<std::pair<const char*, CONTROLLERBUTTONS_T>> names = {
         { "A", BTN_A },         { "B", BTN_B },           { "Z", BTN_Z },     { "R", BTN_R },
         { "L", BTN_L },         { "START", BTN_START },   { "DUP", BTN_DUP }, { "DDOWN", BTN_DDOWN },
         { "DLEFT", BTN_DLEFT }, { "DRIGHT", BTN_DRIGHT }, { "CUP", BTN_CUP }, { "CDOWN", BTN_CDOWN },
         { "CLEFT", BTN_CLEFT }, { "CRIGHT", BTN_CRIGHT },
     };
-    *mask = 0;
+    return names;
+}
+
+// "a,z,cup" -> {"A", "Z", "CUP"}. An empty text is one empty item, which no name matches.
+std::vector<std::string> SplitUpperList(const std::string& text) {
+    std::vector<std::string> items;
     size_t start = 0;
     while (start <= text.size()) {
         size_t end = text.find(',', start);
@@ -1144,8 +1339,18 @@ bool ParseButtons(const std::string& text, uint16_t* mask) {
         for (char& c : name) {
             c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
         }
+        items.push_back(name);
+        start = end + 1;
+    }
+    return items;
+}
+
+// "A,Z,CUP" -> button mask; returns false on an unknown name.
+bool ParseButtons(const std::string& text, CONTROLLERBUTTONS_T* mask) {
+    *mask = 0;
+    for (const std::string& name : SplitUpperList(text)) {
         bool found = false;
-        for (const auto& [candidate, bit] : names) {
+        for (const auto& [candidate, bit] : ButtonNames()) {
             if (name == candidate) {
                 *mask |= bit;
                 found = true;
@@ -1154,9 +1359,99 @@ bool ParseButtons(const std::string& text, uint16_t* mask) {
         if (!found) {
             return false;
         }
-        start = end + 1;
     }
     return true;
+}
+
+// Button mask -> "A,Z", or "none".
+std::string DescribeButtons(CONTROLLERBUTTONS_T mask) {
+    std::string text;
+    for (const auto& [name, bit] : ButtonNames()) {
+        if (mask & bit) {
+            text += (text.empty() ? "" : ",") + std::string(name);
+        }
+    }
+    return text.empty() ? "none" : text;
+}
+
+// The ocarina's five notes, by the button that plays them on a stock pad or by pitch name, as
+// OCARINA_BTN_* indices - the button actually pressed is AudioOcarina_GetNoteButton's, so a
+// custom ocarina mapping is honoured.
+bool ParseNotes(const std::string& text, std::vector<uint8_t>* notes) {
+    static const std::vector<std::pair<const char*, uint8_t>> names = {
+        { "A", OCARINA_BTN_A },          { "D4", OCARINA_BTN_A },          { "CDOWN", OCARINA_BTN_C_DOWN },
+        { "F4", OCARINA_BTN_C_DOWN },    { "CRIGHT", OCARINA_BTN_C_RIGHT }, { "A4", OCARINA_BTN_C_RIGHT },
+        { "CLEFT", OCARINA_BTN_C_LEFT }, { "B4", OCARINA_BTN_C_LEFT },     { "CUP", OCARINA_BTN_C_UP },
+        { "D5", OCARINA_BTN_C_UP },
+    };
+    notes->clear();
+    for (const std::string& name : SplitUpperList(text)) {
+        const auto it = std::find_if(names.begin(), names.end(), [&](const auto& n) { return name == n.first; });
+        if (it == names.end()) {
+            return false;
+        }
+        notes->push_back(it->second);
+    }
+    return true;
+}
+
+// The twelve songs Link can play, in stock-pad buttons (the Scarecrow's is the player's own).
+const std::vector<std::pair<const char*, const char*>>& SongNotes() {
+    static const std::vector<std::pair<const char*, const char*>> songs = {
+        { "zelda", "CLEFT,CUP,CRIGHT,CLEFT,CUP,CRIGHT" },
+        { "epona", "CUP,CLEFT,CRIGHT,CUP,CLEFT,CRIGHT" },
+        { "saria", "CDOWN,CRIGHT,CLEFT,CDOWN,CRIGHT,CLEFT" },
+        { "sun", "CRIGHT,CDOWN,CUP,CRIGHT,CDOWN,CUP" },
+        { "time", "CRIGHT,A,CDOWN,CRIGHT,A,CDOWN" },
+        { "storms", "A,CDOWN,CUP,A,CDOWN,CUP" },
+        { "minuet", "A,CUP,CLEFT,CRIGHT,CLEFT,CRIGHT" },
+        { "bolero", "CDOWN,A,CDOWN,A,CRIGHT,CDOWN,CRIGHT,CDOWN" },
+        { "serenade", "A,CDOWN,CRIGHT,CRIGHT,CLEFT" },
+        { "requiem", "A,CDOWN,A,CRIGHT,CDOWN,A" },
+        { "nocturne", "CLEFT,CRIGHT,CRIGHT,A,CLEFT,CRIGHT,CDOWN" },
+        { "prelude", "CUP,CRIGHT,CUP,CRIGHT,CLEFT,CUP" },
+    };
+    return songs;
+}
+
+// Each note held `hold` frames, then released `gap` frames: the release is what gives the next note -
+// even the same one - a fresh edge in the pad manager and in the ocarina's own previous-button copy.
+// The ocarina drops the frame after every pitch change (sOcarinaDropInputTimer), so neither may be 1.
+void AppendNotes(std::vector<CONTROLLERBUTTONS_T>* schedule, const std::vector<uint8_t>& notes, int32_t hold,
+                 int32_t gap) {
+    for (const uint8_t note : notes) {
+        schedule->insert(schedule->end(), static_cast<size_t>(hold), AudioOcarina_GetNoteButton(note));
+        schedule->insert(schedule->end(), static_cast<size_t>(gap), 0);
+    }
+}
+
+// The C-button the ocarina is equipped on, or 0. The loop's debug save has it on C-right.
+CONTROLLERBUTTONS_T OcarinaCButton() {
+    static const CONTROLLERBUTTONS_T cButtons[] = { BTN_CLEFT, BTN_CDOWN, BTN_CRIGHT };
+    for (int32_t i = 0; i < 3; i++) {
+        const uint8_t item = gSaveContext.equips.buttonItems[i + 1];
+        if (item == ITEM_OCARINA_FAIRY || item == ITEM_OCARINA_TIME) {
+            return cButtons[i];
+        }
+    }
+    return 0;
+}
+
+void OnOcarinaNoteAgentTest(uint8_t pitch, float modulator, int8_t bend) {
+    if (!sAgentMode || pitch == sLastOcarinaPitch) {
+        return;
+    }
+    sLastOcarinaPitch = pitch;
+    if (pitch == OCARINA_PITCH_NONE) {
+        return;
+    }
+    const char* note = pitch == OCARINA_PITCH_D4   ? "A"
+                       : pitch == OCARINA_PITCH_F4 ? "CDOWN"
+                       : pitch == OCARINA_PITCH_A4 ? "CRIGHT"
+                       : pitch == OCARINA_PITCH_B4 ? "CLEFT"
+                       : pitch == OCARINA_PITCH_D5 ? "CUP"
+                                                   : "other";
+    WriteMarker("ocarina_note pitch=" + std::to_string(pitch) + " note=" + note);
 }
 
 // Whole-string decimal integer; "40abc", "0x4000" and "" are rejected.
@@ -1231,8 +1526,18 @@ void OnZTitleUpdateAgentTest(void* gameState) {
 void OnSceneInitAgentTest(int16_t sceneNum) {
     sReady = false;
     sLastRoom = -1;
-    CancelInput("scene_change");
+    if (sKeepInput && sInputFramesLeft > 0) {
+        WriteMarker("input_kept reason=scene_change frames_left=" + std::to_string(sInputFramesLeft));
+    } else {
+        CancelInput("scene_change");
+    }
+    sKeepInput = false;
     sKaleidoInput = false;
+    // Like kaleidoinput: a run that forgets `hold none` must not carry Z into the next test.
+    if (sHeldButtons != 0) {
+        sHeldButtons = 0;
+        WriteMarker("hold buttons=none reason=scene_change");
+    }
     if (sAgentMode) {
         WriteMarker("scene_loaded scene=" + Hex(sceneNum) + " entrance=" + Hex(gSaveContext.entranceIndex));
     }
@@ -1305,7 +1610,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         (args[1] == "state" || args[1] == "goto" || args[1] == "walk" || args[1] == "look" || args[1] == "press" ||
          args[1] == "rooms" || args[1] == "camclear" ||
          args[1] == "time" || args[1] == "trace" || args[1] == "fog" || args[1] == "uncull" ||
-         args[1] == "kill") &&
+         args[1] == "kill" || args[1] == "ocarina" || args[1] == "song") &&
         !InNormalPlay()) {
         if (output) {
             *output += "no scene loaded";
@@ -1427,7 +1732,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         // Optional mid-walk press: [buttons] [at_frame]. The buttons land with a fresh press edge on
         // the at_frame-th injected frame (1-based, default 1) and stay held to the end of the walk -
         // "walk 80 0 80 A 40" is a roll at full run speed, which sequential walk-then-press cannot do.
-        uint16_t deferredMask = 0;
+        CONTROLLERBUTTONS_T deferredMask = 0;
         int32_t deferredAt = 1;
         if (args.size() >= 6) {
             if (!ParseButtons(args[5], &deferredMask)) {
@@ -1477,7 +1782,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         return 0;
     }
     if (args.size() >= 3 && args[1] == "press") {
-        uint16_t mask = 0;
+        CONTROLLERBUTTONS_T mask = 0;
         if (!ParseButtons(args[2], &mask)) {
             if (output) {
                 *output += "unknown button; use A,B,Z,R,L,START,DUP,DDOWN,DLEFT,DRIGHT,CUP,CDOWN,CLEFT,CRIGHT";
@@ -1494,6 +1799,102 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         StartInput(frames, 0, 0, mask);
         if (output) {
             *output += "holding " + args[2] + " for " + std::to_string(frames) + " frames; wait for input_done";
+        }
+        return 0;
+    }
+    // Buttons held under and between every other injection (sturdy-bassoon#161): the one way to keep one
+    // button down while another is tapped and let go. Takes effect from the next frame and does not
+    // block the command channel, so the line after it runs straight away.
+    if (args.size() >= 2 && args[1] == "hold") {
+        if (args.size() >= 3) {
+            CONTROLLERBUTTONS_T mask = 0;
+            std::string upper = args[2];
+            for (char& c : upper) {
+                c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            }
+            if (upper != "NONE" && !ParseButtons(args[2], &mask)) {
+                if (output) {
+                    *output += "hold needs none or buttons: A,B,Z,R,L,START,DUP,DDOWN,DLEFT,DRIGHT,CUP,CDOWN,CLEFT,CRIGHT";
+                }
+                return 1;
+            }
+            sHeldButtons = mask;
+        }
+        const std::string line = "hold buttons=" + DescribeButtons(sHeldButtons);
+        WriteMarker(line);
+        if (output) {
+            *output += line;
+        }
+        return 0;
+    }
+    // SoH's own gameplay counters, as the Stats window keeps them - the count of an ACTION, where a
+    // position only shows its result. rolls= is what proves a held button was not pressed twice
+    // (sturdy-bassoon#161's suspend check): Player_SetupRoll counts every roll it starts.
+    if (args.size() >= 2 && args[1] == "stats") {
+        const std::string line = "stats rolls=" + std::to_string(gSaveContext.ship.stats.count[COUNT_ROLLS]) +
+                                 " sword_swings=" + std::to_string(gSaveContext.ship.stats.count[COUNT_SWORD_SWINGS]);
+        WriteMarker(line);
+        if (output) {
+            *output += line;
+        }
+        return 0;
+    }
+    // Notes on the ocarina, or a named song (sturdy-bassoon#161). Both wait - uncounted, up to
+    // kListenWaitFrames - for the ocarina to listen before the first note, so a note never lands on a
+    // closing textbox or a demo still playing; `song` first takes the ocarina out if nothing is paused
+    // and it is not already listening.
+    if (args.size() >= 3 && (args[1] == "ocarina" || args[1] == "song")) {
+        std::vector<uint8_t> notes;
+        int32_t hold = 6;
+        int32_t gap = 4;
+        if (args[1] == "song") {
+            std::string name = args[2];
+            for (char& c : name) {
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            }
+            const auto& songs = SongNotes();
+            const auto it = std::find_if(songs.begin(), songs.end(), [&](const auto& s) { return name == s.first; });
+            if (it == songs.end()) {
+                if (output) {
+                    *output += "unknown song; use zelda epona saria sun time storms minuet bolero serenade requiem "
+                               "nocturne prelude";
+                }
+                return 1;
+            }
+            ParseNotes(it->second, &notes);
+        } else if (!ParseNotes(args[2], &notes) || !ParseIntArg(args, 3, 6, &hold) || !ParseIntArg(args, 4, 4, &gap) ||
+                   hold < 2 || hold > 40 || gap < 2 || gap > 40) {
+            if (output) {
+                *output += "ocarina needs notes A,CDOWN,CRIGHT,CLEFT,CUP (or D4,F4,A4,B4,D5) and hold/gap in 2..40";
+            }
+            return 1;
+        }
+        std::vector<CONTROLLERBUTTONS_T> schedule;
+        // Either pause menu up - vanilla's or the scroll (which freezes the world without touching
+        // pauseCtx) - means a play-along: pressing the ocarina's C-button there would not take it out.
+        const bool paused = VanillaPauseUp() || RsMenu_IsOpen();
+        std::string takeOut = "no";
+        if (args[1] == "song" && !paused && !AudioOcarina_IsListening()) {
+            const CONTROLLERBUTTONS_T cButton = OcarinaCButton();
+            if (cButton == 0) {
+                if (output) {
+                    *output += "song: no ocarina on a C-button to take out";
+                }
+                return 1;
+            }
+            // Pressed, then released before the wait: the ocarina ignores notes while the button that
+            // started it is still down (sOcarinaInputButtonStart).
+            schedule.insert(schedule.end(), 2, cButton);
+            schedule.insert(schedule.end(), 2, 0);
+            takeOut = DescribeButtons(cButton);
+        }
+        const int32_t gate = static_cast<int32_t>(schedule.size());
+        AppendNotes(&schedule, notes, hold, gap);
+        const size_t frames = schedule.size();
+        StartSchedule(std::move(schedule), gate);
+        if (output) {
+            *output += args[1] + " " + args[2] + ": " + std::to_string(notes.size()) + " notes, " +
+                       std::to_string(frames) + " frames, take_out=" + takeOut + "; wait for input_done";
         }
         return 0;
     }
@@ -1634,6 +2035,40 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         gSaveContext.nightFlag = (gSaveContext.dayTime > 0xC000 || gSaveContext.dayTime < 0x4555) ? 1 : 0;
         return EmitState(output);
     }
+    if (args.size() >= 2 && args[1] == "sunssong") {
+        // What Oceff_Spot does when the song's effect finishes: the next Interface_Update takes the song
+        // from there, in place in a custom scene (rs/time/SunsSong.h, sturdy-bassoon#159) and by reload
+        // elsewhere. Only the ocarina itself is skipped.
+        if (!InNormalPlay()) {
+            if (output) {
+                *output += "sunssong needs normal play";
+            }
+            return 1;
+        }
+        gSaveContext.sunsSongState = SUNSSONG_START;
+        if (output) {
+            *output += "sunssong armed (sunsSongState=START); see rs_suns markers";
+        }
+        return 0;
+    }
+    if (args.size() >= 2 && args[1] == "display") {
+        // The window against the frame the game renders into (sturdy-bassoon#139): a 4:3 frame in a 16:9
+        // window is what the resolution settings decide, and a capture of the window cannot tell them apart.
+        auto window = Ship::Context::GetRawInstance()->GetWindow();
+        char buf[256];
+        std::snprintf(buf, sizeof(buf),
+                      "display window=%ux%u render=%ux%u aspect=%.3f adv_res=%d adv_aspect=%g:%g low_res=%d",
+                      window->GetWidth(), window->GetHeight(), OTRGetGameRenderWidth(), OTRGetGameRenderHeight(),
+                      OTRGetAspectRatio(), CVarGetInteger(CVAR_PREFIX_ADVANCED_RESOLUTION ".Enabled", 0),
+                      CVarGetFloat(CVAR_PREFIX_ADVANCED_RESOLUTION ".AspectRatioX", 16.0f),
+                      CVarGetFloat(CVAR_PREFIX_ADVANCED_RESOLUTION ".AspectRatioY", 9.0f),
+                      CVarGetInteger(CVAR_LOW_RES_MODE, 0));
+        WriteMarker(buf);
+        if (output) {
+            *output += buf;
+        }
+        return 0;
+    }
     if (args.size() >= 3 && args[1] == "trace") {
         int32_t ticks = 0;
         if (!ParseInt(args[2], &ticks) || ticks < 0 || ticks > MAX_TRACE_TICKS) {
@@ -1720,6 +2155,24 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         WriteMarker(buf);
         if (output) {
             *output += buf;
+        }
+        return 0;
+    }
+    // One-shot, see sKeepInput: arm it before the walk that crosses the load.
+    if (args.size() >= 2 && args[1] == "keepinput") {
+        if (args.size() >= 3) {
+            if (args[2] != "on" && args[2] != "off") {
+                if (output) {
+                    *output += "keepinput needs on|off, or nothing to report";
+                }
+                return 1;
+            }
+            sKeepInput = args[2] == "on";
+        }
+        const std::string line = std::string("keepinput armed=") + (sKeepInput ? "1" : "0");
+        WriteMarker(line);
+        if (output) {
+            *output += line;
         }
         return 0;
     }
@@ -2159,7 +2612,9 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         *output +=
             "usage: agenttest perf <ticks> | state | goto <x> <y> <z> [yaw] | "
             "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | look <frames> [rx] [ry] | "
-            "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | "
+            "press <BUTTONS> [frames] | hold [<BUTTONS>|none] | ocarina <NOTES> [hold] [gap] | song <name> | stats | "
+              "rooms | time <dawn|day|dusk|night|value> | sunssong | display | "
+            "trace <ticks> | "
             "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
             "roomdist [hysteresis]|off | uncull | kill <actor> | sceneflag <sceneId> [value] | "
             "worldflag count|<n> [0|1] | "
@@ -2177,7 +2632,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|fadein <s>|"
               "baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
-            "kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|sort on|off] | "
+            "keepinput [on|off] | kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|sort on|off] | "
             "save <fileNum> | loadsave <fileNum> | mark <text>";
     }
     return 1;
@@ -2191,6 +2646,7 @@ void RegisterAgentTest() {
     COND_HOOK(OnSceneInit, true, OnSceneInitAgentTest);
     COND_HOOK(OnPlayerUpdate, true, OnPlayerUpdateAgentTest);
     COND_HOOK(OnGameStateMainStart, true, OnGameStateMainStartAgentTest);
+    COND_HOOK(OnOcarinaNote, true, OnOcarinaNoteAgentTest);
 
     auto console = Ship::Context::GetRawInstance()->GetConsole();
     if (!console->HasCommand("agenttest")) {
@@ -2199,7 +2655,9 @@ void RegisterAgentTest() {
             { AgentTestCommand,
               "Agent test loop: perf <ticks> | state | goto <x> <y> <z> [yaw] | "
               "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | look <frames> [rx] [ry] | "
-              "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | "
+              "press <BUTTONS> [frames] | hold [<BUTTONS>|none] | ocarina <NOTES> [hold] [gap] | song <name> | stats | "
+              "rooms | time <dawn|day|dusk|night|value> | sunssong | display | "
+              "trace <ticks> | "
               "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
               "roomdist [hysteresis]|off | uncull | kill <actor> | sceneflag <sceneId> [value] | "
               "worldflag count|<n> [0|1] | "
@@ -2217,7 +2675,7 @@ void RegisterAgentTest() {
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|"
               "fadein <s>|baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
-              "kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|sort on|off] | "
+              "keepinput [on|off] | kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|sort on|off] | "
               "save <fileNum> | loadsave <fileNum> | mark <text>. "
               "walk/press inject controller 1 for N frames and end with an input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });
@@ -2245,4 +2703,9 @@ extern "C" void AgentTest_WriteMarker(const char* text) {
         return;
     }
     WriteMarker(text);
+}
+
+// Called by PadMgr_ProcessInputs for controller 1, once per frame (sturdy-bassoon#161); see InjectPad.
+extern "C" void AgentTest_InjectPad(Input* input) {
+    InjectPad(input);
 }

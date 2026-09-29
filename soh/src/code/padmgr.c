@@ -10,6 +10,11 @@
 s32 D_8012D280 = 1;
 
 void OTRControllerCallback(uint8_t rumble);
+// SoH [agenttest] (sturdy-bassoon#161): writes the agent loop's injected stick and buttons over controller 1
+// here, in the pad manager's own copy, so every reader of controller 1 sees them - game.c's per-tick copy,
+// the ocarina (which asks the pad manager directly) and the crash screen. Controllers 2-4 are untouched,
+// so the audio debug pad (controller 4) is not driven. No-op outside agent mode. AgentTest.cpp.
+void AgentTest_InjectPad(Input* input);
 
 OSMesgQueue* PadMgr_LockSerialMesgQueue(PadMgr* padMgr) {
     OSMesgQueue* ctrlrQ = NULL;
@@ -285,6 +290,11 @@ void PadMgr_ProcessInputs(PadMgr* padMgr) {
             default:
                 LOG_HEX("padnow1->errno", padnow1->err_no);
                 Fault_AddHungupAndCrash(__FILE__, __LINE__);
+        }
+
+        // SoH [agenttest]: before the edges below, so an injected button gets press/rel like a real one.
+        if (i == 0) {
+            AgentTest_InjectPad(input);
         }
 
         buttonDiff = input->prev.button ^ input->cur.button;

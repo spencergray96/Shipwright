@@ -2531,8 +2531,9 @@ static void WriteBootLineOnce() {
 
 // THE START VETO (stage 6; docs/decisions/2026-09-19-pause-menu-start-veto.md). VB_OPEN_PAUSE_MENU
 // wraps the bare START check at z_kaleido_setup.c:26, so this is consulted INSIDE
-// KaleidoSetup_Update - after every OnGameStateMainStart hook has run, AgentTest's injection
-// included - and there is no hook order left to lose. It replaces the stage-1 input filter, which
+// KaleidoSetup_Update - after every OnGameStateMainStart hook has run, and after AgentTest's
+// injection (in the pad manager since sturdy-bassoon#161, before any hook) - and there is no hook
+// order left to lose. It replaces the stage-1 input filter, which
 // cleared BTN_START out of the input struct from an OnGameStateMainStart hook and lost a
 // hash-bucket race to the harness: GameInteractor runs a hook type's callbacks in unordered_map
 // order (GameInteractor.h:226), the filter ran first, and an injected START was put back after it
