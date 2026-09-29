@@ -348,6 +348,10 @@
  *                                          the real thing
  *   agenttest display                      one "display" marker: window size, render size, the game's aspect and
  *                                          the resolution settings that decide it (sturdy-bassoon#139)
+ *   agenttest env                          one "env" marker: the outdoor lighting's light configs, the four
+ *                                          light settings they blend and whether one is past the scene's table
+ *                                          (oob=1), the storm state and the resulting ambient and fog
+ *                                          (sturdy-bassoon#164)
  *   agenttest trace <ticks>                emit a "trace" marker pair (pre/post) around each of the next N game
  *                                          ticks (0 cancels, max MAX_TRACE_TICKS). The tick the command lands in
  *                                          contributes its post only. Diagnostic for teleport/movement bugs
@@ -586,6 +590,9 @@ CONTROLLERBUTTONS_T AudioOcarina_GetNoteButton(u8 ocarinaBtnIndex);
 s32 AudioOcarina_IsListening(void);
 // z_message_PAL.c, SoH [agenttest] (sturdy-bassoon#162).
 void Message_GetOcarinaStaffShown(s32* shown, s32* bufPos);
+// z_kankyo.c, SoH [agenttest] (sturdy-bassoon#164).
+void Environment_GetOutdoorLightPair(u8 config, u16 time, u8* from, u8* to);
+u8 Environment_UsableLightConfig(EnvironmentContext* envCtx, u8 config);
 }
 
 #ifdef _WIN32
@@ -1719,7 +1726,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         (args[1] == "state" || args[1] == "goto" || args[1] == "walk" || args[1] == "look" || args[1] == "press" ||
          args[1] == "rooms" || args[1] == "camclear" ||
          args[1] == "time" || args[1] == "trace" || args[1] == "octrace" || args[1] == "ocstall" ||
-         args[1] == "fog" || args[1] == "uncull" ||
+         args[1] == "fog" || args[1] == "uncull" || args[1] == "env" ||
          args[1] == "kill" || args[1] == "ocarina" || args[1] == "song") &&
         !InNormalPlay()) {
         if (output) {
@@ -2173,6 +2180,65 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
                       CVarGetFloat(CVAR_PREFIX_ADVANCED_RESOLUTION ".AspectRatioX", 16.0f),
                       CVarGetFloat(CVAR_PREFIX_ADVANCED_RESOLUTION ".AspectRatioY", 9.0f),
                       CVarGetInteger(CVAR_LOW_RES_MODE, 0));
+        WriteMarker(buf);
+        if (output) {
+            *output += buf;
+        }
+        return 0;
+    }
+    if (args.size() >= 3 && args[1] == "env" && args[2] == "lights") {
+        // The scene's whole light-settings table, one "envlight" marker per entry, raw: near= keeps the
+        // blend-rate bits above bit 9 that Environment_Update masks off. How a scene's storm settings
+        // (8-11) were read out of vanilla to serve as custom scenes' default (sturdy-bassoon#164).
+        const EnvironmentContext* env = &gPlayState->envCtx;
+        for (u8 i = 0; i < env->numLightSettings; i++) {
+            const EnvLightSettings* l = &env->lightSettingsList[i];
+            char buf[256];
+            std::snprintf(buf, sizeof(buf),
+                          "envlight i=%u amb=%u,%u,%u l1dir=%d,%d,%d l1=%u,%u,%u l2dir=%d,%d,%d l2=%u,%u,%u "
+                          "fog=%u,%u,%u near=%d far=%d",
+                          i, l->ambientColor[0], l->ambientColor[1], l->ambientColor[2], l->light1Dir[0],
+                          l->light1Dir[1], l->light1Dir[2], l->light1Color[0], l->light1Color[1], l->light1Color[2],
+                          l->light2Dir[0], l->light2Dir[1], l->light2Dir[2], l->light2Color[0], l->light2Color[1],
+                          l->light2Color[2], l->fogColor[0], l->fogColor[1], l->fogColor[2], l->fogNear, l->fogFar);
+            WriteMarker(buf);
+        }
+        if (output) {
+            *output += "envlight markers: " + std::to_string(env->numLightSettings);
+        }
+        return 0;
+    }
+    if (args.size() >= 2 && args[1] == "env") {
+        // The outdoor lighting's inputs and its output (sturdy-bassoon#164). Environment_Update blends two
+        // light configs (cfg=from>to, weighted by blend=left/total while one is running); use= is the pair
+        // it actually reads, after a config the scene has no settings for falls back to 0. Each config
+        // blends two light settings by time of day: idx= lists the four it reads, and oob=1 says one is
+        // past the scene's lights= - read from beyond its EnvLightSettings array. The Song of Storms asks
+        // for config 2 (indices 8-11) through gloomy=/de=; rain= is its intensity target.
+        EnvironmentContext* env = &gPlayState->envCtx;
+        const LightContext* light = &gPlayState->lightCtx;
+        const u8 use1F = Environment_UsableLightConfig(env, env->unk_1F);
+        const u8 use20 = Environment_UsableLightConfig(env, env->unk_20);
+        u8 idx[4];
+        Environment_GetOutdoorLightPair(use1F, gSaveContext.skyboxTime, &idx[0], &idx[1]);
+        Environment_GetOutdoorLightPair(use20, gSaveContext.skyboxTime, &idx[2], &idx[3]);
+        // Only the outdoor path indexes by config; indoors reads unk_BD/unk_BE instead.
+        const bool outdoorPath = !env->indoors && env->unk_BF == 0xFF;
+        bool oob = false;
+        for (u8 i : idx) {
+            oob = oob || (outdoorPath && i >= env->numLightSettings);
+        }
+        char buf[384];
+        std::snprintf(buf, sizeof(buf),
+                      "env lights=%u indoors=%u cfg=%u>%u use=%u>%u blend=%u/%u idx=%u,%u>%u,%u oob=%d gloomy=%u de=%u "
+                      "lightning=%u rain=%u weather=%u sky=%u>%u skybox=%u,%u amb=%u,%u,%u fog=%u,%u,%u near=%d "
+                      "far=%d",
+                      env->numLightSettings, env->indoors, env->unk_1F, env->unk_20, use1F, use20,
+                      env->unk_21 ? env->unk_22 : 0,
+                      env->unk_24, idx[0], idx[1], idx[2], idx[3], oob ? 1 : 0, env->gloomySkyMode, env->unk_DE,
+                      env->lightningMode, env->unk_F2[0], gWeatherMode, env->unk_17, env->unk_18, env->skybox1Index,
+                      env->skybox2Index, light->ambientColor[0], light->ambientColor[1], light->ambientColor[2],
+                      light->fogColor[0], light->fogColor[1], light->fogColor[2], light->fogNear, light->fogFar);
         WriteMarker(buf);
         if (output) {
             *output += buf;

@@ -8,6 +8,7 @@
 #include <overlays/actors/ovl_En_Niw/z_en_niw.h>
 #include "soh/custom/scenes/test_level/CustomTestLevel.h"
 #include "soh/custom/scenes/grid_tool/GridToolSceneRegistry.h"
+#include "soh/custom/scenes/CustomSceneLighting.h"
 #include <overlays/misc/ovl_kaleido_scope/z_kaleido_scope.h>
 #include "soh/Enhancements/enhancementTypes.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
@@ -1859,10 +1860,14 @@ void Play_SpawnScene(PlayState* play, s32 sceneId, s32 spawn) {
         CVarClear(CVAR_GENERAL("BetterDebugWarpScreenMQModeScene"));
     }
 
+    // SoH [General] (sturdy-bassoon#164): a custom scene carries only its own four light settings, so it
+    // is given the weather's, the Song of Storms' among them, as it spawns.
     if (CustomTestLevel_TrySpawn(play, sceneId, spawn)) {
+        CustomSceneLighting_AddDefaultStorm(play);
         return;
     }
     if (GridToolSceneRegistry_TrySpawn(play, sceneId, spawn)) {
+        CustomSceneLighting_AddDefaultStorm(play);
         return;
     }
     OTRPlay_SpawnScene(play, sceneId, spawn);

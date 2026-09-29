@@ -111,6 +111,26 @@ struct_8011FB48 D_8011FB48[][7] = {
     },
 };
 
+// SoH [agenttest] (sturdy-bassoon#164): the two light settings the outdoor lighting blends between for
+// light config `config` at `time` - what TIME_ENTRY_1F/TIME_ENTRY_20 index in Environment_Update - so the
+// agent loop can check them against the scene's numLightSettings. 0xFF for a config past the table.
+void Environment_GetOutdoorLightPair(u8 config, u16 time, u8* from, u8* to) {
+    u8 i;
+
+    *from = *to = 0xFF;
+    if (config >= ARRAY_COUNT(D_8011FB48)) {
+        return;
+    }
+    for (i = 0; i < ARRAY_COUNT(D_8011FB48[config]); i++) {
+        if (time >= D_8011FB48[config][i].startTime &&
+            (time < D_8011FB48[config][i].endTime || D_8011FB48[config][i].endTime == 0xFFFF)) {
+            *from = D_8011FB48[config][i].unk_04;
+            *to = D_8011FB48[config][i].unk_05;
+            return;
+        }
+    }
+}
+
 struct_8011FC1C D_8011FC1C[][9] = {
     {
         { 0x0000, 0x2AAC, 0, 3, 3 },
@@ -876,8 +896,27 @@ void Environment_PrintDebugInfo(PlayState* play, Gfx** gfx) {
     GfxPrint_Destroy(&printer);
 }
 
-#define TIME_ENTRY_1F (D_8011FB48[envCtx->unk_1F][i])
-#define TIME_ENTRY_20 (D_8011FB48[envCtx->unk_20][i])
+// SoH [General] (sturdy-bassoon#164): the light config the outdoor lighting reads in place of `config`.
+// Each config names four of the scene's light settings (config 2, the Song of Storms' gloomy sky, names
+// 8-11). If the scene's table stops short of them, reading them would run past its EnvLightSettings array
+// - custom scenes carry only config 0's four - so such a config falls back to config 0.
+u8 Environment_UsableLightConfig(EnvironmentContext* envCtx, u8 config) {
+    u8 i;
+
+    if (config >= ARRAY_COUNT(D_8011FB48)) {
+        return 0;
+    }
+    for (i = 0; i < ARRAY_COUNT(D_8011FB48[config]); i++) {
+        if (D_8011FB48[config][i].unk_04 >= envCtx->numLightSettings ||
+            D_8011FB48[config][i].unk_05 >= envCtx->numLightSettings) {
+            return 0;
+        }
+    }
+    return config;
+}
+
+#define TIME_ENTRY_1F (D_8011FB48[Environment_UsableLightConfig(envCtx, envCtx->unk_1F)][i])
+#define TIME_ENTRY_20 (D_8011FB48[Environment_UsableLightConfig(envCtx, envCtx->unk_20)][i])
 
 void func_80075B44(PlayState* play);
 void func_800766C4(PlayState* play);
