@@ -17,12 +17,14 @@
 // inside one session keeps the camera, the time and everything else still, and turning it back on
 // replays the existing bakes rather than re-recording them.
 //
-// Every successful line is `op=<sub> result=ok` and the same five fields: `active=` the switch,
-// `setting=` the saved setting (sturdy-bassoon#153; it differs from active= when SOH_STATIC_BAKE
-// decided the session, or after an agent-loop switch), `registered=` display lists offered by the loaded scene's
-// rooms, `baked=` those with a GPU buffer, `rejected=` those the recorder refused (interpreted for
-// good). baked + rejected < registered means some have not been drawn since they were registered or
-// invalidated. An unknown subcommand prints
+// Every successful line is `op=<sub> result=ok` and the same seven fields: `active=` whether the bake
+// runs (StaticBake_IsActive: the switch, and 0 on a backend that cannot bake), `setting=` the saved
+// setting (sturdy-bassoon#153; it differs from active= when SOH_STATIC_BAKE decided the session, after
+// an agent-loop switch, or on a backend that cannot bake), `registered=` display lists offered by the
+// loaded scene's rooms, `baked=` those with a GPU buffer, `rejected=` those the recorder refused
+// (interpreted for good), `supported=` whether this rendering backend can bake at all (DX11 only), `sort=` whether
+// recordings are ordered by material (sturdy-bassoon#158). baked + rejected < registered means some
+// have not been drawn since they were registered or invalidated. An unknown subcommand prints
 // `op=unknown result=error error=unknown_subcommand usage=...` without echoing the word.
 //
 // `args[0]` is the subcommand; none is `status`:
@@ -35,9 +37,14 @@
 //   rebake    send every baked room back to be recorded again on its next draw, releasing its
 //             buffer and textures - what a shader-cache clear, the alt-assets toggle and a filter
 //             change do. For re-recording under a condition (cache pressure, a time of day)
+//   sort on|off  order each recording by material (the default), or keep list order, and send every
+//             baked room back to be recorded that way (sturdy-bassoon#158). Session only from both
+//             sinks: for comparing the two orders, and the way back if content depends on list order
 //
-// Returns 0 for all four, 1 for an unknown subcommand - so `rc=` on the agent loop's cmd marker is
-// the pass/fail bit.
+// `sort` without on or off prints `op=sort result=error error=bad_argument usage=sort(on|off)`.
+//
+// Returns 0 for all five, 1 for an unknown subcommand or a bad sort argument - so `rc=` on the agent
+// loop's cmd marker is the pass/fail bit.
 int32_t StaticBakeConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines);
 int32_t StaticBakeConsole_RunSession(const std::vector<std::string>& args, std::vector<std::string>& lines);
 

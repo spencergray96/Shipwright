@@ -31,12 +31,18 @@ void StaticBake_RegisterRoom(PlayState* play, RoomContext* roomCtx);
 // game-thread code.
 //   StaticBake_SetActive   moves the switch for this session only (`agenttest staticbake on|off`)
 //   StaticBake_SetSetting  saves CVAR_STATIC_BAKE and moves the switch (the human `staticbake on|off`)
+//   StaticBake_IsActive    whether the bake runs: the switch is on AND the backend can bake
 //   StaticBake_Setting     the saved setting; differs from IsActive when the environment variable
-//                          decided the session, or after a session-only switch
+//                          decided the session, after a session-only switch, or on a backend that
+//                          cannot bake
+//   StaticBake_BackendSupported  whether this rendering backend can bake at all (DX11 only, the
+//                          backend whose SupportsStaticBake is true). On any other the switch can
+//                          be on and every room is still interpreted
 void StaticBake_SetActive(int active);
 void StaticBake_SetSetting(int active);
 int StaticBake_IsActive(void);
 int StaticBake_Setting(void);
+int StaticBake_BackendSupported(void);
 
 #ifdef __cplusplus
 }

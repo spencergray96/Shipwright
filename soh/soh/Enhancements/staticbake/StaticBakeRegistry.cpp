@@ -119,9 +119,7 @@ void RegisterStaticBakeWidgets() {
         .PreFunc([](WidgetInfo& info) {
             // Built here rather than through SohMenu's disabledMap, which is not reachable from
             // outside the menu class. The tooltip strings are literals, so they outlive the frame.
-            if (Ship::Context::GetRawInstance()->GetWindow()->GetWindowBackend() !=
-                Fast::WindowBackend::FAST3D_DXGI_DX11) {
-                // Only the DX11 backend replays a bake (StaticBakeIntercept's SupportsStaticBake).
+            if (!StaticBake_BackendSupported()) {
                 info.options->disabled = true;
                 info.options->disabledTooltip = "Available only on DirectX 11";
             } else if (sEnvOverride) {
@@ -168,9 +166,17 @@ extern "C" int StaticBake_Setting(void) {
     return CVarGetInteger(CVAR_STATIC_BAKE, STATIC_BAKE_DEFAULT) != 0 ? 1 : 0;
 }
 
+extern "C" int StaticBake_BackendSupported(void) {
+    // Only the DX11 backend replays a bake (StaticBakeIntercept's SupportsStaticBake); on any other
+    // the switch can be on and nothing ever bakes.
+    auto context = Ship::Context::GetRawInstance();
+    auto window = context != nullptr ? context->GetWindow() : nullptr;
+    return window != nullptr && window->GetWindowBackend() == Fast::WindowBackend::FAST3D_DXGI_DX11 ? 1 : 0;
+}
+
 extern "C" int StaticBake_IsActive(void) {
     ApplyStartupState();
-    return Fast::StaticBakeIsEnabled() ? 1 : 0;
+    return Fast::StaticBakeIsEnabled() && StaticBake_BackendSupported() ? 1 : 0;
 }
 
 extern "C" void StaticBake_RegisterRoom(PlayState* play, RoomContext* roomCtx) {
