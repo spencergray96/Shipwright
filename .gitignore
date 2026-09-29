@@ -469,3 +469,8 @@ soh/properties.h
 # Fork-local: which task holds this checkout. Released by whoever claimed it,
 # so a leftover is a question for a human, not something to clear automatically.
 /.agent-claim
+
+# Local fixtures (sturdy-bassoon tools/fixtures): generated scenes too big to commit, installed into the
+# reserved SCENE_LOCAL_FIXTURE_n slots. GridToolSceneRegistry.cpp includes the manifests only if present.
+soh/soh/custom/scenes/grid_tool/local_*/
+soh/soh/custom/scenes/grid_tool/generated/LocalFixture*.inc

@@ -164,4 +164,12 @@
 /* 0x93 */ DEFINE_SCENE(step_warp_fixture_scene, none, SCENE_STEP_WARP_FIXTURE, SDC_DEFAULT, 0, 0) // project b29249a3-a38d-403b-8ec2-26433c994a6c name step_warp_fixture
 /* 0x94 */ DEFINE_SCENE(underground_entry_overworld_scene, none, SCENE_UNDERGROUND_ENTRY_OVERWORLD, SDC_DEFAULT, 0, 0) // project 4a8f1c2e-148a-4d0e-9a11-0f3c2b7e1a01 name underground_entry_overworld
 /* 0x95 */ DEFINE_SCENE(underground_entry_basements_scene, none, SCENE_UNDERGROUND_ENTRY_BASEMENTS, SDC_DEFAULT, 0, 0) // project 4a8f1c2e-148b-4d0e-9a11-0f3c2b7e1a02 name underground_entry_basements
+/* 0x96 */ DEFINE_SCENE(local_fixture_0_scene, none, SCENE_LOCAL_FIXTURE_0, SDC_DEFAULT, 0, 0) // local fixture slot 0: reserved, filled from a gitignored folder (GridToolSceneRegistry.cpp)
+/* 0x97 */ DEFINE_SCENE(local_fixture_1_scene, none, SCENE_LOCAL_FIXTURE_1, SDC_DEFAULT, 0, 0) // local fixture slot 1: reserved, filled from a gitignored folder (GridToolSceneRegistry.cpp)
+/* 0x98 */ DEFINE_SCENE(local_fixture_2_scene, none, SCENE_LOCAL_FIXTURE_2, SDC_DEFAULT, 0, 0) // local fixture slot 2: reserved, filled from a gitignored folder (GridToolSceneRegistry.cpp)
+/* 0x99 */ DEFINE_SCENE(local_fixture_3_scene, none, SCENE_LOCAL_FIXTURE_3, SDC_DEFAULT, 0, 0) // local fixture slot 3: reserved, filled from a gitignored folder (GridToolSceneRegistry.cpp)
+/* 0x9A */ DEFINE_SCENE(local_fixture_4_scene, none, SCENE_LOCAL_FIXTURE_4, SDC_DEFAULT, 0, 0) // local fixture slot 4: reserved, filled from a gitignored folder (GridToolSceneRegistry.cpp)
+/* 0x9B */ DEFINE_SCENE(local_fixture_5_scene, none, SCENE_LOCAL_FIXTURE_5, SDC_DEFAULT, 0, 0) // local fixture slot 5: reserved, filled from a gitignored folder (GridToolSceneRegistry.cpp)
+/* 0x9C */ DEFINE_SCENE(local_fixture_6_scene, none, SCENE_LOCAL_FIXTURE_6, SDC_DEFAULT, 0, 0) // local fixture slot 6: reserved, filled from a gitignored folder (GridToolSceneRegistry.cpp)
+/* 0x9D */ DEFINE_SCENE(local_fixture_7_scene, none, SCENE_LOCAL_FIXTURE_7, SDC_DEFAULT, 0, 0) // local fixture slot 7: reserved, filled from a gitignored folder (GridToolSceneRegistry.cpp)
 // END GRID TOOL EXPORTS
