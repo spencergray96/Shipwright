@@ -175,6 +175,10 @@ bool Button(const char* label, const ButtonOptions& options) {
     ImGui::BeginDisabled(options.disabled);
     PushStyleButton(options.color, options.padding);
     bool dirty = ImGui::Button(label, options.size);
+    ImGuiProbe::Item("button", label, 0, options.disabled);
+    if (dirty) {
+        ImGuiProbe::Edited("button", label, 1);
+    }
     PopStyleButton();
     ImGui::EndDisabled();
     if (options.disabled && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) &&
@@ -330,6 +334,10 @@ bool Checkbox(const char* _label, bool* value, const CheckboxOptions& options) {
     if (pressed) {
         *value = !(*value);
         ImGui::MarkItemEdited(id);
+    }
+    ImGuiProbe::ItemAt("checkbox", label, total_bb.Min, total_bb.Max, *value ? 1 : 0, options.disabled);
+    if (pressed) {
+        ImGuiProbe::Edited("checkbox", label, *value ? 1 : 0);
     }
     ImVec2 checkPos = pos;
     ImVec2 labelPos = pos;
@@ -558,6 +566,7 @@ bool SliderInt(const char* label, int32_t* value, const IntSliderOptions& option
             }
             dirty = true;
         }
+        ImGuiProbe::Relabel("dec", visibleLabel);
         ImGui::SameLine(0, 3.0f);
         ImGui::SetNextItemWidth(width - (ImGui::CalcTextSize("+").x + ImGui::GetStyle().FramePadding.x * 2 + 3) * 2);
     } else {
@@ -585,6 +594,7 @@ bool SliderInt(const char* label, int32_t* value, const IntSliderOptions& option
             }
             dirty = true;
         }
+        ImGuiProbe::Relabel("inc", visibleLabel);
     }
 
     if (options.alignment == ComponentAlignments::Left) {
@@ -600,6 +610,10 @@ bool SliderInt(const char* label, int32_t* value, const IntSliderOptions& option
     PopStyleSlider();
     ImGui::EndDisabled();
     ImGui::EndGroup();
+    ImGuiProbe::Item("slider", visibleLabel, *value, options.disabled);
+    if (dirty) {
+        ImGuiProbe::Edited("slider", visibleLabel, *value);
+    }
     if (options.disabled && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) &&
         !options.disabledTooltip.empty()) {
         ImGui::SetTooltip("%s", WrappedText(options.disabledTooltip).c_str());
@@ -696,6 +710,7 @@ bool SliderFloat(const char* label, float* value, const FloatSliderOptions& opti
             }
             dirty = true;
         }
+        ImGuiProbe::Relabel("dec", visibleLabel);
         ImGui::SameLine(0, 3.0f);
         ImGui::SetNextItemWidth(width - (ImGui::CalcTextSize("+").x + ImGui::GetStyle().FramePadding.x * 2 + 3) * 2);
     } else {
@@ -719,6 +734,7 @@ bool SliderFloat(const char* label, float* value, const FloatSliderOptions& opti
             }
             dirty = true;
         }
+        ImGuiProbe::Relabel("inc", visibleLabel);
     }
 
     if (options.alignment == ComponentAlignments::Left) {
@@ -733,6 +749,10 @@ bool SliderFloat(const char* label, float* value, const FloatSliderOptions& opti
     PopStyleSlider();
     ImGui::EndDisabled();
     ImGui::EndGroup();
+    ImGuiProbe::Item("slider", visibleLabel, *value, options.disabled);
+    if (dirty) {
+        ImGuiProbe::Edited("slider", visibleLabel, *value);
+    }
     if (options.disabled && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) &&
         !options.disabledTooltip.empty()) {
         ImGui::SetTooltip("%s", WrappedText(options.disabledTooltip).c_str());

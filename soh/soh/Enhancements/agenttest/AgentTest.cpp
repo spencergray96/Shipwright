@@ -161,6 +161,15 @@
  *                                        `staticbake` command (sturdy-bassoon#142), except that on/off here
  *                                        switch for the session only; the human command also saves setting=
  *                                        (#153). active=0 on a backend that cannot bake (supported=0)
+ *   imgui <line>                         one line of ImGuiProbeConsole_Run output per marker, from
+ *                                        `agenttest imgui status|dump [kind]|click [kind:]<label>|clickat <x> <y>|
+ *                                        key <name>` (sturdy-bassoon#163): `op=<sub> result=ok|error ...`, and for
+ *                                        dump one `item kind= x= y= w= h= value= disabled= visible= label="..."`
+ *                                        per widget the menu drew last frame. Two more come from the probe itself,
+ *                                        not from a command: `imgui op=delivered what=click|key ...` when a queued
+ *                                        injection has gone into ImGui's IO, and `imgui op=edited kind=<k>
+ *                                        value=<v> label="..."` when a widget helper reports it was operated -
+ *                                        the widget's own code path, so the proof a setting changed through it
  *   quest <line>                         one line of QuestConsole_Run output per marker, from
  *                                        "agenttest quest ..." (sturdy-bassoon#58 P1): the Describe line
  *                                        `id=<n> name=<s> tier=<s> status=<s> steps=0x<mask>/<count>
@@ -368,6 +377,13 @@
  *                                          run can check that an alt-asset toggle still swaps textures with
  *                                          Fast3D's texture-path memo on (sturdy-bassoon ENGINE_BUDGETS.md,
  *                                          "Texture binds per frame")
+ *   agenttest imgui status|dump [kind]|click [kind:]<label>|clickat <x> <y>|key <name>
+ *                                          drive the ImGui menu (sturdy-bassoon#163) - the one input path the
+ *                                          pad injection above cannot reach. `key Escape` opens the Esc menu;
+ *                                          `dump` lists what it drew last frame by label; `click` operates a
+ *                                          widget by label. A setting changed this way is written to the config
+ *                                          and SURVIVES the session - put it back. ImGuiProbeConsole.h has the
+ *                                          grammar, SohGui/ImGuiProbe.h the mechanism
  *   agenttest tiers <near> <mid> <n> [mitb] [drawcull] | off
  *                                          arm the distance-tiered actor update prototype (sturdy-bassoon#6
  *                                          Exp 2): full update inside <near>, every nth frame (staggered per
@@ -519,6 +535,7 @@
 #include "soh/Enhancements/rs/menu/MenuConsole.h"
 #include "soh/Enhancements/rs/menu/RsMenu.h"
 #include "soh/Enhancements/staticbake/StaticBakeConsole.h"
+#include "ImGuiProbeConsole.h"
 #include "AgentTest.h"
 #include "soh/ActorDB.h"
 #include "soh/ShipInit.hpp"
@@ -2600,6 +2617,13 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(StaticBakeConsole_RunSession, sub, "staticbake ", output, WriteMarker);
     }
+    // The ImGui menu (sturdy-bassoon#163). Same arrangement as `region`: one renderer
+    // (ImGuiProbeConsole_Run) behind the human `imgui` command and these markers. `>= 2`: a bare
+    // `agenttest imgui` is the status report, which is also what arms the probe.
+    if (args.size() >= 2 && args[1] == "imgui") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(ImGuiProbeConsole_Run, sub, "imgui ", output, WriteMarker);
+    }
     if (args.size() >= 2 && args[1] == "mark") {
         std::string text;
         for (size_t i = 2; i < args.size(); i++) {
@@ -2633,6 +2657,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|fadein <s>|"
               "baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
             "keepinput [on|off] | kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|sort on|off] | "
+              "imgui status|dump [kind]|click [kind:]<label>|clickat <x> <y>|key <name> | "
             "save <fileNum> | loadsave <fileNum> | mark <text>";
     }
     return 1;
@@ -2676,6 +2701,7 @@ void RegisterAgentTest() {
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|"
               "fadein <s>|baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
               "keepinput [on|off] | kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|sort on|off] | "
+              "imgui status|dump [kind]|click [kind:]<label>|clickat <x> <y>|key <name> | "
               "save <fileNum> | loadsave <fileNum> | mark <text>. "
               "walk/press inject controller 1 for N frames and end with an input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });

@@ -8,6 +8,7 @@
 #include <ship/window/gui/GuiWindow.h>
 #include <ship/window/Window.h>
 #include "soh/ShipInit.hpp"
+#include "ImGuiProbe.h"
 
 namespace UIWidgets {
 
@@ -159,6 +160,7 @@ bool Combobox(std::string label, T* value, const std::map<T, const char*>& combo
     }
 
     ImGui::SetNextItemWidth(comboWidth);
+    ImGuiProbe::ComboFrame(trueLabel.c_str(), comboWidth, static_cast<int32_t>(*value), options.disabled);
     if (ImGui::BeginCombo(invisibleLabel, comboMap.at(*value), options.flags)) {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10.0f, 10.0f));
         for (const auto& pair : comboMap) {
@@ -167,6 +169,7 @@ bool Combobox(std::string label, T* value, const std::map<T, const char*>& combo
                     *value = pair.first;
                     dirty = true;
                 }
+                ImGuiProbe::Item("option", pair.second, static_cast<int32_t>(pair.first), false);
             }
         }
         ImGui::PopStyleVar();
@@ -193,6 +196,9 @@ bool Combobox(std::string label, T* value, const std::map<T, const char*>& combo
         ImGui::SetTooltip("%s", WrappedText(options.disabledTooltip).c_str());
     } else if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !options.tooltip.empty()) {
         ImGui::SetTooltip("%s", WrappedText(options.tooltip).c_str());
+    }
+    if (dirty) {
+        ImGuiProbe::Edited("combo", trueLabel.c_str(), static_cast<int32_t>(*value));
     }
     ImGui::PopID();
     return dirty;
@@ -242,6 +248,7 @@ bool Combobox(std::string label, T* value, const std::vector<const char*>& combo
     }
 
     ImGui::SetNextItemWidth(comboWidth);
+    ImGuiProbe::ComboFrame(trueLabel.c_str(), comboWidth, static_cast<int32_t>(*value), options.disabled);
     if (ImGui::BeginCombo(invisibleLabel, comboVector.at(currentValueIndex), options.flags)) {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10.0f, 10.0f));
         for (size_t i = 0; i < comboVector.size(); ++i) {
@@ -251,6 +258,7 @@ bool Combobox(std::string label, T* value, const std::vector<const char*>& combo
                     *value = newValue;
                     dirty = true;
                 }
+                ImGuiProbe::Item("option", comboVector.at(i), static_cast<int32_t>(newValue), false);
             }
         }
         ImGui::PopStyleVar();
@@ -278,6 +286,9 @@ bool Combobox(std::string label, T* value, const std::vector<const char*>& combo
         ImGui::SetTooltip("%s", WrappedText(options.disabledTooltip).c_str());
     } else if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !options.tooltip.empty()) {
         ImGui::SetTooltip("%s", WrappedText(options.tooltip).c_str());
+    }
+    if (dirty) {
+        ImGuiProbe::Edited("combo", trueLabel.c_str(), static_cast<int32_t>(*value));
     }
     ImGui::PopID();
     return dirty;
@@ -327,6 +338,7 @@ bool Combobox(std::string label, T* value, const std::vector<std::string>& combo
     }
 
     ImGui::SetNextItemWidth(comboWidth);
+    ImGuiProbe::ComboFrame(trueLabel.c_str(), comboWidth, static_cast<int32_t>(*value), options.disabled);
     if (ImGui::BeginCombo(invisibleLabel, comboVector.at(currentValueIndex).c_str(), options.flags)) {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10.0f, 10.0f));
         for (size_t i = 0; i < comboVector.size(); ++i) {
@@ -336,6 +348,7 @@ bool Combobox(std::string label, T* value, const std::vector<std::string>& combo
                     *value = newValue;
                     dirty = true;
                 }
+                ImGuiProbe::Item("option", comboVector.at(i).c_str(), static_cast<int32_t>(newValue), false);
             }
         }
         ImGui::PopStyleVar();
@@ -364,6 +377,9 @@ bool Combobox(std::string label, T* value, const std::vector<std::string>& combo
         ImGui::SetTooltip("%s", WrappedText(options.disabledTooltip).c_str());
     } else if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !options.tooltip.empty()) {
         ImGui::SetTooltip("%s", WrappedText(options.tooltip).c_str());
+    }
+    if (dirty) {
+        ImGuiProbe::Edited("combo", trueLabel.c_str(), static_cast<int32_t>(*value));
     }
     ImGui::PopID();
     return dirty;
@@ -415,6 +431,7 @@ bool Combobox(std::string label, T* value, const char* (&comboArray)[N], const C
     }
 
     ImGui::SetNextItemWidth(comboWidth);
+    ImGuiProbe::ComboFrame(trueLabel.c_str(), comboWidth, static_cast<int32_t>(*value), options.disabled);
     if (ImGui::BeginCombo(invisibleLabel, comboArray[currentValueIndex], options.flags)) {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10.0f, 10.0f));
         for (size_t i = 0; i < N; ++i) {
@@ -424,6 +441,7 @@ bool Combobox(std::string label, T* value, const char* (&comboArray)[N], const C
                     *value = newValue;
                     dirty = true;
                 }
+                ImGuiProbe::Item("option", comboArray[i], static_cast<int32_t>(newValue), false);
             }
         }
         ImGui::PopStyleVar();
@@ -450,6 +468,9 @@ bool Combobox(std::string label, T* value, const char* (&comboArray)[N], const C
         ImGui::SetTooltip("%s", WrappedText(options.disabledTooltip).c_str());
     } else if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !options.tooltip.empty()) {
         ImGui::SetTooltip("%s", WrappedText(options.tooltip).c_str());
+    }
+    if (dirty) {
+        ImGuiProbe::Edited("combo", trueLabel.c_str(), static_cast<int32_t>(*value));
     }
     ImGui::PopID();
     return dirty;
