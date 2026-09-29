@@ -1,6 +1,9 @@
 @echo off
 REM Regenerate soh.o2r from soh\assets\custom, then put it where the game will actually read it.
 REM
+REM Every build does this too now (the SohOtrBesideExe target, sturdy-bassoon#146), so rebuild.bat
+REM alone is enough after an asset or shader edit. This is for refreshing the archive WITHOUT a build.
+REM
 REM The copy is the point. GenerateSohOtr writes build\x64\soh\soh.o2r and copies it to the repo
 REM root, and soh.exe reads NEITHER - it runs from x64\Debug (or x64\Release) and searches its own
 REM directory. A regenerated archive that never gets copied fails silently and badly: the missing
