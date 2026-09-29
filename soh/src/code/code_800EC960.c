@@ -1471,6 +1471,44 @@ void AudioOcarina_SetCustomButtonMapping(bool customControls) {
         (sOcarinaD5BtnMap | sOcarinaB4BtnMap | sOcarinaA4BtnMap | sOcarinaF4BtnMap | sOcarinaD4BtnMap);
 }
 
+// SoH [agenttest] (sturdy-bassoon#161): the one button that plays `ocarinaBtnIndex` (OCARINA_BTN_A..C_UP)
+// under the mapping AudioOcarina_PlayControllerInput would use right now - vanilla's C-buttons and A, or
+// SoH's remappable BTN_CUSTOM_OCARINA_NOTE_* bits. A map can hold several buttons (D-pad, right stick);
+// the lowest bit is the primary one. 0 for an index that is not a note.
+CONTROLLERBUTTONS_T AudioOcarina_GetNoteButton(u8 ocarinaBtnIndex) {
+    CONTROLLERBUTTONS_T map;
+
+    AudioOcarina_SetCustomButtonMapping(CVarGetInteger(CVAR_SETTING("CustomOcarina.Enabled"), 0));
+    switch (ocarinaBtnIndex) {
+        case OCARINA_BTN_A:
+            map = sOcarinaD4BtnMap;
+            break;
+        case OCARINA_BTN_C_DOWN:
+            map = sOcarinaF4BtnMap;
+            break;
+        case OCARINA_BTN_C_RIGHT:
+            map = sOcarinaA4BtnMap;
+            break;
+        case OCARINA_BTN_C_LEFT:
+            map = sOcarinaB4BtnMap;
+            break;
+        case OCARINA_BTN_C_UP:
+            map = sOcarinaD5BtnMap;
+            break;
+        default:
+            return 0;
+    }
+    return map & (~map + 1);
+}
+
+// SoH [agenttest] (sturdy-bassoon#161): true while a pressed note would be read and checked against the songs -
+// the ocarina is out, input is on, no demo is playing and a song check is armed. What the loop waits for
+// between taking the ocarina out and playing the first note.
+s32 AudioOcarina_IsListening(void) {
+    return sOcarinaInstrumentId != OCARINA_INSTRUMENT_OFF && sIsOcarinaInputEnabled == true && sPlaybackState == 0 &&
+           sOcarinaFlags != 0;
+}
+
 void AudioOcarina_ReadControllerInput(void) {
     Input inputs[4];
     Input* input = &inputs[0];
