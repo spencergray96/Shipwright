@@ -896,13 +896,10 @@ void Environment_PrintDebugInfo(PlayState* play, Gfx** gfx) {
     GfxPrint_Destroy(&printer);
 }
 
-// SoH (sturdy-bassoon#164): the light config Environment_Update may read in place of `config`. Each config
-// names four of the scene's light settings, one per time of day - config 2, the Song of Storms' gloomy
-// sky, names 8-11 - and a scene whose table stops short of them read past the end of its EnvLightSettings
-// array, taking ambient, fog and the far clip plane from whatever lay there. Every custom scene in this
-// fork has four settings, config 0's only, so the storm drew them black or flat with the depth order
-// broken. Such a config falls back to config 0, the scene's own lighting; a scene that carries the
-// settings a config names still gets them.
+// SoH [General] (sturdy-bassoon#164): the light config the outdoor lighting reads in place of `config`.
+// Each config names four of the scene's light settings (config 2, the Song of Storms' gloomy sky, names
+// 8-11). If the scene's table stops short of them, reading them would run past its EnvLightSettings array
+// - custom scenes carry only config 0's four - so such a config falls back to config 0.
 u8 Environment_UsableLightConfig(EnvironmentContext* envCtx, u8 config) {
     u8 i;
 
