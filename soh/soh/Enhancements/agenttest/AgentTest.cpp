@@ -2186,6 +2186,28 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         }
         return 0;
     }
+    if (args.size() >= 3 && args[1] == "env" && args[2] == "lights") {
+        // The scene's whole light-settings table, one "envlight" marker per entry, raw: near= keeps the
+        // blend-rate bits above bit 9 that Environment_Update masks off. How a scene's storm settings
+        // (8-11) were read out of vanilla to serve as custom scenes' default (sturdy-bassoon#164).
+        const EnvironmentContext* env = &gPlayState->envCtx;
+        for (u8 i = 0; i < env->numLightSettings; i++) {
+            const EnvLightSettings* l = &env->lightSettingsList[i];
+            char buf[256];
+            std::snprintf(buf, sizeof(buf),
+                          "envlight i=%u amb=%u,%u,%u l1dir=%d,%d,%d l1=%u,%u,%u l2dir=%d,%d,%d l2=%u,%u,%u "
+                          "fog=%u,%u,%u near=%d far=%d",
+                          i, l->ambientColor[0], l->ambientColor[1], l->ambientColor[2], l->light1Dir[0],
+                          l->light1Dir[1], l->light1Dir[2], l->light1Color[0], l->light1Color[1], l->light1Color[2],
+                          l->light2Dir[0], l->light2Dir[1], l->light2Dir[2], l->light2Color[0], l->light2Color[1],
+                          l->light2Color[2], l->fogColor[0], l->fogColor[1], l->fogColor[2], l->fogNear, l->fogFar);
+            WriteMarker(buf);
+        }
+        if (output) {
+            *output += "envlight markers: " + std::to_string(env->numLightSettings);
+        }
+        return 0;
+    }
     if (args.size() >= 2 && args[1] == "env") {
         // The outdoor lighting's inputs and its output (sturdy-bassoon#164). Environment_Update blends two
         // light configs (cfg=from>to, weighted by blend=left/total while one is running); use= is the pair
