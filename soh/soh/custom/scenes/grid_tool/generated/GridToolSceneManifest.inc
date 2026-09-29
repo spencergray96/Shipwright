@@ -38,4 +38,6 @@
     { SCENE_DRAYNOR_VILLAGE_3, CustomDraynorVillage3Scene_TrySpawn, CustomDraynorVillage3Scene_InitRoom }, // project 4eb53b4e-4dd3-44cb-a74a-948775383bae name draynor_village_3
     { SCENE_VERT_PROBE, CustomVertProbeScene_TrySpawn, CustomVertProbeScene_InitRoom }, // hand-authored vert_probe (sturdy-bassoon#134)
     { SCENE_STEP_WARP_FIXTURE, CustomStepWarpFixtureScene_TrySpawn, CustomStepWarpFixtureScene_InitRoom }, // project b29249a3-a38d-403b-8ec2-26433c994a6c name step_warp_fixture
+    { SCENE_UNDERGROUND_ENTRY_OVERWORLD, CustomUndergroundEntryOverworldScene_TrySpawn, CustomUndergroundEntryOverworldScene_InitRoom }, // project 4a8f1c2e-148a-4d0e-9a11-0f3c2b7e1a01 name underground_entry_overworld
+    { SCENE_UNDERGROUND_ENTRY_BASEMENTS, CustomUndergroundEntryBasementsScene_TrySpawn, CustomUndergroundEntryBasementsScene_InitRoom }, // project 4a8f1c2e-148b-4d0e-9a11-0f3c2b7e1a02 name underground_entry_basements
 // END GRID TOOL EXPORTS

@@ -101,6 +101,36 @@ const RsWarpTileDef* FindTileDef(const RsWarpSceneDef& def, int32_t id) {
     return nullptr;
 }
 
+bool IsHere(const RsWarpDest& dest) {
+    return dest.entrance == RS_WARP_HERE;
+}
+
+bool IsEntrance(int32_t entrance) {
+    return entrance >= 0 && entrance < ENTR_MAX;
+}
+
+// The scene an entrance loads. Only for IsEntrance.
+int16_t EntranceScene(int32_t entrance) {
+    return gEntranceTable[entrance].scene;
+}
+
+// The row a destination in another scene names in THAT scene's table, or null: no table for that
+// scene, or no such tile in it. Only for a destination that is not IsHere, with a valid entrance.
+const RsWarpTileDef* OtherSceneRow(const RsWarpDest& dest) {
+    const RsWarpSceneDef* otherScene = RsWarp_GetSceneDef(EntranceScene(dest.entrance));
+    return otherScene != nullptr ? FindTileDef(*otherScene, dest.tile) : nullptr;
+}
+
+// "2" for a tile here, "1@0x63E" for tile 1 through entrance 0x63E - for console lines.
+std::string DestToken(const RsWarpDest& dest) {
+    if (IsHere(dest)) {
+        return std::to_string(dest.tile);
+    }
+    char token[32];
+    std::snprintf(token, sizeof(token), "%d@0x%X", dest.tile, dest.entrance);
+    return token;
+}
+
 // --- per-scene state ----------------------------------------------------------------------------
 
 struct TileState {
@@ -315,6 +345,21 @@ void Scan(PlayState* play) {
             t.bad = "unrouted";
         }
     }
+    // A tile that sends Link to ANOTHER scene (#148) needs that scene's table to have the tile - else
+    // there is no room to load him into and no way back. Whether its collision has the tile too is
+    // only knowable there, once it loads: `arrival_failed`, and the scene's spawn instead.
+    for (int32_t id = 1; id <= RS_WARP_TILE_ID_MAX; id++) {
+        TileState& t = sState.tiles[id];
+        if (t.bad != nullptr || t.def == nullptr) {
+            continue;
+        }
+        for (int32_t k = 0; k < t.def->destCount; k++) {
+            if (!IsHere(t.def->dests[k]) && OtherSceneRow(t.def->dests[k]) == nullptr) {
+                t.bad = "dest_unrouted";
+                break;
+            }
+        }
+    }
     // A tile that sends Link to a broken one is broken too - otherwise it would fire and have nowhere
     // to put him. Repeated until nothing changes, so a chain of them all goes inert.
     for (bool changed = true; changed;) {
@@ -325,7 +370,7 @@ void Scan(PlayState* play) {
                 continue;
             }
             for (int32_t k = 0; k < t.def->destCount; k++) {
-                if (sState.tiles[t.def->dests[k]].bad != nullptr) {
+                if (IsHere(t.def->dests[k]) && sState.tiles[t.def->dests[k].tile].bad != nullptr) {
                     t.bad = "bad_dest";
                     changed = true;
                     break;
@@ -452,23 +497,38 @@ void Fire(Player* player, int32_t id) {
         pick = static_cast<int32_t>(Rand_ZeroOne() * static_cast<float>(choices));
         pick = pick >= choices ? choices - 1 : pick;
     }
-    const int32_t to = t.def->dests[pick];
-    const TileState& d = sState.tiles[to];
+    const RsWarpDest& to = t.def->dests[pick];
 
+    // To another scene, the line says where: an in-place line is unchanged.
+    char sceneFields[64] = "";
+    if (!IsHere(to)) {
+        std::snprintf(sceneFields, sizeof(sceneFields), " entrance=0x%X scene_to=0x%X", to.entrance,
+                      EntranceScene(to.entrance));
+    }
     Event("rs_warp tile=%d event=fired to=%d pick=%d choices=%d entry=%s pos=%.1f,%.1f,%.1f floor_y=%.1f "
-          "move_yaw=%d aim=%d speed=%.1f",
-          id, to, pick, choices, RsWarp_EntryName(t.def->entry), player->actor.world.pos.x, player->actor.world.pos.y,
-          player->actor.world.pos.z, player->actor.floorHeight, player->actor.world.rot.y, Degrees(AimOff(t, player)),
-          player->linearVelocity);
+          "move_yaw=%d aim=%d speed=%.1f%s",
+          id, to.tile, pick, choices, RsWarp_EntryName(t.def->entry), player->actor.world.pos.x,
+          player->actor.world.pos.y, player->actor.world.pos.z, player->actor.floorHeight, player->actor.world.rot.y,
+          Degrees(AimOff(t, player)), player->linearVelocity, sceneFields);
 
     RsWarpMoveDest dest = {};
     dest.fromTile = id;
-    dest.toTile = to;
-    dest.x = d.landing.x;
-    dest.y = d.landing.y;
-    dest.z = d.landing.z;
-    dest.yaw = d.yaw;
-    dest.room = d.def->room;
+    dest.toTile = to.tile;
+    if (IsHere(to)) {
+        const TileState& d = sState.tiles[to.tile];
+        dest.x = d.landing.x;
+        dest.y = d.landing.y;
+        dest.z = d.landing.z;
+        dest.yaw = d.yaw;
+        dest.room = d.def->room;
+        dest.entrance = RS_WARP_HERE;
+    } else {
+        // The landing is in the other scene's collision; its scan works it out when it loads. The
+        // room is its table's - the scan made sure the row is there (`dest_unrouted`).
+        const RsWarpTileDef* row = OtherSceneRow(to);
+        dest.room = row != nullptr ? row->room : 0;
+        dest.entrance = to.entrance;
+    }
     // Disarmed until he steps off it, whatever the controller says: after a move he is frozen on it
     // for the fade, and after a refused one (`move_refused`) he is still standing on it - which must
     // not fire again next tick. The scan's checks leave the controller nothing to refuse today.
@@ -476,7 +536,11 @@ void Fire(Player* player, int32_t id) {
     if (RsStair_BeginWarpMove(&dest, "warp") == RS_STAIR_OK) {
         t.fires++;
         t.picks[pick]++;
-        sState.pendingLatch = to;
+        // In place, the latch is owed here. To another scene this state is gone by the time he lands;
+        // the arrival there owes it instead (OnSceneInitWarps).
+        if (IsHere(to)) {
+            sState.pendingLatch = to.tile;
+        }
     }
     // So the `moving` refusal that follows on this same tile is reported.
     sState.refusedMask = 0;
@@ -575,8 +639,38 @@ void OnPlayerUpdateWarps() {
 
 // A scene change forgets everything: the next Player update scans the new scene. The move controller
 // aborts its own move (Stairs.cpp).
+//
+// Unless a step warp is bringing Link here from another scene (#148). Then the scan runs NOW: the
+// scene's init has allocated its collision, and Player_Init has not run yet - so the destination
+// tile's landing can go into the respawn slot Player_Init is about to stand him on. And the tile he
+// arrives beside owes the latch, as after a move in place: latched if the stick is still held when
+// the move ends, so a stick held through the load does not walk him straight back through it.
 void OnSceneInitWarps(int16_t sceneNum) {
     sState = State();
+    PlayState* play = gPlayState;
+    int32_t tile = 0;
+    int32_t fromTile = 0;
+    if (play == nullptr || !RsStair_SceneArrival(sceneNum, &tile, &fromTile)) {
+        return;
+    }
+    Scan(play);
+    const TileState* t = tile >= 1 && tile <= RS_WARP_TILE_ID_MAX ? &sState.tiles[tile] : nullptr;
+    if (t != nullptr && t->present && t->bad == nullptr) {
+        // A tile that is not bad has a row, and the scan checked its room against this scene's.
+        RsStair_PlaceSceneArrival(t->landing.x, t->landing.y, t->landing.z, t->yaw, t->def->room, 1);
+        sState.pendingLatch = tile;
+        return;
+    }
+    // Routed there but broken in this scene's collision - an authoring mistake that only the load
+    // could show. Loud, and the scene's own spawn rather than wherever the slot pointed.
+    const char* why = t == nullptr ? "bad_id" : (t->bad != nullptr ? t->bad : "missing");
+    SPDLOG_ERROR("RsWarps: arriving in scene 0x{:X} at tile {}: {}; using the spawn", sceneNum, tile, why);
+    Marker("rs_warp tile=%d event=arrival_failed to=%d scene=0x%X reason=%s", fromTile, tile, sceneNum, why);
+    if (play->linkActorEntry != nullptr) {
+        const ActorEntry* spawn = play->linkActorEntry;
+        const int32_t room = play->setupEntranceList != nullptr ? play->setupEntranceList[play->curSpawn].room : 0;
+        RsStair_PlaceSceneArrival(spawn->pos.x, spawn->pos.y, spawn->pos.z, spawn->rot.y, room, 0);
+    }
 }
 
 void RegisterWarpsHooks() {
@@ -616,6 +710,10 @@ extern "C" const char* RsWarp_ProblemName(int32_t problem) {
             return "self_dest";
         case RS_WARP_PROBLEM_SCENE_TAKEN:
             return "scene_taken";
+        case RS_WARP_PROBLEM_BAD_ENTRANCE:
+            return "bad_entrance";
+        case RS_WARP_PROBLEM_ENTRANCE_HERE:
+            return "entrance_here";
         default:
             return "unknown";
     }
@@ -661,10 +759,25 @@ extern "C" int32_t RsWarp_SceneDefProblem(const RsWarpSceneDef* def, int32_t* wh
         const RsWarpTileDef& tile = def->tiles[i];
         *at = i;
         for (int32_t k = 0; k < tile.destCount; k++) {
-            if (tile.dests[k] == tile.id) {
-                return RS_WARP_PROBLEM_SELF_DEST;
+            const RsWarpDest& dest = tile.dests[k];
+            if (IsHere(dest)) {
+                if (dest.tile == tile.id) {
+                    return RS_WARP_PROBLEM_SELF_DEST;
+                }
+                if (FindTileDef(*def, dest.tile) == nullptr) {
+                    return RS_WARP_PROBLEM_BAD_DEST;
+                }
+                continue;
             }
-            if (FindTileDef(*def, tile.dests[k]) == nullptr) {
+            // Another scene's tile. Only its shape is checkable here: that scene's table may not be
+            // registered yet, so whether it has the tile is the scan's `dest_unrouted`.
+            if (!IsEntrance(dest.entrance)) {
+                return RS_WARP_PROBLEM_BAD_ENTRANCE;
+            }
+            if (EntranceScene(dest.entrance) == def->sceneId) {
+                return RS_WARP_PROBLEM_ENTRANCE_HERE;
+            }
+            if (dest.tile < 1 || dest.tile > RS_WARP_TILE_ID_MAX) {
                 return RS_WARP_PROBLEM_BAD_DEST;
             }
         }
@@ -752,8 +865,9 @@ RsWarpSceneReport RsWarp_Report() {
             r.dests = "-";
         } else {
             for (int32_t k = 0; k < t.def->destCount; k++) {
-                r.dests += (k > 0 ? "," : "") + std::to_string(t.def->dests[k]);
-                r.picks += (k > 0 ? "," : "") + std::to_string(t.def->dests[k]) + ":" + std::to_string(t.picks[k]);
+                const std::string token = DestToken(t.def->dests[k]);
+                r.dests += (k > 0 ? "," : "") + token;
+                r.picks += (k > 0 ? "," : "") + token + ":" + std::to_string(t.picks[k]);
             }
         }
         if (r.picks.empty()) {

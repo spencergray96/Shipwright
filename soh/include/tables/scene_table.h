@@ -162,4 +162,6 @@
 /* 0x91 */ DEFINE_SCENE(draynor_village_3_scene, none, SCENE_DRAYNOR_VILLAGE_3, SDC_DEFAULT, 0, 0) // project 4eb53b4e-4dd3-44cb-a74a-948775383bae name draynor_village_3
 /* 0x92 */ DEFINE_SCENE(vert_probe_scene, none, SCENE_VERT_PROBE, SDC_DEFAULT, 0, 0) // hand-authored vertical-traversal probe (sturdy-bassoon#134)
 /* 0x93 */ DEFINE_SCENE(step_warp_fixture_scene, none, SCENE_STEP_WARP_FIXTURE, SDC_DEFAULT, 0, 0) // project b29249a3-a38d-403b-8ec2-26433c994a6c name step_warp_fixture
+/* 0x94 */ DEFINE_SCENE(underground_entry_overworld_scene, none, SCENE_UNDERGROUND_ENTRY_OVERWORLD, SDC_DEFAULT, 0, 0) // project 4a8f1c2e-148a-4d0e-9a11-0f3c2b7e1a01 name underground_entry_overworld
+/* 0x95 */ DEFINE_SCENE(underground_entry_basements_scene, none, SCENE_UNDERGROUND_ENTRY_BASEMENTS, SDC_DEFAULT, 0, 0) // project 4a8f1c2e-148b-4d0e-9a11-0f3c2b7e1a02 name underground_entry_basements
 // END GRID TOOL EXPORTS

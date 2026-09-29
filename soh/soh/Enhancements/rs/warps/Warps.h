@@ -16,7 +16,8 @@
 //
 // Three jobs, in the order a player meets them:
 //
-//   1. THE SCAN. The first Player update in a scene reads every static collision polygon once, finds
+//   1. THE SCAN. The first Player update in a scene (or its OnSceneInit, when a step warp from another
+//      scene is arriving - below) reads every static collision polygon once, finds
 //      the warp tiles, works out each one's centre, size and landing (the tile one tile-width away in
 //      its landing direction, dead centre, facing that way), and checks it against the scene's route
 //      table (WarpTable.cpp). A tile that fails any check is INERT for the visit, reported once as
@@ -52,6 +53,14 @@
 //
 // A warp tile is a PLACE, so its table names its scene, like a staircase. The fade is the
 // staircase's fade (`stairs fade`), because the move is the staircase's move.
+//
+// ANOTHER SCENE (sturdy-bassoon#148). A destination may be a tile in another scene, through an
+// entrance (WarpDef.h, RsWarpDest). The detector, the guards and the markers are the same; the move
+// becomes a real transition in the middle of the same fade (Stairs.cpp). When the destination scene
+// loads, its scan runs at OnSceneInit - collision is in by then, and Player_Init has not run - and
+// puts that tile's landing into the respawn slot the controller armed, so Player_Init stands Link
+// on it. The latch carries across the load: the tile he arrives beside is pending, exactly as after
+// an in-place move, and latched if the stick is still held when the move ends.
 
 #ifdef __cplusplus
 extern "C" {
@@ -70,9 +79,14 @@ typedef enum RsWarpProblem {
     RS_WARP_PROBLEM_BAD_ENTRY,   // not an RsWarpEntry
     RS_WARP_PROBLEM_BAD_ROOM,    // negative or past 255 - a room index is a u8 in the engine
     RS_WARP_PROBLEM_DEST_COUNT,  // negative, over RS_WARP_MAX_DESTS, or a count over a NULL array
-    RS_WARP_PROBLEM_BAD_DEST,    // a destination that is not a tile in this table
+    RS_WARP_PROBLEM_BAD_DEST,    // a destination in this scene that is not a tile in this table, or
+                                 // one in another scene whose tile id is outside 1..RS_WARP_TILE_ID_MAX
     RS_WARP_PROBLEM_SELF_DEST,   // a tile that sends Link to itself
     RS_WARP_PROBLEM_SCENE_TAKEN, // a different table is already registered for this scene
+    // Another scene's tile (#148). Whether that scene's table HAS the tile is not checked here -
+    // tables register in no set order - but by the scan, as `dest_unrouted`.
+    RS_WARP_PROBLEM_BAD_ENTRANCE,  // neither RS_WARP_HERE nor an entrance id below ENTR_MAX
+    RS_WARP_PROBLEM_ENTRANCE_HERE, // an entrance into this table's own scene: that is RS_WARP_TO
     RS_WARP_PROBLEM_COUNT,
 } RsWarpProblem;
 
@@ -97,7 +111,7 @@ struct RsWarpTileReport {
     const char* bad;  // why it is inert, or nullptr
     int32_t entry;    // RsWarpEntry, or -1 when unrouted
     int32_t room;     // -1 when unrouted
-    std::string dests; // "2", "5,7", or "-" for a landing only
+    std::string dests; // "2", "5,7", "1@0x63E" (tile 1 through entrance 0x63E), or "-" for a landing only
     float cx, cz, y;  // centre of the tile, and its floor height
     int32_t dir;      // landing direction (WarpBits.h)
     float width;      // the tile's size along that direction - how far away the landing is
@@ -106,7 +120,7 @@ struct RsWarpTileReport {
     bool mustLeave;   // disarmed until he steps off it
     bool latched;     // disarmed until he lets go
     int32_t fires;
-    std::string picks; // fires per destination, "5:3,7:4"
+    std::string picks; // fires per destination, "5:3,7:4" or "1@0x63E:2"
 };
 
 struct RsWarpSceneReport {
