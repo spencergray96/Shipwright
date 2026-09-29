@@ -2,6 +2,13 @@
 #define SOH_STATIC_BAKE_REGISTRY_H
 
 #include "z64.h"
+#include "soh/cvar_prefixes.h"
+
+// The saved setting behind the switch (sturdy-bassoon#153): 1 bakes, 0 interprets. On by default.
+// Written by the Settings > Graphics checkbox and StaticBake_SetSetting (the human `staticbake on|off`);
+// SOH_STATIC_BAKE=0|1 in the environment overrides it for the whole session.
+#define CVAR_STATIC_BAKE CVAR_SETTING("StaticBake")
+#define STATIC_BAKE_DEFAULT 1
 
 #ifdef __cplusplus
 extern "C" {
@@ -17,13 +24,19 @@ extern "C" {
 // display lists never reach this function so they can never be registered.
 void StaticBake_RegisterRoom(PlayState* play, RoomContext* roomCtx);
 
-// The bake's runtime switch (sturdy-bassoon#142). On: registered rooms are recorded once and replayed
-// from the GPU. Off: every room is interpreted, and existing bakes are kept, so switching back on
-// replays them without a re-record. Starts on when SOH_STATIC_BAKE=1 is in the environment, off
-// otherwise. Safe to call between frames, from any game-thread code - the `staticbake` console
-// command is one caller, and a menu or CVar setting (sturdy-bassoon#153) is meant to be the next.
+// The bake's runtime switch (sturdy-bassoon#142, #153). On: registered rooms are recorded once and
+// replayed from the GPU. Off: every room is interpreted, and existing bakes are kept, so switching
+// back on replays them without a re-record. ON by default: it starts from SOH_STATIC_BAKE when that
+// is 0 or 1, and otherwise from CVAR_STATIC_BAKE (default 1). Safe to call between frames, from any
+// game-thread code.
+//   StaticBake_SetActive   moves the switch for this session only (`agenttest staticbake on|off`)
+//   StaticBake_SetSetting  saves CVAR_STATIC_BAKE and moves the switch (the human `staticbake on|off`)
+//   StaticBake_Setting     the saved setting; differs from IsActive when the environment variable
+//                          decided the session, or after a session-only switch
 void StaticBake_SetActive(int active);
+void StaticBake_SetSetting(int active);
 int StaticBake_IsActive(void);
+int StaticBake_Setting(void);
 
 #ifdef __cplusplus
 }

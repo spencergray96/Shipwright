@@ -484,9 +484,9 @@ extern "C" s32 OTRfunc_800973FC(PlayState* play, RoomContext* roomCtx) {
                 if (!GridToolSceneRegistry_TryInitRoom(play, roomCtx)) {
                     CustomTestLevel_InitRoom(play, roomCtx);
                 }
-                // Only compiled-in rooms are offered to the static-geometry bake, and only when
-                // SOH_STATIC_BAKE=1 (sturdy-bassoon#40). The OTR branch above deliberately has no
-                // equivalent call.
+                // Only compiled-in rooms are offered to the static-geometry bake (sturdy-bassoon#40);
+                // whether they are baked is its runtime switch, on by default (#153). The OTR branch
+                // above deliberately has no equivalent call.
                 StaticBake_RegisterRoom(play, roomCtx);
             }
 

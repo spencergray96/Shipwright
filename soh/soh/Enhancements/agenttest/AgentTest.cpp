@@ -151,8 +151,10 @@
  *                                        flip - OTRGlobals applies the CVar at the end of the next frame
  *   staticbake <line>                    one line of StaticBakeConsole_Run output per marker, from
  *                                        `agenttest staticbake [status|on|off|rebake]`: `op=<sub> result=ok
- *                                        active=<0|1> registered=<n> baked=<n> rejected=<n>`. Same renderer as
- *                                        the human `staticbake` command (sturdy-bassoon#142)
+ *                                        active=<0|1> setting=<0|1> registered=<n> baked=<n> rejected=<n>`.
+ *                                        Same renderer as the human `staticbake` command (sturdy-bassoon#142),
+ *                                        except that on/off here switch for the session only; the human
+ *                                        command also saves setting= (#153)
  *   quest <line>                         one line of QuestConsole_Run output per marker, from
  *                                        "agenttest quest ..." (sturdy-bassoon#58 P1): the Describe line
  *                                        `id=<n> name=<s> tier=<s> status=<s> steps=0x<mask>/<count>
@@ -851,10 +853,10 @@ void EmitPerf() {
     //
     // draws_baked=/tris_baked= are the subset of that frame's draws which replayed a pre-recorded
     // static mesh instead of walking a display list (sturdy-bassoon#40, #142; zero while the bake is
-    // off - SOH_STATIC_BAKE=1 starts it on, `staticbake on|off` flips it). tris_baked is *not*
-    // included in tris: baked geometry never reaches GfxSpTri1, so it is neither CPU-culled nor
-    // counted there, which is exactly why turning the bake on makes tris= fall for a scene that is
-    // drawing strictly more than before.
+    // off - it is on by default since #153, SOH_STATIC_BAKE=0 starts it off, `staticbake on|off`
+    // flips it). tris_baked is *not* included in tris: baked geometry never reaches GfxSpTri1, so it
+    // is neither CPU-culled nor counted there, which is exactly why turning the bake on makes tris=
+    // fall for a scene that is drawing strictly more than before.
     //
     // texcache= is the texture cache's occupancy against its cap, tex_evict= and tex_upload= the
     // least-recently-used evictions and the cache misses over this interval, and tex_used= the
@@ -2142,7 +2144,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     // screenshot - with the camera and the time of day exactly where they were.
     if (args.size() >= 2 && args[1] == "staticbake") {
         const std::vector<std::string> sub(args.begin() + 2, args.end());
-        return ConsoleSink::RunToMarkers(StaticBakeConsole_Run, sub, "staticbake ", output, WriteMarker);
+        return ConsoleSink::RunToMarkers(StaticBakeConsole_RunSession, sub, "staticbake ", output, WriteMarker);
     }
     if (args.size() >= 2 && args[1] == "mark") {
         std::string text;
