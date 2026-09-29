@@ -1,4 +1,5 @@
 #include "GridToolSceneRegistry.h"
+#include "LocalFixtureSlots.h"
 #include "global.h"
 #include <spdlog/spdlog.h>
 
@@ -11,7 +12,7 @@
 // Local fixtures (sturdy-bassoon tools/fixtures): generated scenes too big to commit - #143's 4.1M-triangle
 // map is the first - kept in a tree without living in git. Each occupies one of the reserved
 // SCENE_LOCAL_FIXTURE_n slots in scene_table.h, so its scene id and entrance never move and the tracked
-// tables never change. Its folder (grid_tool/local_<slug>/) and these two files are gitignored and
+// tables never change. Its folder (grid_tool/local-<slug>/) and these two files are gitignored and
 // written by `tools/fixtures/fixture.py install`; a tree with no fixture installed has neither file.
 #if __has_include("generated/LocalFixtureIncludes.inc")
 #include "generated/LocalFixtureIncludes.inc"

@@ -472,5 +472,5 @@ soh/properties.h
 
 # Local fixtures (sturdy-bassoon tools/fixtures): generated scenes too big to commit, installed into the
 # reserved SCENE_LOCAL_FIXTURE_n slots. GridToolSceneRegistry.cpp includes the manifests only if present.
-soh/soh/custom/scenes/grid_tool/local_*/
+soh/soh/custom/scenes/grid_tool/local-*/
 soh/soh/custom/scenes/grid_tool/generated/LocalFixture*.inc
