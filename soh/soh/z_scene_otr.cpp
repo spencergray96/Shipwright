@@ -33,6 +33,7 @@
 #include "soh/custom/scenes/test_level/CustomTestLevel.h"
 #include "soh/custom/scenes/grid_tool/GridToolSceneRegistry.h"
 #include "soh/Enhancements/staticbake/StaticBakeRegistry.h"
+#include "soh/Enhancements/texturemips/TextureMips.h"
 
 extern Ship::IResource* OTRPlay_LoadFile(PlayState* play, const char* fileName);
 extern "C" s32 Object_Spawn(ObjectContext* objectCtx, s16 objectId);
@@ -488,6 +489,8 @@ extern "C" s32 OTRfunc_800973FC(PlayState* play, RoomContext* roomCtx) {
                 // whether they are baked is its runtime switch, on by default (#153). The OTR branch
                 // above deliberately has no equivalent call.
                 StaticBake_RegisterRoom(play, roomCtx);
+                // The same branch names the room's textures as the mod's own for mipmaps (#146).
+                TextureMips_RegisterRoom(play, roomCtx);
             }
 
             return 1;

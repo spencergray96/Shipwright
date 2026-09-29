@@ -156,6 +156,11 @@
  *                                        `staticbake` command (sturdy-bassoon#142), except that on/off here
  *                                        switch for the session only; the human command also saves setting=
  *                                        (#153). active=0 on a backend that cannot bake (supported=0)
+ *   mipmaps <line>                       one line of TextureMipsConsole_Run output per marker, from
+ *                                        `agenttest mipmaps [status|on|off]`: `op=<sub> result=ok active=<0|1>
+ *                                        setting=<0|1> supported=<0|1> lists=<n> addrs=<n> mipped=<n>
+ *                                        filter=<three_point|linear|none>` (sturdy-bassoon#146). on/off here
+ *                                        switch for the session only; the human `mipmaps` also saves setting=
  *   quest <line>                         one line of QuestConsole_Run output per marker, from
  *                                        "agenttest quest ..." (sturdy-bassoon#58 P1): the Describe line
  *                                        `id=<n> name=<s> tier=<s> status=<s> steps=0x<mask>/<count>
@@ -450,6 +455,7 @@
 #include "soh/Enhancements/rs/warps/WarpConsole.h"
 #include "soh/Enhancements/rs/menu/MenuConsole.h"
 #include "soh/Enhancements/staticbake/StaticBakeConsole.h"
+#include "soh/Enhancements/texturemips/TextureMipsConsole.h"
 #include "AgentTest.h"
 #include "soh/ActorDB.h"
 #include "soh/ShipInit.hpp"
@@ -2147,6 +2153,12 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(StaticBakeConsole_RunSession, sub, "staticbake ", output, WriteMarker);
     }
+    // Mipmaps for the mod's own scene textures (sturdy-bassoon#146), the same arrangement: on/off
+    // switch for the session only, so a with/without picture A/B happens at one camera.
+    if (args.size() >= 2 && args[1] == "mipmaps") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(TextureMipsConsole_RunSession, sub, "mipmaps ", output, WriteMarker);
+    }
     if (args.size() >= 2 && args[1] == "mark") {
         std::string text;
         for (size_t i = 2; i < args.size(); i++) {
@@ -2178,7 +2190,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|fadein <s>|"
               "baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
             "kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|sort on|off] | "
-            "save <fileNum> | loadsave <fileNum> | mark <text>";
+            "mipmaps [status|on|off] | save <fileNum> | loadsave <fileNum> | mark <text>";
     }
     return 1;
 }
@@ -2218,7 +2230,7 @@ void RegisterAgentTest() {
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|"
               "fadein <s>|baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
               "kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|sort on|off] | "
-              "save <fileNum> | loadsave <fileNum> | mark <text>. "
+              "mipmaps [status|on|off] | save <fileNum> | loadsave <fileNum> | mark <text>. "
               "walk/press inject controller 1 for N frames and end with an input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });
     }
