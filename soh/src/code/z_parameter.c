@@ -6918,6 +6918,14 @@ void Interface_Update(PlayState* play) {
             }
         } else if ((play->roomCtx.curRoom.behaviorType1 != ROOM_BEHAVIOR_TYPE1_1) &&
                    (interfaceCtx->restrictions.sunsSong != 3)) {
+            // sturdy-bassoon#159: in our compiled-in scenes the time changes where Link stands, behind a
+            // fade, instead of reloading the scene at its spawn (rs/time/SunsSong.h). This is the end of
+            // Interface_Update, so returning skips only the reload below.
+            if (!GameInteractor_Should(VB_SUNS_SONG_RELOAD_SCENE, true, play)) {
+                gSaveContext.sunsSongState = SUNSSONG_INACTIVE;
+                return;
+            }
+
             if ((gSaveContext.dayTime >= 0x4555) && (gSaveContext.dayTime < 0xC001)) {
                 gSaveContext.nextDayTime = 0;
                 play->transitionType = TRANS_TYPE_FADE_BLACK_FAST;

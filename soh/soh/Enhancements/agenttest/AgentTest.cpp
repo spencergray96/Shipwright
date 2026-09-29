@@ -213,6 +213,16 @@
  *   rs_warp <line>                       one line of RsWarpConsole_Run output per marker, from
  *                                        `agenttest warps ...` - `op=...`, an indexed row, or a quoted
  *                                        `last_*="..."`, never `tile=<n> event=...`
+ *   rs_suns event=<begin|swap|done|abort> ...
+ *                                        the Sun's Song changing the time in place in a custom scene
+ *                                        (sturdy-bassoon#159, rs/time/SunsSong.h): `begin` (scene=, from=, to=,
+ *                                        fill=, pos=), `swap` (time=, night=, total_days=), `done` (ticks=, time=,
+ *                                        pos=), or `abort reason=scene_changed`. begin's and done's pos=
+ *                                        agreeing is the "no teleport" claim. No rs_suns line after the song
+ *                                        means vanilla reloaded the scene. Gameplay markers, in every session
+ *   display window=<w>x<h> render=<w>x<h> aspect=<f> adv_res=<0|1> adv_aspect=<x>:<y> low_res=<n>
+ *                                        from "agenttest display" (sturdy-bassoon#139): the OS window against
+ *                                        the frame the game renders; aspect= is the game's, not the window's
  *   rs_quest quest=<n> event=on_complete a quest's optional completion callback ran (D12). It runs after the
  *                                        declarative rewards with the status already COMPLETE, so counting
  *                                        these markers is how a run proves a reward fired exactly once
@@ -260,6 +270,12 @@
  *                                          nightFlag by the engine's own threshold (night when > 0xC000 or
  *                                          < 0x4555). Presets dawn=0x4000, day=0x8000, dusk=0xC001, night=0;
  *                                          value is 0..65535, decimal or 0x-hex. Emits a state marker
+ *   agenttest sunssong                     finish a Sun's Song without the ocarina: sets sunsSongState to START,
+ *                                          as Oceff_Spot does, and the next Interface_Update takes it from there -
+ *                                          in place in a custom scene (rs_suns markers), by reload elsewhere.
+ *                                          Refused (rc=1) outside normal play
+ *   agenttest display                      one "display" marker: window size, render size, the game's aspect and
+ *                                          the resolution settings that decide it (sturdy-bassoon#139)
  *   agenttest trace <ticks>                emit a "trace" marker pair (pre/post) around each of the next N game
  *                                          ticks (0 cancels, max MAX_TRACE_TICKS). The tick the command lands in
  *                                          contributes its post only. Diagnostic for teleport/movement bugs
@@ -423,6 +439,7 @@
 #include <spdlog/spdlog.h>
 #include <ship/Context.h>
 #include <ship/debug/Console.h>
+#include <ship/window/Window.h>
 #include <fast/PerfCounters.h>
 #include <libultraship/bridge/consolevariablebridge.h>
 #include "soh/OTRGlobals.h"
@@ -463,8 +480,10 @@ extern "C" {
 #include "macros.h"
 extern PlayState* gPlayState;
 void Sram_InitDebugSave(void);
-// OTRGlobals.h declares this only for C (#ifndef __cplusplus); the definition is extern "C".
+// OTRGlobals.h declares these only for C (#ifndef __cplusplus); the definitions are extern "C".
 float OTRGetAspectRatio(void);
+uint32_t OTRGetGameRenderWidth(void);
+uint32_t OTRGetGameRenderHeight(void);
 }
 
 #ifdef _WIN32
@@ -1631,6 +1650,40 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         gSaveContext.nightFlag = (gSaveContext.dayTime > 0xC000 || gSaveContext.dayTime < 0x4555) ? 1 : 0;
         return EmitState(output);
     }
+    if (args.size() >= 2 && args[1] == "sunssong") {
+        // What Oceff_Spot does when the song's effect finishes: the next Interface_Update takes the song
+        // from there, in place in a custom scene (rs/time/SunsSong.h, sturdy-bassoon#159) and by reload
+        // elsewhere. Only the ocarina itself is skipped.
+        if (!InNormalPlay()) {
+            if (output) {
+                *output += "sunssong needs normal play";
+            }
+            return 1;
+        }
+        gSaveContext.sunsSongState = SUNSSONG_START;
+        if (output) {
+            *output += "sunssong armed (sunsSongState=START); see rs_suns markers";
+        }
+        return 0;
+    }
+    if (args.size() >= 2 && args[1] == "display") {
+        // The window against the frame the game renders into (sturdy-bassoon#139): a 4:3 frame in a 16:9
+        // window is what the resolution settings decide, and a capture of the window cannot tell them apart.
+        auto window = Ship::Context::GetRawInstance()->GetWindow();
+        char buf[256];
+        std::snprintf(buf, sizeof(buf),
+                      "display window=%ux%u render=%ux%u aspect=%.3f adv_res=%d adv_aspect=%g:%g low_res=%d",
+                      window->GetWidth(), window->GetHeight(), OTRGetGameRenderWidth(), OTRGetGameRenderHeight(),
+                      OTRGetAspectRatio(), CVarGetInteger(CVAR_PREFIX_ADVANCED_RESOLUTION ".Enabled", 0),
+                      CVarGetFloat(CVAR_PREFIX_ADVANCED_RESOLUTION ".AspectRatioX", 16.0f),
+                      CVarGetFloat(CVAR_PREFIX_ADVANCED_RESOLUTION ".AspectRatioY", 9.0f),
+                      CVarGetInteger(CVAR_LOW_RES_MODE, 0));
+        WriteMarker(buf);
+        if (output) {
+            *output += buf;
+        }
+        return 0;
+    }
     if (args.size() >= 3 && args[1] == "trace") {
         int32_t ticks = 0;
         if (!ParseInt(args[2], &ticks) || ticks < 0 || ticks > MAX_TRACE_TICKS) {
@@ -2156,7 +2209,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         *output +=
             "usage: agenttest perf <ticks> | state | goto <x> <y> <z> [yaw] | "
             "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | look <frames> [rx] [ry] | "
-            "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | "
+            "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | sunssong | display | "
+            "trace <ticks> | "
             "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
             "roomdist [hysteresis]|off | uncull | kill <actor> | sceneflag <sceneId> [value] | "
             "worldflag count|<n> [0|1] | "
@@ -2196,7 +2250,8 @@ void RegisterAgentTest() {
             { AgentTestCommand,
               "Agent test loop: perf <ticks> | state | goto <x> <y> <z> [yaw] | "
               "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | look <frames> [rx] [ry] | "
-              "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | trace <ticks> | "
+              "press <BUTTONS> [frames] | rooms | time <dawn|day|dusk|night|value> | sunssong | display | "
+              "trace <ticks> | "
               "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
               "roomdist [hysteresis]|off | uncull | kill <actor> | sceneflag <sceneId> [value] | "
               "worldflag count|<n> [0|1] | "

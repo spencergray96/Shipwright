@@ -40,6 +40,7 @@
 #include "Enhancements/randomizer/static_data.h"
 #include "soh/Enhancements/randomizer/settings.h"
 #include "soh/Enhancements/savestates.h"
+#include "soh/Enhancements/rs/display/DisplayDefaults.h"
 #include "frame_interpolation.h"
 #include "SohGui/SohMenu.h"
 #include "SohGui/SohGui.hpp"
@@ -309,6 +310,9 @@ OTRGlobals::OTRGlobals() {
         std::make_shared<SohInputEditorWindow>(CVAR_WINDOW("ControllerConfiguration"), "Configure Controller");
     sohFast3dWindow =
         std::make_shared<Fast::Fast3dWindow>(std::vector<std::shared_ptr<Ship::GuiWindow>>({ sohInputEditorWindow }));
+    // sturdy-bassoon#139: a fresh install's first window is 16:9, not libultraship's 640x480. The window
+    // reads its size from the config once, here, so the default has to be in the config before this.
+    RsDisplay_ApplyWindowDefaults();
     context->InitWindow(sohFast3dWindow);
 
     // Fast3D's texture-path memo (libultraship #1175), off in libultraship by default. Without it every

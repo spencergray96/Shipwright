@@ -1832,6 +1832,18 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // true
+    // ```
+    // Whether a finished Sun's Song in a time-still scene reloads the scene at the other end of the day
+    // (Interface_Update), once the room and scene restrictions have allowed the song. False means
+    // something else has taken the song over; the caller then clears sunsSongState. rs/time/SunsSong.cpp
+    // answers false in compiled-in custom scenes and changes the time in place (sturdy-bassoon#159).
+    // #### `args`
+    // - `*PlayState`
+    VB_SUNS_SONG_RELOAD_SCENE,
+
+    // #### `result`
+    // ```c
     // false
     // ```
     // #### `args`
