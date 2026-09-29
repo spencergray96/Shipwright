@@ -2128,8 +2128,17 @@ void AudioOcarina_PlaybackSong(void) {
                     Audio_StopSfxById(NA_SE_OC_OCARINA);
                 }
                 return;
-            } else {
+            } else if (nextNoteTimerStep <= sPlaybackNoteTimer) {
                 sPlaybackNoteTimer -= nextNoteTimerStep;
+            } else {
+                // SOH [sturdy-bassoon#162]: the step overran this note too, and the unsigned subtraction
+                // wrapped the timer to ~4 billion ticks, so the playback sat on this note for good: the
+                // staff stopped part-way, and a song that waits for its playback never closed the ocarina.
+                // SoH's audio thread keeps its own clock, so any game-thread hitch of a few hundred ms
+                // arrives here as one big step. End the note on the next update instead and drop the rest
+                // of the gap: the playback resumes at its normal pace one note later, still moving the
+                // staff one note per update, which is all the message staff can copy.
+                sPlaybackNoteTimer = 1;
             }
 
             // Update volume
