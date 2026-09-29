@@ -20,6 +20,7 @@
 #include "soh/resource/type/scenecommand/SetMesh.h"
 #include "soh/resource/type/scenecommand/SetObjectList.h"
 #include "soh/resource/type/scenecommand/SetLightList.h"
+#include "soh/resource/type/scenecommand/SetLightingSettings.h"
 #include "soh/resource/type/scenecommand/SetPathways.h"
 #include "soh/resource/type/scenecommand/SetTransitionActorList.h"
 #include "soh/resource/type/scenecommand/SetSkyboxSettings.h"
@@ -220,7 +221,12 @@ bool Scene_CommandTransitionActorList(PlayState* play, SOH::ISceneCommand* cmd) 
 //}
 
 bool Scene_CommandLightSettingsList(PlayState* play, SOH::ISceneCommand* cmd) {
+    SOH::SetLightingSettings* cmdLightSettings = (SOH::SetLightingSettings*)cmd;
+
     play->envCtx.lightSettingsList = (EnvLightSettings*)cmd->GetRawPointer();
+    // Vanilla's command sets the count too (z_scene.c). Without it the scene kept the previous scene's
+    // count, which is what z_kankyo.c's own "palette setting" range checks read (sturdy-bassoon#164).
+    play->envCtx.numLightSettings = static_cast<u8>(cmdLightSettings->settings.size());
 
     return false;
 }
