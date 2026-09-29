@@ -725,7 +725,10 @@ void Menu::DrawElement() {
         if (headerIndex != label) {
             ImGui::PushStyleColor(ImGuiCol_Button, { 0, 0, 0, 0 });
         }
-        if (ModernMenuHeaderEntry(entry.label)) {
+        const bool headerPressed = ModernMenuHeaderEntry(entry.label);
+        ImGuiProbe::Item("header", entry.label.c_str(), headerIndex == label ? 1 : 0, false);
+        if (headerPressed) {
+            ImGuiProbe::Edited("header", entry.label.c_str(), 1);
             if (headerSearch) {
                 menuSearch.Clear();
             }
@@ -855,7 +858,10 @@ void Menu::DrawElement() {
         if (sectionIndex != sidebarLabel) {
             ImGui::PushStyleColor(ImGuiCol_Button, { 0, 0, 0, 0 });
         }
-        if (ModernMenuSidebarEntry(sidebarLabel)) {
+        const bool sidebarPressed = ModernMenuSidebarEntry(sidebarLabel);
+        ImGuiProbe::Item("sidebar", sidebarLabel.c_str(), sectionIndex == sidebarLabel ? 1 : 0, false);
+        if (sidebarPressed) {
+            ImGuiProbe::Edited("sidebar", sidebarLabel.c_str(), 1);
             if (headerSearch) {
                 menuSearch.Clear();
             }
