@@ -2,11 +2,10 @@
 REM Build the Release configuration - the timing build - and make x64\Release runnable.
 REM
 REM Any frame-rate number worth quoting comes from Release; Debug is several times slower. The
-REM build writes soh.exe (and, as a post-build step, assets\) into x64\Release, but not the archives
-REM or config the game needs beside it, so those are copied over from x64\Debug. A file already in
-REM x64\Release is left alone - its shipofharkinian.json is its own, and settings changed in a
-REM Release session survive a rebuild - except soh.o2r, which is refreshed whenever x64\Debug has a
-REM newer one: a stale archive draws missing textures as garbage.
+REM build writes soh.exe, soh.o2r (regenerated on every build, sturdy-bassoon#146) and, as a
+REM post-build step, assets\ into x64\Release, but not oot.o2r or the config the game needs beside
+REM it, so those are copied over from x64\Debug. A file already in x64\Release is left alone - its
+REM shipofharkinian.json is its own, and settings changed in a Release session survive a rebuild.
 REM
 REM Node reuse is off because Release builds have hung with it on. When to reconfigure first, and
 REM everything else: sturdy-bassoon docs\BUILD_GUIDE.md, "When to run which" and "Release builds".
@@ -26,17 +25,10 @@ if not exist "x64\Debug\oot.o2r" (
     pause
     exit /b 1
 )
-if not exist "x64\Debug\soh.o2r" (
-    echo.
-    echo BUILD SUCCEEDED, but x64\Debug has no soh.o2r to copy from - run generate-assets.bat, then this again.
-    pause
-    exit /b 1
-)
 
 for %%F in (oot.o2r gamecontrollerdb.txt shipofharkinian.json imgui.ini) do (
     if not exist "x64\Release\%%F" if exist "x64\Debug\%%F" copy "x64\Debug\%%F" "x64\Release\%%F" >nul
 )
-xcopy /D /Y /Q "x64\Debug\soh.o2r" "x64\Release\" >nul
 REM The build's post-build step writes assets\, but only when soh.exe is relinked.
 if not exist "x64\Release\assets" xcopy /E /I /Q "x64\Debug\assets" "x64\Release\assets" >nul
 
@@ -57,7 +49,7 @@ if not exist "x64\Release\oot.o2r" (
 )
 if not exist "x64\Release\soh.o2r" (
     echo.
-    echo BUILD SUCCEEDED, but copying soh.o2r into x64\Release FAILED - the game would draw garbage
+    echo BUILD SUCCEEDED, but the build left no soh.o2r in x64\Release - the game would draw garbage
     pause
     exit /b 1
 )

@@ -406,13 +406,14 @@ function Invoke-SohReconfigure {
 function Invoke-SohAssets {
     <#
     .SYNOPSIS
-    Regenerate soh.o2r and copy it next to soh.exe. Only needed after changing
-    something under soh/assets/custom/.
+    Regenerate soh.o2r and copy it next to soh.exe, without building.
 
     .DESCRIPTION
-    The copy is not optional and no build step does it: soh.exe runs from x64\Debug
-    and searches its own directory. Skipping it does not fall back to the old
-    texture - the renderer draws garbage. See docs/reference/ASSET_PIPELINE.md.
+    Invoke-SohBuild already does this: every build regenerates the archive and copies
+    it beside the exe (the SohOtrBesideExe target, sturdy-bassoon#146), for asset and
+    Fast3D shader edits alike. This is for refreshing the archive without a build.
+    soh.exe reads the archive from its own directory only; a stale one draws garbage
+    textures or old shaders. See docs/reference/ASSET_PIPELINE.md.
     #>
     [CmdletBinding()]
     param(

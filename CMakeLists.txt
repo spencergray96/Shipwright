@@ -329,6 +329,43 @@ target_compile_options(libultraship PRIVATE "${WARNING_OVERRIDE}")
 target_compile_definitions(libultraship PUBLIC INCLUDE_MPQ_SUPPORT)
 add_subdirectory(soh)
 
+# Keep soh.o2r beside soh.exe on every build (sturdy-bassoon#146). The game reads the archive from
+# its own folder, and GenerateSohOtr alone writes it only to build/ and the repo root - so an edit
+# under soh/assets/custom/, or to a Fast3D shader (the shaders are compiled at runtime from the
+# archive), used to need a manual regenerate and copy, and a missed copy drew stale shaders or
+# garbage textures.
+#
+# The archive is repacked only when one of its inputs changed (or the packer did): the packer's
+# output is not byte-identical run to run, and the game keeps soh.o2r open for its whole session
+# without stopping writers, so rewriting it under a running game would corrupt that game's reads.
+# With the inputs unchanged the build archive is untouched and the copy below is a no-op. The glob
+# is re-checked every build, so a new asset file counts. GenerateSohOtr still forces a repack.
+file(GLOB_RECURSE SOH_OTR_INPUTS CONFIGURE_DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/custom/*
+    ${CMAKE_CURRENT_SOURCE_DIR}/libultraship/src/fast/shaders/*)
+# The packer's own copy of the shaders is an output, not an input.
+list(FILTER SOH_OTR_INPUTS EXCLUDE REGEX "/soh/assets/custom/shaders/")
+add_custom_command(
+    OUTPUT ${CMAKE_BINARY_DIR}/soh/soh.o2r.stamp
+    COMMAND ${CMAKE_COMMAND} -E rm -r -f ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/custom/shaders/
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/libultraship/src/fast/shaders/ ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/custom/shaders/
+    COMMAND $<TARGET_FILE:soh-o2r-packer>
+            ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/custom
+            ${CMAKE_BINARY_DIR}/soh/soh.o2r
+            ${CMAKE_PROJECT_VERSION}
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_BINARY_DIR}/soh/soh.o2r ${CMAKE_CURRENT_SOURCE_DIR}/soh.o2r
+    COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_BINARY_DIR}/soh/soh.o2r.stamp
+    DEPENDS soh-o2r-packer ${SOH_OTR_INPUTS}
+    COMMENT "Assets or shaders changed: regenerating soh.o2r..."
+)
+add_custom_target(
+    SohOtrBesideExe ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_BINARY_DIR}/soh/soh.o2r $<TARGET_FILE_DIR:soh>/soh.o2r
+    DEPENDS ${CMAKE_BINARY_DIR}/soh/soh.o2r.stamp
+    COMMENT "Checking soh.o2r beside soh.exe..."
+)
+add_dependencies(SohOtrBesideExe soh)
+
 set_property(TARGET soh PROPERTY APPIMAGE_DESKTOP_FILE_TERMINAL YES)
 set_property(TARGET soh PROPERTY APPIMAGE_DESKTOP_FILE "${CMAKE_SOURCE_DIR}/scripts/linux/appimage/soh.desktop")
 set_property(TARGET soh PROPERTY APPIMAGE_ICON_FILE "${CMAKE_BINARY_DIR}/sohIcon.png")
