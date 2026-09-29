@@ -253,12 +253,14 @@
  *                                        by a scene change (unless "agenttest keepinput" was armed for
  *                                        it), or by `song` giving up on the ocarina ever
  *                                        taking notes (sturdy-bassoon#161)
- *   input_suspended reason=<transition|pause> frames_left=<n> buttons=<list|none>
- *   input_resumed frames_left=<n> buttons=<list|none>
+ *   input_suspended reason=<transition|pause> frames_left=<n> buttons=<list|none> game_press=0x<h> game_rel=0x<h>
+ *   input_resumed frames_left=<n> buttons=<list|none> game_press=0x<h> game_rel=0x<h>
  *                                        a walk/press/look stopped counting frames mid-way (a transition, or
  *                                        vanilla pause without kaleidoinput) and started again. Its buttons
  *                                        stay held for the edges across the gap: no release, no second press
- *                                        (sturdy-bassoon#161). Once per gap, never per frame
+ *                                        (sturdy-bassoon#161). game_press/game_rel are the edges game code got
+ *                                        that tick (gameState->input[0]) - the proof: neither may hold the
+ *                                        injection's buttons. Once per gap, never per frame
  *   stats rolls=<n> sword_swings=<n>     from "agenttest stats": SoH's own gameplay counters (the Stats window)
  *   hold buttons=<list|none> [reason=scene_change]
  *                                        from "agenttest hold": the buttons now held under every injection
@@ -608,6 +610,9 @@ constexpr int32_t kListenWaitFrames = 5 * 20;
 bool sInputCountsInPause = false;
 // An injection in flight whose last frame did not count (pause, transition): see InjectPad.
 bool sInputSuspended = false;
+// input_suspended/input_resumed, queued by InjectPad and written by OnGameStateMainStart the same frame,
+// once the edges game code received are known.
+std::string sEdgeMarker;
 // The last pitch OnOcarinaNote reported, so the ocarina_note marker fires once per note, not per frame.
 uint8_t sLastOcarinaPitch = OCARINA_PITCH_NONE;
 // `agenttest kaleidoinput on`: injected frames also count while kaleido is up. Session state, cleared on
@@ -1164,6 +1169,17 @@ void OnGameStateMainStartAgentTest() {
     }
     sTickStart = std::chrono::steady_clock::now();
     sTickStarted = true;
+    // The suspend/resume line InjectPad queued this frame, finished with the edges game code actually
+    // received from it: gameState->input[0] was filled from the pad manager a moment ago. A resumed
+    // injection must show no fresh press of its own buttons, a suspended one no release.
+    if (!sEdgeMarker.empty() && InNormalPlay()) {
+        const Input& in = gPlayState->state.input[0];
+        char edges[48];
+        std::snprintf(edges, sizeof(edges), " game_press=0x%04X game_rel=0x%04X",
+                      static_cast<unsigned>(in.press.button & 0xFFFF), static_cast<unsigned>(in.rel.button & 0xFFFF));
+        WriteMarker(sEdgeMarker + edges);
+    }
+    sEdgeMarker.clear();
 }
 
 std::string DescribeButtons(CONTROLLERBUTTONS_T mask);
@@ -1214,10 +1230,10 @@ void InjectPad(Input* input) {
         if (sInputSchedule.empty()) {
             input->prev.button &= ~sInputButtons;
             if (!sInputSuspended) {
-                WriteMarker(std::string("input_suspended reason=") +
+                sEdgeMarker = std::string("input_suspended reason=") +
                             (gPlayState->transitionTrigger != TRANS_TRIGGER_OFF ? "transition" : "pause") +
                             " frames_left=" + std::to_string(sInputFramesLeft) +
-                            " buttons=" + DescribeButtons(sInputButtons));
+                              " buttons=" + DescribeButtons(sInputButtons);
             }
             sInputSuspended = true;
         }
@@ -1228,8 +1244,8 @@ void InjectPad(Input* input) {
             input->prev.button |= sInputButtons;
         }
         sInputSuspended = false;
-        WriteMarker("input_resumed frames_left=" + std::to_string(sInputFramesLeft) +
-                    " buttons=" + DescribeButtons(sInputButtons));
+        sEdgeMarker = "input_resumed frames_left=" + std::to_string(sInputFramesLeft) +
+                      " buttons=" + DescribeButtons(sInputButtons);
     }
     if (!sInputSchedule.empty()) {
         // `song`'s gate: the note schedule waits here, uncounted, until the ocarina is out and listening.
