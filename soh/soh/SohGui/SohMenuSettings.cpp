@@ -399,7 +399,9 @@ void SohMenu::AddMenuSettings() {
     AddWidget(path, "Match Refresh Rate", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_SETTING("MatchRefreshRate"))
         .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip("Matches interpolation value to the refresh rate of your display."));
+        .Options(CheckboxOptions()
+                     .Tooltip("Matches interpolation value to the refresh rate of your display.")
+                     .DefaultValue(true));
     AddWidget(path, "Renderer API (Needs reload)", WIDGET_VIDEO_BACKEND).RaceDisable(false);
     AddWidget(path, "Enable Vsync", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_VSYNC_ENABLED)
