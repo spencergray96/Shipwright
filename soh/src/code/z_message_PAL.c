@@ -137,6 +137,17 @@ void Message_ResetOcarinaNoteState(void) {
     }
 }
 
+// SoH [agenttest] (sturdy-bassoon#162): what the ocarina staff is showing - the notes in the buffer
+// Message_DrawMain draws (up to the first OCARINA_BTN_INVALID), and the draw's own cursor into it,
+// which it compares with the audio staff's pos to decide when to copy the next note in.
+void Message_GetOcarinaStaffShown(s32* shown, s32* bufPos) {
+    s32 i;
+
+    for (i = 0; i < 8 && sOcarinaButtonIndexBuf[i] != OCARINA_BTN_INVALID; i++) {}
+    *shown = i;
+    *bufPos = sOcarinaButtonIndexBufPos;
+}
+
 void Message_UpdateOcarinaGame(PlayState* play) {
     MessageContext* msgCtx = &play->msgCtx;
 

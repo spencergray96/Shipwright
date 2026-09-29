@@ -141,6 +141,17 @@
  *                                        prevPos, velocity, bgCheckFlags, floor height, state flags, anim movement
  *                                        flags, transition trigger and the void-out respawn point. "pre" is taken
  *                                        before the game tick runs, "post" after it (and after command consumption)
+ *   octrace frame=<n> msg=<n> ocmode=<n> act=<n> song=<n> suns=<n> pb=<pos>,<state>,<btn> shown=<n> buf=<n>
+ *         task=<n> eff=0x<id> trans=<n> time=0x<hex> speed=<n>
+ *                                        per-tick ocarina diagnostic while "agenttest octrace" is active
+ *                                        (sturdy-bassoon#162): message mode, ocarina mode and action, the song
+ *                                        played, sunsSongState, the audio playback staff, the notes the message
+ *                                        staff draws (shown) and its cursor (buf), the audio task count, the song
+ *                                        effect actor alive (0 if none), the transition trigger, dayTime and
+ *                                        gTimeSpeed. Taken after the tick's draw, before its Audio_Update
+ *   ocstall ms=<n> at=<n> pb=<pos>,<state> task=<n>
+ *                                        "agenttest ocstall" just held the game thread for ms, at=<n> ticks into
+ *                                        a song's playback (sturdy-bassoon#162); pb/task are read before the hold
  *   fog mode=override near=<n> far=<n> / fog mode=scene
  *                                        echoed from "agenttest fog"; between these, the perf marker's fog=
  *                                        field carries whatever band is actually live
@@ -335,6 +346,13 @@
  *   agenttest trace <ticks>                emit a "trace" marker pair (pre/post) around each of the next N game
  *                                          ticks (0 cancels, max MAX_TRACE_TICKS). The tick the command lands in
  *                                          contributes its post only. Diagnostic for teleport/movement bugs
+ *   agenttest octrace <ticks>              emit one "octrace" marker after each of the next N game ticks (0
+ *                                          cancels, max MAX_TRACE_TICKS). Arm it BEFORE `song`: no command is
+ *                                          read while a song's notes are being injected
+ *   agenttest ocstall <ms> <tick> | off    once, <tick> ticks into the next song playback (MSGMODE_DISPLAY_SONG_
+ *                                          PLAYED), hold the game thread for <ms> (1..2000) while the audio
+ *                                          thread keeps running: the hitch that ends a playback early
+ *                                          (sturdy-bassoon#162). Arm it before `song`, like octrace
  *   agenttest cutscene <index> | off       arm the NEXT scene load to enter on a cutscene layer, the way a scene
  *                                          whose opening is a cutscene does. index is 0xFFF0..0xFFFF (0..15 is
  *                                          accepted as the layer number and offset for you). "off" clears both
@@ -498,6 +516,7 @@
 #include <string>
 #include <vector>
 #include <chrono>
+#include <thread>
 #include <ctime>
 #include <cstdio>
 #include <cstdlib>
@@ -559,6 +578,8 @@ uint32_t OTRGetGameRenderHeight(void);
 // code_800EC960.c, SoH [agenttest] (sturdy-bassoon#161).
 CONTROLLERBUTTONS_T AudioOcarina_GetNoteButton(u8 ocarinaBtnIndex);
 s32 AudioOcarina_IsListening(void);
+// z_message_PAL.c, SoH [agenttest] (sturdy-bassoon#162).
+void Message_GetOcarinaStaffShown(s32* shown, s32* bufPos);
 }
 
 #ifdef _WIN32
@@ -580,6 +601,7 @@ constexpr uint32_t POLL_INTERVAL = 10; // game ticks between command-file polls 
 constexpr int32_t DEFAULT_PERF_INTERVAL = 60;
 constexpr int32_t MAX_INPUT_FRAMES = 20 * 60; // one minute of injected input; command channel is blocked meanwhile
 constexpr int32_t MAX_TRACE_TICKS = 400;      // 20 s of trace markers, two lines per tick
+constexpr int32_t MAX_OCSTALL_MS = 2000;      // "agenttest ocstall": the longest hold it will inject
 // "agenttest fog" bounds. Near is fog-space (0..1000 across zNear..zFar; the engine's scene path
 // clamps at 996, so 1000 = band collapsed to the far plane). Far is world units and the far clip;
 // 12800 is the engine's own scene-path ceiling (z_kankyo.c) and 100 comfortably clears zNear.
@@ -648,6 +670,10 @@ CONTROLLERBUTTONS_T sDeferredButtons = 0;
 int32_t sDeferredAtFramesLeft = 0;
 bool sReady = false;             // true from the first Player update after the latest OnSceneInit
 int32_t sTraceTicksLeft = 0;     // while > 0, emit a trace marker pair (pre/post) around every game tick
+int32_t sOcTraceTicksLeft = 0;   // while > 0, emit an octrace marker after every game tick (sturdy-bassoon#162)
+int32_t sOcStallMs = 0;          // "agenttest ocstall": hold the game thread this long, once (sturdy-bassoon#162)
+int32_t sOcStallAt = 0;          // ... this many ticks into the next song playback
+int32_t sOcPlaybackTicks = -1;   // ticks spent in MSGMODE_DISPLAY_SONG_PLAYED so far, -1 outside it
 int32_t sPerfInterval = DEFAULT_PERF_INTERVAL;
 uint32_t sTickCounter = 0;
 std::streamoff sConsumedBytes = 0;
@@ -1076,6 +1102,58 @@ void EmitTrace(const char* phase) {
     WriteMarker(buf);
 }
 
+// One line of the ocarina's state per tick, for timing a song's playback against its effect
+// (sturdy-bassoon#162). It runs from OnGameFrameUpdate: after the tick's draw, which is where
+// Message_DrawMain copies notes onto the staff, and before graph.c's Audio_Update advances the
+// playback staff - so pb= is the staff the draw just read and shown=/buf= are what it made of it.
+void EmitOcTrace() {
+    const MessageContext& msg = gPlayState->msgCtx;
+    const OcarinaStaff* pb = AudioOcarina_GetPlaybackStaff();
+    s32 shown = 0;
+    s32 bufPos = 0;
+    Message_GetOcarinaStaffShown(&shown, &bufPos);
+    // The song effect actor Message_DrawMain spawns (sOcarinaEffectActorIds), if one is alive.
+    int32_t effect = 0;
+    for (Actor* a = gPlayState->actorCtx.actorLists[ACTORCAT_ITEMACTION].head; a != nullptr; a = a->next) {
+        if (a->id == ACTOR_OCEFF_SPOT || a->id == ACTOR_OCEFF_STORM || a->id == ACTOR_OCEFF_WIPE ||
+            a->id == ACTOR_OCEFF_WIPE2 || a->id == ACTOR_OCEFF_WIPE3 || a->id == ACTOR_OCEFF_WIPE4) {
+            effect = a->id;
+            break;
+        }
+    }
+    char buf[256];
+    std::snprintf(buf, sizeof(buf),
+                  "octrace frame=%u msg=%d ocmode=%d act=%d song=%d suns=%d pb=%d,%d,%d shown=%d buf=%d task=%d "
+                  "eff=0x%X trans=%d time=0x%04X speed=%d",
+                  gPlayState->state.frames, msg.msgMode, msg.ocarinaMode, msg.ocarinaAction, msg.lastPlayedSong,
+                  gSaveContext.sunsSongState, pb->pos, pb->state, pb->buttonIndex, shown, bufPos,
+                  gAudioContext.totalTaskCnt, static_cast<unsigned>(effect), gPlayState->transitionTrigger,
+                  static_cast<unsigned>(gSaveContext.dayTime), gTimeSpeed);
+    WriteMarker(buf);
+}
+
+// "agenttest ocstall": a game-thread hitch on demand, placed by the playback's own clock. The audio
+// thread is paced by the output device, not by the game, so it keeps producing through the hold and
+// the next AudioOcarina_Update sees the whole gap as one step - which is what a load hitch does to a
+// playback in SoH, and what ended #162's playbacks early.
+void MaybeOcStall() {
+    if (gPlayState->msgCtx.msgMode != MSGMODE_DISPLAY_SONG_PLAYED) {
+        sOcPlaybackTicks = -1;
+        return;
+    }
+    sOcPlaybackTicks++;
+    if (sOcStallMs <= 0 || sOcPlaybackTicks != sOcStallAt) {
+        return;
+    }
+    const OcarinaStaff* pb = AudioOcarina_GetPlaybackStaff();
+    char buf[96];
+    std::snprintf(buf, sizeof(buf), "ocstall ms=%d at=%d pb=%d,%d task=%d", sOcStallMs, sOcStallAt, pb->pos,
+                  pb->state, gAudioContext.totalTaskCnt);
+    std::this_thread::sleep_for(std::chrono::milliseconds(sOcStallMs));
+    sOcStallMs = 0;
+    WriteMarker(buf);
+}
+
 // The event rings gameplay prototypes record into instead of doing file I/O of their own, which is
 // what keeps the marker channel this file's. They must be drained in EVERY session, not only in agent
 // mode: the zone director's ring holds seven unread events and discards everything after that, so
@@ -1168,6 +1246,14 @@ void OnGameFrameUpdateAgentTest() {
     if (sTraceTicksLeft > 0 && InNormalPlay()) {
         EmitTrace("post");
         sTraceTicksLeft--;
+    }
+    if (sOcTraceTicksLeft > 0 && InNormalPlay()) {
+        EmitOcTrace();
+        sOcTraceTicksLeft--;
+    }
+    // After the octrace line, so the tick the hold lands in reads as it was before the hold.
+    if (InNormalPlay()) {
+        MaybeOcStall();
     }
 }
 
@@ -1626,7 +1712,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     if (args.size() >= 2 &&
         (args[1] == "state" || args[1] == "goto" || args[1] == "walk" || args[1] == "look" || args[1] == "press" ||
          args[1] == "rooms" || args[1] == "camclear" ||
-         args[1] == "time" || args[1] == "trace" || args[1] == "fog" || args[1] == "uncull" ||
+         args[1] == "time" || args[1] == "trace" || args[1] == "octrace" || args[1] == "ocstall" ||
+         args[1] == "fog" || args[1] == "uncull" ||
          args[1] == "kill" || args[1] == "ocarina" || args[1] == "song") &&
         !InNormalPlay()) {
         if (output) {
@@ -2097,6 +2184,43 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         sTraceTicksLeft = ticks;
         if (output) {
             *output += "tracing " + std::to_string(ticks) + " ticks (pre/post markers per tick)";
+        }
+        return 0;
+    }
+    if (args.size() >= 3 && args[1] == "octrace") {
+        int32_t ticks = 0;
+        if (!ParseInt(args[2], &ticks) || ticks < 0 || ticks > MAX_TRACE_TICKS) {
+            if (output) {
+                *output += "octrace needs a tick count in 0.." + std::to_string(MAX_TRACE_TICKS) + " (0 cancels)";
+            }
+            return 1;
+        }
+        sOcTraceTicksLeft = ticks;
+        if (output) {
+            *output += "ocarina-tracing " + std::to_string(ticks) + " ticks (one octrace marker per tick)";
+        }
+        return 0;
+    }
+    if (args.size() >= 3 && args[1] == "ocstall") {
+        int32_t ms = 0;
+        int32_t at = 0;
+        if (args[2] == "off") {
+            sOcStallMs = 0;
+        } else if (args.size() >= 4 && ParseInt(args[2], &ms) && ms >= 1 && ms <= MAX_OCSTALL_MS &&
+                   ParseInt(args[3], &at) && at >= 0 && at <= MAX_TRACE_TICKS) {
+            sOcStallMs = ms;
+            sOcStallAt = at;
+        } else {
+            if (output) {
+                *output += "ocstall needs <ms 1.." + std::to_string(MAX_OCSTALL_MS) + "> <tick 0.." +
+                           std::to_string(MAX_TRACE_TICKS) + ">, or off";
+            }
+            return 1;
+        }
+        if (output) {
+            *output += sOcStallMs > 0 ? "ocstall armed: " + std::to_string(ms) + " ms at playback tick " +
+                                            std::to_string(at)
+                                      : std::string("ocstall off");
         }
         return 0;
     }
@@ -2638,7 +2762,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | look <frames> [rx] [ry] | "
             "press <BUTTONS> [frames] | hold [<BUTTONS>|none] | ocarina <NOTES> [hold] [gap] | song <name> | stats | "
               "rooms | time <dawn|day|dusk|night|value> | sunssong | display | "
-            "trace <ticks> | "
+            "trace <ticks> | octrace <ticks> | ocstall <ms> <tick>|off | "
             "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
             "roomdist [hysteresis]|off | uncull | kill <actor> | sceneflag <sceneId> [value] | "
             "worldflag count|<n> [0|1] | "
@@ -2682,7 +2806,7 @@ void RegisterAgentTest() {
               "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | look <frames> [rx] [ry] | "
               "press <BUTTONS> [frames] | hold [<BUTTONS>|none] | ocarina <NOTES> [hold] [gap] | song <name> | stats | "
               "rooms | time <dawn|day|dusk|night|value> | sunssong | display | "
-              "trace <ticks> | "
+              "trace <ticks> | octrace <ticks> | ocstall <ms> <tick>|off | "
               "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
               "roomdist [hysteresis]|off | uncull | kill <actor> | sceneflag <sceneId> [value] | "
               "worldflag count|<n> [0|1] | "
