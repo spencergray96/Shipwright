@@ -253,6 +253,13 @@
  *                                        by a scene change (unless "agenttest keepinput" was armed for
  *                                        it), or by `song` giving up on the ocarina ever
  *                                        taking notes (sturdy-bassoon#161)
+ *   input_suspended reason=<transition|pause> frames_left=<n> buttons=<list|none>
+ *   input_resumed frames_left=<n> buttons=<list|none>
+ *                                        a walk/press/look stopped counting frames mid-way (a transition, or
+ *                                        vanilla pause without kaleidoinput) and started again. Its buttons
+ *                                        stay held for the edges across the gap: no release, no second press
+ *                                        (sturdy-bassoon#161). Once per gap, never per frame
+ *   stats rolls=<n> sword_swings=<n>     from "agenttest stats": SoH's own gameplay counters (the Stats window)
  *   hold buttons=<list|none> [reason=scene_change]
  *                                        from "agenttest hold": the buttons now held under every injection
  *   ocarina_note pitch=<n> note=<A|CDOWN|CRIGHT|CLEFT|CUP|other>
@@ -280,6 +287,8 @@
  *                                          while A is tapped. Does not block the command channel; cleared at
  *                                          every scene load; applies only in normal play (accepted anywhere,
  *                                          inert on the title screen). With no argument it only reports
+ *   agenttest stats                        one "stats" marker: SoH's roll and sword-swing counters - the count of
+ *                                          an action where a position only shows its result
  *   agenttest ocarina <NOTES> [hold] [gap] play notes on the ocarina that is already out: a comma list of
  *                                          A,CDOWN,CRIGHT,CLEFT,CUP (or D4,F4,A4,B4,D5), each held `hold`
  *                                          frames (default 6) then released `gap` frames (default 4). Each note
@@ -1157,6 +1166,8 @@ void OnGameStateMainStartAgentTest() {
     sTickStarted = true;
 }
 
+std::string DescribeButtons(CONTROLLERBUTTONS_T mask);
+
 // Vanilla pause (kaleido) or its debug menu is up. Requires InNormalPlay().
 bool VanillaPauseUp() {
     return gPlayState->pauseCtx.state != 0 || gPlayState->pauseCtx.debugState != 0;
@@ -1202,6 +1213,12 @@ void InjectPad(Input* input) {
         // buttons change frame to frame and whose notes each want their own edge.
         if (sInputSchedule.empty()) {
             input->prev.button &= ~sInputButtons;
+            if (!sInputSuspended) {
+                WriteMarker(std::string("input_suspended reason=") +
+                            (gPlayState->transitionTrigger != TRANS_TRIGGER_OFF ? "transition" : "pause") +
+                            " frames_left=" + std::to_string(sInputFramesLeft) +
+                            " buttons=" + DescribeButtons(sInputButtons));
+            }
             sInputSuspended = true;
         }
         return;
@@ -1211,6 +1228,8 @@ void InjectPad(Input* input) {
             input->prev.button |= sInputButtons;
         }
         sInputSuspended = false;
+        WriteMarker("input_resumed frames_left=" + std::to_string(sInputFramesLeft) +
+                    " buttons=" + DescribeButtons(sInputButtons));
     }
     if (!sInputSchedule.empty()) {
         // `song`'s gate: the note schedule waits here, uncounted, until the ocarina is out and listening.
@@ -1783,6 +1802,18 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             sHeldButtons = mask;
         }
         const std::string line = "hold buttons=" + DescribeButtons(sHeldButtons);
+        WriteMarker(line);
+        if (output) {
+            *output += line;
+        }
+        return 0;
+    }
+    // SoH's own gameplay counters, as the Stats window keeps them - the count of an ACTION, where a
+    // position only shows its result. rolls= is what proves a held button was not pressed twice
+    // (sturdy-bassoon#161's suspend check): Player_SetupRoll counts every roll it starts.
+    if (args.size() >= 2 && args[1] == "stats") {
+        const std::string line = "stats rolls=" + std::to_string(gSaveContext.ship.stats.count[COUNT_ROLLS]) +
+                                 " sword_swings=" + std::to_string(gSaveContext.ship.stats.count[COUNT_SWORD_SWINGS]);
         WriteMarker(line);
         if (output) {
             *output += line;
@@ -2562,7 +2593,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         *output +=
             "usage: agenttest perf <ticks> | state | goto <x> <y> <z> [yaw] | "
             "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | look <frames> [rx] [ry] | "
-            "press <BUTTONS> [frames] | hold [<BUTTONS>|none] | ocarina <NOTES> [hold] [gap] | song <name> | "
+            "press <BUTTONS> [frames] | hold [<BUTTONS>|none] | ocarina <NOTES> [hold] [gap] | song <name> | stats | "
               "rooms | time <dawn|day|dusk|night|value> | sunssong | display | "
             "trace <ticks> | "
             "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
@@ -2605,7 +2636,7 @@ void RegisterAgentTest() {
             { AgentTestCommand,
               "Agent test loop: perf <ticks> | state | goto <x> <y> <z> [yaw] | "
               "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | look <frames> [rx] [ry] | "
-              "press <BUTTONS> [frames] | hold [<BUTTONS>|none] | ocarina <NOTES> [hold] [gap] | song <name> | "
+              "press <BUTTONS> [frames] | hold [<BUTTONS>|none] | ocarina <NOTES> [hold] [gap] | song <name> | stats | "
               "rooms | time <dawn|day|dusk|night|value> | sunssong | display | "
               "trace <ticks> | "
               "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
