@@ -16,6 +16,14 @@
 // The saved setting behind the switch: 1 mipmaps, 0 uploads one level as before. On by default.
 #define CVAR_TEXTURE_MIPS CVAR_SETTING("CustomSceneMipmaps")
 #define TEXTURE_MIPS_DEFAULT 1
+// How the shader picks a level, and a bias added to it (fast/TextureMips.h TextureMipsLodMode):
+// 0 max (the first choice, softest on grazing walls), 1 mean, 2 aniso. Saved by the human
+// `mipmaps lod` and `mipmaps bias`. Aniso by default: the owner chose it at the furnace-wall view,
+// and on the 4.1M F2P map it costs nothing measurable while crawling least of the three (the #146
+// run's "Follow-up: the level choice"). Mean crawls on the castle walls.
+#define CVAR_TEXTURE_MIPS_LOD CVAR_SETTING("CustomSceneMipmapsLod")
+#define CVAR_TEXTURE_MIPS_BIAS CVAR_SETTING("CustomSceneMipmapsBias")
+#define TEXTURE_MIPS_LOD_DEFAULT 2 // Fast::TEXTURE_MIPS_LOD_ANISO; this header is C, the enum C++
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,6 +42,8 @@ void TextureMips_RegisterRoom(PlayState* play, RoomContext* roomCtx);
 // A change clears the texture cache and re-records every bake, so both paths redraw at once.
 void TextureMips_SetActive(int active);
 void TextureMips_SetSetting(int active);
+// The level choice. save=1 writes the CVars (the human command), 0 is for this session only.
+void TextureMips_SetLod(int mode, float bias, int save);
 int TextureMips_IsActive(void);
 int TextureMips_Setting(void);
 int TextureMips_BackendSupported(void);

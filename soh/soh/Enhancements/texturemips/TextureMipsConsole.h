@@ -16,24 +16,28 @@
 // the switch inside one session keeps everything else still. A flip clears the texture cache and
 // re-records every bake, so the next frame of both paths is drawn the new way.
 //
-// Every successful line is `op=<sub> result=ok` and the same seven fields: `active=` whether mips
+// Every successful line is `op=<sub> result=ok` and the same nine fields: `active=` whether mips
 // are built (the switch, and 0 on a backend that cannot), `setting=` the saved setting, `supported=`
-// whether this backend builds them (DX11 only), `lists=` display lists named as the mod's own since
-// boot, `addrs=` raw addresses those lists have named with G_SETTIMG (palettes too, so an upper bound
-// on textures), `mipped=` uploads that really built a chain of more than one level since boot (a
-// re-upload after a cache clear counts again; a texture that is not a power of two never does),
-// `filter=` the texture filter the renderer runs (three_point, linear or none): mips reach three-point
-// and linear, and under none are sampled from the nearest level. An unknown subcommand prints
-// `op=unknown result=error error=unknown_subcommand usage=...` without echoing the word.
+// whether this backend builds them (DX11 only), `lod=` and `bias=` the level choice, `lists=` display lists named as
+// the mod's own since boot, `addrs=` raw addresses those lists have named with G_SETTIMG (palettes too, so an upper
+// bound on textures), `mipped=` uploads that really built a chain of more than one level since boot (a re-upload after
+// a cache clear counts again; a texture that is not a power of two never does), `filter=` the texture filter the
+// renderer runs (three_point, linear or none): mips reach three-point and linear, and under none are sampled from the
+// nearest level. An unknown subcommand prints `op=unknown result=error error=unknown_subcommand usage=...` without
+// echoing the word.
 //
 // `args[0]` is the subcommand; none is `status`:
 //   status    read the switch and the counters
 //   on        build mips for the mod's textures from the next upload; clears the cache so that is now
 //   off       upload them with one level, as before
-//   From the human command, on/off also save setting=, so a restart starts there. From
-//   `agenttest mipmaps` they switch for the session only - TextureMipsConsole_RunSession.
+//   lod max|mean|aniso  how the shader picks a level (fast/TextureMips.h): max the softest on a
+//             grazing wall, aniso the sharpest that still does not crawl. Prints `lod=`
+//   bias <n>  added to that level, -4..4 (negative = sharper). Prints `bias=`
+//   From the human command, on/off/lod/bias also save their settings, so a restart starts there.
+//   From `agenttest mipmaps` they apply for the session only - TextureMipsConsole_RunSession.
+//   A bad lod or bias value prints `op=lod|bias result=error error=bad_argument usage=...`, rc=1.
 //
-// Returns 0 for all three, 1 for an unknown subcommand, so `rc=` is the pass/fail bit.
+// Returns 0 on success, 1 for an unknown subcommand or a bad value, so `rc=` is the pass/fail bit.
 int32_t TextureMipsConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines);
 int32_t TextureMipsConsole_RunSession(const std::vector<std::string>& args, std::vector<std::string>& lines);
 
