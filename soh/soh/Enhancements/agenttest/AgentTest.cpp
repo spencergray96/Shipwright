@@ -272,7 +272,8 @@
  *   agenttest hold [<BUTTONS>|none]        keep buttons held until `hold none`, under and between every other
  *                                          injection - "hold Z" then "walk 6 0 -80 A 3" is a backflip, Z held
  *                                          while A is tapped. Does not block the command channel; cleared at
- *                                          every scene load. With no argument it only reports
+ *                                          every scene load; applies only in normal play (accepted anywhere,
+ *                                          inert on the title screen). With no argument it only reports
  *   agenttest ocarina <NOTES> [hold] [gap] play notes on the ocarina that is already out: a comma list of
  *                                          A,CDOWN,CRIGHT,CLEFT,CUP (or D4,F4,A4,B4,D5), each held `hold`
  *                                          frames (default 6) then released `gap` frames (default 4). Each note
@@ -584,6 +585,8 @@ int32_t sListenWaitLeft = 0;
 constexpr int32_t kListenWaitFrames = 5 * 20;
 // `ocarina`/`song` frames count under vanilla pause too: that is where the play-along is.
 bool sInputCountsInPause = false;
+// An injection in flight whose last frame did not count (pause, transition): see InjectPad.
+bool sInputSuspended = false;
 // The last pitch OnOcarinaNote reported, so the ocarina_note marker fires once per note, not per frame.
 uint8_t sLastOcarinaPitch = OCARINA_PITCH_NONE;
 // `agenttest kaleidoinput on`: injected frames also count while kaleido is up. Session state, cleared on
@@ -1139,10 +1142,16 @@ void OnGameStateMainStartAgentTest() {
     sTickStarted = true;
 }
 
+// Vanilla pause (kaleido) or its debug menu is up. Requires InNormalPlay().
+bool VanillaPauseUp() {
+    return gPlayState->pauseCtx.state != 0 || gPlayState->pauseCtx.debugState != 0;
+}
+
 void CancelInput(const char* reason) {
     if (sInputFramesLeft > 0) {
         sInputFramesLeft = 0;
         sInputPressPending = false;
+        sInputSuspended = false;
         sDeferredButtons = 0;
         sInputSchedule.clear();
         sListenGate = -1;
@@ -1170,9 +1179,23 @@ void InjectPad(Input* input) {
     // Only frames Player_Update will actually read count: paused or mid-transition the stick is ignored.
     // `kaleidoinput on` lifts the pause half: kaleido reads the same input struct Player does. The ocarina
     // reads the pad under pause regardless, so `ocarina`/`song` count there on their own.
-    const bool paused = gPlayState->pauseCtx.state != 0 || gPlayState->pauseCtx.debugState != 0;
-    if ((paused && !sKaleidoInput && !sInputCountsInPause) || gPlayState->transitionTrigger != TRANS_TRIGGER_OFF) {
+    if ((VanillaPauseUp() && !sKaleidoInput && !sInputCountsInPause) ||
+        gPlayState->transitionTrigger != TRANS_TRIGGER_OFF) {
+        // Suspended, not ended: the old per-tick injection simply kept holding across these frames, with
+        // no release and no second press. Hide the real pad's gap from the edges the pad manager derives -
+        // no `rel` now, and (below) no fresh press when the injection resumes. Not for a schedule, whose
+        // buttons change frame to frame and whose notes each want their own edge.
+        if (sInputSchedule.empty()) {
+            input->prev.button &= ~sInputButtons;
+            sInputSuspended = true;
+        }
         return;
+    }
+    if (sInputSuspended) {
+        if (!sInputPressPending) {
+            input->prev.button |= sInputButtons;
+        }
+        sInputSuspended = false;
     }
     if (!sInputSchedule.empty()) {
         // `song`'s gate: the note schedule waits here, uncounted, until the ocarina is out and listening.
@@ -1226,6 +1249,7 @@ void StartInput(int32_t frames, int8_t stickX, int8_t stickY, CONTROLLERBUTTONS_
     sScheduleNext = 0;
     sListenGate = -1;
     sInputCountsInPause = false;
+    sInputSuspended = false;
     sInputFramesLeft = frames;
 }
 
@@ -1778,8 +1802,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         std::vector<CONTROLLERBUTTONS_T> schedule;
         // Either pause menu up - vanilla's or the scroll (which freezes the world without touching
         // pauseCtx) - means a play-along: pressing the ocarina's C-button there would not take it out.
-        const bool paused =
-            gPlayState->pauseCtx.state != 0 || gPlayState->pauseCtx.debugState != 0 || RsMenu_IsOpen();
+        const bool paused = VanillaPauseUp() || RsMenu_IsOpen();
         std::string takeOut = "no";
         if (args[1] == "song" && !paused && !AudioOcarina_IsListening()) {
             const CONTROLLERBUTTONS_T cButton = OcarinaCButton();

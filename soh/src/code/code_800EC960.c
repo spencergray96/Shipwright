@@ -1474,7 +1474,9 @@ void AudioOcarina_SetCustomButtonMapping(bool customControls) {
 // SoH [agenttest] (sturdy-bassoon#161): the one button that plays `ocarinaBtnIndex` (OCARINA_BTN_A..C_UP)
 // under the mapping AudioOcarina_PlayControllerInput would use right now - vanilla's C-buttons and A, or
 // SoH's remappable BTN_CUSTOM_OCARINA_NOTE_* bits. A map can hold several buttons (D-pad, right stick);
-// the lowest bit is the primary one. 0 for an index that is not a note.
+// the lowest bit is the primary one (C-buttons and A sit below the D-pad). 0 for an index that is not a
+// note. Refreshes the sOcarina*BtnMap globals from the CVar on the way, as PlayControllerInput does every
+// frame.
 CONTROLLERBUTTONS_T AudioOcarina_GetNoteButton(u8 ocarinaBtnIndex) {
     CONTROLLERBUTTONS_T map;
 
