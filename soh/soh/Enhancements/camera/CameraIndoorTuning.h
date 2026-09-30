@@ -13,9 +13,11 @@
  * only what the C engine side and the C++ console side both need to agree on.
  *
  * Every knob is a CVar READ AT THE POINT OF USE, never cached and never latched: a value typed
- * into `camindoor` applies on the next frame with no rebuild, and a wrong one cannot stick. The
- * console subcommand exists because this build of SoH has no console `set`, so the agent test loop
- * has no other way to change a CVar (`docs/reference/AGENT_TEST_LOOP.md`).
+ * into `camindoor` applies on the next frame with no rebuild, and a wrong one cannot stick. One
+ * exception, forced by the engine: the #136 height feeds parameters vanilla caches on a reload, so
+ * z_camera.c remembers the last t it reloaded for (Camera_ReloadOnHeightChange) to know when to
+ * force another. SoH's console `set` would also reach these CVars; the subcommands exist for their
+ * range checks and their `status` readout.
  */
 
 #ifdef __cplusplus
@@ -113,6 +115,124 @@ extern "C" {
 #define CAM_INDOOR_RING_MAX 8
 
 /*
+ * Bisect switches for the camera bounce (sturdy-bassoon#152). Each turns one of our own camera
+ * corrections off, engine-wide, so a live session can find which one is fighting without a
+ * rebuild. They are diagnostics, not features: all three ship ON, and `off` is only ever a
+ * question asked of a running game. The swing path they sit beside already has a switch of its
+ * own in SoH (`set gEnhancements.FixCameraSwing 1`).
+ */
+// Camera_KeepEyeUnderCeiling (#103): hold the eye under a ceiling between it and `at`.
+#define CVAR_CAM_CEIL_CLAMP_ON CVAR_ENHANCEMENT("CamCeilClamp")
+#define CAM_CEIL_CLAMP_ON_DEFAULT 1
+// Camera_FloorAheadIfReachable (#103): the slope probe's reachability rule.
+#define CVAR_CAM_FLOOR_AHEAD_ON CVAR_ENHANCEMENT("CamFloorAhead")
+#define CAM_FLOOR_AHEAD_ON_DEFAULT 1
+// The #152 fix. When Camera_KeepEyeUnderCeiling's segment hits a wall first, it looks for a ceiling
+// straight above the wall hit, this many units back toward `at` (the room's side of the wall), and
+// clamps under one it finds. 0 = the #103 rule exactly (any wall first means no clamp).
+//
+// 2, measured at the #152 spot in Lumbridge Castle, standing still: clamp engage/release flips
+// went from 12 in 945 ticks at 0 to 1 in 3,842 at 2. It only has to put the probe clear of the
+// wall's own face. Much larger and it samples a ceiling nearer Link than the one the eye is under.
+// The alternative tried first - looking PAST the wall for a ceiling within 4 units - only slowed
+// the bounce to a 7-tick sawtooth, because on some ticks the raised eye is outside the building
+// and there is no ceiling past the wall to find. Full run:
+// docs/test-runs/2026-09-30-issue-152-camera-bounce/ in sturdy-bassoon.
+#define CVAR_CAM_CEIL_CORNER_BACK CVAR_ENHANCEMENT("CamCeilCornerBack")
+#define CAM_CEIL_CORNER_BACK_DEFAULT 2.0f
+#define CAM_CEIL_CORNER_BACK_MAX 40.0f
+// Hysteresis on the same clamp (#152): on the frame after it found a ceiling, its test segment
+// reaches this many units higher, so an eye it has just lowered stays under that ceiling rather
+// than dropping out of the test and being let go. 0 = no hysteresis (the #103 rule).
+//
+// 12, measured at the level-2 doorway in Lumbridge Castle (Link just inside, the eye out on the
+// balcony): 14 clamp engage/release flips per scripted try at 0, 0 at 12, with the #152 wall spot
+// at 0 either way. One clearance's worth: the lowered eye sits 12 under the ceiling, so reaching 12
+// more tests the segment as though the eye were still up at the ceiling. Too large and the clamp holds
+// the eye low a little after Link walks out from under a ceiling; it still expires on the first
+// frame the longer test misses.
+#define CVAR_CAM_CEIL_HOLD CVAR_ENHANCEMENT("CamCeilHold")
+#define CAM_CEIL_HOLD_DEFAULT 12.0f
+#define CAM_CEIL_HOLD_MAX 80.0f
+// The #38 clamp on the slope probe's origin in func_80044ADC.
+#define CVAR_CAM_PROBE_CEIL_ON CVAR_ENHANCEMENT("CamProbeCeil")
+#define CAM_PROBE_CEIL_ON_DEFAULT 1
+
+/*
+ * The ledge look-down (sturdy-bassoon#155). The slope probe in func_80044ADC reads a drop ahead as
+ * a downhill slope, and Camera_CalcDefaultPitch applies a falling slope undamped, so the look-down
+ * grows with the height of the drop. Grid-tool scenes only; every knob ships as a no-op until the
+ * measurement and a feel walk pick one. The cap, scale and near-only knobs act on func_80044ADC's
+ * answer, which Camera_Normal3 and Camera_Parallel1 read too, not only Normal1; `cos` is Normal1's
+ * alone (the only caller passing a slope to Camera_CalcDefaultPitch).
+ */
+// Largest drop the probe may report, in OoT units below the feet. 0 = off (vanilla: no cap). A
+// grid-tool storey is 80 floor to floor (+4 slab), so 84 would make every drop read as one storey.
+#define CVAR_CAM_LEDGE_DROP_CAP CVAR_ENHANCEMENT("CamLedgeDropCap")
+#define CAM_LEDGE_DROP_CAP_DEFAULT 0.0f
+#define CAM_LEDGE_DROP_CAP_MAX 400.0f
+// Multiplier on each probe's downward pitch angle. 1.0 = vanilla, 0 = no look-down at all.
+#define CVAR_CAM_LEDGE_DROP_SCALE CVAR_ENHANCEMENT("CamLedgeDropScale")
+#define CAM_LEDGE_DROP_SCALE_DEFAULT 1.0f
+#define CAM_LEDGE_DROP_SCALE_MIN 0.0f
+#define CAM_LEDGE_DROP_SCALE_MAX 1.0f
+// 1 = damp a falling slope by cos(x)*x in Camera_CalcDefaultPitch, the way vanilla damps a rise.
+#define CVAR_CAM_LEDGE_DROP_COS CVAR_ENHANCEMENT("CamLedgeDropCos")
+#define CAM_LEDGE_DROP_COS_DEFAULT 0
+// 1 = ignore a drop only the far probe (2.5 player-heights ahead) sees.
+#define CVAR_CAM_LEDGE_NEAR_ONLY CVAR_ENHANCEMENT("CamLedgeNearOnly")
+#define CAM_LEDGE_NEAR_ONLY_DEFAULT 0
+
+/*
+ * Young Link's framing on adult Link (sturdy-bassoon#136). The camera reads a camera-only player
+ * height, lerp(68, 44, t) for adult Link on grid-tool scenes, everywhere z_camera.c derived its
+ * framing from Player_GetHeight. Player_GetHeight itself is untouched, and so is everything else
+ * that reads it. 0 = vanilla adult, 1 = exactly Young Link's numbers. The horse's +32 is kept.
+ *
+ * The per-setting parameters are cached on a reload (RELOAD_PARAMS), so a change of t forces one
+ * on the main camera; see Camera_ReloadOnHeightChange.
+ */
+#define CVAR_CAM_ADULT_HEIGHT_T CVAR_ENHANCEMENT("CamAdultHeightT")
+#define CAM_ADULT_HEIGHT_T_DEFAULT 0.0f
+#define CAM_ADULT_HEIGHT_T_MIN 0.0f
+#define CAM_ADULT_HEIGHT_T_MAX 1.0f
+#define CAM_HEIGHT_ADULT 68.0f
+#define CAM_HEIGHT_CHILD 44.0f
+
+/*
+ * One Camera_Normal1 frame, for `agenttest trace` (sturdy-bassoon#152). Written by the camera and
+ * read by nothing in it, like the `applied*` mirror below. `frame` says which frame it describes,
+ * so a trace line taken while Normal1 was not running reads as stale rather than as current.
+ */
+typedef struct {
+    s32 valid;       // 0 until Normal1 has run once this boot
+    u32 frame;       // play frame Normal1 last ran
+    s16 pitchIn;     // at-to-eyeNext pitch on entry (binang)
+    s16 pitchOut;    // pitch Normal1 chose, after its own 79.65 / -85 degree clamp
+    s16 slopeRaw;    // func_80044ADC's answer this frame (0 when the setting does not probe)
+    s16 slopeAdj;    // anim->slopePitchAdj after easing - what the pitch target is offset by
+    s16 branch;      // 0 idle re-centre, 1 obstructed swing, 2 follow
+    s16 swingTimer;  // anim->startSwingTimer
+    s16 swingActive; // anim->swing.unk_18
+    s16 colCase;     // func_80046E20's collision case this frame, -1 when it did not run
+    s16 idleBgHit;   // the idle path's Camera_BGCheck found geometry (-1 when that path did not run)
+    s16 ceilState;   // Camera_KeepEyeUnderCeiling: -3 a wall first and no ceiling over it, -2 off,
+                     // -1 nothing crossed, 0 crossed but eye already under the limit, 1 lowered,
+                     // 2 lowered onto `at`
+    f32 ceilOverWallY; // when a wall came first: the ceiling found over the wall hit (-1 none)
+    f32 ceilHold;      // the hysteresis reach applied this frame (0 unless a ceiling was found last frame)
+    f32 eyeYPre;     // eyeNext.y before the ceiling clamp
+    f32 eyeYPost;    // and after
+    f32 ceilY;       // the ceiling the clamp found, clamped or not (0 when none)
+    f32 atY;         // at.y this frame
+    f32 dropNear;    // slope probe floors, relative to the ground under Link, as the probe
+    f32 dropFar;     // last read them (before the #155 knobs; they hold between odd frames)
+    f32 height;      // the camera's player height this frame (#136)
+} CameraFrameDiag;
+
+void Camera_GetFrameDiag(CameraFrameDiag* out);
+
+/*
  * A read of the whole mechanism at one moment, for `camindoor status`.
  *
  * Everything except the `applied*` pair is RECOMPUTED when the probe is called, so it answers
@@ -144,6 +264,9 @@ typedef struct {
     f32 appliedScale;
     u32 appliedFrame;
     u32 frame;
+    f32 yOffset;     // Normal1's resolved yOffset, as of appliedFrame (#136)
+    f32 heightT;     // the #136 knob, after clamping
+    f32 height;      // the camera's player height right now (#136)
 } CameraIndoorProbe;
 
 void Camera_IndoorPullInProbe(Camera* camera, CameraIndoorProbe* out);

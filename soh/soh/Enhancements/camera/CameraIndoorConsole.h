@@ -31,6 +31,19 @@
 //   radius <f>           ring radius in OoT units. A grid-tool tile is 40 (P3)
 //   bias <f>             how far ahead of the player's facing the ring's centre sits (P3)
 //   k <n>                how many of the 1 + ring samples must find a ceiling (P3)
+//   ceilclamp on|off     #152 bisect switches: Camera_KeepEyeUnderCeiling, Camera_FloorAheadIfReachable
+//   floorahead on|off    and the #38 slope-probe origin clamp. Engine-wide, ship on, and exist so a
+//   probeceil on|off     live session can turn one correction off to see whether it is the one fighting
+//   corner <f>           #152 fix: when the ceiling clamp's segment hits a wall first, look for a
+//                        ceiling over the wall hit, this far back toward `at`. 0 = #103's rule
+//   hold <f>             #152: on the frame after the ceiling clamp found a ceiling, its test reaches
+//                        this much higher, so it does not let go of an eye it just lowered. 0 = off
+//   ledgecap <f>         #155, grid-tool scenes: largest drop the slope probe may report (0 = no cap)
+//   ledgescale <f>       multiplier on the probe's downward pitch (1 = vanilla)
+//   ledgecos on|off      damp a falling slope by cos(x)*x, as vanilla damps a rise
+//   ledgenear on|off     ignore a drop only the far probe sees
+//   heightt <f>          #136, grid-tool scenes: adult camera height lerp(68, 44, t); `+0.1` / `-0.1`
+//                        step it. A change forces a parameter reload on the main camera
 //   defaults             clear every knob back to its compiled-in default, so an A/B run has a
 //                        known starting point that does not depend on shipofharkinian.json
 //

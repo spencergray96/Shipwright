@@ -43,6 +43,127 @@ s32 Camera_UpdateWater(Camera* camera);
 
 /*===============================================================*/
 
+// Per-frame diagnostic mirror for `agenttest trace` (sturdy-bassoon#152). Written by the camera,
+// read only by Camera_GetFrameDiag, so it cannot feed back into the behaviour. The fields and what
+// each value means are in CameraIndoorTuning.h.
+static CameraFrameDiag sCamDiag;
+static s16 sCamDiagColCase = -1;
+
+void Camera_GetFrameDiag(CameraFrameDiag* out) {
+    *out = sCamDiag;
+}
+
+/**
+ * The #136 knob, clamped to 0..1: how far adult Link's camera height is moved toward Young Link's.
+ */
+static f32 Camera_AdultHeightT(void) {
+    f32 t = CVarGetFloat(CVAR_CAM_ADULT_HEIGHT_T, CAM_ADULT_HEIGHT_T_DEFAULT);
+
+    if (!(t > CAM_ADULT_HEIGHT_T_MIN)) {
+        return CAM_ADULT_HEIGHT_T_MIN;
+    }
+    return (t > CAM_ADULT_HEIGHT_T_MAX) ? CAM_ADULT_HEIGHT_T_MAX : t;
+}
+
+/**
+ * The player height the camera frames from (sturdy-bassoon#136). Player_GetHeight everywhere except
+ * adult Link on a grid-tool scene, where it is lerp(68, 44, t). The horse's +32 stays either way.
+ *
+ * Used in place of Player_GetHeight wherever z_camera.c derives framing from it: at height, follow
+ * distances, the slope probe's reach and origin, the ceiling and reachability rules. NOT used where
+ * the height only seeds a floor raycast (Camera_GetCamBgDataUnderPlayer, the playerGroundY cast in
+ * Camera_Update) - those find the floor Link stands on, not where the camera sits, and a lower start
+ * could find a different floor under a low ceiling. Camera_InitPlayerSettings keeps the vanilla
+ * height too; it is a one-frame snap that the follow camera moves off at once.
+ */
+static f32 Camera_PlayerHeight(Camera* camera) {
+    f32 height = Player_GetHeight(camera->player);
+
+    if (LINK_IS_ADULT && GridToolSceneRegistry_IsCustomScene(camera->play->sceneNum)) {
+        height -= Camera_AdultHeightT() * (CAM_HEIGHT_ADULT - CAM_HEIGHT_CHILD);
+    }
+    return height;
+}
+
+/**
+ * Forces a parameter reload on the main camera when the #136 knob changes.
+ *
+ * Every camera function caches its height-derived parameters on RELOAD_PARAMS (setting or mode
+ * change, or animState 0), so without this a new t would only take effect at the next setting
+ * change. animState 0 is exactly what a mode change sets, so this is a mode change to the same
+ * mode, at the moment of a console command. Keyed on t alone, never on the height, so getting on a
+ * horse reloads nothing it did not reload before.
+ */
+static f32 sCamHeightTSeen[NUM_CAMS]; // zero: the default t never forces a reload
+static void Camera_ReloadOnHeightChange(Camera* camera) {
+    f32 t = Camera_AdultHeightT();
+    s16 idx = camera->thisIdx;
+    s16 funcIdx;
+
+    if (idx < 0 || idx >= NUM_CAMS || t == sCamHeightTSeen[idx]) {
+        return;
+    }
+    if (idx != CAM_ID_MAIN || camera->player == NULL ||
+        !GridToolSceneRegistry_IsCustomScene(camera->play->sceneNum)) {
+        sCamHeightTSeen[idx] = t;
+        return;
+    }
+    // Only the follow cameras. animState 0 restarts whatever state machine is running, and for a
+    // cutscene, talk or door camera that means replaying it. A change made while one of those runs
+    // stays pending, and lands the first frame a follow camera is back.
+    funcIdx = sCameraSettings[camera->setting].cameraModes[camera->mode].funcIdx;
+    if (funcIdx != CAM_FUNC_NORM1 && funcIdx != CAM_FUNC_PARA1 && funcIdx != CAM_FUNC_JUMP1) {
+        return;
+    }
+    sCamHeightTSeen[idx] = t;
+    camera->animState = 0;
+}
+
+/**
+ * The #155 ledge knobs on the slope probe's two floor readings, as heights relative to the ground
+ * under Link. Only drops (negative values) are touched; a rise and #103's rules are left alone.
+ */
+static void Camera_SoftenLedgeDrop(Camera* camera, f32* dNear, f32* dFar) {
+    f32 cap;
+
+    if (!GridToolSceneRegistry_IsCustomScene(camera->play->sceneNum)) {
+        return;
+    }
+    // "At a ledge", not "within 170 units of one": a drop only the far probe sees does not count.
+    if (CVarGetInteger(CVAR_CAM_LEDGE_NEAR_ONLY, CAM_LEDGE_NEAR_ONLY_DEFAULT) && *dFar < 0.0f && *dNear >= -1.0f) {
+        *dFar = 0.0f;
+    }
+    cap = CVarGetFloat(CVAR_CAM_LEDGE_DROP_CAP, CAM_LEDGE_DROP_CAP_DEFAULT);
+    if (cap > CAM_LEDGE_DROP_CAP_MAX) {
+        cap = CAM_LEDGE_DROP_CAP_MAX;
+    }
+    if (cap > 0.0f) {
+        if (*dNear < -cap) {
+            *dNear = -cap;
+        }
+        if (*dFar < -cap) {
+            *dFar = -cap;
+        }
+    }
+}
+
+// The #155 angle scale, applied to one probe's contribution. Rises pass through.
+static s16 Camera_ScaleLedgePitch(Camera* camera, s16 pitch) {
+    f32 scale;
+
+    if (pitch >= 0 || !GridToolSceneRegistry_IsCustomScene(camera->play->sceneNum)) {
+        return pitch;
+    }
+    scale = CVarGetFloat(CVAR_CAM_LEDGE_DROP_SCALE, CAM_LEDGE_DROP_SCALE_DEFAULT);
+    if (!(scale < CAM_LEDGE_DROP_SCALE_MAX)) {
+        return pitch;
+    }
+    if (scale < CAM_LEDGE_DROP_SCALE_MIN) {
+        scale = CAM_LEDGE_DROP_SCALE_MIN;
+    }
+    return (s16)(pitch * scale);
+}
+
 /**
  * Interpolates along a curve between 0 and 1 with a period of
  * -a <= p <= a at time `b`
@@ -608,13 +729,16 @@ s16 Camera_XZAngle(Vec3f* to, Vec3f* from) {
  */
 static f32 Camera_FloorAheadIfReachable(Camera* camera, Vec3f* probePos, f32 floorY) {
     f32 groundY = camera->playerGroundY;
-    f32 height = Player_GetHeight(camera->player);
+    f32 height = Camera_PlayerHeight(camera);
     Vec3f from;
     Vec3f to;
     Vec3f hit;
     CollisionPoly* poly;
     s32 bgId;
 
+    if (!CVarGetInteger(CVAR_CAM_FLOOR_AHEAD_ON, CAM_FLOOR_AHEAD_ON_DEFAULT)) {
+        return floorY; // #152 bisect switch: vanilla's reading, unfiltered
+    }
     if (floorY == BGCHECK_Y_MIN || (floorY >= groundY - 1.0f && floorY <= groundY + height)) {
         return floorY;
     }
@@ -656,7 +780,7 @@ s16 func_80044ADC(Camera* camera, s16 yaw, s16 arg2) {
 
     sinYaw = Math_SinS(yaw);
     cosYaw = Math_CosS(yaw);
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
     temp_f2 = PCT(OREG(19)) * playerHeight;
     sp30 = PCT(OREG(17)) * playerHeight;
     sp2C = PCT(OREG(18)) * playerHeight;
@@ -670,7 +794,7 @@ s16 func_80044ADC(Camera* camera, s16 yaw, s16 arg2) {
     // (sturdy-bassoon#38). Clamp the origin just below the ceiling over the player's head so the
     // probe reads the floor of the space the player is actually in. Outdoors and in rooms with
     // more headroom than the probe height, the check finds nothing and nothing changes.
-    {
+    if (CVarGetInteger(CVAR_CAM_PROBE_CEIL_ON, CAM_PROBE_CEIL_ON_DEFAULT)) {
         Vec3f ceilChkPos = camera->playerPosRot.pos;
         f32 ceilChkY;
         if (BgCheck_AnyCheckCeiling(&camera->play->colCtx, &ceilChkY, &ceilChkPos, temp_f2) &&
@@ -713,10 +837,18 @@ s16 func_80044ADC(Camera* camera, s16 yaw, s16 arg2) {
             D_8015CE54 = D_8015CE50;
         }
     }
-    phi_f16 = PCT(OREG(20)) * (D_8015CE50 - camera->playerGroundY);
-    phi_f18 = (1.0f - PCT(OREG(20))) * (D_8015CE54 - camera->playerGroundY);
-    temp_s0 = DEGF_TO_BINANG(RADF_TO_DEGF(Math_FAtan2F(phi_f16, sp30)));
-    temp_s1 = DEGF_TO_BINANG(RADF_TO_DEGF(Math_FAtan2F(phi_f18, sp2C)));
+    {
+        f32 dNear = D_8015CE50 - camera->playerGroundY;
+        f32 dFar = D_8015CE54 - camera->playerGroundY;
+
+        sCamDiag.dropNear = dNear;
+        sCamDiag.dropFar = dFar;
+        Camera_SoftenLedgeDrop(camera, &dNear, &dFar); // #155
+        phi_f16 = PCT(OREG(20)) * dNear;
+        phi_f18 = (1.0f - PCT(OREG(20))) * dFar;
+    }
+    temp_s0 = Camera_ScaleLedgePitch(camera, DEGF_TO_BINANG(RADF_TO_DEGF(Math_FAtan2F(phi_f16, sp30))));
+    temp_s1 = Camera_ScaleLedgePitch(camera, DEGF_TO_BINANG(RADF_TO_DEGF(Math_FAtan2F(phi_f18, sp2C))));
     return temp_s0 + temp_s1;
 }
 
@@ -1026,7 +1158,7 @@ s32 Camera_CalcAtDefault(Camera* camera, VecSph* eyeAtDir, f32 extraYOffset, s16
     PosRot* playerPosRot = &camera->playerPosRot;
     f32 yOffset;
 
-    yOffset = Player_GetHeight(camera->player);
+    yOffset = Camera_PlayerHeight(camera);
 
     posOffsetTarget.x = 0.f;
     posOffsetTarget.y = yOffset + extraYOffset;
@@ -1058,7 +1190,7 @@ s32 func_800458D4(Camera* camera, VecSph* eyeAtDir, f32 arg2, f32* arg3, s16 arg
     f32 deltaY;
     s32 pad[2];
 
-    posOffsetTarget.y = Player_GetHeight(camera->player) + arg2;
+    posOffsetTarget.y = Camera_PlayerHeight(camera) + arg2;
     posOffsetTarget.x = 0.0f;
     posOffsetTarget.z = 0.0f;
 
@@ -1097,7 +1229,7 @@ s32 func_80045B08(Camera* camera, VecSph* eyeAtDir, f32 yExtra, s16 arg3) {
     f32 temp_ret;
     PosRot* playerPosRot = &camera->playerPosRot;
 
-    posOffsetTarget.y = Player_GetHeight(camera->player) + yExtra;
+    posOffsetTarget.y = Camera_PlayerHeight(camera) + yExtra;
     posOffsetTarget.x = 0.0f;
     posOffsetTarget.z = 0.0f;
 
@@ -1136,7 +1268,7 @@ s32 Camera_CalcAtForParallel(Camera* camera, VecSph* arg1, f32 yOffset, f32* arg
     f32 phi_f20;
     f32 temp_f0_4;
 
-    temp_f0_4 = Player_GetHeight(camera->player);
+    temp_f0_4 = Camera_PlayerHeight(camera);
     posOffsetTarget.x = 0.0f;
     posOffsetTarget.y = temp_f0_4 + yOffset;
     posOffsetTarget.z = 0.0f;
@@ -1208,7 +1340,7 @@ s32 Camera_CalcAtForLockOn(Camera* camera, VecSph* eyeAtDir, Vec3f* targetPos, f
     f32 temp_f0_2;
     f32 playerHeight;
 
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
     tmpPos0.x = 0.0f;
     tmpPos0.y = playerHeight + yOffset;
     tmpPos0.z = 0.0f;
@@ -1305,7 +1437,7 @@ s32 Camera_CalcAtForHorse(Camera* camera, VecSph* eyeAtDir, f32 yOffset, f32* yP
     Player* player;
     PosRot horsePosRot;
 
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
     player = camera->player;
     Actor_GetWorldPosShapeRot(&horsePosRot, player->rideActor);
 
@@ -1390,6 +1522,12 @@ s16 Camera_CalcDefaultPitch(Camera* camera, s16 arg1, s16 arg2, s16 arg3) {
 
     phi_v1 = ABS(arg1);
     phi_v0 = arg3 > 0 ? (s16)(Math_CosS(arg3) * arg3) : arg3;
+    // #155: damp a falling slope the way vanilla damps a rising one. Only Camera_Normal1 passes a
+    // non-zero slope, so this reaches nothing else.
+    if (arg3 < 0 && CVarGetInteger(CVAR_CAM_LEDGE_DROP_COS, CAM_LEDGE_DROP_COS_DEFAULT) &&
+        GridToolSceneRegistry_IsCustomScene(camera->play->sceneNum)) {
+        phi_v0 = (s16)(Math_CosS(arg3) * arg3);
+    }
     sp1C = arg2 - phi_v0;
 
     if (ABS(sp1C) < phi_v1) {
@@ -1446,6 +1584,7 @@ void func_80046E20(Camera* camera, VecSph* eyeAdjustment, f32 minDist, f32 arg3,
     VecSph sp40;
 
     temp_v0 = func_80045508(camera, eyeAdjustment, &atEyeColChk, &eyeAtColChk, !anim->unk_18);
+    sCamDiagColCase = temp_v0;
 
     switch (temp_v0) {
         case 1:
@@ -1592,13 +1731,13 @@ s32 Camera_Free(Camera* camera) {
 
     at->x = Camera_LERPCeilF(camera->player->actor.world.pos.x, camera->at.x, 0.5f, 1.0f);
     at->y = Camera_LERPCeilF(camera->player->actor.world.pos.y + (camera->player->rideActor != NULL
-                                                                      ? Player_GetHeight(camera->player) / 2
-                                                                      : Player_GetHeight(camera->player)) /
+                                                                      ? Camera_PlayerHeight(camera) / 2
+                                                                      : Camera_PlayerHeight(camera)) /
                                                                      1.2f,
                              camera->at.y, 0.5f, 1.0f);
     at->z = Camera_LERPCeilF(camera->player->actor.world.pos.z, camera->at.z, 0.5f, 1.0f);
 
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
 
     if (RELOAD_PARAMS) {
         OLib_Vec3fDiffToVecSphGeo(&spA8, &camera->at, &camera->eye);
@@ -1700,37 +1839,126 @@ s32 Camera_Free(Camera* camera) {
  * (sturdy-bassoon#103).
  *
  * The test is a segment from `at` to the eye raised by the clearance: a ceiling that segment
- * crosses before any wall is one the eye is under (or would be pushed through). A vertical ceiling
+ * crosses before any wall is one the eye is under (or would be pushed through). A wall first is
+ * the #152 case below: the eye is under a ceiling only if one sits over the wall hit itself. A vertical ceiling
  * check at the eye's x/z is not enough, and neither is a ceilings-only segment - an eye swinging
  * up and out over a wall top finds the underside of the storey *behind* that wall and is held
  * down against it (the balcony facing the courtyard in Lumbridge Castle). Outdoors, and
  * under any ceiling higher than the eye plus the clearance, nothing is crossed and the eye is
  * untouched.
  */
+// Which cameras found a ceiling on their last Camera_KeepEyeUnderCeiling pass, and on which frame -
+// the whole of the clamp's hysteresis (#152). Read back only on the very next frame: any gap
+// (Z-target, a cutscene, a scene change) and it has expired.
+static s32 sCamCeilFound[NUM_CAMS];
+static u32 sCamCeilFoundFrame[NUM_CAMS];
+
 static void Camera_KeepEyeUnderCeiling(Camera* camera, Vec3f* at, Vec3f* eyeNext) {
     Vec3f raised = *eyeNext;
     Vec3f hit;
     CollisionPoly* poly;
     s32 bgId;
     f32 limitY;
+    s16 floored = 0;
+    s16 idx = camera->thisIdx;
+    u32 frame = camera->play->state.frames;
+    f32 hold = 0.0f;
 
-    // +1 so an eye already resting at the limit still crosses the ceiling, rather than grazing
-    // it and flickering between clamped and unclamped as the pitch creeps back up.
-    raised.y += CAM_EYE_CEILING_CLEARANCE + 1.0f;
-    // Walls are tested too, and a wall hit first means no clamp: the eye is past that wall (its
-    // own collision will stop it there), so a ceiling beyond is not over it. Front faces only, so
-    // a ceiling counts from below. -0.8 is BgCheck's own ceiling classification threshold.
-    if (!BgCheck_CameraLineTest1(&camera->play->colCtx, at, &raised, &hit, &poly, 1, 0, 1, 1, &bgId) ||
-        !(COLPOLY_GET_NORMAL(poly->normal.y) < -0.8f)) {
+    sCamDiag.eyeYPre = sCamDiag.eyeYPost = eyeNext->y;
+    sCamDiag.ceilY = 0.0f;
+    sCamDiag.ceilOverWallY = -1.0f;
+    sCamDiag.ceilHold = 0.0f;
+    if (idx < 0 || idx >= NUM_CAMS) {
+        idx = 0;
+    }
+    if (!CVarGetInteger(CVAR_CAM_CEIL_CLAMP_ON, CAM_CEIL_CLAMP_ON_DEFAULT)) {
+        sCamDiag.ceilState = -2; // #152 bisect switch
+        sCamCeilFound[idx] = 0;
         return;
     }
+    sCamDiag.ceilState = -1;
+    // Hysteresis (#152). Once a ceiling has been found, the next frame's test reaches `hold` higher.
+    // Without it an eye the clamp has just lowered can drop out of the test: its lowered segment
+    // crosses the ceiling's height beyond where the ceiling ends - past a doorway, with the eye out
+    // on a balcony and Link inside - so the clamp lets go, the pitch eases the eye back up until
+    // the segment reaches the ceiling again, and the eye saws between the two heights until
+    // vanilla's swing timer runs out. The reach only ever grows on the frame straight after a find.
+    if (sCamCeilFound[idx] && sCamCeilFoundFrame[idx] + 1 == frame) {
+        hold = CVarGetFloat(CVAR_CAM_CEIL_HOLD, CAM_CEIL_HOLD_DEFAULT);
+        if (!(hold > 0.0f)) {
+            hold = 0.0f;
+        }
+        if (hold > CAM_CEIL_HOLD_MAX) {
+            hold = CAM_CEIL_HOLD_MAX;
+        }
+        sCamDiag.ceilHold = hold;
+    }
+    sCamCeilFound[idx] = 0;
+    sCamCeilFoundFrame[idx] = frame;
+    // +1 so an eye already resting at the limit still crosses the ceiling, rather than grazing
+    // it and flickering between clamped and unclamped as the pitch creeps back up.
+    raised.y += CAM_EYE_CEILING_CLEARANCE + 1.0f + hold;
+    // Walls are tested too: an eye past a wall is stopped there by its own collision, so a
+    // ceiling beyond the wall is not over it (the wall-first branch below handles one over the wall
+    // hit). Front faces only, so a ceiling counts from below. -0.8 is BgCheck's own ceiling
+    // classification threshold.
+    if (!BgCheck_CameraLineTest1(&camera->play->colCtx, at, &raised, &hit, &poly, 1, 0, 1, 1, &bgId)) {
+        return;
+    }
+    if (!(COLPOLY_GET_NORMAL(poly->normal.y) < -0.8f)) {
+        // A wall first. Near the line where a wall meets the ceiling it holds up, "wall first" and
+        // "ceiling first" are decided by fractions of a unit, and the eye's own small pitch changes
+        // flip the answer every frame: a clamp that fires, lets go, fires - the #152 bounce, a 2- or
+        // 3-tick cycle for as long as the pitch is easing. Looking past the wall does not settle it:
+        // on some of those ticks the raised point is outside the building, where there is no
+        // ceiling to find. What does settle it is where the eye will actually be. Its collision stops
+        // it at this wall, so the question is whether a ceiling sits over the wall hit - taken
+        // `corner` units back toward `at`, on the room's side of the wall. If one does, within the
+        // height the raised eye reaches, the eye is under it. The balcony case above has open sky
+        // over its wall hit and still gets no clamp.
+        f32 back = CVarGetFloat(CVAR_CAM_CEIL_CORNER_BACK, CAM_CEIL_CORNER_BACK_DEFAULT);
+        f32 segLen = OLib_Vec3fDist(at, &hit);
+        Vec3f probe;
+        f32 ceilY;
+        f32 reach;
+
+        sCamDiag.ceilState = -3;
+        if (!(back > 0.0f) || segLen < 0.01f) {
+            return;
+        }
+        if (back > CAM_CEIL_CORNER_BACK_MAX) {
+            back = CAM_CEIL_CORNER_BACK_MAX;
+        }
+        if (back > segLen) {
+            back = segLen;
+        }
+        probe.x = hit.x + ((at->x - hit.x) * (back / segLen));
+        probe.y = hit.y + ((at->y - hit.y) * (back / segLen));
+        probe.z = hit.z + ((at->z - hit.z) * (back / segLen));
+        reach = (raised.y - probe.y) + 1.0f;
+        if (reach < 1.0f) {
+            reach = 1.0f;
+        }
+        // outY is where the probe would have to drop to (ceiling - reach), not the ceiling itself.
+        if (!BgCheck_AnyCheckCeiling(&camera->play->colCtx, &ceilY, &probe, reach)) {
+            return;
+        }
+        hit.y = ceilY + reach;
+        sCamDiag.ceilOverWallY = hit.y;
+    }
+    sCamDiag.ceilY = hit.y;
+    sCamDiag.ceilState = 0;
+    sCamCeilFound[idx] = 1;
     limitY = hit.y - CAM_EYE_CEILING_CLEARANCE;
     if (limitY < at->y) {
         limitY = at->y;
+        floored = 1;
     }
     if (eyeNext->y > limitY) {
         eyeNext->y = limitY;
+        sCamDiag.ceilState = floored ? 2 : 1;
     }
+    sCamDiag.eyeYPost = eyeNext->y;
 }
 
 /**
@@ -1879,6 +2107,7 @@ static f32 sCamIndoorDistMin = 0.0f;
 static f32 sCamIndoorDistMax = 0.0f;
 static u32 sCamIndoorAppliedFrame = 0;
 static s32 sCamIndoorApplied = 0;
+static f32 sCamNorm1YOffset = 0.0f; // #136: shows a height change reached the cached parameters
 
 /**
  * 1 when this frame's scaling actually moved the distance target, rather than just being active.
@@ -1965,6 +2194,9 @@ void Camera_IndoorPullInProbe(Camera* camera, CameraIndoorProbe* out) {
     out->appliedFrame = sCamIndoorAppliedFrame;
     out->appliedValid = sCamIndoorApplied;
     out->frame = camera->play->state.frames;
+    out->yOffset = sCamNorm1YOffset;
+    out->heightT = Camera_AdultHeightT();
+    out->height = (camera->player != NULL) ? Camera_PlayerHeight(camera) : 0.0f;
 }
 
 s32 Camera_Normal1(Camera* camera) {
@@ -1992,7 +2224,7 @@ s32 Camera_Normal1(Camera* camera) {
     f32 playerHeight;
     f32 rate = 0.1f;
 
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
     if (RELOAD_PARAMS) {
         CameraModeValue* values = sCameraSettings[camera->setting].cameraModes[camera->mode].values;
         f32 yNormal = (1.0f + PCT(R_CAM_YOFFSET_NORM) - PCT(R_CAM_YOFFSET_NORM) * (68.0f / playerHeight));
@@ -2097,7 +2329,9 @@ s32 Camera_Normal1(Camera* camera) {
         t = func_80044ADC(camera, BINANG_ROT180(atEyeGeo.yaw), 0);
         sp9C = ((1.0f / norm1->unk_10) * 0.5f) * (1.0f - camera->speedRatio);
         anim->slopePitchAdj = Camera_LERPCeilS(t, anim->slopePitchAdj, ((1.0f / norm1->unk_10) * 0.5f) + sp9C, 0xF);
+        sCamDiag.slopeRaw = t;
     } else {
+        sCamDiag.slopeRaw = 0;
         anim->slopePitchAdj = 0;
         if (camera->playerGroundY == camera->playerPosRot.pos.y) {
             anim->yOffset = camera->playerPosRot.pos.y;
@@ -2121,22 +2355,26 @@ s32 Camera_Normal1(Camera* camera) {
     camera->dist = eyeAdjustment.r =
         Camera_IndoorClampDist(camera, eyeAdjustment.r, norm1->distMin, norm1->distMax, anim->unk_28);
 
+    sCamDiag.pitchIn = atEyeNextGeo.pitch;
     if (anim->startSwingTimer <= 0) {
         // idle camera re-center
         if (CVarGetInteger(CVAR_SETTING("A11yDisableIdleCam"), 0)) {
             return 1;
         }
+        sCamDiag.branch = 0;
         eyeAdjustment.pitch = atEyeNextGeo.pitch;
         eyeAdjustment.yaw =
             Camera_LERPCeilS(anim->swingYawTarget, atEyeNextGeo.yaw, 1.0f / camera->yawUpdateRateInv, 0xA);
     } else if (anim->swing.unk_18 != 0) {
         // camera adjustments when obstructed/pushed by scene geometry
+        sCamDiag.branch = 1;
         eyeAdjustment.yaw =
             Camera_LERPCeilS(anim->swing.unk_16, atEyeNextGeo.yaw, 1.0f / camera->yawUpdateRateInv, 0xA);
         eyeAdjustment.pitch =
             Camera_LERPCeilS(anim->swing.unk_14, atEyeNextGeo.pitch, 1.0f / camera->yawUpdateRateInv, 0xA);
     } else {
         // rotate yaw to follow player while moving around - to keep player on camera.
+        sCamDiag.branch = 2;
         eyeAdjustment.yaw =
             Camera_CalcDefaultYaw(camera, atEyeNextGeo.yaw, camera->playerPosRot.rot.y, norm1->unk_14, sp94);
         eyeAdjustment.pitch =
@@ -2150,9 +2388,12 @@ s32 Camera_Normal1(Camera* camera) {
     if (eyeAdjustment.pitch < -0x3C8C) {
         eyeAdjustment.pitch = -0x3C8C;
     }
+    sCamDiag.pitchOut = eyeAdjustment.pitch;
 
     Camera_Vec3fVecSphGeoAdd(eyeNext, at, &eyeAdjustment);
     Camera_KeepEyeUnderCeiling(camera, at, eyeNext);
+    sCamDiagColCase = -1;
+    sCamDiag.idleBgHit = -1;
     if ((camera->status == CAM_STAT_ACTIVE) && (!(norm1->interfaceFlags & 0x10))) {
         anim->swingYawTarget = BINANG_ROT180(camera->playerPosRot.rot.y);
         if (!CVarGetInteger(CVAR_ENHANCEMENT("FixCameraSwing"), 0)) {
@@ -2161,7 +2402,8 @@ s32 Camera_Normal1(Camera* camera) {
             } else {
                 sp88 = *eyeNext;
                 anim->swing.swingUpdateRate = camera->yawUpdateRateInv = norm1->unk_0C * 2.0f;
-                if (Camera_BGCheck(camera, at, &sp88)) {
+                sCamDiag.idleBgHit = Camera_BGCheck(camera, at, &sp88) != 0;
+                if (sCamDiag.idleBgHit) {
                     anim->swingYawTarget = atEyeNextGeo.yaw;
                     anim->startSwingTimer = -1;
                 } else {
@@ -2211,6 +2453,16 @@ s32 Camera_Normal1(Camera* camera) {
     camera->fov = Camera_LERPCeilF(norm1->fovTarget * spA0, camera->fov, camera->fovUpdateRate, 1.0f);
     camera->roll = Camera_LERPCeilS(0, camera->roll, 0.5f, 0xA);
     camera->atLERPStepScale = Camera_ClampLERPScale(camera, norm1->atLERPScaleMax);
+
+    sCamDiag.colCase = sCamDiagColCase;
+    sCamDiag.slopeAdj = anim->slopePitchAdj;
+    sCamDiag.swingTimer = anim->startSwingTimer;
+    sCamDiag.swingActive = anim->swing.unk_18;
+    sCamDiag.atY = at->y;
+    sCamDiag.height = playerHeight;
+    sCamDiag.frame = camera->play->state.frames;
+    sCamDiag.valid = 1;
+    sCamNorm1YOffset = norm1->yOffset;
     return 1;
 }
 
@@ -2241,7 +2493,7 @@ s32 Camera_Normal2(Camera* camera) {
     f32 playerHeight;
     f32 yNormal;
 
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
     yNormal = (1.0f + PCT(R_CAM_YOFFSET_NORM)) - (PCT(R_CAM_YOFFSET_NORM) * (68.0f / playerHeight));
 
     if (R_RELOAD_CAM_PARAMS) {
@@ -2410,7 +2662,7 @@ s32 Camera_Normal3(Camera* camera) {
     Normal3Anim* anim = &norm3->anim;
     f32 playerHeight;
 
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
     if (RELOAD_PARAMS) {
         CameraModeValue* values = sCameraSettings[camera->setting].cameraModes[camera->mode].values;
         norm3->yOffset = NEXTSETTING * PCT(playerHeight);
@@ -2560,7 +2812,7 @@ s32 Camera_Parallel1(Camera* camera) {
     f32 playerHeight;
     s32 pad3;
 
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
     if (RELOAD_PARAMS) {
         CameraModeValue* values = sCameraSettings[camera->setting].cameraModes[camera->mode].values;
         f32 yNormal = (1.0f + PCT(OREG(46))) - (PCT(OREG(46)) * (68.0f / playerHeight));
@@ -2773,7 +3025,7 @@ s32 Camera_Jump1(Camera* camera) {
     s32 pad;
     f32 playerHeight;
 
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
     if (RELOAD_PARAMS) {
         CameraModeValue* values = sCameraSettings[camera->setting].cameraModes[camera->mode].values;
         f32 yNormal = (1.0f + PCT(R_CAM_YOFFSET_NORM)) - (PCT(R_CAM_YOFFSET_NORM) * (68.0f / playerHeight));
@@ -2929,7 +3181,7 @@ s32 Camera_Jump2(Camera* camera) {
     f32 playerHeight;
     f32 yNormal;
 
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
 
     if (RELOAD_PARAMS) {
         values = sCameraSettings[camera->setting].cameraModes[camera->mode].values;
@@ -3119,7 +3371,7 @@ s32 Camera_Jump3(Camera* camera) {
     f32 temp_f2_2;
     Jump3Anim* anim = &jump3->anim;
 
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
     Actor_GetFocus(&playerhead, &camera->player->actor);
 
     modeSwitch = false;
@@ -3324,7 +3576,7 @@ s32 Camera_Battle1(Camera* camera) {
 
     skipEyeAtCalc = false;
     player = camera->player;
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
     if (RELOAD_PARAMS) {
         CameraModeValue* values = sCameraSettings[camera->setting].cameraModes[camera->mode].values;
         f32 yNormal = (1.0f + PCT(OREG(46))) - (PCT(OREG(46)) * (68.0f / playerHeight));
@@ -3565,7 +3817,7 @@ s32 Camera_Battle4(Camera* camera) {
     s32 pad;
     f32 playerHeight;
 
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
     if (RELOAD_PARAMS) {
         CameraModeValue* values = sCameraSettings[camera->setting].cameraModes[camera->mode].values;
         f32 yNormal = (1.0f + PCT(R_CAM_YOFFSET_NORM)) - (PCT(R_CAM_YOFFSET_NORM) * (68.0f / playerHeight));
@@ -3664,7 +3916,7 @@ s32 Camera_KeepOn1(Camera* camera) {
     f32 playerHeight;
 
     sp88 = 0;
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
     if ((camera->target == NULL) || (camera->target->update == NULL)) {
         if (camera->target == NULL) {
             osSyncPrintf(
@@ -3898,7 +4150,7 @@ s32 Camera_KeepOn3(Camera* camera) {
     s32 pad;
     f32 playerHeight;
 
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
     if (camera->target == NULL || camera->target->update == NULL) {
         if (camera->target == NULL) {
             osSyncPrintf(VT_COL(YELLOW, BLACK) "camera: warning: talk: target is not valid, change parallel\n" VT_RST);
@@ -4107,7 +4359,7 @@ s32 Camera_KeepOn4(Camera* camera) {
         return 1;
     }
 
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
     camera->unk_14C &= ~0x10;
     if (RELOAD_PARAMS) {
         CameraModeValue* values = sCameraSettings[camera->setting].cameraModes[camera->mode].values;
@@ -4443,7 +4695,7 @@ s32 Camera_Fixed1(Camera* camera) {
     PosRot* playerPosRot = &camera->playerPosRot;
     f32 playerHeight;
 
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
     if (RELOAD_PARAMS) {
         CameraModeValue* values = sCameraSettings[camera->setting].cameraModes[camera->mode].values;
         scenePosData = Camera_GetCamBGData(camera);
@@ -4514,7 +4766,7 @@ s32 Camera_Fixed2(Camera* camera) {
     s32 pad;
     f32 playerHeight;
 
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
 
     if (RELOAD_PARAMS) {
         CameraModeValue* values = sCameraSettings[camera->setting].cameraModes[camera->mode].values;
@@ -4667,7 +4919,7 @@ s32 Camera_Fixed4(Camera* camera) {
     Fixed4Anim* anim = &fixed4->anim;
     f32 playerYOffset;
 
-    playerYOffset = Player_GetHeight(camera->player);
+    playerYOffset = Camera_PlayerHeight(camera);
     if (RELOAD_PARAMS) {
         CameraModeValue* values = sCameraSettings[camera->setting].cameraModes[camera->mode].values;
         f32 yNormal = ((1.0f + PCT(OREG(46))) - (PCT(OREG(46)) * (68.0f / playerYOffset)));
@@ -4761,7 +5013,7 @@ s32 Camera_Subj3(Camera* camera) {
     f32 playerHeight;
 
     Actor_GetFocus(&sp60, &camera->player->actor);
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
 
     if (camera->play->view.unk_124 == 0) {
         camera->play->view.unk_124 = camera->thisIdx | 0x50;
@@ -5025,7 +5277,7 @@ s32 Camera_Data4(Camera* camera) {
     Vec3f* at = &camera->at;
     s32 pad;
 
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
 
     if (RELOAD_PARAMS) {
         values = sCameraSettings[camera->setting].cameraModes[camera->mode].values;
@@ -5106,7 +5358,7 @@ s32 Camera_Unique1(Camera* camera) {
     f32 playerHeight;
     s32 pad2;
 
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
     if (RELOAD_PARAMS) {
         CameraModeValue* values = sCameraSettings[camera->setting].cameraModes[camera->mode].values;
         f32 yNormal = (1.0f + PCT(R_CAM_YOFFSET_NORM)) - (PCT(R_CAM_YOFFSET_NORM) * (68.0f / playerHeight));
@@ -5196,7 +5448,7 @@ s32 Camera_Unique2(Camera* camera) {
     s32 pad2;
     f32 playerHeight;
 
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
 
     OLib_Vec3fDiffToVecSphGeo(&eyeAtOffset, at, eye);
 
@@ -5272,7 +5524,7 @@ s32 Camera_Unique3(Camera* camera) {
     Vec3f* at = &camera->at;
     PosRot* cameraPlayerPosRot = &camera->playerPosRot;
 
-    playerHeight = Player_GetHeight(camera->player);
+    playerHeight = Camera_PlayerHeight(camera);
     camera->unk_14C &= ~0x10;
     if (RELOAD_PARAMS) {
         CameraModeValue* values = sCameraSettings[camera->setting].cameraModes[camera->mode].values;
@@ -5388,7 +5640,7 @@ s32 Camera_Unique0(Camera* camera) {
     Vec3f* eye = &camera->eye;
     s16 fov;
 
-    yOffset = Player_GetHeight(camera->player);
+    yOffset = Camera_PlayerHeight(camera);
     player = camera->player;
 
     if (RELOAD_PARAMS) {
@@ -5526,7 +5778,7 @@ s32 Camera_Unique6(Camera* camera) {
     }
 
     if (camera->player != NULL) {
-        offset = Player_GetHeight(camera->player);
+        offset = Camera_PlayerHeight(camera);
         sp2C = playerPosRot->pos;
         sp2C.y += offset;
         camera->dist = OLib_Vec3fDist(&sp2C, &camera->eye);
@@ -6218,7 +6470,7 @@ s32 Camera_Demo3(Camera* camera) {
     f32 temp_f0;
     s32 pad;
     u8 skipUpdateEye = false;
-    f32 yOffset = Player_GetHeight(camera->player);
+    f32 yOffset = Camera_PlayerHeight(camera);
     s16 angle;
     Demo3* demo3 = (Demo3*)camera->paramData;
     Demo3Anim* anim = &demo3->anim;
@@ -7000,7 +7252,7 @@ s32 Camera_Special5(Camera* camera) {
     f32 temp_f0_2;
     f32 yOffset;
 
-    yOffset = Player_GetHeight(camera->player);
+    yOffset = Camera_PlayerHeight(camera);
     if (RELOAD_PARAMS) {
         CameraModeValue* values = sCameraSettings[camera->setting].cameraModes[camera->mode].values;
         f32 yNormal = (1.0f + PCT(R_CAM_YOFFSET_NORM)) - (PCT(R_CAM_YOFFSET_NORM) * (68.0f / yOffset));
@@ -7076,7 +7328,7 @@ s32 Camera_Special7(Camera* camera) {
     f32 yOffset;
     f32 temp_f0;
 
-    yOffset = Player_GetHeight(camera->player);
+    yOffset = Camera_PlayerHeight(camera);
     if (camera->animState == 0) {
         if (camera->play->sceneNum == SCENE_SPIRIT_TEMPLE) {
             // Spirit Temple
@@ -7249,7 +7501,7 @@ s32 Camera_Special9(Camera* camera) {
     s32 pad4;
     Vec3s* camPosData;
 
-    playerYOffset = Player_GetHeight(camera->player);
+    playerYOffset = Camera_PlayerHeight(camera);
     camera->unk_14C &= ~0x10;
     yNormal = (1.0f + PCT(R_CAM_YOFFSET_NORM)) - (PCT(R_CAM_YOFFSET_NORM) * (68.0f / playerYOffset));
 
@@ -8034,6 +8286,7 @@ Vec3s Camera_Update(Camera* camera) {
     }
 
     if (sOOBTimer < 200) {
+        Camera_ReloadOnHeightChange(camera); // #136
         sCameraFunctions[sCameraSettings[camera->setting].cameraModes[camera->mode].funcIdx](camera);
     } else if (camera->player != NULL) {
         OLib_Vec3fDiffToVecSphGeo(&eyeAtAngle, &camera->at, &camera->eye);
