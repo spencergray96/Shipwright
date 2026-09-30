@@ -44,6 +44,18 @@ void OnTextureMipsSetting() {
     ApplySwitch(TextureMips_Setting() != 0, "setting");
 }
 
+// A session-only choice (`agenttest mipmaps lod|bias`) is in force: the saved setting stays out of the
+// way - on a room load and on a preset or config reload alike - until the human command saves one.
+bool sLodSessionOverride = false;
+
+void ApplyLodSetting() {
+    if (sLodSessionOverride) {
+        return;
+    }
+    Fast::TextureMipsSetLod(CVarGetInteger(CVAR_TEXTURE_MIPS_LOD, TEXTURE_MIPS_LOD_DEFAULT),
+                            CVarGetFloat(CVAR_TEXTURE_MIPS_BIAS, 0.0f));
+}
+
 void RegisterTextureMipsWidgets() {
     WidgetPath path = { "Settings", "Graphics", SECTION_COLUMN_2 };
     SohGui::mSohMenu->AddWidget(path, "Mipmaps for Mod Scenes", WIDGET_CVAR_CHECKBOX)
@@ -63,6 +75,7 @@ void RegisterTextureMipsWidgets() {
 }
 
 static RegisterShipInitFunc sTextureMipsInit(OnTextureMipsSetting, { CVAR_TEXTURE_MIPS });
+static RegisterShipInitFunc sTextureMipsLodInit(ApplyLodSetting, { CVAR_TEXTURE_MIPS_LOD, CVAR_TEXTURE_MIPS_BIAS });
 static RegisterMenuInitFunc sTextureMipsMenuInit(RegisterTextureMipsWidgets);
 
 } // namespace
@@ -86,6 +99,8 @@ extern "C" void TextureMips_RegisterRoom(PlayState* play, RoomContext* roomCtx) 
         Fast::TextureMipsRegisterDisplayList(entries[i].opa);
         Fast::TextureMipsRegisterDisplayList(entries[i].xlu);
     }
+    // Applied again at every room load, in case ShipInit ran before the renderer existed.
+    ApplyLodSetting();
     uint32_t lists = 0;
     uint32_t addrs = 0;
     uint64_t mipped = 0;
@@ -104,6 +119,18 @@ extern "C" void TextureMips_SetSetting(int active) {
     CVarSetInteger(CVAR_TEXTURE_MIPS, active != 0 ? 1 : 0);
     CVarSave();
     ApplySwitch(active != 0, "setting");
+}
+
+extern "C" void TextureMips_SetLod(int mode, float bias, int save) {
+    if (save) {
+        sLodSessionOverride = false;
+        CVarSetInteger(CVAR_TEXTURE_MIPS_LOD, mode);
+        CVarSetFloat(CVAR_TEXTURE_MIPS_BIAS, bias);
+        CVarSave();
+    } else {
+        sLodSessionOverride = true;
+    }
+    Fast::TextureMipsSetLod(mode, bias);
 }
 
 extern "C" int TextureMips_Setting(void) {
