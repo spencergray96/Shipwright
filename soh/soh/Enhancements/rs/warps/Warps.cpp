@@ -1,5 +1,6 @@
 #include "Warps.h"
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cmath>
@@ -824,6 +825,42 @@ extern "C" const RsWarpSceneDef* RsWarp_GetSceneDef(int32_t sceneId) {
         }
     }
     return nullptr;
+}
+
+extern "C" int32_t RsWarp_SceneGroup(int32_t sceneId) {
+    // Every route into another scene is an edge, taken both ways: a one-way drop still joins the two.
+    std::vector<std::array<int32_t, 2>> edges;
+    for (const RsWarpSceneDef* def : sScenes) {
+        for (int32_t t = 0; t < def->tileCount; t++) {
+            const RsWarpTileDef& tile = def->tiles[t];
+            for (int32_t d = 0; d < tile.destCount; d++) {
+                const RsWarpDest& dest = tile.dests[d];
+                if (!IsHere(dest) && IsEntrance(dest.entrance)) {
+                    edges.push_back({ def->sceneId, EntranceScene(dest.entrance) });
+                }
+            }
+        }
+    }
+
+    std::vector<int32_t> members = { sceneId };
+    int32_t group = sceneId;
+    for (size_t i = 0; i < members.size(); i++) {
+        for (const auto& edge : edges) {
+            for (int side = 0; side < 2; side++) {
+                if (edge[side] != members[i]) {
+                    continue;
+                }
+                const int32_t other = edge[1 - side];
+                if (std::find(members.begin(), members.end(), other) == members.end()) {
+                    members.push_back(other);
+                    if (other < group) {
+                        group = other;
+                    }
+                }
+            }
+        }
+    }
+    return group;
 }
 
 // --- C++ surface --------------------------------------------------------------------------------

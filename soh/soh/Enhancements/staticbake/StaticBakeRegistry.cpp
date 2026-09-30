@@ -28,8 +28,11 @@
 
 #include "StaticBakeRegistry.h"
 
+#include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <string>
+#include <vector>
 
 #include <fast/Fast3dWindow.h>
 #include <fast/StaticMeshCache.h>
@@ -41,7 +44,10 @@
 #include "soh/ShipInit.hpp"
 #include "soh/SohGui/MenuTypes.h"
 #include "soh/SohGui/SohMenu.h"
+#include "soh/Enhancements/rs/warps/Warps.h"
 #include "soh/custom/scenes/CustomSceneData.h"
+
+extern "C" PlayState* gPlayState;
 
 namespace SohGui {
 extern std::shared_ptr<SohMenu> mSohMenu;
@@ -141,10 +147,55 @@ void RegisterStaticBakeWidgets() {
 static RegisterShipInitFunc sStaticBakeInit(OnStaticBakeSetting, { CVAR_STATIC_BAKE });
 static RegisterMenuInitFunc sStaticBakeMenuInit(RegisterStaticBakeWidgets);
 
-// Registrations are keyed by display-list pointer and a scene's display lists are its own
-// symbols, so entries from a scene that is no longer loaded are dead weight holding GPU buffers
-// open. Nothing else would ever free them.
-s32 sLastScene = -1;
+// WHAT STAYS RESIDENT (sturdy-bassoon#157): everything recorded in the current BAKE GROUP, until
+// Link enters a compiled-in scene of another group. The group is the step-warp group
+// (RsWarp_SceneGroup): an overworld and the underground areas its trapdoors lead to (#148), so
+// going back up replays the overworld instead of recording it again - about 1.2 s at the 4.1M F2P
+// fixture's scale, for ~650 MB of GPU memory held through the visit (the #157 run). The owner chose
+// this policy over freeing each underground scene as Link leaves it, which would need a per-scene
+// release in libultraship; an underground scene is small beside its overworld. Nothing is freed
+// within a group - no budget, no eviction - so a group's scenes load on top of everything it holds.
+//
+// Why a kept entry is sound: registrations are keyed by display-list pointer, a compiled-in scene's
+// display lists are static symbols at the same address on every load, and re-registering a key is a
+// no-op - so a returning scene's rooms find their bakes already there. Lights and fog are replay
+// uniforms (#142 slice A), so nothing a bake holds goes stale while it waits.
+//
+// `staticbake link` can join two groups for a session (BakeGroup below), for measuring this on
+// content no step warp reaches yet.
+//
+// Leaving the group frees everything (Fast::StaticBakeReset): the entries from a group Link has left
+// are dead weight holding GPU buffers and textures open, and nothing else would ever free them.
+// Vanilla scenes never reach this file, so a trip through one keeps whatever the group holds.
+s32 sLastGroup = -1;
+// The scenes whose rooms registered since the last reset, for the log line and `staticbake status`.
+std::vector<s32> sHeldScenes;
+// Session-only extra joins between two scenes' groups (`staticbake link`), for measuring a kept return
+// on content no step warp reaches yet - the at-scale F2P fixture has no warp tiles.
+std::vector<std::array<s32, 2>> sLinks;
+
+// The scene's bake group: its step-warp group, joined through any `staticbake link`s to others, named
+// by the smallest id in the result - which with no links is exactly RsWarp_SceneGroup.
+s32 BakeGroup(s32 sceneNum) {
+    std::vector<s32> groups = { RsWarp_SceneGroup(sceneNum) };
+    for (size_t i = 0; i < groups.size(); i++) {
+        for (const auto& link : sLinks) {
+            const s32 a = RsWarp_SceneGroup(link[0]);
+            const s32 b = RsWarp_SceneGroup(link[1]);
+            const s32 other = a == groups[i] ? b : b == groups[i] ? a : -1;
+            if (other != -1 && std::find(groups.begin(), groups.end(), other) == groups.end()) {
+                groups.push_back(other);
+            }
+        }
+    }
+    return *std::min_element(groups.begin(), groups.end());
+}
+
+void ResetRegistry() {
+    Fast::StaticBakeReset();
+    sHeldScenes.clear();
+    sLastGroup = -1;
+}
 
 } // namespace
 
@@ -185,9 +236,22 @@ extern "C" void StaticBake_RegisterRoom(PlayState* play, RoomContext* roomCtx) {
         return;
     }
 
-    if (play->sceneNum != sLastScene) {
-        Fast::StaticBakeReset();
-        sLastScene = play->sceneNum;
+    // Before the mesh checks below, on purpose: a compiled-in room with nothing to bake is still in its
+    // scene's group, and entering it from another group still frees the old one.
+    const s32 group = BakeGroup(play->sceneNum);
+    if (group != sLastGroup) {
+        if (sLastGroup != -1) {
+            uint32_t freed = 0;
+            Fast::StaticBakeGetStats(&freed, nullptr, nullptr);
+            SPDLOG_INFO("[staticbake] scene {:#x} is in group {:#x}, not {:#x}: reset, freeing {} entries from {} "
+                        "scene(s)",
+                        play->sceneNum, group, sLastGroup, freed, sHeldScenes.size());
+        }
+        ResetRegistry();
+        sLastGroup = group;
+    }
+    if (std::find(sHeldScenes.begin(), sHeldScenes.end(), play->sceneNum) == sHeldScenes.end()) {
+        sHeldScenes.push_back(play->sceneNum);
     }
 
     MeshHeader* header = (MeshHeader*)roomCtx->curRoom.meshHeader;
@@ -201,6 +265,8 @@ extern "C" void StaticBake_RegisterRoom(PlayState* play, RoomContext* roomCtx) {
         return;
     }
 
+    uint32_t before = 0;
+    Fast::StaticBakeGetStats(&before, nullptr, nullptr);
     u32 registered = 0;
     for (u32 i = 0; i < shape->num; i++) {
         // Opaque only. Translucent geometry is a Stage 2 problem: it needs draw order preserved
@@ -215,8 +281,49 @@ extern "C" void StaticBake_RegisterRoom(PlayState* play, RoomContext* roomCtx) {
     uint32_t baked = 0;
     uint32_t rejected = 0;
     Fast::StaticBakeGetStats(&total, &baked, &rejected);
+    // `already held`: offered lists the registry kept from an earlier visit in this group (#157),
+    // which replay on their first draw instead of recording. After the fields older run scripts parse.
     SPDLOG_INFO("[staticbake] scene {:#x} room {}: offered {} opaque display list(s); registry now "
-                "{} entries ({} baked, {} rejected); bake {}",
+                "{} entries ({} baked, {} rejected); bake {}; {} already held; group {:#x}, {} scene(s) held",
                 play->sceneNum, roomCtx->curRoom.num, registered, total, baked, rejected,
-                Fast::StaticBakeIsEnabled() ? "on" : "off");
+                Fast::StaticBakeIsEnabled() ? "on" : "off", registered - (total - before), group,
+                sHeldScenes.size());
+}
+
+extern "C" void StaticBake_Reset(void) {
+    ApplyStartupState();
+    uint32_t freed = 0;
+    Fast::StaticBakeGetStats(&freed, nullptr, nullptr);
+    // Put the current room back if it is one of ours, so it records on its next draw rather than
+    // being interpreted until the next room load. Anything else registered is gone.
+    const bool current = gPlayState != nullptr && std::find(sHeldScenes.begin(), sHeldScenes.end(),
+                                                            gPlayState->sceneNum) != sHeldScenes.end();
+    SPDLOG_INFO("[staticbake] reset by command: freeing {} entries from {} scene(s)", freed, sHeldScenes.size());
+    ResetRegistry();
+    if (current) {
+        StaticBake_RegisterRoom(gPlayState, &gPlayState->roomCtx);
+    }
+}
+
+extern "C" void StaticBake_Link(int sceneA, int sceneB) {
+    sLinks.push_back({ sceneA, sceneB });
+    // A link only ever merges groups, so what is held stays one group - under a new name, possibly,
+    // which has to be followed here or the next registration would read the rename as leaving it.
+    if (!sHeldScenes.empty()) {
+        sLastGroup = BakeGroup(sHeldScenes.front());
+    }
+    SPDLOG_INFO("[staticbake] link {:#x} and {:#x} for this session: scene {:#x} is now in group {:#x}", sceneA,
+                sceneB, sceneA, BakeGroup(sceneA));
+}
+
+extern "C" int StaticBake_Links(void) {
+    return (int)sLinks.size();
+}
+
+extern "C" int StaticBake_Group(void) {
+    return sLastGroup;
+}
+
+extern "C" int StaticBake_HeldScenes(void) {
+    return (int)sHeldScenes.size();
 }

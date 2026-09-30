@@ -22,7 +22,26 @@ extern "C" {
 // defines in C. That is the whole of the vanilla-safety argument: the cache is keyed by display
 // list pointer, which is only sound for addresses that are stable C symbols, and a vanilla scene's
 // display lists never reach this function so they can never be registered.
+//
+// What it keeps (sturdy-bassoon#157): everything registered in the scene's BAKE GROUP - its step-warp
+// group, RsWarp_SceneGroup - until a room of another group registers, which frees it all. So a
+// return from an underground scene to its overworld replays the overworld's bakes on the first frame
+// instead of recording them. See StaticBakeRegistry.cpp for why and what it costs.
 void StaticBake_RegisterRoom(PlayState* play, RoomContext* roomCtx);
+
+// Free every bake and registration now, whatever the group, then register the current room again if
+// it is a compiled-in one - so it records on its next draw. `staticbake reset`: for timing a cold
+// load (reset, then enter the scene), and for anyone who suspects a kept bake.
+void StaticBake_Reset(void);
+// The bake group the registry holds (the smallest scene id in it), -1 when nothing is held; and how
+// many scenes' rooms have registered since the last reset.
+int StaticBake_Group(void);
+int StaticBake_HeldScenes(void);
+// Join two scenes' bake groups for the rest of the session (`staticbake link`), as if a step warp ran
+// between them. For measuring a kept return on content no warp reaches yet - the at-scale F2P fixture
+// has no warp tiles. Links only merge, and nothing removes one short of a restart.
+void StaticBake_Link(int sceneA, int sceneB);
+int StaticBake_Links(void);
 
 // The bake's runtime switch (sturdy-bassoon#142, #153). On: registered rooms are recorded once and
 // replayed from the GPU. Off: every room is interpreted, and existing bakes are kept, so switching

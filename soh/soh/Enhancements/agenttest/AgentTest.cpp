@@ -167,9 +167,11 @@
  *                                        resource manager's current state. They differ for one frame after a
  *                                        flip - OTRGlobals applies the CVar at the end of the next frame
  *   staticbake <line>                    one line of StaticBakeConsole_Run output per marker, from
- *                                        `agenttest staticbake [status|on|off|rebake|sort on|off]`: `op=<sub>
- *                                        result=ok active=<0|1> setting=<0|1> registered=<n> baked=<n>
- *                                        rejected=<n> supported=<0|1> sort=<0|1>`. Same renderer as the human
+ *                                        `agenttest staticbake [status|on|off|rebake|reset|link <a> <b>|
+ *                                        sort on|off]`: `op=<sub> result=ok active=<0|1> setting=<0|1>
+ *                                        registered=<n> baked=<n> rejected=<n> supported=<0|1> sort=<0|1>
+ *                                        group=<0x..|none> scenes=<n> links=<n>` (group, scenes, links:
+ *                                        the bake group held, #157). Same renderer as the human
  *                                        `staticbake` command (sturdy-bassoon#142), except that on/off here
  *                                        switch for the session only; the human command also saves setting=
  *                                        (#153). active=0 on a backend that cannot bake (supported=0)
@@ -2821,7 +2823,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|fadein <s>|"
               "baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
-            "keepinput [on|off] | kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|sort on|off] | "
+            "keepinput [on|off] | kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|reset|link <a> <b>|sort on|off] | "
               "imgui status|dump [kind]|click [kind:]<label>|clickat <x> <y>|key <name> | "
             "mipmaps [status|on|off|lod <mode>|bias <n>] | save <fileNum> | loadsave <fileNum> | mark <text>";
     }
@@ -2865,7 +2867,7 @@ void RegisterAgentTest() {
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|"
               "fadein <s>|baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
-              "keepinput [on|off] | kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|sort on|off] | "
+              "keepinput [on|off] | kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|reset|link <a> <b>|sort on|off] | "
               "imgui status|dump [kind]|click [kind:]<label>|clickat <x> <y>|key <name> | "
               "mipmaps [status|on|off|lod <mode>|bias <n>] | save <fileNum> | loadsave <fileNum> | mark <text>. "
               "walk/press inject controller 1 for N frames and end with an input_done marker.",

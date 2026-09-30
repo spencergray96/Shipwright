@@ -97,6 +97,15 @@ const char* RsWarp_ProblemName(int32_t problem);
 int32_t RsWarp_RegisterScene(const RsWarpSceneDef* def);
 const RsWarpSceneDef* RsWarp_GetSceneDef(int32_t sceneId);
 
+// The scene's WARP GROUP (sturdy-bassoon#157): every scene joined to it by a chain of step-warp
+// routes into another scene (RS_WARP_TO_SCENE), in either direction - an overworld and the
+// underground areas its trapdoors lead to (#148). Named by the smallest scene id in the group, so
+// the answer is the same from any member; a scene no route touches is a group of one, its own id.
+// Worked out from the registered tables on every call - a handful of tables - so it can never
+// disagree with them. The static bake keeps what it has recorded until Link enters a scene of
+// another group (StaticBakeRegistry.cpp).
+int32_t RsWarp_SceneGroup(int32_t sceneId);
+
 #ifdef __cplusplus
 }
 
