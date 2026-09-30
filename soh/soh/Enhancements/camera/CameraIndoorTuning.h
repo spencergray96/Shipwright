@@ -141,6 +141,19 @@ extern "C" {
 #define CVAR_CAM_CEIL_CORNER_BACK CVAR_ENHANCEMENT("CamCeilCornerBack")
 #define CAM_CEIL_CORNER_BACK_DEFAULT 2.0f
 #define CAM_CEIL_CORNER_BACK_MAX 40.0f
+// Hysteresis on the same clamp (#152): on the frame after it found a ceiling, its test segment
+// reaches this many units higher, so an eye it has just lowered stays under that ceiling rather
+// than dropping out of the test and being let go. 0 = no hysteresis (the #103 rule).
+//
+// 12, measured at the level-2 doorway in Lumbridge Castle (Link just inside, the eye out on the
+// balcony): 14 clamp engage/release flips per scripted try at 0, 0 at 12, with the #152 wall spot
+// at 0 either way. One clearance's worth: the lowered eye sits 12 under the ceiling, so reaching 12
+// more tests the segment as though the eye were still up at the ceiling. Too large and the clamp holds
+// the eye low a little after Link walks out from under a ceiling; it still expires on the first
+// frame the longer test misses.
+#define CVAR_CAM_CEIL_HOLD CVAR_ENHANCEMENT("CamCeilHold")
+#define CAM_CEIL_HOLD_DEFAULT 12.0f
+#define CAM_CEIL_HOLD_MAX 80.0f
 // The #38 clamp on the slope probe's origin in func_80044ADC.
 #define CVAR_CAM_PROBE_CEIL_ON CVAR_ENHANCEMENT("CamProbeCeil")
 #define CAM_PROBE_CEIL_ON_DEFAULT 1
@@ -207,6 +220,7 @@ typedef struct {
                      // -1 nothing crossed, 0 crossed but eye already under the limit, 1 lowered,
                      // 2 lowered onto `at`
     f32 ceilOverWallY; // when a wall came first: the ceiling found over the wall hit (-1 none)
+    f32 ceilHold;      // the hysteresis reach applied this frame (0 unless a ceiling was found last frame)
     f32 eyeYPre;     // eyeNext.y before the ceiling clamp
     f32 eyeYPost;    // and after
     f32 ceilY;       // the ceiling the clamp found, clamped or not (0 when none)

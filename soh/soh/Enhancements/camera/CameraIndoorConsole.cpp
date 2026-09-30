@@ -136,9 +136,10 @@ void AddTunables(std::vector<std::string>& lines) {
          CVarGetFloat(CVAR_CAM_INDOOR_RING_RADIUS, CAM_INDOOR_RING_RADIUS_DEFAULT),
          CVarGetFloat(CVAR_CAM_INDOOR_RING_BIAS, CAM_INDOOR_RING_BIAS_DEFAULT),
          CVarGetInteger(CVAR_CAM_INDOOR_RING_K, CAM_INDOOR_RING_K_DEFAULT));
-    Addf(lines, "switches ceilclamp=%d corner=%.1f floorahead=%d probeceil=%d",
+    Addf(lines, "switches ceilclamp=%d corner=%.1f hold=%.1f floorahead=%d probeceil=%d",
          CVarGetInteger(CVAR_CAM_CEIL_CLAMP_ON, CAM_CEIL_CLAMP_ON_DEFAULT),
          CVarGetFloat(CVAR_CAM_CEIL_CORNER_BACK, CAM_CEIL_CORNER_BACK_DEFAULT),
+         CVarGetFloat(CVAR_CAM_CEIL_HOLD, CAM_CEIL_HOLD_DEFAULT),
          CVarGetInteger(CVAR_CAM_FLOOR_AHEAD_ON, CAM_FLOOR_AHEAD_ON_DEFAULT),
          CVarGetInteger(CVAR_CAM_PROBE_CEIL_ON, CAM_PROBE_CEIL_ON_DEFAULT));
     Addf(lines, "ledge cap=%.1f scale=%.3f cos=%d near_only=%d",
@@ -200,6 +201,7 @@ int32_t Defaults(std::vector<std::string>& lines) {
     CVarClear(CVAR_CAM_INDOOR_RING_K);
     CVarClear(CVAR_CAM_CEIL_CLAMP_ON);
     CVarClear(CVAR_CAM_CEIL_CORNER_BACK);
+    CVarClear(CVAR_CAM_CEIL_HOLD);
     CVarClear(CVAR_CAM_FLOOR_AHEAD_ON);
     CVarClear(CVAR_CAM_PROBE_CEIL_ON);
     CVarClear(CVAR_CAM_LEDGE_DROP_CAP);
@@ -263,6 +265,9 @@ int32_t CameraIndoorConsole_Run(const std::vector<std::string>& args, std::vecto
     if (sub == "corner") {
         return SetFloat(args, lines, CVAR_CAM_CEIL_CORNER_BACK, "corner", 0.0f, CAM_CEIL_CORNER_BACK_MAX);
     }
+    if (sub == "hold") {
+        return SetFloat(args, lines, CVAR_CAM_CEIL_HOLD, "hold", 0.0f, CAM_CEIL_HOLD_MAX);
+    }
     if (sub == "floorahead") {
         return SetSwitch(args, lines, CVAR_CAM_FLOOR_AHEAD_ON, "floorahead");
     }
@@ -305,7 +310,7 @@ const ConsoleSink::Command cameraIndoorCommand(
     "camindoor", CameraIndoorConsole_Run,
     "Grid-tool camera tuning (sturdy-bassoon#108, #152, #155, #136): status | on | off | scale <f> | "
     "height <f> | ease <f> | ring <n> | radius <f> | bias <f> | k <n> | ceilclamp|floorahead|probeceil "
-    "on|off | corner <f> | ledgecap <f> | ledgescale <f> | ledgecos on|off | ledgenear on|off | "
+    "on|off | corner <f> | hold <f> | ledgecap <f> | ledgescale <f> | ledgecos on|off | ledgenear on|off | "
     "heightt <f>|+<f>|-<f> | "
     "defaults. The follow distance "
     "is multiplied by `scale` while a ceiling is found within `height` of the floor the player is on, "
@@ -318,10 +323,11 @@ const ConsoleSink::Command cameraIndoorCommand(
     "'not indoors' from 'the follow camera is not the one running'. ceilclamp/floorahead/probeceil switch "
     "our #103/#38 corrections off, engine-wide, to bisect a camera fight; `corner` is how far back from a wall hit "
     "the ceiling clamp looks up for the ceiling over it (0 = the #103 rule: a wall first means no "
-    "clamp). ledge* soften the look-down at "
+    "clamp); `hold` is how much further the clamp's test reaches on the frame after it found a "
+    "ceiling (0 = none). ledge* soften the look-down at "
     "a drop: cap the drop (units), scale its pitch, damp it by cos like a rise, or ignore the far probe. "
     "heightt moves adult Link's camera height toward Young Link's (0 vanilla, 1 child); a sign steps it.",
-    { { "status|on|off|scale|height|ease|ring|radius|bias|k|ceilclamp|corner|floorahead|probeceil|ledgecap|"
+    { { "status|on|off|scale|height|ease|ring|radius|bias|k|ceilclamp|corner|hold|floorahead|probeceil|ledgecap|"
         "ledgescale|ledgecos|ledgenear|heightt|defaults",
         Ship::ArgumentType::TEXT },
       { "value", Ship::ArgumentType::TEXT, true } });

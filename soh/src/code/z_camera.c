@@ -1847,6 +1847,12 @@ s32 Camera_Free(Camera* camera) {
  * under any ceiling higher than the eye plus the clearance, nothing is crossed and the eye is
  * untouched.
  */
+// Which cameras found a ceiling on their last Camera_KeepEyeUnderCeiling pass, and on which frame -
+// the whole of the clamp's hysteresis (#152). Read back only on the very next frame: any gap
+// (Z-target, a cutscene, a scene change) and it has expired.
+static s32 sCamCeilFound[NUM_CAMS];
+static u32 sCamCeilFoundFrame[NUM_CAMS];
+
 static void Camera_KeepEyeUnderCeiling(Camera* camera, Vec3f* at, Vec3f* eyeNext) {
     Vec3f raised = *eyeNext;
     Vec3f hit;
@@ -1854,18 +1860,44 @@ static void Camera_KeepEyeUnderCeiling(Camera* camera, Vec3f* at, Vec3f* eyeNext
     s32 bgId;
     f32 limitY;
     s16 floored = 0;
+    s16 idx = camera->thisIdx;
+    u32 frame = camera->play->state.frames;
+    f32 hold = 0.0f;
 
     sCamDiag.eyeYPre = sCamDiag.eyeYPost = eyeNext->y;
     sCamDiag.ceilY = 0.0f;
     sCamDiag.ceilOverWallY = -1.0f;
+    sCamDiag.ceilHold = 0.0f;
+    if (idx < 0 || idx >= NUM_CAMS) {
+        idx = 0;
+    }
     if (!CVarGetInteger(CVAR_CAM_CEIL_CLAMP_ON, CAM_CEIL_CLAMP_ON_DEFAULT)) {
         sCamDiag.ceilState = -2; // #152 bisect switch
+        sCamCeilFound[idx] = 0;
         return;
     }
     sCamDiag.ceilState = -1;
+    // Hysteresis (#152). Once a ceiling has been found, the next frame's test reaches `hold` higher.
+    // Without it an eye the clamp has just lowered can drop out of the test: its lowered segment
+    // crosses the ceiling's height beyond where the ceiling ends - past a doorway, with the eye out
+    // on a balcony and Link inside - so the clamp lets go, the pitch eases the eye back up until
+    // the segment reaches the ceiling again, and the eye saws between the two heights until
+    // vanilla's swing timer runs out. The reach only ever grows on the frame straight after a find.
+    if (sCamCeilFound[idx] && sCamCeilFoundFrame[idx] + 1 == frame) {
+        hold = CVarGetFloat(CVAR_CAM_CEIL_HOLD, CAM_CEIL_HOLD_DEFAULT);
+        if (!(hold > 0.0f)) {
+            hold = 0.0f;
+        }
+        if (hold > CAM_CEIL_HOLD_MAX) {
+            hold = CAM_CEIL_HOLD_MAX;
+        }
+        sCamDiag.ceilHold = hold;
+    }
+    sCamCeilFound[idx] = 0;
+    sCamCeilFoundFrame[idx] = frame;
     // +1 so an eye already resting at the limit still crosses the ceiling, rather than grazing
     // it and flickering between clamped and unclamped as the pitch creeps back up.
-    raised.y += CAM_EYE_CEILING_CLEARANCE + 1.0f;
+    raised.y += CAM_EYE_CEILING_CLEARANCE + 1.0f + hold;
     // Walls are tested too: an eye past a wall is stopped there by its own collision, so a
     // ceiling beyond the wall is not over it (the wall-first branch below handles one over the wall
     // hit). Front faces only, so a ceiling counts from below. -0.8 is BgCheck's own ceiling
@@ -1916,6 +1948,7 @@ static void Camera_KeepEyeUnderCeiling(Camera* camera, Vec3f* at, Vec3f* eyeNext
     }
     sCamDiag.ceilY = hit.y;
     sCamDiag.ceilState = 0;
+    sCamCeilFound[idx] = 1;
     limitY = hit.y - CAM_EYE_CEILING_CLEARANCE;
     if (limitY < at->y) {
         limitY = at->y;

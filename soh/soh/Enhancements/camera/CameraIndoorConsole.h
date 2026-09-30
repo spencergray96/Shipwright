@@ -36,6 +36,8 @@
 //   probeceil on|off     live session can turn one correction off to see whether it is the one fighting
 //   corner <f>           #152 fix: when the ceiling clamp's segment hits a wall first, look for a
 //                        ceiling over the wall hit, this far back toward `at`. 0 = #103's rule
+//   hold <f>             #152: on the frame after the ceiling clamp found a ceiling, its test reaches
+//                        this much higher, so it does not let go of an eye it just lowered. 0 = off
 //   ledgecap <f>         #155, grid-tool scenes: largest drop the slope probe may report (0 = no cap)
 //   ledgescale <f>       multiplier on the probe's downward pitch (1 = vanilla)
 //   ledgecos on|off      damp a falling slope by cos(x)*x, as vanilla damps a rise

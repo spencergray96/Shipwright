@@ -143,7 +143,7 @@
  *                                        before the game tick runs, "post" after it (and after command consumption)
  *         cam_at=<x>,<y>,<z> cam_eye=<x>,<y>,<z> cam_dist=<f> cam_setting=<n> cam_mode=<n>
  *         cf=<n> cbr=<n> cpitch=<in>/<out> cslope=<raw>/<adj> cswing=<timer>/<on> ccol=<n> cidle=<n>
- *         cceil=<n> ceyey=<pre>/<post> cceily=<f> ccorner=<f> caty=<f> cdrop=<near>/<far> ch=<f>
+ *         cceil=<n> ceyey=<pre>/<post> cceily=<f> ccorner=<f> chold=<f> caty=<f> cdrop=<near>/<far> ch=<f>
  *                                        the active camera, then Camera_Normal1's last frame (cf= is the
  *                                        frame it ran; older than frame= means Normal1 was not running):
  *                                        which pitch branch ran (0 idle re-centre, 1 obstructed swing,
@@ -154,7 +154,8 @@
  *                                        crossed but under the limit, 1 lowered, 2 lowered onto at) with
  *                                        eye y before/after, the ceiling it found, the
  *                                        ceiling over the wall hit when a wall came first (-1
- *                                        none) and at.y, the slope probe's floors relative
+ *                                        none), the hysteresis reach applied (0 when the
+ *                                        last frame found no ceiling) and at.y, the slope probe's floors relative
  *                                        to Link's ground, and the camera's player height (sturdy-bassoon
  *                                        #152, #155, #136). Pitches are binangs (0x10000 = 360 degrees)
  *   octrace frame=<n> msg=<n> ocmode=<n> act=<n> song=<n> suns=<n> pb=<pos>,<state>,<btn> shown=<n> buf=<n>
@@ -1124,7 +1125,7 @@ void EmitTrace(const char* phase) {
                   "floorH=%.1f sf1=0x%X sf2=0x%X sf3=0x%X anim=0x%X trans=%d rdown=%.1f,%.1f,%.1f rdent=%s "
                   "cam_at=%.1f,%.1f,%.1f cam_eye=%.1f,%.1f,%.1f cam_dist=%.1f cam_setting=%d cam_mode=%d "
                   "cf=%u cbr=%d cpitch=%d/%d cslope=%d/%d cswing=%d/%d ccol=%d cidle=%d cceil=%d ceyey=%.1f/%.1f "
-                  "cceily=%.1f ccorner=%.1f caty=%.1f cdrop=%.1f/%.1f ch=%.1f",
+                  "cceily=%.1f ccorner=%.1f chold=%.1f caty=%.1f cdrop=%.1f/%.1f ch=%.1f",
                   phase, gPlayState->state.frames, ShrinkWindow_GetCurrentVal(), ShrinkWindow_GetVal(),
                   player->actor.world.pos.x, player->actor.world.pos.y,
                   player->actor.world.pos.z, player->actor.prevPos.x, player->actor.prevPos.y,
@@ -1139,7 +1140,7 @@ void EmitTrace(const char* phase) {
                   camera->at.z, camera->eye.x, camera->eye.y, camera->eye.z, camera->dist, camera->setting,
                   camera->mode, cd.valid ? cd.frame : 0u, cd.branch, cd.pitchIn, cd.pitchOut, cd.slopeRaw,
                   cd.slopeAdj, cd.swingTimer, cd.swingActive, cd.colCase, cd.idleBgHit, cd.ceilState, cd.eyeYPre,
-                  cd.eyeYPost, cd.ceilY, cd.ceilOverWallY, cd.atY, cd.dropNear, cd.dropFar, cd.height);
+                  cd.eyeYPost, cd.ceilY, cd.ceilOverWallY, cd.ceilHold, cd.atY, cd.dropNear, cd.dropFar, cd.height);
     WriteMarker(buf);
 }
 
