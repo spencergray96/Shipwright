@@ -1020,7 +1020,10 @@ bool OTRGlobals::HasOriginal() {
 }
 
 uint32_t OTRGlobals::GetInterpolationFPS() {
-    if (CVarGetInteger(CVAR_SETTING("MatchRefreshRate"), 0)) {
+    // Match Refresh Rate is on by default in this fork: frames locked to the display with vsync, which
+    // the owner judged the best look. A config that sets it keeps its own value. Same default in
+    // SohMenu.cpp's disable check and the Settings checkbox.
+    if (CVarGetInteger(CVAR_SETTING("MatchRefreshRate"), 1)) {
         return Ship::Context::GetRawInstance()->GetWindow()->GetCurrentRefreshRate();
     } else if (CVarGetInteger(CVAR_VSYNC_ENABLED, 1) ||
                !Ship::Context::GetRawInstance()->GetWindow()->CanDisableVerticalSync()) {
