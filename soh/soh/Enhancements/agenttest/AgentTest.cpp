@@ -341,6 +341,10 @@
  *                                          crosses collision (near_hits of its 4 corners + centre, and which),
  *                                          and the eye's clearance to the nearest poly in 26 directions within
  *                                          32 units. The measurable form of "walls clip" (sturdy-bassoon#103)
+ *   agenttest ray <kind> x0 y0 z0 x1 y1 z1  one "ray" marker: the first poly the engine's line test of that
+ *                                          kind meets from (x0,y0,z0) to (x1,y1,z1) - projectile (arrows),
+ *                                          entity (Link, hookshot), camera, or any - with the hit point,
+ *                                          distance and the poly's exclusion flags (sturdy-bassoon#145)
  *   agenttest time <dawn|day|dusk|night|value>  set the time of day: dayTime and skyboxTime together, plus
  *                                          nightFlag by the engine's own threshold (night when > 0xC000 or
  *                                          < 0x4555). Presets dawn=0x4000, day=0x8000, dusk=0xC001, night=0;
@@ -1721,7 +1725,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     }
     if (args.size() >= 2 &&
         (args[1] == "state" || args[1] == "goto" || args[1] == "walk" || args[1] == "look" || args[1] == "press" ||
-         args[1] == "rooms" || args[1] == "camclear" ||
+         args[1] == "rooms" || args[1] == "camclear" || args[1] == "ray" ||
          args[1] == "time" || args[1] == "trace" || args[1] == "octrace" || args[1] == "ocstall" ||
          args[1] == "fog" || args[1] == "uncull" || args[1] == "env" ||
          args[1] == "kill" || args[1] == "ocarina" || args[1] == "song") &&
@@ -2104,6 +2108,59 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
                       "hit_min=%.1f clear=%.1f clear_dir=%d,%d,%d",
                       eye.x, eye.y, eye.z, view.zNear, view.fovy, aspect, hits, hits ? " at=" : "",
                       hitNames.c_str(), hits ? hitMin : -1.0f, clear, clearDir[0], clearDir[1], clearDir[2]);
+        WriteMarker(buf);
+        if (output) {
+            *output += buf;
+        }
+        return 0;
+    }
+    // One engine line test between two points, as a given kind of caller runs it
+    // (sturdy-bassoon#145). Each kind skips a different set of polys by their exclusion flags, which
+    // is the whole of what a carved wall's projectile layer relies on: `projectile` is what an arrow,
+    // seed or thrown nut flies on, `entity` what Link's probes, the hookshot and the boomerang use,
+    // `camera` what the camera's line tests use, and `any` skips nothing. All four take the arrow's
+    // own arguments - walls, floors and ceilings, front faces only - so they differ only in the flags.
+    // flags= is the hit poly's xpFlags (1 camera, 2 entity, 4 projectiles).
+    if (args.size() >= 2 && args[1] == "ray") {
+        Vec3f a;
+        Vec3f b;
+        if (args.size() < 9 || !ParseFloat(args[3], &a.x) || !ParseFloat(args[4], &a.y) || !ParseFloat(args[5], &a.z) ||
+            !ParseFloat(args[6], &b.x) || !ParseFloat(args[7], &b.y) || !ParseFloat(args[8], &b.z)) {
+            if (output) {
+                *output += "ray needs <projectile|entity|camera|any> x0 y0 z0 x1 y1 z1";
+            }
+            return 1;
+        }
+        CollisionContext* colCtx = &gPlayState->colCtx;
+        Vec3f hit;
+        CollisionPoly* poly = nullptr;
+        s32 bgId = BGCHECK_SCENE;
+        s32 found;
+        const std::string& kind = args[2];
+        if (kind == "projectile") {
+            found = BgCheck_ProjectileLineTest(colCtx, &a, &b, &hit, &poly, 1, 1, 1, 1, &bgId);
+        } else if (kind == "entity") {
+            found = BgCheck_EntityLineTest1(colCtx, &a, &b, &hit, &poly, 1, 1, 1, 1, &bgId);
+        } else if (kind == "camera") {
+            found = BgCheck_CameraLineTest1(colCtx, &a, &b, &hit, &poly, 1, 1, 1, 1, &bgId);
+        } else if (kind == "any") {
+            found = BgCheck_AnyLineTest3(colCtx, &a, &b, &hit, &poly, 1, 1, 1, 1, &bgId);
+        } else {
+            if (output) {
+                *output += "ray kind must be projectile, entity, camera or any";
+            }
+            return 1;
+        }
+        char buf[256];
+        if (found && poly != nullptr) {
+            std::snprintf(buf, sizeof(buf), "ray kind=%s hit=1 at=%.1f,%.1f,%.1f dist=%.1f flags=%u ny=%.3f bg=%d",
+                          kind.c_str(), hit.x, hit.y, hit.z,
+                          std::sqrt(SQ(hit.x - a.x) + SQ(hit.y - a.y) + SQ(hit.z - a.z)),
+                          (poly->flags_vIA >> COLPOLY_VTX_INDEX_BITS) & 7U, COLPOLY_GET_NORMAL(poly->normal.y),
+                          static_cast<int>(bgId));
+        } else {
+            std::snprintf(buf, sizeof(buf), "ray kind=%s hit=0", kind.c_str());
+        }
         WriteMarker(buf);
         if (output) {
             *output += buf;
