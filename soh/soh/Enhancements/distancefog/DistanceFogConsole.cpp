@@ -20,9 +20,10 @@ namespace {
 using ConsoleSink::Addf;
 
 // Fog-space is 0..1000 across zNear..zFar (Gfx_SetFog, z_rcp.c): below 997 it is a real start position,
-// 997..999 a fixed factor that starts where 996 does, and 1000 turns fog off. Environment_Update clamps
-// a scene's own value to 996 and its far to 12800 (z_kankyo.c); the override takes the same range as the
+// 997..999 a fixed factor that starts just past 996, and 1000 turns fog off. Environment_Update clamps a
+// scene's own value to 996 and its far to 12800 (z_kankyo.c); the override takes the same range as the
 // agenttest fog it replaced.
+constexpr int32_t kSceneNearMax = 996;
 constexpr int32_t kNearMax = 1000;
 constexpr int32_t kFarMin = 100;
 constexpr int32_t kFarMax = 12800;
@@ -57,9 +58,18 @@ Band SceneBand(const PlayState* play) {
     }
     const s32 near = env->lightSettings.fogNear + env->adjFogNear;
     const s32 far = env->lightSettings.fogFar + env->adjFogFar;
-    band.near = static_cast<s16>(MIN(near, 996));
-    band.far = static_cast<s16>(MIN(far, 12800));
+    band.near = static_cast<s16>(MIN(near, kSceneNearMax));
+    band.far = static_cast<s16>(MIN(far, kFarMax));
     return band;
+}
+
+// The blend-rate bits a scene packs above fogNear's low 10 (BLEND_RATE_AND_FOG_NEAR), so a pasted live band
+// keeps the rate the scene's own settings use. Every custom scene so far uses 1.
+s32 SceneBlendRate(const PlayState* play) {
+    const EnvironmentContext* env = &play->envCtx;
+    return env->lightSettingsList != nullptr && env->numLightSettings > 0
+               ? (env->lightSettingsList[0].fogNear >> 10) & 0x3F
+               : 1;
 }
 
 Band LiveBand(const PlayState* play) {
@@ -111,12 +121,15 @@ void Describe(const char* op, const PlayState* play, std::vector<std::string>& l
     } else {
         std::snprintf(startText, sizeof(startText), "%.0f", start);
     }
+    // rain= is envCtx.unk_F2[0], the rain's intensity (the Song of Storms raises it to 20); c= clamps near to
+    // what a scene can hold, since Environment_Update would clamp a pasted 997+ anyway.
     Addf(lines,
          "op=%s result=ok mode=%s near=%d far=%d color=%u,%u,%u color_src=%s start=%s sky=%s time=%02u:%02u rain=%u "
-         "scene_near=%d scene_far=%d scene_color=%u,%u,%u",
+         "scene_near=%d scene_far=%d scene_color=%u,%u,%u c={%u,%u,%u},(s16)(%d|(%d<<10)),%d",
          op, sOverride.active ? "override" : "scene", live.near, live.far, live.color[0], live.color[1], live.color[2],
          sOverride.active && sOverride.pinColor ? "pinned" : "scene", startText, SkyFilter(live.near), minutes / 60,
-         minutes % 60, play->envCtx.unk_F2[0], scene.near, scene.far, scene.color[0], scene.color[1], scene.color[2]);
+         minutes % 60, play->envCtx.unk_F2[0], scene.near, scene.far, scene.color[0], scene.color[1], scene.color[2],
+         live.color[0], live.color[1], live.color[2], MIN(live.near, kSceneNearMax), SceneBlendRate(play), live.far);
 }
 
 // One line per light setting, ending in the three initializer fields a scene's EnvLightSettings entry
