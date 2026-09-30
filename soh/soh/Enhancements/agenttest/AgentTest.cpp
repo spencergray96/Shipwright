@@ -152,9 +152,10 @@
  *   ocstall ms=<n> at=<n> pb=<pos>,<state> task=<n>
  *                                        "agenttest ocstall" just held the game thread for ms, at=<n> ticks into
  *                                        a song's playback (sturdy-bassoon#162); pb/task are read before the hold
- *   fog mode=override near=<n> far=<n> / fog mode=scene
- *                                        echoed from "agenttest fog"; between these, the perf marker's fog=
- *                                        field carries whatever band is actually live
+ *   fog op=<set|status|off> result=ok mode=<override|scene> near=<n> far=<n> color=<r,g,b> ...
+ *                                        from "agenttest fog", one per line DistanceFogConsole.h documents;
+ *                                        between a set and an off, the perf marker's fog= field carries
+ *                                        whatever band is actually live
  *   kaleidoinput on=<0|1>                from "agenttest kaleidoinput": whether injected frames count while vanilla
  *                                        pause is up (sturdy-bassoon#111 stage 8)
  *   keepinput armed=<0|1>                from "agenttest keepinput": whether the walk/press in flight at the next
@@ -371,18 +372,16 @@
  *                                          The entrance's table group must actually have that many rows or the
  *                                          load lands in a neighbouring scene - Temple of Time (0x53) has 11
  *                                          and is the safe default target
- *   agenttest fog <near> <far> | off       override the scene's fog band and far clip plane, or hand them back
- *                                          to the scene's light settings. near is fog-space (0..1000, the scene
- *                                          path clamps at 996); far is world units (100..12800) and is also the
- *                                          view's zFar - Play_Draw builds the perspective from lightCtx.fogFar -
- *                                          so pulling far in genuinely un-draws geometry past it. Rides the
- *                                          engine's own reg-editor override (R_ENV_DISABLE_DBG +
- *                                          R_ENV_FOG_NEAR/FAR in z_kankyo.c); while active, ambient/directional
- *                                          light and fog colour are frozen at their flip-time values (fine in
- *                                          flat-lit custom scenes; don't combine with "agenttest time").
- *                                          Environment_Init re-arms scene control on every scene load, so the
- *                                          override must be re-applied after each entrance - which is also the
- *                                          safety net against leaking it into a later run
+ *   agenttest fog <near> <far> [r g b] | status | off
+ *                                          the human `fog` command's renderer (distancefog/DistanceFogConsole.h,
+ *                                          sturdy-bassoon#144): override the scene's fog band and far clip plane,
+ *                                          optionally pinning the colour, or hand them back. near is fog-space
+ *                                          (0..1000, nonlinear; the scene path clamps at 996, which at far 12800
+ *                                          starts the fog ~2k units out); far is world units (100..12800) and is
+ *                                          also the view's zFar, so pulling it in genuinely un-draws geometry past
+ *                                          it. Replaces only the fog - the lights keep following "agenttest time"
+ *                                          and the weather. A scene load hands fog back, so re-apply after each
+ *                                          entrance - which is also the safety net against leaking into a later run
  *   agenttest keepinput [on|off]           ONE-SHOT: the walk/press in flight at the NEXT scene load is not cancelled
  *                                          by it but carries on in the new scene - a stick held through a load, as
  *                                          a player holds one through a step warp to another scene (sturdy-bassoon
@@ -566,6 +565,7 @@
 #include "soh/Enhancements/staticbake/StaticBakeConsole.h"
 #include "ImGuiProbeConsole.h"
 #include "soh/Enhancements/texturemips/TextureMipsConsole.h"
+#include "soh/Enhancements/distancefog/DistanceFogConsole.h"
 #include "AgentTest.h"
 #include "soh/ActorDB.h"
 #include "soh/ShipInit.hpp"
@@ -616,12 +616,6 @@ constexpr int32_t DEFAULT_PERF_INTERVAL = 60;
 constexpr int32_t MAX_INPUT_FRAMES = 20 * 60; // one minute of injected input; command channel is blocked meanwhile
 constexpr int32_t MAX_TRACE_TICKS = 400;      // 20 s of trace markers, two lines per tick
 constexpr int32_t MAX_OCSTALL_MS = 2000;      // "agenttest ocstall": the longest hold it will inject
-// "agenttest fog" bounds. Near is fog-space (0..1000 across zNear..zFar; the engine's scene path
-// clamps at 996, so 1000 = band collapsed to the far plane). Far is world units and the far clip;
-// 12800 is the engine's own scene-path ceiling (z_kankyo.c) and 100 comfortably clears zNear.
-constexpr int32_t FOG_NEAR_MAX = 1000;
-constexpr int32_t FOG_FAR_MIN = 100;
-constexpr int32_t FOG_FAR_MAX = 12800;
 // "agenttest cutscene" bounds, both Play_Init's own. nextCutsceneIndex holds NONE when nothing is
 // queued; anything from FIRST up is read as "this entry is a cutscene", and the scene layer it picks
 // is SCENE_LAYER_CUTSCENE_FIRST + (index & LAYER_MAX).
@@ -2331,46 +2325,14 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         }
         return 0;
     }
-    // Fog-band / far-clip override for draw-cost experiments (sturdy-bassoon#33): lightCtx.fogFar is
-    // both where fog saturates and the far plane Play_Draw builds the perspective from, so pulling it
+    // Fog-band / far-clip override (sturdy-bassoon#33 for draw cost, #144 for the look): lightCtx.fogFar
+    // is both where fog saturates and the far plane Play_Draw builds the perspective from, so pulling it
     // in un-draws everything past it - the rasterization share of draw cost - while the submitted
-    // display list stays identical. Implemented on the engine's own reg-editor path rather than by
-    // writing lightCtx directly, which Environment_Update would overwrite next frame: while
-    // R_ENV_DISABLE_DBG is false, Environment_Update copies fog (and the light colours it mirrored
-    // into the regs while scene control was live) *from* the regs instead of the scene's light
-    // settings. Environment_Init sets R_ENV_DISABLE_DBG back to true on every scene load, so the
-    // override never leaks past an entrance - and must be re-applied after one.
-    if (args.size() >= 3 && args[1] == "fog") {
-        if (args[2] == "off") {
-            R_ENV_DISABLE_DBG = true;
-            WriteMarker("fog mode=scene");
-            if (output) {
-                *output += "fog and far clip handed back to the scene's light settings";
-            }
-            return 0;
-        }
-        int32_t fogNear = 0;
-        int32_t fogFar = 0;
-        if (args.size() < 4 || !ParseInt(args[2], &fogNear) || !ParseInt(args[3], &fogFar) || fogNear < 0 ||
-            fogNear > FOG_NEAR_MAX || fogFar < FOG_FAR_MIN || fogFar > FOG_FAR_MAX) {
-            if (output) {
-                *output += "fog needs <near 0.." + std::to_string(FOG_NEAR_MAX) + "> <far " +
-                           std::to_string(FOG_FAR_MIN) + ".." + std::to_string(FOG_FAR_MAX) +
-                           ">, or off. near is fog-space (996 = fog collapsed to the far plane); far is world "
-                           "units and the far clip";
-            }
-            return 1;
-        }
-        R_ENV_FOG_NEAR = static_cast<s16>(fogNear);
-        R_ENV_FOG_FAR = static_cast<s16>(fogFar);
-        R_ENV_DISABLE_DBG = false;
-        char buf[96];
-        std::snprintf(buf, sizeof(buf), "fog mode=override near=%d far=%d", fogNear, fogFar);
-        WriteMarker(buf);
-        if (output) {
-            *output += buf;
-        }
-        return 0;
+    // display list stays identical. The same renderer as the human `fog` command; it replaces only the
+    // fog, so the lights keep following time and weather. A scene load hands fog back.
+    if (args.size() >= 2 && args[1] == "fog") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(DistanceFogConsole_Run, sub, "fog ", output, WriteMarker);
     }
     // One-shot, see sKeepInput: arm it before the walk that crosses the load.
     if (args.size() >= 2 && args[1] == "keepinput") {
@@ -2842,7 +2804,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             "press <BUTTONS> [frames] | hold [<BUTTONS>|none] | ocarina <NOTES> [hold] [gap] | song <name> | stats | "
               "rooms | time <dawn|day|dusk|night|value> | sunssong | display | "
             "trace <ticks> | octrace <ticks> | ocstall <ms> <tick>|off | "
-            "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
+            "cutscene <index>|off | fog <near> <far> [r g b]|status|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
             "roomdist [hysteresis]|off | uncull | kill <actor> | sceneflag <sceneId> [value] | "
             "worldflag count|<n> [0|1] | "
             "queststore count|<id> [status mask] | questpred <kind> <a> <b> <negate> | "
@@ -2886,7 +2848,7 @@ void RegisterAgentTest() {
               "press <BUTTONS> [frames] | hold [<BUTTONS>|none] | ocarina <NOTES> [hold] [gap] | song <name> | stats | "
               "rooms | time <dawn|day|dusk|night|value> | sunssong | display | "
               "trace <ticks> | octrace <ticks> | ocstall <ms> <tick>|off | "
-              "cutscene <index>|off | fog <near> <far>|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
+              "cutscene <index>|off | fog <near> <far> [r g b]|status|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
               "roomdist [hysteresis]|off | uncull | kill <actor> | sceneflag <sceneId> [value] | "
               "worldflag count|<n> [0|1] | "
               "queststore count|<id> [status mask] | questpred <kind> <a> <b> <negate> | "
