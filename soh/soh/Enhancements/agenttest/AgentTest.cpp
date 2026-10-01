@@ -185,13 +185,15 @@
  *                                        flip - OTRGlobals applies the CVar at the end of the next frame
  *   staticbake <line>                    one line of StaticBakeConsole_Run output per marker, from
  *                                        `agenttest staticbake [status|on|off|rebake|reset|link <a> <b>|
- *                                        sort on|off]`: `op=<sub> result=ok active=<0|1> setting=<0|1>
+ *                                        sort on|off|props]`: `op=<sub> result=ok active=<0|1> setting=<0|1>
  *                                        registered=<n> baked=<n> rejected=<n> supported=<0|1> sort=<0|1>
  *                                        group=<0x..|none> scenes=<n> links=<n>` (group, scenes, links:
  *                                        the bake group held, #157). Same renderer as the human
  *                                        `staticbake` command (sturdy-bassoon#142), except that on/off here
  *                                        switch for the session only; the human command also saves setting=
- *                                        (#153). active=0 on a backend that cannot bake (supported=0)
+ *                                        (#153). active=0 on a backend that cannot bake (supported=0).
+ *                                        props adds one line per archive prop list (#171; the format
+ *                                        is in StaticBakeConsole.h)
  *   imgui <line>                         one line of ImGuiProbeConsole_Run output per marker, from
  *                                        `agenttest imgui status|dump [kind]|click [kind:]<label>|clickat <x> <y>|
  *                                        key <name>` (sturdy-bassoon#163): `op=<sub> result=ok|error ...`, and for

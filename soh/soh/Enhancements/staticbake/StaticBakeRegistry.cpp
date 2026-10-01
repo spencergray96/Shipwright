@@ -2,9 +2,10 @@
  * Game-side half of the static-geometry bake (sturdy-bassoon#40 Stage 1, #142 Stage 2).
  *
  * libultraship's StaticMeshCache will only consider a display list the host has explicitly handed
- * it. This file is the only thing that ever hands it one, and it is only reached from the
- * compiled-in room-load branch - the path a scene defined in this fork's C takes, and the one an
- * OTR-loaded vanilla scene never does. So "vanilla scenes never engage the bake" is a property of
+ * it. This file is the only thing that ever hands it one, with ArchivePropLists.cpp - which only
+ * this file calls, for a room's archive prop lists (sturdy-bassoon#171) - and both are only reached
+ * from the compiled-in room-load branch - the path a scene defined in this fork's C takes, and the
+ * one an OTR-loaded vanilla scene never does. So "vanilla scenes never engage the bake" is a property of
  * where this call sits, not of a check inside it.
  *
  * Two separate things, on purpose:
@@ -27,6 +28,7 @@
  */
 
 #include "StaticBakeRegistry.h"
+#include "ArchivePropLists.h"
 
 #include <algorithm>
 #include <array>
@@ -157,7 +159,8 @@ static RegisterMenuInitFunc sStaticBakeMenuInit(RegisterStaticBakeWidgets);
 // within a group - no budget, no eviction - so a group's scenes load on top of everything it holds.
 //
 // Why a kept entry is sound: registrations are keyed by display-list pointer, a compiled-in scene's
-// display lists are static symbols at the same address on every load, and re-registering a key is a
+// display lists are static symbols at the same address on every load, an archive prop list's
+// resource is held by ArchivePropLists.cpp until ResetRegistry (#171), and re-registering a key is a
 // no-op - so a returning scene's rooms find their bakes already there. Lights and fog are replay
 // uniforms (#142 slice A), so nothing a bake holds goes stale while it waits.
 //
@@ -193,6 +196,8 @@ s32 BakeGroup(s32 sceneNum) {
 
 void ResetRegistry() {
     Fast::StaticBakeReset();
+    // The archive prop lists' resources are held exactly as long as their entries (#171).
+    ArchiveProps::ReleaseHeld();
     sHeldScenes.clear();
     sLastGroup = -1;
 }
@@ -254,21 +259,28 @@ extern "C" void StaticBake_RegisterRoom(PlayState* play, RoomContext* roomCtx) {
         sHeldScenes.push_back(play->sceneNum);
     }
 
-    MeshHeader* header = (MeshHeader*)roomCtx->curRoom.meshHeader;
-    if (header == nullptr || header->base.type != ROOM_SHAPE_TYPE_NORMAL) {
-        return;
-    }
-
-    RoomShapeNormal* shape = &header->polygon0;
-    RoomShapeDListsEntry* entries = (RoomShapeDListsEntry*)shape->start;
-    if (entries == nullptr || shape->num == 0) {
-        return;
-    }
-
     uint32_t before = 0;
     Fast::StaticBakeGetStats(&before, nullptr, nullptr);
+
+    // The room's archive prop lists (#171), offered inside the before/after count so `already held`
+    // counts them too. (The #160 proof offered its list outside `registered`, which underflowed it.)
+    // Only from a ROOM_SHAPE_TYPE_NORMAL room: func_80095AB4, the one room draw that submits them.
+    MeshHeader* header = (MeshHeader*)roomCtx->curRoom.meshHeader;
+    const bool normal = header != nullptr && header->base.type == ROOM_SHAPE_TYPE_NORMAL;
+    const u32 archived = normal ? ArchiveProps::OfferRoom(play->sceneNum, roomCtx->curRoom.num) : 0;
+
+    RoomShapeDListsEntry* entries = nullptr;
+    u32 count = 0;
+    if (normal) {
+        entries = (RoomShapeDListsEntry*)header->polygon0.start;
+        count = header->polygon0.num;
+    }
+    if ((entries == nullptr || count == 0) && archived == 0) {
+        return; // nothing offered, nothing logged - as before #171
+    }
+
     u32 registered = 0;
-    for (u32 i = 0; i < shape->num; i++) {
+    for (u32 i = 0; entries != nullptr && i < count; i++) {
         // Opaque only. Translucent geometry is a Stage 2 problem: it needs draw order preserved
         // against the actors it is sorted among, which a single replayed buffer cannot express.
         if (entries[i].opa != nullptr) {
@@ -282,12 +294,14 @@ extern "C" void StaticBake_RegisterRoom(PlayState* play, RoomContext* roomCtx) {
     uint32_t rejected = 0;
     Fast::StaticBakeGetStats(&total, &baked, &rejected);
     // `already held`: offered lists the registry kept from an earlier visit in this group (#157),
-    // which replay on their first draw instead of recording. After the fields older run scripts parse.
+    // which replay on their first draw instead of recording - the archive prop lists included.
+    // `archive prop list(s)` (#171) goes after the fields older run scripts parse.
     SPDLOG_INFO("[staticbake] scene {:#x} room {}: offered {} opaque display list(s); registry now "
-                "{} entries ({} baked, {} rejected); bake {}; {} already held; group {:#x}, {} scene(s) held",
+                "{} entries ({} baked, {} rejected); bake {}; {} already held; group {:#x}, {} scene(s) held; "
+                "{} archive prop list(s) offered",
                 play->sceneNum, roomCtx->curRoom.num, registered, total, baked, rejected,
-                Fast::StaticBakeIsEnabled() ? "on" : "off", registered - (total - before), group,
-                sHeldScenes.size());
+                Fast::StaticBakeIsEnabled() ? "on" : "off", registered + archived - (total - before), group,
+                sHeldScenes.size(), archived);
 }
 
 extern "C" void StaticBake_Reset(void) {

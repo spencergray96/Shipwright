@@ -7,6 +7,7 @@
 #include "soh/ActorDB.h"
 #include <spdlog/spdlog.h>
 #include "../GridToolSceneData.h"
+#include "soh/Enhancements/staticbake/ArchivePropLists.h"
 
 // HAND-MERGED COPY for sturdy-bassoon#78 (RS export P2b). Copied from the grid-tool scene
 // grid_test_map_10 and extended by docs/test-runs/2026-09-17-rs-export-p2-props/merge_props.py
@@ -127,6 +128,12 @@ static void InitScene(PlayState* play, s32 spawn) {
     GameInteractor_ExecuteAfterSceneCommands(play->sceneNum);
 }
 
+// The archive prop lists this map draws (sturdy-bassoon#171), in the shape the grid tool's emitter
+// writes: sturdy-bassoon docs/reference/ASSET_PIPELINE.md, "Archive props". Hand-written here, to
+// test slice A on the #160 proof's area list; its archive (x64/<Config>/mods/rs-props-160.o2r) is
+// RS-derived and never committed, and without it this scene loads exactly as before.
+static const char* const sRsPropsP2HostPropLists[] = { "objects/rs_props/area160/area" };
+
 extern "C" void CustomRsPropsP2HostScene_InitRoom(PlayState* play, RoomContext* roomCtx) {
     roomCtx->curRoom.echo       = 0;
     roomCtx->curRoom.meshHeader = (MeshHeader*)&rs_props_p2_host_room_0_shapeHeader;
@@ -143,6 +150,8 @@ extern "C" void CustomRsPropsP2HostScene_InitRoom(PlayState* play, RoomContext* 
     // v1 scope has no actor/NPC placement - only Link spawns, via linkActorEntry above.
     play->numSetupActors = 0;
     play->setupActorList = nullptr;
+
+    ArchiveProps_DeclareRoom(play, roomCtx, sRsPropsP2HostPropLists, ARRAY_COUNT(sRsPropsP2HostPropLists));
 
     Player_SetBootData(play, GET_PLAYER(play));
     Actor_SpawnTransitionActors(play, &play->actorCtx);

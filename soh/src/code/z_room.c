@@ -12,6 +12,7 @@
 #include <libultraship/bridge/resourcebridge.h>
 #include "soh/OTRGlobals.h"
 #include "soh/ResourceManagerHelpers.h"
+#include "soh/Enhancements/staticbake/ArchivePropLists.h"
 
 void func_80095AB4(PlayState* play, Room* room, u32 flags);
 void func_80095D04(PlayState* play, Room* room, u32 flags);
@@ -51,6 +52,8 @@ void func_80095AB4(PlayState* play, Room* room, u32 flags) {
     s32 i;
     PolygonType0* polygon0;
     PolygonDlist* polygonDlist;
+    s32 propCount;
+    Gfx* const* props;
 
     OPEN_DISPS(play->state.gfxCtx);
 
@@ -59,6 +62,13 @@ void func_80095AB4(PlayState* play, Room* room, u32 flags) {
         gSPSegment(POLY_OPA_DISP++, 0x03, room->segment);
         func_80093C80(play);
         gSPMatrix(POLY_OPA_DISP++, &gMtxClear, G_MTX_MODELVIEW | G_MTX_LOAD);
+
+        // The room's archive prop lists (sturdy-bassoon#171), in world space under the same state as
+        // its own opaque lists. None in a vanilla scene: only a compiled-in room declares them.
+        props = ArchiveProps_RoomLists(play, room->num, &propCount);
+        for (i = 0; i < propCount; i++) {
+            gSPDisplayList(POLY_OPA_DISP++, props[i]);
+        }
     }
 
     if (flags & 2) {
