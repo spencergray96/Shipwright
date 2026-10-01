@@ -53,11 +53,17 @@
 //   sort on|off  order each recording by material (the default), or keep list order, and send every
 //             baked room back to be recorded that way (sturdy-bassoon#158). Session only from both
 //             sinks: for comparing the two orders, and the way back if content depends on list order
+//   props     the status line, then `op=props result=ok lists=<n>` and one line per archive prop list the group
+//             holds (sturdy-bassoon#171): `op=props list=<path> scene=0x<id> room=<n> state=<s> key=<p>
+//             draws=<n> tris=<n> reason=<rest of line>`. state= is missing (in no mounted archive),
+//             not_displaylist, empty (offered to nothing), or the bake's own: unbaked, baked,
+//             rejected, unregistered. draws= and tris= are the baked entry's, 0 otherwise; reason= is
+//             why the recorder refused it, `none` otherwise. Read-only, the same from both sinks
 //
 // `sort` without on or off prints `op=sort result=error error=bad_argument usage=sort(on|off)`; `link`
 // without two scene ids, `op=link result=error error=bad_argument usage=link(<scene>,<scene>)`.
 //
-// Returns 0 for all seven, 1 for an unknown subcommand or a bad sort or link argument - so `rc=` on the agent
+// Returns 0 for all eight, 1 for an unknown subcommand or a bad sort or link argument - so `rc=` on the agent
 // loop's cmd marker is the pass/fail bit.
 int32_t StaticBakeConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines);
 int32_t StaticBakeConsole_RunSession(const std::vector<std::string>& args, std::vector<std::string>& lines);

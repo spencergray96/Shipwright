@@ -20,8 +20,11 @@ extern "C" {
 //
 // Called from the compiled-in branch of the room load, which is reached only by scenes this fork
 // defines in C. That is the whole of the vanilla-safety argument: the cache is keyed by display
-// list pointer, which is only sound for addresses that are stable C symbols, and a vanilla scene's
-// display lists never reach this function so they can never be registered.
+// list pointer, which is only sound for addresses that stay put - stable C symbols, or an archive
+// prop list whose resource the registry holds (ArchivePropLists.h, sturdy-bassoon#171) - and a
+// vanilla scene's display lists never reach this function so they can never be registered.
+//
+// Also offers the room's archive prop lists: the ones its InitRoom declared (ArchiveProps_DeclareRoom).
 //
 // What it keeps (sturdy-bassoon#157): everything registered in the scene's BAKE GROUP - its step-warp
 // group, RsWarp_SceneGroup - until a room of another group registers, which frees it all. So a

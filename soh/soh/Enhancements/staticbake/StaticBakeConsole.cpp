@@ -5,6 +5,7 @@
 
 #include <fast/StaticMeshCache.h>
 
+#include "ArchivePropLists.h"
 #include "StaticBakeRegistry.h"
 #include "soh/Enhancements/console/ConsoleSink.h"
 
@@ -96,10 +97,17 @@ int32_t Run(const std::vector<std::string>& args, std::vector<std::string>& line
         lines.push_back("op=sort result=error error=bad_argument usage=sort(on|off)");
         return 1;
     }
+    // The archive prop lists the registry holds (#171), one line each after the status line. Read-only,
+    // so the same from both sinks.
+    if (sub == "props") {
+        Describe("props", lines);
+        ArchiveProps::Describe(lines);
+        return 0;
+    }
     // The typed word is not echoed: it is free text, and this line is parsed field by field - so no
     // spaces inside the usage value either: `sort on|off` is written sort(on|off).
     lines.push_back("op=unknown result=error error=unknown_subcommand "
-                    "usage=status|on|off|rebake|reset|link(<scene>,<scene>)|sort(on|off)");
+                    "usage=status|on|off|rebake|reset|link(<scene>,<scene>)|sort(on|off)|props");
     return 1;
 }
 
@@ -122,17 +130,18 @@ namespace {
 const ConsoleSink::Command
     staticBakeCommand("staticbake", StaticBakeConsole_Run,
                       "The static geometry bake's runtime switch (sturdy-bassoon#142, #153): status | on | off | "
-                      "rebake | reset | link <scene> <scene> | sort on|off. On by default. on/off here also save the "
-                      "setting (Settings > Graphics), so the choice survives a restart; `agenttest staticbake "
-                      "on|off` does not. Off interprets every room and "
+                      "rebake | reset | link <scene> <scene> | sort on|off | props. On by default. on/off here "
+                      "also save the setting (Settings > Graphics), so the choice survives a restart; `agenttest "
+                      "staticbake on|off` does not. Off interprets every room and "
                       "keeps the bakes, so on replays them again without a re-record - flip it to compare baked and "
                       "interpreted pictures at one camera in one session. rebake re-records every baked room on its "
                       "next draw. reset frees every bake the current group holds, other scenes' included, and "
                       "records the current room again (#157). link <scene> <scene> joins two scenes' bake groups for "
                       "this session, to measure a kept return where no step warp runs yet. sort on|off orders each "
                       "recording by material, or keeps list order, and re-records (#158; on by default, this "
-                      "session only).",
-                      { { "status|on|off|rebake|reset|link|sort", Ship::ArgumentType::TEXT, true },
+                      "session only). props lists the archive prop lists the group holds and what the "
+                      "bake made of each (#171).",
+                      { { "status|on|off|rebake|reset|link|sort|props", Ship::ArgumentType::TEXT, true },
                         { "on|off|scene", Ship::ArgumentType::TEXT, true },
                         { "scene", Ship::ArgumentType::TEXT, true } });
 
