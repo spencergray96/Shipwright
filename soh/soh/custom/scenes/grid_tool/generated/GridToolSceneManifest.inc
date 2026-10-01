@@ -40,4 +40,5 @@
     { SCENE_STEP_WARP_FIXTURE, CustomStepWarpFixtureScene_TrySpawn, CustomStepWarpFixtureScene_InitRoom }, // project b29249a3-a38d-403b-8ec2-26433c994a6c name step_warp_fixture
     { SCENE_UNDERGROUND_ENTRY_OVERWORLD, CustomUndergroundEntryOverworldScene_TrySpawn, CustomUndergroundEntryOverworldScene_InitRoom }, // project 4a8f1c2e-148a-4d0e-9a11-0f3c2b7e1a01 name underground_entry_overworld
     { SCENE_UNDERGROUND_ENTRY_BASEMENTS, CustomUndergroundEntryBasementsScene_TrySpawn, CustomUndergroundEntryBasementsScene_InitRoom }, // project 4a8f1c2e-148b-4d0e-9a11-0f3c2b7e1a02 name underground_entry_basements
+    { SCENE_CARVE_COLLISION_TEST, CustomCarveCollisionTestScene_TrySpawn, CustomCarveCollisionTestScene_InitRoom }, // project fe2320b0-4510-48fa-9e70-50ef0cfd0678 name carve_collision_test
 // END GRID TOOL EXPORTS

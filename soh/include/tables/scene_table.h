@@ -172,4 +172,5 @@
 /* 0x9B */ DEFINE_SCENE(local_fixture_5_scene, none, SCENE_LOCAL_FIXTURE_5, SDC_DEFAULT, 0, 0) // local fixture slot 5: reserved, filled from a gitignored folder (GridToolSceneRegistry.cpp)
 /* 0x9C */ DEFINE_SCENE(local_fixture_6_scene, none, SCENE_LOCAL_FIXTURE_6, SDC_DEFAULT, 0, 0) // local fixture slot 6: reserved, filled from a gitignored folder (GridToolSceneRegistry.cpp)
 /* 0x9D */ DEFINE_SCENE(local_fixture_7_scene, none, SCENE_LOCAL_FIXTURE_7, SDC_DEFAULT, 0, 0) // local fixture slot 7: reserved, filled from a gitignored folder (GridToolSceneRegistry.cpp)
+/* 0x9E */ DEFINE_SCENE(carve_collision_test_scene, none, SCENE_CARVE_COLLISION_TEST, SDC_DEFAULT, 0, 0) // project fe2320b0-4510-48fa-9e70-50ef0cfd0678 name carve_collision_test
 // END GRID TOOL EXPORTS
