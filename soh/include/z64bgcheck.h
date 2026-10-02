@@ -204,8 +204,9 @@ typedef struct {
     u32 max;          // original name: short_slist_node_size
     u32 count;        // original name: short_slist_node_last_index
     SSNode* tbl;      // original name: short_slist_node_tbl
-    u8* polyCheckTbl; // points to an array of bytes, one per static poly. Zero initialized when starting a
-                      // bg check, and set to 1 if that poly has already been tested.
+    u8* polyCheckTbl; // points to an array of bytes, one per static poly. A line test marks a poly it has
+                      // tested with the current test's stamp (z_bgcheck.c, sPolyCheckStamp); marks from
+                      // earlier tests are stale, so the table is only cleared when the stamp wraps.
 } SSNodeList;
 
 typedef struct {
