@@ -39,7 +39,11 @@
 #endif
 
 #define AUDIO_HEAP_SIZE  0x380000
-#define SYSTEM_HEAP_SIZE (1024 * 1024 * 8)
+// 128 MiB since sturdy-bassoon#175: sized for the measured worst case of native collision, the whole
+// F2P map in one scene with every render triangle colliding (4.1M polys, ~101 MiB with today's
+// Zelda heap; sturdy-bassoon#172). Every savestate slot carries a copy (savestates.cpp), so a slot
+// is this plus ~3.9 MB. See ENGINE_BUDGETS.md, "Static collision memory".
+#define SYSTEM_HEAP_SIZE (1024 * 1024 * 128)
 
 // PlayState's two-headed arena request (z_play.c). Derived from SYSTEM_HEAP_SIZE because
 // GameState_Realloc silently CLAMPS any request the system heap cannot satisfy (game.c - and its

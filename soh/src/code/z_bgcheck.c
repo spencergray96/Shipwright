@@ -1610,6 +1610,50 @@ u32 BgCheck_GetFixedMemSize(CollisionContext* colCtx) {
            colCtx->dyna.vtxListMax * sizeof(Vec3s) + sizeof(CollisionContext);
 }
 
+// A scene with no sceneSubdivisionList row gets finer XZ cells when it is dense (sturdy-bassoon#175).
+// The default 16x16 suits vanilla-sized scenes. With every prop colliding with its own mesh on the F2P
+// map (2.9M polys, sturdy-bassoon#172), its cells held ~20k polys each, and both the sorted-insert
+// build (O(n^2) per cell: ~19 s) and every floor, wall and line walk (+1.5 ms a tick) grew with them.
+// 64x64 there measured a 5 s build and +0.16 ms. The rule aims for this many polys per XZ column,
+// which is what 64x64 gave, and only ever goes finer: below 16*16*700 = 179,200 polys every scene
+// keeps 16x4x16 exactly. Y stays 4.
+#define BGCHECK_AUTO_POLYS_PER_COLUMN 700
+// Caps the lookup grid at 128*4*128 cells (~786 KB of StaticLookup) whatever the scene's size.
+#define BGCHECK_AUTO_SUBDIV_MAX 128
+
+/**
+ * Finer XZ subdivision for a dense scene without a row; leaves colCtx->subdivAmount alone otherwise.
+ */
+static void BgCheck_AutoSubdivide(CollisionContext* colCtx, PlayState* play) {
+    CollisionHeader* h = colCtx->colHeader;
+    f32 extentX = (f32)(h->maxBounds.x - h->minBounds.x);
+    f32 extentZ = (f32)(h->maxBounds.z - h->minBounds.z);
+    f32 columns = (f32)h->numPolygons / BGCHECK_AUTO_POLYS_PER_COLUMN;
+    f32 cell;
+    s32 x;
+    s32 z;
+
+    if (columns <= (f32)(colCtx->subdivAmount.x * colCtx->subdivAmount.z) || extentX <= 0.0f || extentZ <= 0.0f) {
+        return;
+    }
+    cell = sqrtf(extentX * extentZ / columns);
+    if (cell < BGCHECK_SUBDIV_MIN) {
+        cell = BGCHECK_SUBDIV_MIN;
+    }
+    x = CLAMP((s32)ceilf(extentX / cell), colCtx->subdivAmount.x, BGCHECK_AUTO_SUBDIV_MAX);
+    z = CLAMP((s32)ceilf(extentZ / cell), colCtx->subdivAmount.z, BGCHECK_AUTO_SUBDIV_MAX);
+    if (x == colCtx->subdivAmount.x && z == colCtx->subdivAmount.z) {
+        return;
+    }
+    LUSLOG_INFO("BgCheck: scene=0x%X has no subdivision row and %u polys over %.0f x %.0f units: auto subdiv "
+                "%dx%dx%d instead of %dx%dx%d (cells ~%.0f units, ~%d polys a column)",
+                (u32)play->sceneNum, h->numPolygons, extentX, extentZ, x, colCtx->subdivAmount.y, z,
+                colCtx->subdivAmount.x, colCtx->subdivAmount.y, colCtx->subdivAmount.z, cell,
+                BGCHECK_AUTO_POLYS_PER_COLUMN);
+    colCtx->subdivAmount.x = x;
+    colCtx->subdivAmount.z = z;
+}
+
 /**
  * Allocate CollisionContext
  */
@@ -1713,6 +1757,7 @@ void BgCheck_Allocate(CollisionContext* colCtx, PlayState* play, CollisionHeader
             colCtx->subdivAmount.x = 16;
             colCtx->subdivAmount.y = 4;
             colCtx->subdivAmount.z = 16;
+            BgCheck_AutoSubdivide(colCtx, play);
         }
     }
 
