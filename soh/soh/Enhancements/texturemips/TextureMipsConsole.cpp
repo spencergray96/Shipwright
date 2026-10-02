@@ -51,6 +51,23 @@ int32_t Run(const std::vector<std::string>& args, std::vector<std::string>& line
         Describe("status", lines);
         return 0;
     }
+    if (sub == "archive") {
+        // The archive prop textures (#171): a summary, then one line per texture. `mipped` counts
+        // those whose last upload built a chain; a palette joins too and reads levels=0.
+        const std::vector<Fast::TextureMipsArchiveTexture> textures = Fast::TextureMipsGetArchiveTextures();
+        uint32_t mipped = 0;
+        for (const auto& t : textures) {
+            mipped += t.levels > 1 ? 1 : 0;
+        }
+        Addf(lines, "op=archive result=ok active=%d textures=%u mipped=%u", TextureMips_IsActive(),
+             (unsigned)textures.size(), mipped);
+        for (const auto& t : textures) {
+            // texture= last: a path is the rest of the line.
+            Addf(lines, "op=archive levels=%u uploads=%llu texture=%s", t.levels, (unsigned long long)t.uploads,
+                 t.path.c_str());
+        }
+        return 0;
+    }
     if (sub == "on" || sub == "off") {
         if (save) {
             TextureMips_SetSetting(sub == "on" ? 1 : 0);
@@ -90,7 +107,7 @@ int32_t Run(const std::vector<std::string>& args, std::vector<std::string>& line
     }
     // The typed word is not echoed: it is free text, and this line is parsed field by field.
     lines.push_back(
-        "op=unknown result=error error=unknown_subcommand usage=status|on|off|lod(max|mean|aniso)|bias(-4..4)");
+        "op=unknown result=error error=unknown_subcommand usage=status|archive|on|off|lod(max|mean|aniso)|bias(-4..4)");
     return 1;
 }
 
@@ -110,13 +127,15 @@ namespace {
 
 const ConsoleSink::Command textureMipsCommand(
     "mipmaps", TextureMipsConsole_Run,
-    "Mipmaps for this mod's own scene textures (sturdy-bassoon#146): status | on | off | "
+    "Mipmaps for this mod's own scene textures (sturdy-bassoon#146): status | archive | on | off | "
     "lod max|mean|aniso | bias <-4..4>. On by default. Distant walls, barrels and crates stop "
     "shimmering as the camera moves; vanilla scenes and texture packs are untouched. lod picks "
     "how sharp a wall seen at a grazing angle stays: max is the softest, aniso the sharpest that "
     "still does not crawl; bias nudges it (negative = sharper). Everything here is saved; "
     "`agenttest mipmaps` is session only. Takes effect on the next frame, so flipping compares "
-    "looks at one camera.",
-    { { "status|on|off|lod|bias", Ship::ArgumentType::TEXT, true }, { "value", Ship::ArgumentType::TEXT, true } });
+    "looks at one camera. archive lists the archive prop textures (#171) and the levels each "
+    "last uploaded with.",
+    { { "status|archive|on|off|lod|bias", Ship::ArgumentType::TEXT, true },
+      { "value", Ship::ArgumentType::TEXT, true } });
 
 } // namespace

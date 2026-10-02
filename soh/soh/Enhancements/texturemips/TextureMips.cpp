@@ -1,10 +1,12 @@
 /*
  * Game-side half of the mipmaps for this mod's own scene textures (sturdy-bassoon#146).
  *
- * libultraship mipmaps only textures loaded by display lists the host has named, and this file is
- * the only thing that names any: TextureMips_RegisterRoom, reached only from the compiled-in branch
- * of the room load, the one a scene defined in this fork's C takes. So "vanilla textures are never
- * mipmapped" is a property of where the call sits, the same argument StaticBakeRegistry.cpp makes.
+ * libultraship mipmaps only textures loaded by display lists the host has named, and two things name
+ * any: TextureMips_RegisterRoom here, and ArchiveProps::OfferRoom for a room's archive prop lists
+ * (#171), which names and withdraws them with the resources it holds. Both are reached only from the
+ * compiled-in branch of the room load, the one a scene defined in this fork's C takes. So "vanilla
+ * textures are never mipmapped" is a property of where the calls sit, the same argument
+ * StaticBakeRegistry.cpp makes.
  *
  * The switch is the saved setting CVAR_TEXTURE_MIPS (Settings > Graphics, and the human
  * `mipmaps on|off`), on by default. `agenttest mipmaps on|off` moves it for the session only, so an

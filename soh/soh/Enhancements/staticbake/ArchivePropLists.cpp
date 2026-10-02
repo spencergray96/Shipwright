@@ -23,6 +23,7 @@
 #include <utility>
 
 #include <fast/StaticMeshCache.h>
+#include <fast/TextureMips.h>
 #include <fast/resource/type/DisplayList.h>
 #include <ship/Context.h>
 #include <ship/resource/ResourceManager.h>
@@ -166,6 +167,9 @@ uint32_t OfferRoom(s32 sceneNum, s32 roomNum) {
             continue;
         }
         Fast::StaticBakeRegister(held->second.key);
+        // Its textures are the mod's own, mipmapped like the room's (#146): named here, withdrawn in
+        // ReleaseHeld, so a list is in scope exactly while its resource is held.
+        Fast::TextureMipsRegisterDisplayList(held->second.key);
         drawn.push_back(held->second.key);
         offered++;
     }
@@ -173,6 +177,12 @@ uint32_t OfferRoom(s32 sceneNum, s32 roomNum) {
 }
 
 void ReleaseHeld() {
+    // Before the resources go: a list later allocated at a freed key's address must not be in scope.
+    for (const auto& kv : sHeld) {
+        if (kv.second.key != nullptr) {
+            Fast::TextureMipsUnregisterDisplayList(kv.second.key);
+        }
+    }
     sDrawn.clear();
     sHeld.clear();
 }
