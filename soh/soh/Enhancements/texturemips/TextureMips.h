@@ -10,8 +10,10 @@
 // picks and blends two levels by distance (fast/TextureMips.h).
 //
 // Which textures are "ours" is decided by where they are drawn from: every raw texture a compiled-in
-// room's display lists load. Vanilla scenes and texture packs are untouched - their rooms never
-// reach TextureMips_RegisterRoom, and an archive texture never joins the set anyway.
+// room's display lists load, and every archive texture its archive prop lists load (#171: named by
+// ArchiveProps::OfferRoom, which only a compiled-in room reaches; keyed by path, see
+// fast/TextureMips.h). Vanilla scenes and texture packs are untouched - their rooms never reach
+// either, and a pack's "alt/" texture never joins.
 //
 // The saved setting behind the switch: 1 mipmaps, 0 uploads one level as before. On by default.
 #define CVAR_TEXTURE_MIPS CVAR_SETTING("CustomSceneMipmaps")

@@ -204,11 +204,14 @@
  *                                        value=<v> label="..."` when a widget helper reports it was operated -
  *                                        the widget's own code path, so the proof a setting changed through it
  *   mipmaps <line>                       one line of TextureMipsConsole_Run output per marker, from
- *                                        `agenttest mipmaps [status|on|off|lod <max|mean|aniso>|bias <n>]`:
+ *                                        `agenttest mipmaps [status|archive|on|off|lod <max|mean|aniso>|bias <n>]`:
  *                                        `op=<sub> result=ok active=<0|1> setting=<0|1> supported=<0|1>
  *                                        lod=<max|mean|aniso> bias=<f> lists=<n> addrs=<n> mipped=<n>
  *                                        filter=<three_point|linear|none>` (sturdy-bassoon#146). on/off here
- *                                        switch for the session only; the human `mipmaps` also saves setting=
+ *                                        switch for the session only; the human `mipmaps` also saves setting=.
+ *                                        `archive` reports the archive prop textures instead (#171):
+ *                                        `op=archive result=ok active=<0|1> textures=<n> mipped=<n>`, then
+ *                                        `op=archive levels=<n> uploads=<n> texture=<path>` per texture
  *   quest <line>                         one line of QuestConsole_Run output per marker, from
  *                                        "agenttest quest ..." (sturdy-bassoon#58 P1): the Describe line
  *                                        `id=<n> name=<s> tier=<s> status=<s> steps=0x<mask>/<count>
@@ -2912,7 +2915,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
             "keepinput [on|off] | kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|reset|link <a> <b>|sort on|off] | "
               "imgui status|dump [kind]|click [kind:]<label>|clickat <x> <y>|key <name> | "
-            "mipmaps [status|on|off|lod <mode>|bias <n>] | save <fileNum> | loadsave <fileNum> | mark <text>";
+            "mipmaps [status|archive|on|off|lod <mode>|bias <n>] | save <fileNum> | loadsave <fileNum> | mark <text>";
     }
     return 1;
 }
@@ -2956,7 +2959,7 @@ void RegisterAgentTest() {
               "fadein <s>|baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
               "keepinput [on|off] | kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|reset|link <a> <b>|sort on|off] | "
               "imgui status|dump [kind]|click [kind:]<label>|clickat <x> <y>|key <name> | "
-              "mipmaps [status|on|off|lod <mode>|bias <n>] | save <fileNum> | loadsave <fileNum> | mark <text>. "
+              "mipmaps [status|archive|on|off|lod <mode>|bias <n>] | save <fileNum> | loadsave <fileNum> | mark <text>. "
               "walk/press inject controller 1 for N frames and end with an input_done marker.",
               { { "subcommand", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } } });
     }
