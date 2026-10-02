@@ -5,6 +5,16 @@
 #include "soh/ResourceManagerHelpers.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include <assert.h>
+#include <string.h>
+
+// The static line test's "already tested this poly" marks (SSNodeList.polyCheckTbl, one byte per
+// static poly). Vanilla zeroed the whole table before every line test, which costs a byte per poly
+// in the scene per test: ~13 us a test at 59k polys, ~500 us at 2.9M (sturdy-bassoon#172). Instead
+// each test takes the next stamp and a poly counts as tested only while its byte equals the current
+// stamp, so earlier tests' marks go stale without being touched. The byte wraps after 255 tests,
+// and only then is the table really cleared. Stamps run 1-255: a freshly allocated (zeroed) table
+// never matches one.
+static u8 sPolyCheckStamp;
 
 // For naming the scene in collision diagnostics. Defined in z_play.c; declared locally the same way
 // AgentTest.cpp, AlwaysOnFixes.cpp and AudioHooks.cpp declare it, rather than pulling an
@@ -973,7 +983,7 @@ s32 BgCheck_CheckLineAgainstSSList(SSList* ssList, CollisionContext* colCtx, u16
         polyId = curNode->polyId;
         checkedPoly = &colCtx->polyNodes.polyCheckTbl[polyId];
 
-        if (*checkedPoly == true || COLPOLY_VIA_FLAG_TEST(polyList[polyId].flags_vIA, xpFlags1) ||
+        if (*checkedPoly == sPolyCheckStamp || COLPOLY_VIA_FLAG_TEST(polyList[polyId].flags_vIA, xpFlags1) ||
             !(xpFlags2 == 0 || COLPOLY_VIA_FLAG_TEST(polyList[polyId].flags_vIA, xpFlags2))) {
 
             if (curNode->next == SS_NULL) {
@@ -983,7 +993,7 @@ s32 BgCheck_CheckLineAgainstSSList(SSList* ssList, CollisionContext* colCtx, u16
                 continue;
             }
         }
-        *checkedPoly = true;
+        *checkedPoly = sPolyCheckStamp;
         curPoly = &polyList[polyId];
         minY = CollisionPoly_GetMinY(curPoly, colCtx->colHeader->vtxList);
         if (posA->y < minY && posB->y < minY) {
@@ -4125,13 +4135,13 @@ void func_800418D0(CollisionContext* colCtx, PlayState* play) {
 }
 
 /**
- * Reset SSNodeList polyCheckTbl
+ * Reset SSNodeList polyCheckTbl: start a new line test's marks (see sPolyCheckStamp). One
+ * increment, and a real clear of the table once every 255 tests when the stamp wraps.
  */
 void BgCheck_ResetPolyCheckTbl(SSNodeList* nodeList, s32 numPolys) {
-    u8* t;
-
-    for (t = nodeList->polyCheckTbl; t < nodeList->polyCheckTbl + numPolys; t++) {
-        *t = 0;
+    if (++sPolyCheckStamp == 0) {
+        memset(nodeList->polyCheckTbl, 0, (size_t)numPolys);
+        sPolyCheckStamp = 1;
     }
 }
 
