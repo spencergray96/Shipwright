@@ -18,6 +18,7 @@
 #include <stdint.h>
 #include "soh/Enhancements/rs/RsAssert.h"
 #include "soh/Enhancements/rs/quest/QuestIds.h" // QuestTier
+#include "soh/Enhancements/rs/dialogue/NpcDialogueDef.h" // RS_DIALOGUE_MAX_*: the band is sized from them
 
 // 15 bits, which is what the trigger actor's params carry (bit 15 stays zero, as every rs/ actor's
 // does - RsActorParams.h rule 2). 0 is no interaction.
@@ -37,7 +38,6 @@
 
 RS_STATIC_ASSERT(RS_INTERACTION_ID_DEBUG_FIRST > RS_INTERACTION_ID_MIN, "the production band must be non-empty");
 RS_STATIC_ASSERT(RS_INTERACTION_ID_DEBUG_FIRST <= RS_INTERACTION_ID_MAX, "the debug band must be non-empty");
-RS_STATIC_ASSERT(RS_INTERACTION_ID_MAX <= 0x7FFF, "bit 15 stays zero: params is a signed s16");
 
 // --- the text band ------------------------------------------------------------------------------
 //
@@ -69,18 +69,20 @@ RS_STATIC_ASSERT(RS_INTERACTION_ID_MAX <= 0x7FFF, "bit 15 stays zero: params is 
 #define RS_TEXT_INTERACTION_NODE_BASE (RS_TEXT_INTERACTION_BASE + 0x20)
 #define RS_TEXT_INTERACTION_NODE_ID(node) ((uint16_t)(RS_TEXT_INTERACTION_NODE_BASE + (node)))
 #define RS_TEXT_INTERACTION_REPLY_BASE (RS_TEXT_INTERACTION_BASE + 0x80)
-#define RS_TEXT_INTERACTION_REPLY_SLOTS 64 // 32 rules, then 32 nodes
+// A reply slot is the screen its option was on: a rule, then a node.
+#define RS_TEXT_INTERACTION_REPLY_SLOTS (RS_DIALOGUE_MAX_RULES + RS_DIALOGUE_MAX_NODES)
 #define RS_TEXT_INTERACTION_REPLY_ID(slot, option) \
-    ((uint16_t)(RS_TEXT_INTERACTION_REPLY_BASE + (slot) * 4 + (option)))
-#define RS_TEXT_INTERACTION_END (RS_TEXT_INTERACTION_REPLY_BASE + RS_TEXT_INTERACTION_REPLY_SLOTS * 4 - 1)
+    ((uint16_t)(RS_TEXT_INTERACTION_REPLY_BASE + (slot) * RS_DIALOGUE_MAX_OPTIONS + (option)))
+#define RS_TEXT_INTERACTION_END \
+    (RS_TEXT_INTERACTION_REPLY_BASE + RS_TEXT_INTERACTION_REPLY_SLOTS * RS_DIALOGUE_MAX_OPTIONS - 1)
 
 #define RS_TEXT_IS_INTERACTION(id) ((id) >= RS_TEXT_INTERACTION_BASE && (id) <= RS_TEXT_INTERACTION_END)
 #define RS_TEXT_IS_INTERACTION_NODE(id) \
-    ((id) >= RS_TEXT_INTERACTION_NODE_BASE && (id) < RS_TEXT_INTERACTION_NODE_BASE + 32)
+    ((id) >= RS_TEXT_INTERACTION_NODE_BASE && (id) < RS_TEXT_INTERACTION_NODE_BASE + RS_DIALOGUE_MAX_NODES)
 #define RS_TEXT_IS_INTERACTION_REPLY(id) ((id) >= RS_TEXT_INTERACTION_REPLY_BASE && (id) <= RS_TEXT_INTERACTION_END)
 #define RS_TEXT_INTERACTION_GET_NODE(id) ((int32_t)((id) - RS_TEXT_INTERACTION_NODE_BASE))
-#define RS_TEXT_INTERACTION_GET_SLOT(id) ((int32_t)(((id) - RS_TEXT_INTERACTION_REPLY_BASE) >> 2))
-#define RS_TEXT_INTERACTION_GET_OPTION(id) ((int32_t)(((id) - RS_TEXT_INTERACTION_REPLY_BASE) & 3))
+#define RS_TEXT_INTERACTION_GET_SLOT(id) ((int32_t)(((id) - RS_TEXT_INTERACTION_REPLY_BASE) / RS_DIALOGUE_MAX_OPTIONS))
+#define RS_TEXT_INTERACTION_GET_OPTION(id) ((int32_t)(((id) - RS_TEXT_INTERACTION_REPLY_BASE) % RS_DIALOGUE_MAX_OPTIONS))
 
 // What an interaction with no code yet says (the ADR), and what a placement naming an id with no
 // row says. Player prose, so it is a plain sentence that names no storey.
@@ -88,7 +90,8 @@ RS_STATIC_ASSERT(RS_INTERACTION_ID_MAX <= 0x7FFF, "bit 15 stays zero: params is 
 
 RS_STATIC_ASSERT(RS_TEXT_INTERACTION_BASE > 0xC000, "the interaction band must sit above RS_TEXT_DIRECT");
 RS_STATIC_ASSERT(RS_TEXT_INTERACTION_END < 0xC400, "the interaction band must end below the staircase band");
-RS_STATIC_ASSERT(RS_TEXT_INTERACTION_NODE_BASE + 32 <= RS_TEXT_INTERACTION_REPLY_BASE,
-                 "the interaction node ids must end below its reply ids");
+RS_STATIC_ASSERT(RS_TEXT_INTERACTION_ENTRY < RS_TEXT_INTERACTION_NODE_BASE, "the entry id must sit below the node ids");
+RS_STATIC_ASSERT(RS_TEXT_INTERACTION_NODE_BASE + RS_DIALOGUE_MAX_NODES <= RS_TEXT_INTERACTION_REPLY_BASE,
+                 "raising RS_DIALOGUE_MAX_NODES must not push an interaction node id onto its reply ids");
 
 #endif // SOH_RS_INTERACTION_IDS_H

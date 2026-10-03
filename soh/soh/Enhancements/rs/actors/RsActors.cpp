@@ -278,10 +278,8 @@ void LoadInteractionText(uint16_t id, bool* loadFromMessageTable) {
         screenWord = "reply";
         const int32_t slot = RS_TEXT_INTERACTION_GET_SLOT(id);
         const int32_t option = RS_TEXT_INTERACTION_GET_OPTION(id);
-        index = slot * 4 + option;
-        const RsDialogueRule* on = slot < RS_DIALOGUE_MAX_RULES
-                                       ? RsDialogue_Screen(def, RS_SCREEN_RULE, slot)
-                                       : RsDialogue_Screen(def, RS_SCREEN_NODE, slot - RS_DIALOGUE_MAX_RULES);
+        index = slot * RS_DIALOGUE_MAX_OPTIONS + option;
+        const RsDialogueRule* on = RsInteraction_SlotScreen(def, slot);
         if (on != nullptr && option < on->optionCount && on->options[option].reply != nullptr) {
             reply = RsNpc_ComposeOptionReply(on->options[option]);
             haveReply = true;

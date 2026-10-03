@@ -139,12 +139,6 @@ static const RsDialogueRule* RsInteraction_OpenScreen(RsInteraction* this, u16 o
     return NULL;
 }
 
-// The screen a reply slot names: a rule (0..31) or a node (32..63).
-static const RsDialogueRule* RsInteraction_SlotScreen(const RsInteractionDef* def, s32 slot) {
-    return slot < RS_DIALOGUE_MAX_RULES ? RsDialogue_Screen(def, RS_SCREEN_RULE, slot)
-                                        : RsDialogue_Screen(def, RS_SCREEN_NODE, slot - RS_DIALOGUE_MAX_RULES);
-}
-
 static void RsInteraction_Talk(RsInteraction* this, PlayState* play) {
     const RsInteractionDef* def = RsInteraction_GetDef(this->interactionId);
     const RsDialogueRule* screen;

@@ -21,6 +21,9 @@
 #include <string>
 #include <vector>
 
+// Returns 0 when the operation succeeded (or for read-only subcommands, including `describe` of an
+// id with no code yet), 1 otherwise: a bad argument, an unknown subcommand, or a badcheck row whose
+// verdict was wrong.
 int32_t RsInteractionConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines);
 
 #endif // SOH_RS_INTERACTION_CONSOLE_H

@@ -84,6 +84,11 @@ extern "C" int32_t RsInteraction_RegisteredCount(void) {
     return static_cast<int32_t>(Defs().size());
 }
 
+extern "C" const RsDialogueRule* RsInteraction_SlotScreen(const RsInteractionDef* def, int32_t slot) {
+    return slot < RS_DIALOGUE_MAX_RULES ? RsDialogue_Screen(def, RS_SCREEN_RULE, slot)
+                                        : RsDialogue_Screen(def, RS_SCREEN_NODE, slot - RS_DIALOGUE_MAX_RULES);
+}
+
 extern "C" const RsInteractionDef* RsInteraction_DefAt(int32_t n) {
     if (n < 0) {
         return nullptr;

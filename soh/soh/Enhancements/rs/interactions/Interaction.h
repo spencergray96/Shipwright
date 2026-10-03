@@ -40,6 +40,10 @@ int32_t RsInteraction_RegisteredCount(void);
 // The n-th registered definition in id order, for listing; NULL past the end.
 const RsInteractionDef* RsInteraction_DefAt(int32_t n);
 
+// The screen a reply slot names (InteractionIds.h): a rule for 0..31, a node for 32..63. NULL for
+// a NULL definition or a slot it does not have.
+const RsDialogueRule* RsInteraction_SlotScreen(const RsInteractionDef* def, int32_t slot);
+
 #ifdef __cplusplus
 }
 #endif

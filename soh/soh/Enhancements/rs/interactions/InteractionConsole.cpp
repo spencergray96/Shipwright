@@ -26,6 +26,27 @@ using ConsoleSink::Addf;
 const char* kUsage = "error=usage: interaction status | list | describe <id> | badcheck | "
                      "spawn <id> <n> [dist] [cols] [spacing] | clear";
 
+// A whole decimal number in [lo, hi], or false: never atoi's silent 0 for "abc".
+bool ParseInt(const std::string& text, int32_t lo, int32_t hi, int32_t* out) {
+    char* end = nullptr;
+    const long value = std::strtol(text.c_str(), &end, 10);
+    if (text.empty() || end == nullptr || *end != '\0' || value < lo || value > hi) {
+        return false;
+    }
+    *out = static_cast<int32_t>(value);
+    return true;
+}
+
+bool ParseFloat(const std::string& text, float* out) {
+    char* end = nullptr;
+    const double value = std::strtod(text.c_str(), &end);
+    if (text.empty() || end == nullptr || *end != '\0') {
+        return false;
+    }
+    *out = static_cast<float>(value);
+    return true;
+}
+
 bool ParseId(const std::string& text, int32_t* id) {
     std::string digits = text;
     if (digits.size() > 2 && (digits[0] == 'I' || digits[0] == 'i') && digits[1] == '-') {
@@ -61,7 +82,7 @@ int32_t Status(std::vector<std::string>& lines) {
                       static_cast<int>(actor->world.pos.x), static_cast<int>(actor->world.pos.y),
                       static_cast<int>(actor->world.pos.z), static_cast<int>(trigger->range),
                       static_cast<int>(actor->focus.pos.y - actor->world.pos.y), trigger->checks,
-                      trigger->ruleIndex >= 0 && Message_GetState(&gPlayState->msgCtx) != TEXT_STATE_NONE &&
+                      Message_GetState(&gPlayState->msgCtx) != TEXT_STATE_NONE &&
                               GET_PLAYER(gPlayState)->talkActor == actor
                           ? 1
                           : 0);
@@ -116,7 +137,7 @@ int32_t BadCheck(std::vector<std::string>& lines) {
     static const RsDialogueRule kRule[] = {
         { nullptr, 0, "A plain line.", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
     };
-    static const RsDialogueRule kGatedLast[] = {
+    static const RsDialogueRule kTwoPlain[] = {
         { nullptr, 0, "A plain line.", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
         { nullptr, 0, "Another.", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
     };
@@ -136,7 +157,7 @@ int32_t BadCheck(std::vector<std::string>& lines) {
         { "prod_tier_in_debug_band", { RS_INTERACTION(32767), QUEST_TIER_PROD, "bad_tier", "Bad: tier", kRule, 1 }, false },
         { "debug_tier_in_prod_band", { RS_INTERACTION(1), QUEST_TIER_DEBUG, "bad_tier2", "Bad: tier", kRule, 1 }, false },
         { "last_rule_gated", { RS_INTERACTION(32767), QUEST_TIER_DEBUG, "bad_gate", "Bad: gate", kGated, 1 }, false },
-        { "no_rules", { RS_INTERACTION(32767), QUEST_TIER_DEBUG, "bad_none", "Bad: none", kGatedLast, 0 }, false },
+        { "no_rules", { RS_INTERACTION(32767), QUEST_TIER_DEBUG, "bad_none", "Bad: none", kTwoPlain, 0 }, false },
     };
     int32_t wrong = 0;
     for (const Case& c : cases) {
@@ -146,8 +167,8 @@ int32_t BadCheck(std::vector<std::string>& lines) {
             wrong++;
         }
         // The reason is the validator's own words, which never echo a definition's strings.
-        Addf(lines, "case=%s expected=%s got=%s%s%s", c.label, c.clean ? "clean" : "refused", clean ? "clean" : "refused",
-             clean ? "" : " why=", clean ? "" : problem);
+        Addf(lines, "case=%s expected=%s got=%s%s%s%s", c.label, c.clean ? "clean" : "refused",
+             clean ? "clean" : "refused", clean ? "" : " why=\"", clean ? "" : problem, clean ? "" : "\"");
     }
     Addf(lines, "op=badcheck cases=%d wrong=%d", static_cast<int>(sizeof(cases) / sizeof(cases[0])), wrong);
     return wrong == 0 ? 0 : 1;
@@ -177,12 +198,17 @@ int32_t Spawn(const std::vector<std::string>& args, std::vector<std::string>& li
         lines.push_back("error=spawn takes <id> <n> [dist] [cols] [spacing]");
         return 1;
     }
-    const int32_t n = std::atoi(args[2].c_str());
-    const float dist = args.size() >= 4 ? static_cast<float>(std::atof(args[3].c_str())) : 500.0f;
-    const int32_t cols = args.size() >= 5 ? std::atoi(args[4].c_str()) : 25;
-    const float spacing = args.size() >= 6 ? static_cast<float>(std::atof(args[5].c_str())) : 34.0f;
-    if (n < 0 || n > 1500 || cols < 1 || gPlayState == nullptr || GET_PLAYER(gPlayState) == nullptr) {
-        lines.push_back("error=spawn needs a scene, 0 <= n <= 1500 and cols >= 1");
+    int32_t n = 0;
+    int32_t cols = 25;
+    float dist = 500.0f;
+    float spacing = 34.0f;
+    if (!ParseInt(args[2], 0, 1500, &n) || (args.size() >= 4 && !ParseFloat(args[3], &dist)) ||
+        (args.size() >= 5 && !ParseInt(args[4], 1, 1500, &cols)) || (args.size() >= 6 && !ParseFloat(args[5], &spacing))) {
+        lines.push_back("error=spawn takes <id> <n 0-1500> [dist] [cols 1-1500] [spacing], all numbers");
+        return 1;
+    }
+    if (gPlayState == nullptr || GET_PLAYER(gPlayState) == nullptr) {
+        lines.push_back("error=spawn needs a scene");
         return 1;
     }
     Player* player = GET_PLAYER(gPlayState);
