@@ -44,6 +44,18 @@ RS_STATIC_ASSERT(NPC_MAX <= RS_NPC_PARAMS_ID_MASK + 1, "an NpcId must fit in the
 RS_STATIC_ASSERT((RS_NPC_PARAMS_ID_MASK & RS_NPC_PARAMS_RSVD_MASK) == 0, "params fields must not overlap");
 RS_STATIC_ASSERT((RS_NPC_PARAMS_ID_MASK | RS_NPC_PARAMS_RSVD_MASK) <= 0x7FFF, "bit 15 stays zero: params is a signed s16");
 
+// --- interaction trigger (sturdy-bassoon#183) ----------------------------------------------------
+//
+// The whole word is the id: interactions are numbered in 15 bits by the grid tool (InteractionIds.h),
+// so there is no reserved span to keep. Rule 2 still holds - bit 15 is zero, because the id space
+// stops at 0x7FFF. The row's rot.x and rot.z carry the focus height and the talk range (RsInteraction.h).
+
+#define RS_INTERACTION_PARAMS_ID_MASK 0x7FFF
+#define RS_INTERACTION_PARAMS(id) ((int16_t)((id) & RS_INTERACTION_PARAMS_ID_MASK))
+#define RS_INTERACTION_PARAMS_GET_ID(params) ((int32_t)((uint16_t)(params) & RS_INTERACTION_PARAMS_ID_MASK))
+
+RS_STATIC_ASSERT(RS_INTERACTION_PARAMS_ID_MASK <= 0x7FFF, "bit 15 stays zero: params is a signed s16");
+
 // --- quest item --------------------------------------------------------------------------------
 //
 // A quest item is fully described by the (quest, step) pair it sets - there is deliberately no

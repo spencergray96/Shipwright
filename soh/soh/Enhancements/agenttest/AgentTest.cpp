@@ -251,6 +251,16 @@
  *                                        ended up, `floor_y=` and `ground=` that he is standing on something,
  *                                        `respawn=` `respawn_room=` where a void-out would now put him. Gameplay
  *                                        markers, so they reach the engine log in every session
+ *   rs_interaction id=<n> event=<open|close|choice|node|text|bad_placement> ...
+ *                                        an interaction trigger over a prop (sturdy-bassoon#183). `open` and
+ *                                        `close` bracket one check (checks=, rule=, code=, x= y= z=);
+ *                                        `text` comes from the textbox hook and names the interaction
+ *                                        whose screen it rendered (screen=entry|node|reply|placeholder,
+ *                                        via=player|msgctx), which is what proves two props in range
+ *                                        each spoke their own line. Gameplay markers
+ *   rs_interaction <line>                one line of RsInteractionConsole_Run output per marker, from
+ *                                        `agenttest interaction ...` - always `op=...`, an indexed row or
+ *                                        `case=...`, never `id=... event=...`
  *   rs_stairs <line>                     one line of RsStairConsole_Run output per marker, from
  *                                        `agenttest stairs ...` - always `op=...`, an indexed row or
  *                                        `last="..."`, never a line that starts `stair=... event=...`,
@@ -509,6 +519,11 @@
  *                                          StairConsole.h documents every line; the move's own
  *                                          `rs_stairs stair=<n> event=...` markers are listed with the
  *                                          other gameplay markers above
+ *   agenttest interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear
+ *                                          interactive props (sturdy-bassoon#183): the resident triggers,
+ *                                          the code table, one interaction's resolved rule, the registry's
+ *                                          planted refusals, and #117's cost bench laid out with real
+ *                                          triggers. InteractionConsole.h documents every line
  *   agenttest warps list|dump|where|status|badcheck
  *                                          step warps (sturdy-bassoon#154). `dump` is every warp tile
  *                                          in this scene as the scan found it - where it is, where it
@@ -587,6 +602,7 @@
 #include "soh/Enhancements/rs/dialogue/NpcConsole.h"
 #include "soh/Enhancements/rs/prefs/RegionConsole.h"
 #include "soh/Enhancements/rs/stairs/StairConsole.h"
+#include "soh/Enhancements/rs/interactions/InteractionConsole.h"
 #include "soh/Enhancements/rs/warps/WarpConsole.h"
 #include "soh/Enhancements/rs/menu/MenuConsole.h"
 #include "soh/Enhancements/rs/menu/RsMenu.h"
@@ -2843,6 +2859,13 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(RsStairConsole_Run, sub, "rs_stairs ", output, WriteMarker);
     }
+    // Interactive props (sturdy-bassoon#183). Same prefix as the triggers' own event markers, for the
+    // stairs' reason: `rs_interaction op=...` is an answer, `rs_interaction id=<n> event=...` is a
+    // trigger or the textbox hook reporting itself.
+    if (args.size() >= 3 && args[1] == "interaction") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(RsInteractionConsole_Run, sub, "rs_interaction ", output, WriteMarker);
+    }
     // Step warps (sturdy-bassoon#154). Same prefix as the tiles' own event markers, for the stairs'
     // reason: `rs_warp op=…` is an answer, `rs_warp tile=<n> event=…` is a tile reporting itself.
     if (args.size() >= 3 && args[1] == "warps") {
@@ -2908,6 +2931,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|"
               "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
               "warps list|dump|where|status|badcheck | "
+              "interaction status|list|describe <id>|badcheck|spawn <id> <n>|clear | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
@@ -2952,6 +2976,7 @@ void RegisterAgentTest() {
               "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|"
               "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
               "warps list|dump|where|status|badcheck | "
+              "interaction status|list|describe <id>|badcheck|spawn <id> <n>|clear | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "

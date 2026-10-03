@@ -30,6 +30,7 @@ enum ActorIDExtra {
     /* 0x01D9 */ ACTOR_RS_NPC,        // Enhancements/rs/actors/RsNpc.c - a quest-giver; params = NpcId
     /* 0x01DA */ ACTOR_RS_QUEST_ITEM, // Enhancements/rs/actors/RsQuestItem.c - params = (quest, step)
     /* 0x01DB */ ACTOR_RS_STAIRS,     // Enhancements/rs/actors/RsStairs.c - params = (staircase, row)
+    /* 0x01DC */ ACTOR_RS_INTERACTION, // Enhancements/rs/actors/RsInteraction.c - params = interaction id
     // #endregion
     ACTOR_ID_EXTRA_MAX
 };
