@@ -74,6 +74,11 @@ typedef enum WorldFlagId {
     // the WHOLE reveal mechanism - an ordinary world flag and an ordinary predicate, no new
     // machinery - and it is why the unlock is PERMANENT: nothing in the system expires a flag.
     // Expiring dialogue knowledge is out of scope for #96 by decision, not by oversight.
+    WORLD_FLAG_DEBUG_INTERACTION_CRATE = 3849,
+    // The debug crate interaction's remembered state (sturdy-bassoon#183, I-32512 in
+    // rs/interactions/InteractionTable.cpp): set by prising the crate open, read by its first rule.
+    // It is the first pass's whole model of prop state - a PERMANENT world flag set by a dialogue
+    // choice, as a quest sets one; "forget when I leave" arrives with actor-drawn props (the ADR).
 } WorldFlagId;
 
 #define WORLD_FLAG_IS_DEBUG(flag) ((flag) >= WORLD_FLAG_DEBUG_FIRST)
@@ -104,5 +109,8 @@ RS_STATIC_ASSERT(WORLD_FLAG_MUSIC_FIRST_VISIT_SETTLEMENT >= WORLD_FLAG_DEBUG_FIR
 RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_TREE_MILLER >= WORLD_FLAG_DEBUG_FIRST &&
                      WORLD_FLAG_DEBUG_TREE_MILLER < WORLD_FLAG_MAX,
                  "WORLD_FLAG_DEBUG_TREE_MILLER must sit in the debug band");
+RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_INTERACTION_CRATE >= WORLD_FLAG_DEBUG_FIRST &&
+                     WORLD_FLAG_DEBUG_INTERACTION_CRATE < WORLD_FLAG_MAX,
+                 "WORLD_FLAG_DEBUG_INTERACTION_CRATE must sit in the debug band");
 
 #endif // SOH_RS_WORLD_FLAG_IDS_H

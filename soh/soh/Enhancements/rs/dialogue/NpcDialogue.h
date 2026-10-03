@@ -143,6 +143,24 @@ void RsNpc_Describe(int32_t npcId, char* buf, size_t len);
 // (Quest.h) for the quest actions, or QUEST_OK for the ones that cannot fail. Never asserts.
 int32_t RsNpc_RunAction(const RsDialogueOption* option);
 
+// --- the same machinery, keyed by DEFINITION rather than by NpcId (sturdy-bassoon#183) ----------
+//
+// An interaction (rs/interactions/) is a prop's dialogue: the same screens, gates, flag effects and
+// trees as a character, held in an RsNpcDef, but numbered in its own id space and registered in its
+// own table. These are the definition-keyed cores the RsNpc_* calls above wrap, so the two speakers
+// share ONE resolver and ONE validator rather than two copies that could drift.
+
+// RsNpc_ResolveRule, for a definition in hand. -1 for NULL.
+int32_t RsDialogue_ResolveRule(const RsNpcDef* def);
+// RsNpc_ResolveNode, for a definition in hand. -1 for NULL or an out-of-range head.
+int32_t RsDialogue_ResolveNode(const RsNpcDef* def, int32_t head);
+// RsNpc_Screen, for a definition in hand.
+const RsDialogueRule* RsDialogue_Screen(const RsNpcDef* def, int32_t kind, int32_t index);
+// Everything RsNpc_DefProblem checks EXCEPT the id and its band: the screens, their text, their
+// options and actions (a flag's tier against `def->tier`), reachability, that the conversation can
+// end. 0 when clean; 1 with the reason in `buf`. The caller owns the id space and checks it.
+int32_t RsDialogue_BodyProblem(const RsNpcDef* def, char* buf, size_t len);
+
 #ifdef __cplusplus
 }
 

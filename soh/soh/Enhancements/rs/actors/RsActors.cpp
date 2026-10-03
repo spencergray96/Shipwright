@@ -3,6 +3,7 @@
 #include "RsNpc.h"
 #include "RsQuestItem.h"
 #include "RsStairs.h"
+#include "RsInteraction.h"
 
 #include <cstdio>
 #include <string>
@@ -14,6 +15,7 @@
 #include "soh/Enhancements/rs/dialogue/NpcDialogue.h"
 #include "soh/Enhancements/rs/dialogue/NpcDialogueDef.h"
 #include "soh/Enhancements/rs/dialogue/NpcIds.h"
+#include "soh/Enhancements/rs/interactions/Interaction.h"
 #include "soh/Enhancements/rs/prefs/FloorText.h"
 #include "soh/Enhancements/rs/prefs/RsPrefs.h"
 #include "soh/Enhancements/rs/quest/Quest.h"
@@ -44,6 +46,10 @@ void RsQuestItem_Draw(Actor* thisx, PlayState* play);
 void RsStairs_Init(Actor* thisx, PlayState* play);
 void RsStairs_Destroy(Actor* thisx, PlayState* play);
 void RsStairs_Update(Actor* thisx, PlayState* play);
+
+void RsInteraction_Init(Actor* thisx, PlayState* play);
+void RsInteraction_Destroy(Actor* thisx, PlayState* play);
+void RsInteraction_Update(Actor* thisx, PlayState* play);
 }
 
 // The C++ half of the mod's actors (sturdy-bassoon#58 P3 / #64):
@@ -234,6 +240,86 @@ void LoadScreen(const RsDialogueRule& screen, bool* loadFromMessageTable) {
     *loadFromMessageTable = false;
 }
 
+// An interaction's box (sturdy-bassoon#183). The text id says which screen; WHOSE screen is the actor
+// Link is talking to, read from Player - never from msgCtx->talkActor, which on a first box still
+// names the previous partner (InteractionIds.h), and never from a shared slot. The interaction id is
+// that actor's params. Every box writes a marker naming the id it rendered, which is what lets a run
+// assert that two props in range each spoke their own line.
+void LoadInteractionText(uint16_t id, bool* loadFromMessageTable) {
+    Actor* speaker = nullptr;
+    const char* via = "none";
+    if (gPlayState != nullptr) {
+        Player* player = GET_PLAYER(gPlayState);
+        if (player != nullptr && player->talkActor != nullptr && player->talkActor->id == ACTOR_RS_INTERACTION) {
+            speaker = player->talkActor;
+            via = "player";
+        } else if (gPlayState->msgCtx.talkActor != nullptr && gPlayState->msgCtx.talkActor->id == ACTOR_RS_INTERACTION) {
+            // A continued box: Player may have let go, and the context has caught up by now.
+            speaker = gPlayState->msgCtx.talkActor;
+            via = "msgctx";
+        }
+    }
+    const int32_t interactionId = speaker != nullptr ? RS_INTERACTION_PARAMS_GET_ID(speaker->params) : 0;
+    const RsInteractionDef* def = RsInteraction_GetDef(interactionId);
+
+    const char* screenWord = "entry";
+    int32_t index = -1;
+    const RsDialogueRule* screen = nullptr;
+    std::string reply;
+    bool haveReply = false;
+    if (id == RS_TEXT_INTERACTION_ENTRY) {
+        index = RsDialogue_ResolveRule(def);
+        screen = RsDialogue_Screen(def, RS_SCREEN_RULE, index);
+    } else if (RS_TEXT_IS_INTERACTION_NODE(id)) {
+        screenWord = "node";
+        index = RS_TEXT_INTERACTION_GET_NODE(id);
+        screen = RsDialogue_Screen(def, RS_SCREEN_NODE, index);
+    } else if (RS_TEXT_IS_INTERACTION_REPLY(id)) {
+        screenWord = "reply";
+        const int32_t slot = RS_TEXT_INTERACTION_GET_SLOT(id);
+        const int32_t option = RS_TEXT_INTERACTION_GET_OPTION(id);
+        index = slot * RS_DIALOGUE_MAX_OPTIONS + option;
+        const RsDialogueRule* on = RsInteraction_SlotScreen(def, slot);
+        if (on != nullptr && option < on->optionCount && on->options[option].reply != nullptr) {
+            reply = RsNpc_ComposeOptionReply(on->options[option]);
+            haveReply = true;
+        }
+    }
+
+    char line[160];
+    if (def == nullptr && speaker != nullptr && id == RS_TEXT_INTERACTION_ENTRY) {
+        // No code yet - or an id this build has no row for. The ADR's placeholder, never a refusal.
+        std::snprintf(line, sizeof(line), "rs_interaction id=%d event=text screen=placeholder index=-1 via=%s",
+                      interactionId, via);
+        AgentTest_WriteMarker(line);
+        CustomMessage msg = BuildPlainMessage(RS_INTERACTION_PLACEHOLDER_TEXT);
+        msg.LoadIntoFont();
+        *loadFromMessageTable = false;
+        return;
+    }
+    std::snprintf(line, sizeof(line), "rs_interaction id=%d event=text screen=%s index=%d via=%s", interactionId,
+                  screenWord, index, via);
+    AgentTest_WriteMarker(line);
+    if (haveReply) {
+        CustomMessage msg = BuildPlainMessage(reply.c_str());
+        msg.LoadIntoFont();
+        *loadFromMessageTable = false;
+        return;
+    }
+    if (screen == nullptr) {
+        // A diagnostic, never silence (RsNpc's rule): no talking trigger, or a screen the
+        // definition does not have.
+        const std::string what = speaker == nullptr ? std::string("<no interaction is talking>")
+                                                    : "<interaction " + std::to_string(interactionId) + " has no " +
+                                                          screenWord + " " + std::to_string(index) + ">";
+        CustomMessage msg = BuildPlainMessage(what.c_str());
+        msg.LoadIntoFont();
+        *loadFromMessageTable = false;
+        return;
+    }
+    LoadScreen(*screen, loadFromMessageTable);
+}
+
 // The unfiltered OnOpenText bucket, which GameInteractor_ExecuteOnOpenText runs before the per-id
 // and filter buckets. Everything outside our band is left alone.
 //
@@ -299,6 +385,12 @@ void RsText_OnOpenText(uint16_t* textId, bool* loadFromMessageTable) {
             return;
         }
         LoadScreen(*screen, loadFromMessageTable);
+        return;
+    }
+
+    // An interaction's screen (#183): the id names which screen, the talking actor names whose.
+    if (RS_TEXT_IS_INTERACTION(id)) {
+        LoadInteractionText(id, loadFromMessageTable);
         return;
     }
 
@@ -432,6 +524,26 @@ void RegisterRsActors() {
             nullptr,
         };
         ActorDB::Instance->AddEntry(stairs);
+
+        // No draw function, ON PURPOSE (#183): the prop is drawn by its map's baked list and this
+        // actor only supplies the check. A null draw is what Actor_DrawAll skips outright - 0.20 us
+        // a tick against 1.15 us for a draw function that draws nothing (#117 stage C). Not
+        // UPDATE_CULLING_DISABLED either: an offer only matters within a step of Link.
+        ActorDBInit interaction = {
+            "Rs_Interaction",
+            "RS interaction trigger over a baked prop",
+            ACTOR_RS_INTERACTION,
+            ACTORCAT_PROP,
+            (u32)(ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_FRIENDLY),
+            OBJECT_GAMEPLAY_KEEP,
+            sizeof(RsInteraction),
+            (ActorFunc)RsInteraction_Init,
+            (ActorFunc)RsInteraction_Destroy,
+            (ActorFunc)RsInteraction_Update,
+            nullptr,
+            nullptr,
+        };
+        ActorDB::Instance->AddEntry(interaction);
 
         sAddedToActorDB = true;
     }

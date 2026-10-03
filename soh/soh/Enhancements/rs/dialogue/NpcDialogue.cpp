@@ -689,6 +689,8 @@ bool ValidateScreen(char* buf, size_t len, const RsNpcDef* def, const ScreenRef&
     return true;
 }
 
+bool ValidateBody(const RsNpcDef* def, char* buf, size_t len);
+
 // True when the definition is clean; otherwise writes the reason into `buf` and returns false.
 bool ValidateDef(const RsNpcDef* def, char* buf, size_t len) {
     if (def == nullptr) {
@@ -699,6 +701,15 @@ bool ValidateDef(const RsNpcDef* def, char* buf, size_t len) {
     }
     if (def->tier != NPC_ID_TIER(def->id)) {
         return Problem(buf, len, "tier does not match the id's band");
+    }
+    return ValidateBody(def, buf, len);
+}
+
+// Everything but the id: what an interaction's definition is held to as well (#183), whose id is
+// in another space and is checked by its own registry.
+bool ValidateBody(const RsNpcDef* def, char* buf, size_t len) {
+    if (def == nullptr) {
+        return Problem(buf, len, "NULL definition");
     }
     if (!TokenIsClean(def->name)) {
         return Problem(buf, len, "name is NULL, or carries whitespace, percent, hash or quote");
@@ -818,6 +829,13 @@ bool ValidateDef(const RsNpcDef* def, char* buf, size_t len) {
 
 } // namespace
 
+extern "C" int32_t RsDialogue_BodyProblem(const RsNpcDef* def, char* buf, size_t len) {
+    if (buf != nullptr && len > 0) {
+        buf[0] = '\0';
+    }
+    return ValidateBody(def, buf, len) ? 0 : 1;
+}
+
 extern "C" int32_t RsNpc_DefProblem(const RsNpcDef* def, char* buf, size_t len) {
     if (buf != nullptr && len > 0) {
         buf[0] = '\0';
@@ -894,7 +912,10 @@ extern "C" int32_t RsNpc_DecodeScreen(uint16_t textId, int32_t* npcId, int32_t* 
 }
 
 extern "C" const RsDialogueRule* RsNpc_Screen(int32_t npcId, int32_t kind, int32_t index) {
-    const RsNpcDef* def = RsNpc_GetDef(npcId);
+    return RsDialogue_Screen(RsNpc_GetDef(npcId), kind, index);
+}
+
+extern "C" const RsDialogueRule* RsDialogue_Screen(const RsNpcDef* def, int32_t kind, int32_t index) {
     if (def == nullptr || index < 0) {
         return nullptr;
     }
@@ -968,7 +989,10 @@ extern "C" int32_t RsNpc_NodeMatches(int32_t npcId, int32_t nodeIndex) {
 }
 
 extern "C" int32_t RsNpc_ResolveNode(int32_t npcId, int32_t head) {
-    const RsNpcDef* def = RsNpc_GetDef(npcId);
+    return RsDialogue_ResolveNode(RsNpc_GetDef(npcId), head);
+}
+
+extern "C" int32_t RsDialogue_ResolveNode(const RsNpcDef* def, int32_t head) {
     if (def == nullptr || head < 0 || head >= def->nodeCount) {
         return -1;
     }
@@ -1013,12 +1037,15 @@ extern "C" int32_t RsNpc_ScreenCanEnd(int32_t npcId, int32_t kind, int32_t index
 }
 
 extern "C" int32_t RsNpc_ResolveRule(int32_t npcId) {
-    const RsNpcDef* def = RsNpc_GetDef(npcId);
+    return RsDialogue_ResolveRule(RsNpc_GetDef(npcId));
+}
+
+extern "C" int32_t RsDialogue_ResolveRule(const RsNpcDef* def) {
     if (def == nullptr) {
         return -1;
     }
     for (int32_t r = 0; r < def->ruleCount; r++) {
-        if (RsNpc_RuleMatches(npcId, r)) {
+        if (ScreenGateHolds(def->rules[r])) {
             return r;
         }
     }
