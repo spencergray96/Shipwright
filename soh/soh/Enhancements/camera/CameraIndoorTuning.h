@@ -182,6 +182,10 @@ extern "C" {
 // and then falls, so the bridge leaned less than the balcony (33.5 / 40.8) and a 264 drop would
 // lean under 1 degree. Young Link's probes are shorter (44 / 110), so the same cap leans him
 // harder: about 22 degrees of slope at cap 20, against 14.6 for adult.
+// Known cost, left on purpose: on a balcony facing out with a taller crenellated wall behind Link,
+// the lower eye can sit behind the merlons and partly hide him. Raising the cap is the lever (eye
+// higher); the repro is in ENGINE_BUDGETS "Not handled: on a balcony, the camera can sit behind a
+// wall's crenellations".
 // docs/test-runs/2026-10-04-issue-155-ledge-look-down/ in sturdy-bassoon.
 #define CVAR_CAM_LEDGE_DROP_CAP CVAR_ENHANCEMENT("CamLedgeDropCap")
 #define CAM_LEDGE_DROP_CAP_DEFAULT 20.0f
