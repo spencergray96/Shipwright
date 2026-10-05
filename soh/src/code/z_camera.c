@@ -2205,7 +2205,9 @@ static u32 sCamEyeRelFrame[NUM_CAMS];
  * (#103's alcove samples), and at the tower doorway the held point lands on the tower's face. A peek
  * frame keeps last frame's eye instead, if `at` can still see it; it is always inside the limit,
  * since it was at most last frame's distance from last frame's `at`. If a wall now stands between
- * them, the frame is vanilla's.
+ * them, the frame is vanilla's. So a run of peek frames holds the eye still rather than gliding, for
+ * as long as it lasts: 24 frames in the owner's walk, Link just inside the tower doorway, ending with
+ * vanilla's own pin 1 unit away.
  *
  * Only what is shown is held. Camera_RestoreVanillaEye hands vanilla its own eye back at the top of
  * the next frame, because vanilla reads `camera->eye` as state: its eye-to-at line test, and the

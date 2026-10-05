@@ -251,7 +251,9 @@ extern "C" {
  * distance grows only by how far `at` moved. Expires on any frame gap (Z-target, a cutscene).
  * 0 = off, vanilla.
  *
- * 4, measured on 17 scripted walks through the tower doorway (entrance 0x625): the largest one-frame
+ * 4, adopted after the owner's feel walk ("looks good": in five minutes of free play it held back 23
+ * pops of up to 115 units, and no step out over 15.1 was left), and measured on 17 scripted walks
+ * through the tower doorway (entrance 0x625): the largest one-frame
  * step out goes 83.9 -> 14.4 (15.9 at 8, from an earlier build), a 34 -> 93 pop becomes 34 46 56 67 79
  * 91, mean distance 114.8 -> 114.1, and it acts on 4-8 frames of the four walks that cross the
  * doorway's line of sight and on none of the other 13. Lower glides slower; at 0 the pop is back. It
