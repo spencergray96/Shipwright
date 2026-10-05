@@ -16,7 +16,8 @@
  *     tick and the last actor to update won.
  *
  * Update is kept to what the bench measured for a null-draw trigger: an offer, and a check of the
- * talk request. The focus is set once at Init - nothing moves it.
+ * talk request - plus, only when the offer lands, the on-top test that keeps vanilla's talk step
+ * back from walking Link off the prop (#185). The focus is set once at Init - nothing moves it.
  *
  * Same /W3 /WX rules as RsNpc.c: no `s32 pad`, no ICHAIN.
  */
@@ -37,6 +38,12 @@
 #define RS_INTERACTION_TALK_Y 60.0f
 // A placement that carries no range (a hand-written row, rot.z of 0) still works at a step's reach.
 #define RS_INTERACTION_DEFAULT_RANGE 60.0f
+// Vanilla Player_StartTalking (z_player.c) steps Link back, with root motion, from a talk partner
+// nearer than this in x/z.
+#define RS_INTERACTION_STEP_BACK_DIST 40.0f
+// How far below the prop's top (rot.x) Link may stand and still count as on top of it. A prop no
+// taller than this has no "on top" - a rug or a low step is floor, and keeps vanilla's step back.
+#define RS_INTERACTION_ON_TOP_SLACK 10.0f
 
 void RsInteraction_Init(Actor* thisx, PlayState* play);
 void RsInteraction_Destroy(Actor* thisx, PlayState* play);
@@ -91,6 +98,25 @@ void RsInteraction_Init(Actor* thisx, PlayState* play) {
 void RsInteraction_Destroy(Actor* thisx, PlayState* play) {
 }
 
+// Is Link standing on this trigger's prop (#185)? By height, from the row: the trigger sits at the
+// prop's base and rot.x is the prop's top, so his feet are within the slack of that top - either
+// side of it, because well above is a ledge or the storey above, which a Z-targeted check reaches
+// past the offer's own y window. Not by floor poly - the prop collides through the scene's static
+// mesh, so no poly says which prop it belongs to, and matching one would come back to this same
+// height test. A surface at the same height right beside the prop (a second crate, a ledge) also
+// counts; he loses only the step back.
+//
+// Why it matters: this trigger stands at the centre of the prop, so on top Link is about 0 from it,
+// and vanilla's talk step back walks him off a crate-sized top. Vanilla stays as it is -
+// Player_StartTalking is not edited, so NPCs, signs and this trigger from the ground all keep the
+// step back. Only on top does this actor report itself RS_INTERACTION_STEP_BACK_DIST away.
+static s32 RsInteraction_LinkIsOnTop(RsInteraction* this) {
+    float top = (float)this->actor.home.rot.x;
+
+    return (top > RS_INTERACTION_ON_TOP_SLACK) &&
+           (fabsf(this->actor.yDistToPlayer - top) <= RS_INTERACTION_ON_TOP_SLACK);
+}
+
 static void RsInteraction_Wait(RsInteraction* this, PlayState* play) {
     if (Actor_ProcessTalkRequest(&this->actor, play)) {
         // The same gates the hook resolves when it renders the entry box, in the same frame
@@ -101,7 +127,14 @@ static void RsInteraction_Wait(RsInteraction* this, PlayState* play) {
         this->actionFunc = RsInteraction_Talk;
         return;
     }
-    Actor_OfferTalkExchange(&this->actor, play, this->range, RS_INTERACTION_TALK_Y, EXCH_ITEM_NONE);
+    if (Actor_OfferTalkExchange(&this->actor, play, this->range, RS_INTERACTION_TALK_Y, EXCH_ITEM_NONE) &&
+        RsInteraction_LinkIsOnTop(this) && (this->actor.xzDistToPlayer < RS_INTERACTION_STEP_BACK_DIST)) {
+        // Checking from on top (#185): after the offer, which has already used the real distance for
+        // range and the nearest-partner choice. Player updates before props, so on whichever later
+        // frame A starts the talk, Player_StartTalking reads this value; Actor_UpdateAll restores
+        // the real one before this actor's next update.
+        this->actor.xzDistToPlayer = RS_INTERACTION_STEP_BACK_DIST;
+    }
 }
 
 static void RsInteraction_End(RsInteraction* this) {
