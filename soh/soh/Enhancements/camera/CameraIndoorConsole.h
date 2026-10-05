@@ -43,6 +43,8 @@
 //                        parapet's top). Ships on
 //   heightt <f>          #136, grid-tool scenes: adult camera height lerp(68, 44, t); `+0.1` / `-0.1`
 //                        step it. A change forces a parameter reload on the main camera
+//   release <f>          #174, grid-tool scenes: per frame, the eye may move away from `at` by `at`'s
+//                        own movement plus this many units (0 = off, vanilla)
 //   defaults             clear every knob back to its compiled-in default, so an A/B run has a
 //                        known starting point that does not depend on shipofharkinian.json
 //

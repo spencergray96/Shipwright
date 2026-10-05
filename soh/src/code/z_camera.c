@@ -2183,6 +2183,105 @@ void Camera_IndoorPullInProbe(Camera* camera, CameraIndoorProbe* out) {
     out->height = (camera->player != NULL) ? Camera_PlayerHeight(camera) : 0.0f;
 }
 
+// Last Normal1 frame's shown eye, its distance and `at`, and the eye vanilla had computed before the
+// release held it, per camera, for the eye release (#174). Read back only on the very next frame, like
+// the ceiling clamp's hysteresis.
+static Vec3f sCamEyeRelEye[NUM_CAMS];
+static Vec3f sCamEyeRelVanilla[NUM_CAMS];
+static f32 sCamEyeRelDist[NUM_CAMS];
+static Vec3f sCamEyeRelAt[NUM_CAMS];
+static u32 sCamEyeRelFrame[NUM_CAMS];
+
+/**
+ * The eye release (sturdy-bassoon#174): the eye may move away from `at` by at most `at`'s own
+ * movement plus `release` units a frame. CameraIndoorTuning.h says why. Runs last in Normal1, on
+ * the eye the collision has already placed, so the target and every vanilla rule that moves it are
+ * untouched.
+ *
+ * Normally the excess is held back along the eye's own line. Not on a frame `peeked` says
+ * func_80046E20 took its corner peek (cases 1 and 2, with swing.unk_18 left set): that eye is swung
+ * round a corner and then turned halfway back without a second line test, so its line from `at` can
+ * run along the corner itself - an eye held back on it sat 1.6 from the wall with the near plane in it
+ * (#103's alcove samples), and at the tower doorway the held point lands on the tower's face. A peek
+ * frame keeps last frame's eye instead, if `at` can still see it; it is always inside the limit,
+ * since it was at most last frame's distance from last frame's `at`. If a wall now stands between
+ * them, the frame is vanilla's. So a run of peek frames holds the eye still rather than gliding, for
+ * as long as it lasts: 24 frames in the owner's walk, Link just inside the tower doorway, ending with
+ * vanilla's own pin 1 unit away.
+ *
+ * Only what is shown is held. Camera_RestoreVanillaEye hands vanilla its own eye back at the top of
+ * the next frame, because vanilla reads `camera->eye` as state: its eye-to-at line test, and the
+ * `*eyeNext = *eye` the frame after a corner peek. A held eye left there leaked into the distance
+ * target and changed the camera's path for seconds - #103's moving samples went from 8 near-plane
+ * hits to 11, every new one an ordinary pin somewhere the vanilla camera never went.
+ */
+static void Camera_LimitEyeRelease(Camera* camera, Vec3f* at, Vec3f* eye, s32 peeked) {
+    s16 idx = camera->thisIdx;
+    u32 frame = camera->play->state.frames;
+    f32 release;
+    f32 dist;
+    f32 cap;
+
+    sCamDiag.eyeHeld = 0.0f;
+    if (idx < 0 || idx >= NUM_CAMS) {
+        return;
+    }
+    sCamEyeRelVanilla[idx] = *eye;
+    dist = OLib_Vec3fDist(at, eye);
+    release = CVarGetFloat(CVAR_CAM_EYE_RELEASE, CAM_EYE_RELEASE_DEFAULT);
+    if (release > CAM_EYE_RELEASE_MAX) {
+        release = CAM_EYE_RELEASE_MAX;
+    }
+    if ((release > 0.0f) && (sCamEyeRelFrame[idx] + 1 == frame) && (dist > 0.001f) &&
+        GridToolSceneRegistry_IsCustomScene(camera->play->sceneNum)) {
+        cap = sCamEyeRelDist[idx] + OLib_Vec3fDist(at, &sCamEyeRelAt[idx]) + release;
+        if (dist > cap) {
+            if (!peeked) {
+                f32 scale = cap / dist;
+
+                eye->x = at->x + ((eye->x - at->x) * scale);
+                eye->y = at->y + ((eye->y - at->y) * scale);
+                eye->z = at->z + ((eye->z - at->z) * scale);
+                sCamDiag.eyeHeld = dist - cap;
+                dist = cap;
+            } else {
+                Vec3f hit;
+                CollisionPoly* poly;
+                s32 bgId;
+
+                if (!BgCheck_CameraLineTest1(&camera->play->colCtx, at, &sCamEyeRelEye[idx], &hit, &poly, 1, 1, 1,
+                                             1, &bgId)) {
+                    *eye = sCamEyeRelEye[idx];
+                    sCamDiag.eyeHeld = dist - OLib_Vec3fDist(at, eye);
+                    dist = OLib_Vec3fDist(at, eye);
+                }
+            }
+        }
+    }
+    sCamEyeRelEye[idx] = *eye;
+    sCamEyeRelDist[idx] = dist;
+    sCamEyeRelAt[idx] = *at;
+    sCamEyeRelFrame[idx] = frame;
+}
+
+/**
+ * The other half of Camera_LimitEyeRelease: at the top of a Normal1 frame, put back the eye vanilla
+ * computed last frame if the release showed a different one, so everything vanilla derives from
+ * `camera->eye` runs on its own state. Only when the shown eye is still exactly where the release
+ * left it on the frame before: anything else that moved it since takes precedence.
+ */
+static void Camera_RestoreVanillaEye(Camera* camera) {
+    s16 idx = camera->thisIdx;
+    Vec3f* eye = &camera->eye;
+
+    if (idx < 0 || idx >= NUM_CAMS || sCamEyeRelFrame[idx] + 1 != camera->play->state.frames) {
+        return;
+    }
+    if (eye->x == sCamEyeRelEye[idx].x && eye->y == sCamEyeRelEye[idx].y && eye->z == sCamEyeRelEye[idx].z) {
+        *eye = sCamEyeRelVanilla[idx];
+    }
+}
+
 s32 Camera_Normal1(Camera* camera) {
     if (CVarGetInteger(CVAR_SETTING("FreeLook.Enabled"), 0) && SetCameraManual(camera) == 1) {
         Camera_Free(camera);
@@ -2208,6 +2307,7 @@ s32 Camera_Normal1(Camera* camera) {
     f32 playerHeight;
     f32 rate = 0.1f;
 
+    Camera_RestoreVanillaEye(camera);
     playerHeight = Camera_PlayerHeight(camera);
     if (RELOAD_PARAMS) {
         CameraModeValue* values = sCameraSettings[camera->setting].cameraModes[camera->mode].values;
@@ -2432,6 +2532,8 @@ s32 Camera_Normal1(Camera* camera) {
         sUpdateCameraDirection = 0;
         *eye = *eyeNext;
     }
+    Camera_LimitEyeRelease(camera, at, eye,
+                          (sCamDiagColCase == 1 || sCamDiagColCase == 2) && anim->swing.unk_18);
 
     spA0 = (gSaveContext.health <= 16 ? 0.8f : 1.0f);
     camera->fov = Camera_LERPCeilF(norm1->fovTarget * spA0, camera->fov, camera->fovUpdateRate, 1.0f);

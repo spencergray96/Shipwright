@@ -233,6 +233,45 @@ extern "C" {
 #define CAM_HEIGHT_CHILD 44.0f
 
 /*
+ * The eye release (sturdy-bassoon#174). Vanilla's follow camera keeps its distance target, eyeNext,
+ * wherever the follow puts it - behind a wall too - and shows the eye at the first thing the line from
+ * `at` to eyeNext hits (func_80046E20). So a wall only ever pins the eye; the target stays out at the
+ * full follow distance, and the frame that line comes free - it threads a doorway, or slides off a
+ * wall's end - the eye jumps the whole way out at once. That is the in-and-out at Lumbridge's tower
+ * doorway, and it is vanilla's: 83 units in one frame with every one of our camera switches off.
+ *
+ * On a grid-tool scene the eye's distance from `at` may now grow by at most how far `at` moved since
+ * the last Normal1 frame plus this many units; anything more is held back along the eye's own line,
+ * which stays on Link's side of whatever vanilla's eye was stopped by (that eye is the first hit on
+ * the line, plus one unit of the wall's normal). On a corner-peek frame, whose line is not tested,
+ * last frame's eye is kept instead (Camera_LimitEyeRelease says why). Only the shown eye is held:
+ * vanilla gets its own back at the top of the next frame, so the target, and every rule that moves
+ * it, runs exactly as it would with this off. Pulling in is never limited - a wall between Link and the camera
+ * is never allowed to show - and a pinned eye Link walks away from still stays put, because its
+ * distance grows only by how far `at` moved. Expires on any frame gap (Z-target, a cutscene).
+ * 0 = off, vanilla.
+ *
+ * 4, adopted after the owner's feel walk ("looks good": in five minutes of free play it held back 23
+ * pops of up to 115 units, and no step out over 15.1 was left), and measured on 17 scripted walks
+ * through the tower doorway (entrance 0x625): the largest one-frame
+ * step out goes 83.9 -> 14.4 (15.9 at 8, from an earlier build), a 34 -> 93 pop becomes 34 46 56 67 79
+ * 91, mean distance 114.8 -> 114.1, and it acts on 4-8 frames of the four walks that cross the
+ * doorway's line of sight and on none of the other 13. Lower glides slower; at 0 the pop is back. It
+ * does nothing for the snap IN when a wall cuts the line (60 units at the doorway), which is the wall
+ * being kept out of view. Its cost: an eye coming off a wall stays near it a few frames longer, so
+ * #103's 48 moving samples catch 10 near-plane hits against vanilla's 8 - the same 8, plus two taken
+ * mid-glide with the eye where vanilla had just pinned it (clearance 2.0, a side edge, no top edge).
+ * Alternative, measured and deleted: pulling the target itself in to within N units of the wall the
+ * eye is pinned on. It removed the snap in too (at 10), but camera->dist is a smoothed state that
+ * vanilla only eases back up to the band minimum, so after touching any wall the camera followed
+ * closer for seconds: mean distance 115 -> 90 at 10, 105 at 20, and with 20 the eye parked 28 from
+ * Link. docs/test-runs/2026-10-05-issue-174-entrance-camera/ in sturdy-bassoon.
+ */
+#define CVAR_CAM_EYE_RELEASE CVAR_ENHANCEMENT("CamEyeRelease")
+#define CAM_EYE_RELEASE_DEFAULT 4.0f
+#define CAM_EYE_RELEASE_MAX 400.0f
+
+/*
  * One Camera_Normal1 frame, for `agenttest trace` (sturdy-bassoon#152). Written by the camera and
  * read by nothing in it, like the `applied*` mirror below. `frame` says which frame it describes,
  * so a trace line taken while Normal1 was not running reads as stale rather than as current.
@@ -261,6 +300,7 @@ typedef struct {
     f32 dropNear;    // slope probe floors, relative to the ground under Link, as the probe
     f32 dropFar;     // last read them (before the #155 knobs; they hold between odd frames)
     f32 height;      // the camera's player height this frame (#136)
+    f32 eyeHeld;     // how far the eye release held the eye back this frame, 0 when it did not (#174)
 } CameraFrameDiag;
 
 void Camera_GetFrameDiag(CameraFrameDiag* out);

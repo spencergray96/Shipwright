@@ -145,6 +145,7 @@ void AddTunables(std::vector<std::string>& lines) {
     Addf(lines, "ledge cap=%.1f rail=%d", CVarGetFloat(CVAR_CAM_LEDGE_DROP_CAP, CAM_LEDGE_DROP_CAP_DEFAULT),
          CVarGetInteger(CVAR_CAM_LEDGE_RAIL, CAM_LEDGE_RAIL_DEFAULT));
     Addf(lines, "height t=%.3f", CVarGetFloat(CVAR_CAM_ADULT_HEIGHT_T, CAM_ADULT_HEIGHT_T_DEFAULT));
+    Addf(lines, "eye release=%.1f", CVarGetFloat(CVAR_CAM_EYE_RELEASE, CAM_EYE_RELEASE_DEFAULT));
 }
 
 int32_t Status(std::vector<std::string>& lines) {
@@ -204,6 +205,7 @@ int32_t Defaults(std::vector<std::string>& lines) {
     CVarClear(CVAR_CAM_LEDGE_DROP_CAP);
     CVarClear(CVAR_CAM_LEDGE_RAIL);
     CVarClear(CVAR_CAM_ADULT_HEIGHT_T);
+    CVarClear(CVAR_CAM_EYE_RELEASE);
     CVarSave();
     Addf(lines, "op=defaults result=ok");
     AddTunables(lines);
@@ -280,6 +282,10 @@ int32_t CameraIndoorConsole_Run(const std::vector<std::string>& args, std::vecto
     if (sub == "heightt") {
         return SetHeightT(args, lines);
     }
+    // #174 eye release, grid-tool scenes only.
+    if (sub == "release") {
+        return SetFloat(args, lines, CVAR_CAM_EYE_RELEASE, "release", 0.0f, CAM_EYE_RELEASE_MAX);
+    }
     if (sub == "defaults") {
         return Defaults(lines);
     }
@@ -296,10 +302,10 @@ namespace {
 
 const ConsoleSink::Command cameraIndoorCommand(
     "camindoor", CameraIndoorConsole_Run,
-    "Grid-tool camera tuning (sturdy-bassoon#108, #152, #155, #136): status | on | off | scale <f> | "
+    "Grid-tool camera tuning (sturdy-bassoon#108, #152, #155, #136, #174): status | on | off | scale <f> | "
     "height <f> | ease <f> | ring <n> | radius <f> | bias <f> | k <n> | ceilclamp|floorahead|probeceil "
     "on|off | corner <f> | hold <f> | ledgecap <f> | ledgerail on|off | "
-    "heightt <f>|+<f>|-<f> | "
+    "heightt <f>|+<f>|-<f> | release <f> | "
     "defaults. The follow distance "
     "is multiplied by `scale` while a ceiling is found within `height` of the floor the player is on, "
     "and Camera_ClampDist's own easing makes that glide. `ease` is the fraction of the normal step "
@@ -315,9 +321,11 @@ const ConsoleSink::Command cameraIndoorCommand(
     "ceiling (0 = none). ledgecap is the deepest a drop ahead counts as, in units (0 = no cap: the "
     "camera looks down harder the further the drop goes); ledgerail ignores a low top with a drop "
     "behind it (a parapet) rather than reading it as a step up. "
-    "heightt moves adult Link's camera height toward Young Link's (0 vanilla, 1 child); a sign steps it.",
+    "heightt moves adult Link's camera height toward Young Link's (0 vanilla, 1 child); a sign steps it. "
+    "release is how much faster than Link the eye may move away from him per frame, so an eye coming "
+    "free of a wall glides back out instead of jumping (0 = off: vanilla).",
     { { "status|on|off|scale|height|ease|ring|radius|bias|k|ceilclamp|corner|hold|floorahead|probeceil|ledgecap|"
-        "ledgerail|heightt|defaults",
+        "ledgerail|heightt|release|defaults",
         Ship::ArgumentType::TEXT },
       { "value", Ship::ArgumentType::TEXT, true } });
 
