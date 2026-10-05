@@ -11384,6 +11384,14 @@ void Player_ProcessSceneCollision(PlayState* play, Player* this) {
                                     nextLedgeClimbType = 2;
                                 }
                             }
+                        } else if ((SurfaceType_GetWallFlags(&play->colCtx, wallPoly, this->actor.wallBgId) &
+                                    WALL_FLAG_HANDS_CLIMB) &&
+                                   (ABS(ledgeFloorPoly->normal.y) > 28000)) {
+                            // sturdy-bassoon#179: under unk_1C (adult 41, child 27) the climb is a hop,
+                            // which carries Link 24-32 past the face: over a short prop, or onto its far
+                            // edge. A hands-climb wall gets the 100-step climb instead, which puts him 0.5
+                            // inside the face. Same flat-top gate as the climbs above; a sloped top hops.
+                            nextLedgeClimbType = 2;
                         } else {
                             nextLedgeClimbType = 1;
                         }

@@ -125,6 +125,9 @@ typedef enum WallType {
     /* 10 */ WALL_TYPE_10,
     /* 11 */ WALL_TYPE_11,
     /* 12 */ WALL_TYPE_12,
+    // sturdy-bassoon#179: a prop's wall Link climbs hands-on from the 18-unit step up, never hopping
+    // over. Ours, not vanilla's: no collision in the game's own data uses a wall type above 7.
+    /* 13 */ WALL_TYPE_HANDS_CLIMB,
     /* 32 */ WALL_TYPE_MAX = 32
 } WallType;
 
@@ -136,6 +139,7 @@ typedef enum WallType {
 #define WALL_FLAG_CRAWLSPACE_2 (1 << 5)
 #define WALL_FLAG_GRABBABLE (1 << 6) // Grabbable dynapoly such as blocks
 #define WALL_FLAG_CRAWLSPACE (WALL_FLAG_CRAWLSPACE_1 | WALL_FLAG_CRAWLSPACE_2)
+#define WALL_FLAG_HANDS_CLIMB (1 << 7) // sturdy-bassoon#179: the ledge climb under 41 is hands-on, not a hop
 
 typedef enum FloorProperty {
     /*  0 */ FLOOR_PROPERTY_0,
