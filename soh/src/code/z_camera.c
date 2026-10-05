@@ -94,7 +94,12 @@ static f32 Camera_PlayerHeight(Camera* camera) {
  * mode, at the moment of a console command. Keyed on t alone, never on the height, so getting on a
  * horse reloads nothing it did not reload before.
  */
-static f32 sCamHeightTSeen[NUM_CAMS]; // zero: the default t never forces a reload
+// Starts at zero. With a non-zero default, the first main-camera frame of the process records t
+// without a reload on any vanilla scene (the title screen, a normal boot); only when that first
+// frame is a follow camera on a grid-tool scene is one reload forced. Even then it is a no-op: that
+// frame follows Camera_InitPlayerSettings or a setting/mode change, and both already left
+// animState at 0 (Camera_CopyDataToRegs).
+static f32 sCamHeightTSeen[NUM_CAMS];
 static void Camera_ReloadOnHeightChange(Camera* camera) {
     f32 t = Camera_AdultHeightT();
     s16 idx = camera->thisIdx;

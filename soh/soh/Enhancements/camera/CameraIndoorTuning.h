@@ -173,19 +173,20 @@ extern "C" {
 //
 // 20, picked by the owner's feel walk from a live sweep. A capped drop gives the same lean at any
 // height, so the bridge and the balcony read alike and so will #178's tall and grand storeys:
-// adult camera pitch at the bridge parapet / at the balcony edge, against ~10 resting -
+// adult camera pitch at the bridge parapet / at the balcony edge, against ~10 resting, measured at
+// the vanilla camera height 68 (at #136's shipped 56 the bridge is 24.5, the balcony 24.1) -
 //   cap 10: 15.7 / 19.4    cap 20: 22.1 / 24.3    cap 30: 27.9 / 30.5    cap 40: 33.2 / 36.1.
 // It also shrinks the lean when only the far probe sees the drop (looking across the bridge from
 // its centre) from 18.9 to 10.1, so a separate "near probe only" rule was not needed.
 // The alternatives were measured and deleted: scaling the drop's pitch (0.5: 40.0 / 34.0) still
 // grows with the drop, and vanilla's cos(x)*x rise damping applied to drops peaks near 49 degrees
 // and then falls, so the bridge leaned less than the balcony (33.5 / 40.8) and a 264 drop would
-// lean under 1 degree. Young Link's probes are shorter (44 / 110), so the same cap leans him
-// harder: about 22 degrees of slope at cap 20, against 14.6 for adult.
-// Known cost, left on purpose: on a balcony facing out with a taller crenellated wall behind Link,
-// the lower eye can sit behind the merlons and partly hide him. Raising the cap is the lever (eye
-// higher); the repro is in ENGINE_BUDGETS "Not handled: on a balcony, the camera can sit behind a
-// wall's crenellations".
+// lean under 1 degree. The probes' length is the camera height, so a lower one leans harder at the
+// same cap: about 22 degrees of slope at Young Link's 44, 17.6 at the shipped 56, 14.6 at 68.
+// Known cost at height 68, gone at the shipped 56: on a balcony facing out with a taller
+// crenellated wall behind Link, the ledge lean lifts the eye over the wall, behind the merlons, and
+// partly hides him. Raising the cap would bring it back. The repro is in ENGINE_BUDGETS "Not
+// handled: on a balcony, the camera can sit behind a wall's crenellations".
 // docs/test-runs/2026-10-04-issue-155-ledge-look-down/ in sturdy-bassoon.
 #define CVAR_CAM_LEDGE_DROP_CAP CVAR_ENHANCEMENT("CamLedgeDropCap")
 #define CAM_LEDGE_DROP_CAP_DEFAULT 20.0f
@@ -212,9 +213,20 @@ extern "C" {
  *
  * The per-setting parameters are cached on a reload (RELOAD_PARAMS), so a change of t forces one
  * on the main camera; see Camera_ReloadOnHeightChange.
+ *
+ * 0.5 (height 56), picked by the owner's stepped walk of Lumbridge Castle at 0 / 0.25 / 0.5 / 0.75 /
+ * 1 with a Young Link reference walk. At 0.25 the eye still visibly drops under the #103 ceiling
+ * clamp on entering the castle; at 0.5 the clamp barely touches it; 0.75 and 1 never clamp but sit
+ * "too close to Link vs vanilla". So 0.5 is also the highest t that still reads as the vanilla adult
+ * camera. It lowers every number derived from the height, including the #155 slope probe's reach
+ * (the bridge-parapet lean grows 22.1 -> 24.5 degrees). Lever: this value, live as
+ * `camindoor heightt <t>`. Alternative, declined: gating t by place (indoors, or a settlement zone),
+ * because an eased t at an edge is the camera changing height as Link walks. Tuned on 80-unit
+ * storeys only. Measurements: ENGINE_BUDGETS "Camera eye vs grid-tool storeys", and
+ * docs/test-runs/2026-10-04-issue-136-young-camera-framing/ in sturdy-bassoon.
  */
 #define CVAR_CAM_ADULT_HEIGHT_T CVAR_ENHANCEMENT("CamAdultHeightT")
-#define CAM_ADULT_HEIGHT_T_DEFAULT 0.0f
+#define CAM_ADULT_HEIGHT_T_DEFAULT 0.5f
 #define CAM_ADULT_HEIGHT_T_MIN 0.0f
 #define CAM_ADULT_HEIGHT_T_MAX 1.0f
 #define CAM_HEIGHT_ADULT 68.0f
