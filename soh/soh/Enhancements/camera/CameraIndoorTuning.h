@@ -160,28 +160,49 @@ extern "C" {
 
 /*
  * The ledge look-down (sturdy-bassoon#155). The slope probe in func_80044ADC reads a drop ahead as
- * a downhill slope, and Camera_CalcDefaultPitch applies a falling slope undamped, so the look-down
- * grows with the height of the drop. Grid-tool scenes only; every knob ships as a no-op until the
- * measurement and a feel walk pick one. The cap, scale and near-only knobs act on func_80044ADC's
- * answer, which Camera_Normal3 and Camera_Parallel1 read too, not only Normal1; `cos` is Normal1's
- * alone (the only caller passing a slope to Camera_CalcDefaultPitch).
+ * a downhill slope: atan2(0.8 * dNear, 1.0 h) + atan2(0.2 * dFar, 2.5 h) for player height h, and
+ * Camera_CalcDefaultPitch applies a falling slope undamped. So the look-down grows with the height
+ * of the drop. Measured on Lumbridge Castle's level-2 bridge (both probes over a 164 drop): slope
+ * -73.6 degrees, camera pitch 57.9 at the parapet against a resting ~10; the level-1 balcony (84):
+ * -50.3 and 54.9. Grid-tool scenes only, and Camera_Normal1 only in effect: Normal3 and Parallel1
+ * call the probe with arg2 = 1, which reads Link's own ground for both probes, so their slope is
+ * always 0 and nothing here can reach them.
  */
-// Largest drop the probe may report, in OoT units below the feet. 0 = off (vanilla: no cap). A
-// grid-tool storey is 80 floor to floor (+4 slab), so 84 would make every drop read as one storey.
+// Largest drop the probe may report, in OoT units below the feet. 0 = no cap. Vanilla behaviour is
+// this at 0 with CamLedgeRail off as well.
+//
+// 20, picked by the owner's feel walk from a live sweep. A capped drop gives the same lean at any
+// height, so the bridge and the balcony read alike and so will #178's tall and grand storeys:
+// adult camera pitch at the bridge parapet / at the balcony edge, against ~10 resting -
+//   cap 10: 15.7 / 19.4    cap 20: 22.1 / 24.3    cap 30: 27.9 / 30.5    cap 40: 33.2 / 36.1.
+// It also shrinks the lean when only the far probe sees the drop (looking across the bridge from
+// its centre) from 18.9 to 10.1, so a separate "near probe only" rule was not needed.
+// The alternatives were measured and deleted: scaling the drop's pitch (0.5: 40.0 / 34.0) still
+// grows with the drop, and vanilla's cos(x)*x rise damping applied to drops peaks near 49 degrees
+// and then falls, so the bridge leaned less than the balcony (33.5 / 40.8) and a 264 drop would
+// lean under 1 degree. Young Link's probes are shorter (44 / 110), so the same cap leans him
+// harder: about 22 degrees of slope at cap 20, against 14.6 for adult.
+// Known cost, left on purpose: on a balcony facing out with a taller crenellated wall behind Link,
+// the lower eye can sit behind the merlons and partly hide him. Raising the cap is the lever (eye
+// higher); the repro is in ENGINE_BUDGETS "Not handled: on a balcony, the camera can sit behind a
+// wall's crenellations".
+// docs/test-runs/2026-10-04-issue-155-ledge-look-down/ in sturdy-bassoon.
 #define CVAR_CAM_LEDGE_DROP_CAP CVAR_ENHANCEMENT("CamLedgeDropCap")
-#define CAM_LEDGE_DROP_CAP_DEFAULT 0.0f
+#define CAM_LEDGE_DROP_CAP_DEFAULT 20.0f
 #define CAM_LEDGE_DROP_CAP_MAX 400.0f
-// Multiplier on each probe's downward pitch angle. 1.0 = vanilla, 0 = no look-down at all.
-#define CVAR_CAM_LEDGE_DROP_SCALE CVAR_ENHANCEMENT("CamLedgeDropScale")
-#define CAM_LEDGE_DROP_SCALE_DEFAULT 1.0f
-#define CAM_LEDGE_DROP_SCALE_MIN 0.0f
-#define CAM_LEDGE_DROP_SCALE_MAX 1.0f
-// 1 = damp a falling slope by cos(x)*x in Camera_CalcDefaultPitch, the way vanilla damps a rise.
-#define CVAR_CAM_LEDGE_DROP_COS CVAR_ENHANCEMENT("CamLedgeDropCos")
-#define CAM_LEDGE_DROP_COS_DEFAULT 0
-// 1 = ignore a drop only the far probe (2.5 player-heights ahead) sees.
-#define CVAR_CAM_LEDGE_NEAR_ONLY CVAR_ENHANCEMENT("CamLedgeNearOnly")
-#define CAM_LEDGE_NEAR_ONLY_DEFAULT 0
+// 1 = when the far probe reads a drop below Link's ground, ignore a rise the near probe reads: a
+// low top with a drop behind it is a parapet or a rail, not ground he could walk up onto. 0 = the
+// rise counts (vanilla, and #103's "feet to head height is left alone").
+//
+// Found by the feel walk on the cap: looking at a bridge parapet at an angle, the near probe lands
+// on its top (+26) and the far probe past it, over the 164 drop. The rise pitches the camera low
+// behind Link, looking up at him. Vanilla's undamped drop half cancelled it (slope +6); the cap
+// takes that counterweight away (+15.7; the eye 7.8 below `at` scripted, 9.7 in the owner's trace).
+// Only a rise with a drop behind it is dropped, so a real step or a ramp, and a prop with floor
+// beyond it (the uphill case in #155's comments), keep the vanilla reaction. "Rise" and "drop" mean
+// more than 1 unit off Link's ground, the tolerance Camera_FloorAheadIfReachable calls level.
+#define CVAR_CAM_LEDGE_RAIL CVAR_ENHANCEMENT("CamLedgeRail")
+#define CAM_LEDGE_RAIL_DEFAULT 1
 
 /*
  * Young Link's framing on adult Link (sturdy-bassoon#136). The camera reads a camera-only player

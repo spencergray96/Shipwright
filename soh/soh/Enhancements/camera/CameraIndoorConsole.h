@@ -38,10 +38,9 @@
 //                        ceiling over the wall hit, this far back toward `at`. 0 = #103's rule
 //   hold <f>             #152: on the frame after the ceiling clamp found a ceiling, its test reaches
 //                        this much higher, so it does not let go of an eye it just lowered. 0 = off
-//   ledgecap <f>         #155, grid-tool scenes: largest drop the slope probe may report (0 = no cap)
-//   ledgescale <f>       multiplier on the probe's downward pitch (1 = vanilla)
-//   ledgecos on|off      damp a falling slope by cos(x)*x, as vanilla damps a rise
-//   ledgenear on|off     ignore a drop only the far probe sees
+//   ledgecap <f>         #155, grid-tool scenes: deepest a drop ahead counts as (ships 20; 0 = no cap)
+//   ledgerail on|off     #155: ignore a rise the near probe reads when the far probe reads a drop (a
+//                        parapet's top). Ships on
 //   heightt <f>          #136, grid-tool scenes: adult camera height lerp(68, 44, t); `+0.1` / `-0.1`
 //                        step it. A change forces a parameter reload on the main camera
 //   defaults             clear every knob back to its compiled-in default, so an A/B run has a
