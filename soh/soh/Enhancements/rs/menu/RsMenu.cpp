@@ -1325,18 +1325,17 @@ static void DrawStressBody() {
 //      geometry in any earlier pool. Applying the bracket with kaleido's own eye (0, 0, 64) - under
 //      which 240-unit-tall geometry would draw more than three times too big - produced a frame
 //      PIXEL-IDENTICAL to no bracket at all. It is inert in this pool.
-//   2. **OVERLAY_DISP already carries a 320x240 ortho, and it is not ours to overwrite.** The
-//      reason the bracket case still drew correctly is that Gfx_SetupFrame's letterbox block
-//      (z_rcp.c:1680-1690) has already put a gSPViewport and a guOrtho(+-160, +-120) into this pool
-//      earlier in the same frame - and that pair is the ONLY projection setup written into
-//      OVERLAY_DISP anywhere in the tree. The vanilla HUD's own OVERLAY quads depend on it and set
-//      no projection themselves: z_lifemeter.c:578-589 places a heart at (-130 + x, -(-94 + y)),
-//      and z_parameter.c:3729 / :4969 / :5777 draw the enemy health bar, the action icon and
-//      kaleido's cursor the same way. So this code sets that same ortho EXPLICITLY (the letterbox
-//      block is gated on `R_PAUSE_MENU_MODE < 2 && gTrnsnUnkState < 2`, so inheriting it would be a
-//      silent dependency on an unrelated feature) and then leaves it - it must NOT hand a
-//      screen-space pool the world's perspective on the way out, which an earlier draft did and
-//      which would have broken every HUD element drawn after this hook.
+//   2. **What OVERLAY_DISP carries depends on where in the frame you are, so set it yourself.** The
+//      bracket case still drew correctly at stage 4 because Gfx_SetupFrame's letterbox block
+//      (z_rcp.c) puts a gSPViewport and a guOrtho(+-160, +-120) at the head of this pool. Since
+//      sturdy-bassoon#177, Play_Draw re-emits the WORLD's viewport and perspective into it right
+//      after the scene view (vanilla's world-space OVERLAY draws, the hookshot reticle first, were
+//      written against inheriting that from XLU), and Interface_Draw loads the HUD's 320x240 ortho
+//      (func_8008A994 -> z_view.c func_800AB2C4) before the hearts, enemy health bar, action icon
+//      and kaleido's cursor, which set none themselves. So this code sets the ortho EXPLICITLY and
+//      then leaves it - it must NOT hand a screen-space pool the world's perspective on the way
+//      out, which an earlier draft did and which would have broken every HUD element drawn after
+//      this hook.
 //   3. **The level-2 bracket churns the frame-interpolation camera epoch, once per game tick.**
 //      func_800AAA9C runs a jump heuristic over a file-static `old_view` (z_view.c:342-405) and
 //      calls FrameInterpolation_DontInterpolateCamera() when the eye moves further than its

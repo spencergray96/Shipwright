@@ -1410,6 +1410,30 @@ void Play_Draw(PlayState* play) {
             gSPMatrix(POLY_XLU_DISP++, play->view.viewingPtr, G_MTX_NOPUSH | G_MTX_MUL | G_MTX_PROJECTION);
         }
 
+        // #region SOH [Fork] (sturdy-bassoon#177): give OVERLAY_DISP the world's viewport and projection.
+        // The pools run OPA -> XLU -> OVERLAY with RSP state carried across, and the view above writes
+        // only OPA and XLU, so vanilla's world-space OVERLAY draws (the hookshot reticle, and through
+        // it the bow and boomerang reticles) inherit XLU's perspective. The interpolated letterbox
+        // quads in Gfx_SetupFrame (sturdy-bassoon#42) load a 2D ortho at the head of OVERLAY, which
+        // clipped every one of them; re-emitting the world's state here, after the quads and before
+        // the actor pass, restores what they inherited. The HUD is unaffected: Interface_Draw loads
+        // its own ortho (func_8008A994) before it draws anything. Only on the perspective path - the
+        // ortho one (flag 8) leaves viewingPtr unset this frame.
+        if (!(play->view.flags & 8)) {
+            Vp* overlayVp = Graph_Alloc(gfxCtx, sizeof(Vp));
+
+            *overlayVp = play->view.vp;
+            gSPViewport(OVERLAY_DISP++, overlayVp);
+            gSPPerspNormalize(OVERLAY_DISP++, play->view.normal);
+            gSPMatrix(OVERLAY_DISP++,
+                      (R_PAUSE_MENU_MODE <= 1 && CVarGetInteger(CVAR_ENHANCEMENT("MirroredWorld"), 0))
+                          ? play->view.projectionFlippedPtr
+                          : play->view.projectionPtr,
+                      G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+            gSPMatrix(OVERLAY_DISP++, play->view.viewingPtr, G_MTX_NOPUSH | G_MTX_MUL | G_MTX_PROJECTION);
+        }
+        // #endregion
+
         // The billboard matrix temporarily stores the viewing matrix
         Matrix_MtxToMtxF(&play->view.viewing, &play->billboardMtxF);
         Matrix_MtxToMtxF(&play->view.projection, &play->viewProjectionMtxF);
