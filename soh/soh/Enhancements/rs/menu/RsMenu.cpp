@@ -1333,9 +1333,11 @@ static void DrawStressBody() {
 //      written against inheriting that from XLU), and Interface_Draw loads the HUD's 320x240 ortho
 //      (func_8008A994 -> z_view.c func_800AB2C4) before the hearts, enemy health bar, action icon
 //      and kaleido's cursor, which set none themselves. So this code sets the ortho EXPLICITLY and
-//      then leaves it - it must NOT hand a screen-space pool the world's perspective on the way
-//      out, which an earlier draft did and which would have broken every HUD element drawn after
-//      this hook.
+//      then leaves it. Leaving it is harmless at OnPlayDrawEnd, because everything drawn after this
+//      hook loads its own projection: #177 measured the HUD drawing normally with the world's
+//      perspective reaching Interface_Draw. Stage 4's review held that restoring the world's view
+//      here would break the HUD; that rested on the HUD inheriting the letterbox ortho, which it
+//      does not. The full order is in docs/reference/SOH_2D_DRAWING.md in sturdy-bassoon.
 //   3. **The level-2 bracket churns the frame-interpolation camera epoch, once per game tick.**
 //      func_800AAA9C runs a jump heuristic over a file-static `old_view` (z_view.c:342-405) and
 //      calls FrameInterpolation_DontInterpolateCamera() when the eye moves further than its
