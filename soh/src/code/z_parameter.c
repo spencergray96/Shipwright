@@ -4240,7 +4240,9 @@ void Interface_DrawItemButtons(PlayState* play) {
         }
     }
 
-    if (interfaceCtx->naviCalling && (play->pauseCtx.state == 0) && (play->pauseCtx.debugState == 0) &&
+    if (interfaceCtx->naviCalling &&
+        GameInteractor_Should(VB_DRAW_UNPAUSED_HUD, (play->pauseCtx.state == 0) && (play->pauseCtx.debugState == 0),
+                              play) &&
         (play->csCtx.state == CS_STATE_IDLE)) {
         if (!sCUpInvisible) {
             // C-Up Button Texture, Color & Label (Navi Text)
@@ -5445,7 +5447,8 @@ void Interface_Draw(PlayState* play) {
 
         Minimap_Draw(play);
 
-        if ((R_PAUSE_MENU_MODE != 2) && (R_PAUSE_MENU_MODE != 3)) {
+        if (GameInteractor_Should(VB_DRAW_UNPAUSED_HUD, (R_PAUSE_MENU_MODE != 2) && (R_PAUSE_MENU_MODE != 3),
+                                  play)) {
             if (CVarGetInteger(CVAR_ENHANCEMENT("MirroredWorld"), 0)) {
                 gSPMatrix(OVERLAY_DISP++, interfaceCtx->view.projectionFlippedPtr,
                           G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);

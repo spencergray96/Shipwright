@@ -3431,8 +3431,10 @@ static void RegisterRsMenu() {
             *should = true;
         }
     });
-    // ...and the pieces vanilla draws only while unpaused (the minimap, horse carrots, minigame scores)
-    // hide, as they hide under kaleido.
+    // ...and the pieces vanilla draws only while unpaused (the minimap, horse carrots, minigame scores,
+    // Navi's C-up blink, and since #193 the lock-on reticle and enemy health bar, which Interface_Draw
+    // otherwise puts on top of the scroll) hide, as they hide under kaleido. The lock itself is kept:
+    // the world is frozen under the scroll, so the target is still held when it closes, as after kaleido.
     COND_VB_SHOULD(VB_DRAW_UNPAUSED_HUD, true, {
         if (MenuIsUp()) {
             *should = false;
@@ -4189,6 +4191,9 @@ RsMenuStatus RsMenu_Status() {
     status.freeLookVetoes = sFreeLookVetoes;
     status.manualCamera = gPlayState != nullptr && gPlayState->manualCamera;
     status.minimapOff = R_MINIMAP_DISABLED;
+    status.lockOn = (gPlayState != nullptr && gPlayState->actorCtx.targetCtx.targetedActor != nullptr)
+                        ? (int32_t)gPlayState->actorCtx.targetCtx.targetedActor->id
+                        : -1;
     status.csMode = gPlayState != nullptr ? Play_InCsMode(gPlayState) : 0;
     status.csIndex = gSaveContext.cutsceneIndex;
     status.csNext = gSaveContext.nextCutsceneIndex;

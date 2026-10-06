@@ -708,6 +708,9 @@ struct RsMenuStatus {
     int32_t freeLookVetoes;  // #138: free-look input reads refused (VB_FREE_LOOK_TAKE_INPUT), several a frame
     bool manualCamera;       // play->manualCamera: free look has taken the camera
     int32_t minimapOff;      // #138: R_MINIMAP_DISABLED, which N64 L toggles in gameplay (z_map_exp.c)
+    // #193: the Z-target's actor id (targetCtx.targetedActor), -1 for none. What proves a run's
+    // "no reticle over the scroll" capture had a lock to draw one for, and that it survived the close.
+    int32_t lockOn;
     // #138: the three terms of the cutscene refusal, so an `error=cutscene` can say which one it was:
     // Play_InCsMode, gSaveContext.cutsceneIndex and nextCutsceneIndex (>= 0xFFF0 is a cutscene entry).
     int32_t csMode;

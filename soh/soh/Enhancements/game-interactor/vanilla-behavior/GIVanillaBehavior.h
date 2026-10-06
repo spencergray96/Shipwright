@@ -1786,11 +1786,13 @@ typedef enum {
 
     // #### `result`
     // ```c
-    // the call site's own "not paused" test on play->pauseCtx
+    // the call site's own "not paused" test (play->pauseCtx, or R_PAUSE_MENU_MODE for the lock-on)
     // ```
-    // Whether a HUD piece vanilla draws only while unpaused draws now: the minimap (Minimap_Draw) and
-    // the horse carrots and minigame scores (Interface_Draw). The rs/ pause scroll answers false while
-    // it is up, so they hide under it as they hide under kaleido.
+    // Whether a HUD piece vanilla draws only while unpaused draws now: the minimap (Minimap_Draw), and
+    // in Interface_Draw the horse carrots and minigame scores, Navi's blink on C-up, and the lock-on
+    // reticle (Attention_Draw) with the enemy health bar beside it. The rs/ pause scroll answers false
+    // while it is up, so they hide under it as they hide under kaleido. The reticle and health bar are
+    // drawn into OVERLAY after the scroll, so without this they land on top of it (sturdy-bassoon#193).
     // #### `args`
     // - `*PlayState`
     VB_DRAW_UNPAUSED_HUD,

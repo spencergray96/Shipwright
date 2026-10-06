@@ -522,15 +522,22 @@ int32_t Dump(std::vector<std::string>& lines) {
     Addf(lines, "op=dump section=entry phase=%s tick=%d of=%d progress=%.3f dim=%d",
          RsMenu_PhaseName(status.phase), status.entryTick, status.entryTicks, status.entryProgress,
          status.dimAlpha);
+    // #193: `lock=` is the Z-target's actor id, `none` without one.
+    char lock[8];
+    if (status.lockOn >= 0) {
+        snprintf(lock, sizeof(lock), "0x%04X", status.lockOn);
+    } else {
+        snprintf(lock, sizeof(lock), "none");
+    }
     Addf(lines,
          "op=dump section=freeze halt=%d halt_prev=%d hud_held=%d hud_prev=%d hud_now=%d hud_reasserts=%d "
          "kaleido=%d viewpoint=%d viewpoint_vetoes=%d free_look_vetoes=%d manual_cam=%d cam_xy=%.1f,%.1f "
-         "minimap_off=%d cs_mode=%d cs_index=0x%04X cs_next=0x%04X",
+         "minimap_off=%d cs_mode=%d cs_index=0x%04X cs_next=0x%04X lock=%s",
          status.halt ? 1 : 0, status.haltPrev ? 1 : 0, status.hudHeld ? 1 : 0, status.hudPrev, status.hudNow,
          status.hudReasserts,
          status.kaleido, status.viewpoint, status.viewpointVetoes, status.freeLookVetoes,
          status.manualCamera ? 1 : 0, status.camX, status.camY, status.minimapOff,
-         status.csMode, status.csIndex, status.csNext);
+         status.csMode, status.csIndex, status.csNext, lock);
     // The START filter's witness. `filter_armed` counts the frames it was entitled to swallow on,
     // `start_swallowed` the edges it actually took, and `kaleido=` above says whether vanilla pause
     // got in anyway - which is the difference between "the filter worked" and "no START arrived".
