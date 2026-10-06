@@ -425,12 +425,12 @@ static ClimbPalette ReadClimbPalette() {
     };
 }
 
-// The climb colour of one poly, shaded by the way it faces. Flat colour would draw a prop's
-// collision as a silhouette; the shade is what lets its shape be read - an `auto` prop as a few
-// boxes, a `native` one as its mesh, `bounds` as one box - which is how the overlay shows the
-// collision mode without the export carrying it. The shade is quantized to sixteenths so the
-// faces of a box share a colour and the display list still batches.
-static Color_RGBA8 ClimbColor(const ClimbPalette& palette, CollisionPoly* poly, int32_t bgId) {
+// The climb colour of one poly, shaded by the way it faces, counted into the frame's tally. Flat
+// colour would draw a prop's collision as a silhouette; the shade is what lets its shape be read - an
+// `auto` prop as a few boxes, a `native` one as its mesh, `bounds` as one box - which is how the
+// overlay shows the collision mode without the export carrying it. The shade is quantized to
+// sixteenths so the faces of a box share a colour and the display list still batches.
+static Color_RGBA8 CountAndColorClimb(const ClimbPalette& palette, CollisionPoly* poly, int32_t bgId) {
     Color_RGBA8 base;
     // The engine's own split (z_bgcheck.c, StaticLookup_AddPoly): a floor above 0.5, a ceiling below
     // -0.8, a wall in between. Wall type only means anything on a wall.
@@ -485,7 +485,7 @@ void DrawDynapoly(std::vector<Gfx>& dl, CollisionHeader* col, int32_t bgId) {
         CollisionPoly* poly = &col->polyList[i];
 
         if (climbMode) {
-            color = ClimbColor(palette, poly, bgId);
+            color = CountAndColorClimb(palette, poly, bgId);
         } else if (SurfaceType_IsHookshotSurface(&gPlayState->colCtx, poly, bgId)) {
             color = CVarGetColor(CVAR_DEVELOPER_TOOLS("ColViewer.ColorHookshot.Value"), { 128, 128, 255, 255 });
         } else if (func_80041D94(&gPlayState->colCtx, poly, bgId) > 0x01) {

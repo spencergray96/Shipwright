@@ -25,12 +25,16 @@
 //   nonwall=  floors and ceilings drawn last frame
 //   frames=   frames drawn in climb mode since boot; it stops rising when the colours are off
 // The counts are all 0 unless the viewer is on, in climb mode, with the Scene or Bg Actors layer
-// drawing. They lag a write by a frame: read `status` again a few frames after `climb on`.
+// drawing - and on a frame the viewer abandoned (no play state, or its buffers did not settle), so
+// read twice before calling a 0 "off". They lag a write by a frame: read `status` again a few frames
+// after `climb on`.
 //
 // `args[0]` is the subcommand; none is `status`:
 //   status      read the switch and last frame's counts
 //   climb on    viewer on, Scene layer to solid if it was disabled, climb colours on
-//   climb off   climb colours off (back to class) and the viewer off
+//   climb off   climb colours off (back to class), and the viewer switch and Scene layer put back to
+//               what `climb on` found. With nothing to put back (the colours came on from the menu,
+//               or before a restart) the viewer stays as it is, in class colours.
 // Both writes save the settings, as the menu does.
 // A bad or missing on|off prints `op=climb result=error error=bad_argument usage=climb(on|off)`, rc=1.
 // An unknown subcommand prints `op=unknown result=error error=unknown_subcommand usage=...`, rc=1,

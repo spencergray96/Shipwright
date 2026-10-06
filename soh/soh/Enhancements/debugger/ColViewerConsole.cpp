@@ -11,6 +11,11 @@ namespace {
 
 using ConsoleSink::Addf;
 
+// What `climb on` found and switched, for `climb off` to put back: the viewer's switch and its Scene
+// layer. -1 = nothing remembered. Session only, like the agent loop that drives it.
+int32_t sRestoreEnabled = -1;
+int32_t sRestoreScene = -1;
+
 const char* LayerName(int32_t setting) {
     switch (setting) {
         case COLVIEW_DISABLED:
@@ -51,7 +56,15 @@ int32_t ColViewerConsole_Run(const std::vector<std::string>& args, std::vector<s
             lines.push_back("op=climb result=error error=bad_argument usage=climb(on|off)");
             return 1;
         }
+        const bool climbing =
+            CVarGetInteger(CVAR_DEVELOPER_TOOLS("ColViewer.ColorMode"), COLVIEW_COLOR_CLASS) == COLVIEW_COLOR_CLIMB;
         if (args[1] == "on") {
+            // Remember what this switches, once, so `climb off` can put it back. A second `on` must
+            // not overwrite it with the values the first one set.
+            if (!climbing) {
+                sRestoreEnabled = CVarGetInteger(CVAR_DEVELOPER_TOOLS("ColViewer.Enabled"), 0);
+                sRestoreScene = CVarGetInteger(CVAR_DEVELOPER_TOOLS("ColViewer.Scene"), COLVIEW_DISABLED);
+            }
             CVarSetInteger(CVAR_DEVELOPER_TOOLS("ColViewer.Enabled"), 1);
             // The colours draw on the Scene and Bg Actors layers. Leave a layer the user already
             // chose (solid or transparent) as it is; switch the Scene layer on only if it was off.
@@ -61,7 +74,14 @@ int32_t ColViewerConsole_Run(const std::vector<std::string>& args, std::vector<s
             CVarSetInteger(CVAR_DEVELOPER_TOOLS("ColViewer.ColorMode"), COLVIEW_COLOR_CLIMB);
         } else {
             CVarSetInteger(CVAR_DEVELOPER_TOOLS("ColViewer.ColorMode"), COLVIEW_COLOR_CLASS);
-            CVarSetInteger(CVAR_DEVELOPER_TOOLS("ColViewer.Enabled"), 0);
+            // Undo exactly what `climb on` switched. With nothing remembered (the colours came on from
+            // the menu, or before a restart) the viewer is left as it is, in class colours.
+            if (sRestoreEnabled >= 0) {
+                CVarSetInteger(CVAR_DEVELOPER_TOOLS("ColViewer.Enabled"), sRestoreEnabled);
+                CVarSetInteger(CVAR_DEVELOPER_TOOLS("ColViewer.Scene"), sRestoreScene);
+                sRestoreEnabled = -1;
+                sRestoreScene = -1;
+            }
         }
         CVarSave();
         Describe("climb", lines);
@@ -74,7 +94,7 @@ int32_t ColViewerConsole_Run(const std::vector<std::string>& args, std::vector<s
 
 // --- the human sink: the `colview` console command ----------------------------------------------
 //
-// `colview` collides with nothing in debugger/debugconsole.cpp's CMD_REGISTER list.
+// `colview` collides with nothing in Enhancements/debugconsole.cpp's CMD_REGISTER list.
 
 namespace {
 

@@ -13,9 +13,10 @@ typedef enum { COLVIEW_COLOR_CLASS, COLVIEW_COLOR_CLIMB } ColViewerColorMode;
 #ifdef __cplusplus
 #include <stdint.h>
 
-// What the last drawn frame put on screen in CLIMB mode, by wall class. All zero when the viewer is
-// off, the scene and bg actor layers are both disabled, or the mode is CLASS: these are counts of
-// polys DRAWN, so they are the console's only evidence that the colours reached the frame.
+// What the last drawn frame put on screen in CLIMB mode, by wall class. The counts are zero when the
+// viewer is off, the scene and bg actor layers are both disabled, the mode is CLASS, or the frame was
+// abandoned (no play state, buffers that did not settle); `frames` is cumulative and keeps its value.
+// They are counts of polys DRAWN, so they are the console's only evidence the colours reached the frame.
 struct ColViewerClimbStats {
     uint32_t vanilla;   // walls of wall type 0
     uint32_t noClimb;   // wall type 1
