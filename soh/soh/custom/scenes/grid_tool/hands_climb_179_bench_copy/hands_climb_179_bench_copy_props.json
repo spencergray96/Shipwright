@@ -1,0 +1,19 @@
+{
+  "format": 2,
+  "scene": "hands_climb_179_bench_copy",
+  "list": "objects/rs_props/hands_climb_179_bench_copy/props",
+  "kinds": {
+    "barrels-4641": "rs_stacked_barrels_4641",
+    "barrels-4641-flat": "rs_stacked_barrels_4641_vcolonly",
+    "crate-355": "rs_crate_355",
+    "pew-5788": "rs_church_pew_5788"
+  },
+  "props": [
+    {"id":"bar","kind":"barrels-4641","pos":[780,0,-260],"rot":0},
+    {"id":"barn","kind":"barrels-4641","pos":[-20,0,-260],"rot":0},
+    {"id":"crate","kind":"crate-355","pos":[-420,0,-260],"rot":0},
+    {"id":"flat","kind":"barrels-4641-flat","pos":[380,0,-260],"rot":0},
+    {"id":"pew","kind":"pew-5788","pos":[760,0,220],"rot":0},
+    {"id":"pewc","kind":"pew-5788","pos":[360,0,220],"rot":0}
+  ]
+}

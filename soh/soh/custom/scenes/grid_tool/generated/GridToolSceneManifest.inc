@@ -41,4 +41,5 @@
     { SCENE_UNDERGROUND_ENTRY_OVERWORLD, CustomUndergroundEntryOverworldScene_TrySpawn, CustomUndergroundEntryOverworldScene_InitRoom }, // project 4a8f1c2e-148a-4d0e-9a11-0f3c2b7e1a01 name underground_entry_overworld
     { SCENE_UNDERGROUND_ENTRY_BASEMENTS, CustomUndergroundEntryBasementsScene_TrySpawn, CustomUndergroundEntryBasementsScene_InitRoom }, // project 4a8f1c2e-148b-4d0e-9a11-0f3c2b7e1a02 name underground_entry_basements
     { SCENE_CARVE_COLLISION_TEST, CustomCarveCollisionTestScene_TrySpawn, CustomCarveCollisionTestScene_InitRoom }, // project fe2320b0-4510-48fa-9e70-50ef0cfd0678 name carve_collision_test
+    { SCENE_HANDS_CLIMB_179_BENCH_COPY, CustomHandsClimb179BenchCopyScene_TrySpawn, CustomHandsClimb179BenchCopyScene_InitRoom }, // project 1790a991-0000-4000-8000-0000000b0179 name hands_climb_179_bench_copy
 // END GRID TOOL EXPORTS

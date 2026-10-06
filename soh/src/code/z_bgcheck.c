@@ -60,6 +60,9 @@ s32 D_80119D90[WALL_TYPE_MAX] = {
     WALL_FLAG_CRAWLSPACE_1,             // WALL_TYPE_5
     WALL_FLAG_CRAWLSPACE_2,             // WALL_TYPE_6
     WALL_FLAG_GRABBABLE,                // WALL_TYPE_7
+    // Types 8-31 have no flags in vanilla. One is ours (sturdy-bassoon#179); the grid tool's export
+    // writes it on a prop's walls. Only the ledge classifier in z_player.c reads its flag.
+    [WALL_TYPE_HANDS_CLIMB] = WALL_FLAG_HANDS_CLIMB,
 };
 
 // SurfaceType_GetSfx

@@ -10204,11 +10204,28 @@ void Player_Action_80845668(Player* this, PlayState* play) {
         }
 
         if ((this->skelAnime.animation == &gPlayerAnim_link_normal_100step_up) || (this->skelAnime.curFrame > 5.0f)) {
+            f32 yOffsetStep = 150.0f;
+
             if (this->av2.actionVar2 == 0) {
                 Player_PlayJumpingSfx(this);
                 this->av2.actionVar2 = 1;
             }
-            Math_StepToF(&this->actor.shape.yOffset, 0.0f, 150.0f);
+            // sturdy-bassoon#179: the 100-step lasts 12 ticks, which steps away 16.5 units of lift at 150
+            // a tick - enough for every vanilla 100-step (picked from 41 up, so it starts at or below
+            // the animation). A hands-climb under 41 starts the model up to 23 units above it (adult),
+            // and the rest stayed on after the climb: Link stood floating (4.5 at a 20-unit ledge,
+            // measured). Step fast enough to land by the time the stick can take over (endFrame - 4,
+            // Player_TryActionInterrupt). Only a raised start takes this path, so vanilla keeps its 150.
+            if ((this->actor.shape.yOffset > 0.0f) &&
+                (this->skelAnime.animation == &gPlayerAnim_link_normal_100step_up)) {
+                // whole ticks only: the climb ends on the tick its frame passes endFrame - 4, and a
+                // part tick left over does not get a step (measured: 0.65 left when this was a fraction)
+                s32 ticksLeft =
+                    (s32)((this->skelAnime.endFrame - 4.0f - this->skelAnime.curFrame) / this->skelAnime.playSpeed);
+
+                yOffsetStep = MAX(yOffsetStep, this->actor.shape.yOffset / MAX(ticksLeft, 1));
+            }
+            Math_StepToF(&this->actor.shape.yOffset, 0.0f, yOffsetStep);
         }
     }
 }
@@ -11384,6 +11401,14 @@ void Player_ProcessSceneCollision(PlayState* play, Player* this) {
                                     nextLedgeClimbType = 2;
                                 }
                             }
+                        } else if ((SurfaceType_GetWallFlags(&play->colCtx, wallPoly, this->actor.wallBgId) &
+                                    WALL_FLAG_HANDS_CLIMB) &&
+                                   (ABS(ledgeFloorPoly->normal.y) > 28000)) {
+                            // sturdy-bassoon#179: under unk_1C (adult 41, child 27) the climb is a hop,
+                            // which carries Link 24-32 past the face: over a short prop, or onto its far
+                            // edge. A hands-climb wall gets the 100-step climb instead, which puts him 0.5
+                            // inside the face. Same flat-top gate as the climbs above; a sloped top hops.
+                            nextLedgeClimbType = 2;
                         } else {
                             nextLedgeClimbType = 1;
                         }

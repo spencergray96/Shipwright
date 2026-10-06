@@ -135,10 +135,12 @@
  *                                        the measurable form of "the camera is sitting on the floor
  *                                        looking up" (issue #38). name is last and quoted because it is
  *                                        the only field that can contain a space
- *   trace <pre|post> frame=<n> lbox=<cur>/<target> pos=... prev=... velY=... lin=... bg=0x<hex> floorH=...
+ *   trace <pre|post> frame=<n> lbox=<cur>/<target> pos=... prev=... velY=... lin=... bg=0x<hex> floorH=... yoff=...
  *         sf1..sf3=0x<hex> anim=0x<hex> trans=<n> rdown=<x>,<y>,<z> rdent=0x<hex>
  *                                        per-tick Player diagnostic while "agenttest trace" is active: position,
- *                                        prevPos, velocity, bgCheckFlags, floor height, state flags, anim movement
+ *                                        prevPos, velocity, bgCheckFlags, floor height, the model's draw offset
+ *                                        above pos (shape.yOffset in world units: a ledge climb's lift, #179),
+ *                                        state flags, anim movement
  *                                        flags, transition trigger and the void-out respawn point. "pre" is taken
  *                                        before the game tick runs, "post" after it (and after command consumption)
  *         cam_at=<x>,<y>,<z> cam_eye=<x>,<y>,<z> cam_dist=<f> cam_setting=<n> cam_mode=<n>
@@ -1145,7 +1147,7 @@ void EmitTrace(const char* phase) {
     // the hold-off before camera-requested bars start (sturdy-bassoon#42).
     std::snprintf(buf, sizeof(buf),
                   "trace %s frame=%u lbox=%u/%u pos=%.2f,%.2f,%.2f prev=%.2f,%.2f,%.2f velY=%.2f lin=%.2f bg=0x%X "
-                  "floorH=%.1f sf1=0x%X sf2=0x%X sf3=0x%X anim=0x%X trans=%d rdown=%.1f,%.1f,%.1f rdent=%s "
+                  "floorH=%.1f yoff=%.2f sf1=0x%X sf2=0x%X sf3=0x%X anim=0x%X trans=%d rdown=%.1f,%.1f,%.1f rdent=%s "
                   "cam_at=%.1f,%.1f,%.1f cam_eye=%.1f,%.1f,%.1f cam_dist=%.1f cam_setting=%d cam_mode=%d "
                   "cf=%u cbr=%d cpitch=%d/%d cslope=%d/%d cswing=%d/%d ccol=%d cidle=%d cceil=%d ceyey=%.1f/%.1f "
                   "cceily=%.1f ccorner=%.1f chold=%.1f caty=%.1f cdrop=%.1f/%.1f ch=%.1f crel=%.1f",
@@ -1154,6 +1156,7 @@ void EmitTrace(const char* phase) {
                   player->actor.world.pos.z, player->actor.prevPos.x, player->actor.prevPos.y,
                   player->actor.prevPos.z, player->actor.velocity.y, player->linearVelocity,
                   static_cast<unsigned>(player->actor.bgCheckFlags), player->actor.floorHeight,
+                  player->actor.shape.yOffset * player->actor.scale.y,
                   static_cast<unsigned>(player->stateFlags1), static_cast<unsigned>(player->stateFlags2),
                   static_cast<unsigned>(player->stateFlags3),
                   static_cast<unsigned>(player->skelAnime.movementFlags), gPlayState->transitionTrigger,
