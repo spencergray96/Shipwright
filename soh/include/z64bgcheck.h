@@ -126,7 +126,8 @@ typedef enum WallType {
     /* 11 */ WALL_TYPE_11,
     /* 12 */ WALL_TYPE_12,
     // sturdy-bassoon#179: a prop's wall Link climbs hands-on from the 18-unit step up, never hopping
-    // over. Ours, not vanilla's: no collision in the game's own data uses a wall type above 7.
+    // over. Ours, not vanilla's: no collision in oot.o2r uses a wall type above 7 (Master Quest's
+    // collision was not scanned).
     /* 13 */ WALL_TYPE_HANDS_CLIMB,
     /* 32 */ WALL_TYPE_MAX = 32
 } WallType;
