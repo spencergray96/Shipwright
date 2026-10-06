@@ -11,6 +11,7 @@
  *     the nearest in XZ, which is all three at once; a lock-on skips the range checks altogether and
  *     can reach through the hole. So the offer is refused outright when Link is not within
  *     RS_STAIRS_TALK_Y of this placement's height.
+ *   - SO IS TARGETING (#192), on the same test - see RsStairs_Update.
  *   - ACTORCAT_PROP, so Link idles rather than plays the NPC talk animation at a hole in the floor.
  *   - WALK INTO IT (#151). Pushing into the collider opens the menu with no A press - see the
  *     section below.
@@ -378,7 +379,9 @@ void RsStairs_Init(Actor* thisx, PlayState* play) {
     Collider_SetCylinder(play, &this->collider, &this->actor, &sCylinderInit);
     ActorShape_Init(&thisx->shape, 0.0f, NULL, 0.0f);
 
-    thisx->targetMode = 0; // the shortest lock-on range (70), for the same reason as the talk gate
+    // The shortest lock-on range (70). Not enough on its own to keep a lock-on to one storey - see
+    // RsStairs_Update for what does.
+    thisx->targetMode = 0;
     thisx->colChkInfo.mass = MASS_IMMOVABLE;
     thisx->textId = RS_TEXT_STAIR_ID(this->stairId, this->row);
 
@@ -486,6 +489,20 @@ static void RsStairs_Talk(RsStairs* this, PlayState* play) {
 
 void RsStairs_Update(Actor* thisx, PlayState* play) {
     RsStairs* this = (RsStairs*)thisx;
+
+    // Targetable only from its own storey: the talk gate's test (#192). The placements are 80-84
+    // apart in one column, and the shortest lock-on range does not keep a lock-on to one storey:
+    // once Link is locked on to anything, Z measures the other candidates at a discount (0.6 d^2 for
+    // one straight ahead, so the 70 range reaches about 90 - the placement a storey up, from the
+    // shaft's edge), and the leash lets go only at about 99. Without the flag the Z search skips the
+    // placement and the leash releases it on Player's next update, so a lock held while Link changes
+    // storey drops too. The ActorDB entry leaves the flag off, so nothing can target a placement
+    // before its first update has measured where Link is.
+    if (fabsf(thisx->yDistToPlayer) <= RS_STAIRS_TALK_Y) {
+        thisx->flags |= ACTOR_FLAG_ATTENTION_ENABLED;
+    } else {
+        thisx->flags &= ~ACTOR_FLAG_ATTENTION_ENABLED;
+    }
 
     this->actionFunc(this, play);
 
