@@ -24,6 +24,22 @@ static std::map<int32_t, const char*> ColRenderSettingNames = {
     { ColRenderTransparent, "Transparent" },
 };
 
+static std::map<int32_t, const char*> ColColorModeNames = {
+    { COLVIEW_COLOR_CLASS, "Surface class" },
+    { COLVIEW_COLOR_CLIMB, "Climb setting" },
+};
+
+// sturdy-bassoon#196: the CLIMB mode's per-frame tally. `sClimbStats` is built during a draw and
+// copied to `sClimbStatsLast` once the frame's display lists are handed over, so a reader never sees a
+// half-counted frame (DrawColViewer can draw twice when its vectors grow).
+static ColViewerClimbStats sClimbStats;
+static ColViewerClimbStats sClimbStatsLast;
+static uint32_t sClimbFrames;
+
+ColViewerClimbStats ColViewer_GetClimbStats() {
+    return sClimbStatsLast;
+}
+
 ImVec4 scene_col;
 ImVec4 hookshot_col;
 ImVec4 entrance_col;
@@ -65,6 +81,12 @@ void ColViewerWindow::DrawElement() {
     CVarCombobox("Col Check", CVAR_DEVELOPER_TOOLS("ColViewer.ColCheck"), ColRenderSettingNames, comboOpt);
     CVarCombobox("Waterbox", CVAR_DEVELOPER_TOOLS("ColViewer.Waterbox"), ColRenderSettingNames, comboOpt);
     CVarCombobox("Scarecrow Spawn", CVAR_DEVELOPER_TOOLS("ColViewer.ScarecrowSpawn"), ColRenderSettingNames, comboOpt);
+    CVarCombobox("Colour by", CVAR_DEVELOPER_TOOLS("ColViewer.ColorMode"), ColColorModeNames,
+                 comboOpt.Tooltip("Surface class: one colour per kind of surface (hookshot, void, vines...).\n"
+                                  "Climb setting: walls by what Link's ledge climb does at them - vanilla, "
+                                  "no-climb or hands-climb - so a placed prop's climb setting shows in game. "
+                                  "Floors and ceilings draw grey, shaded by facing so a prop's collision shape "
+                                  "(boxes or mesh) reads. Scene and Bg Actors only. Console: colview."));
 
     CVarCheckbox("Apply as decal", CVAR_DEVELOPER_TOOLS("ColViewer.Decal"),
                  checkOpt.DefaultValue(true).Tooltip(
@@ -137,6 +159,16 @@ void ColViewerWindow::DrawElement() {
             scarecrow_col =
                 VecFromRGBA8(CVarGetColor(CVAR_DEVELOPER_TOOLS("ColViewer.ColorScarecrow"), { 255, 128, 0, 200 }));
         }
+        // sturdy-bassoon#196: the "Climb setting" colours. Amber and red match the grid tool's 3D
+        // preview tints (vanilla hop, no-climb); green is #179's probe colour for hands-climb.
+        CVarColorPicker("Climb: vanilla wall", CVAR_DEVELOPER_TOOLS("ColViewer.ColorClimbVanilla"),
+                        { 255, 176, 0, 255 }, false, ColorPickerResetButton | ColorPickerRandomButton, THEME_COLOR);
+        CVarColorPicker("Climb: no-climb wall", CVAR_DEVELOPER_TOOLS("ColViewer.ColorClimbNone"), { 230, 40, 40, 255 },
+                        false, ColorPickerResetButton | ColorPickerRandomButton, THEME_COLOR);
+        CVarColorPicker("Climb: hands-climb wall", CVAR_DEVELOPER_TOOLS("ColViewer.ColorClimbHands"),
+                        { 40, 200, 90, 255 }, false, ColorPickerResetButton | ColorPickerRandomButton, THEME_COLOR);
+        CVarColorPicker("Climb: floor and ceiling", CVAR_DEVELOPER_TOOLS("ColViewer.ColorClimbFloor"),
+                        { 140, 140, 140, 255 }, false, ColorPickerResetButton | ColorPickerRandomButton, THEME_COLOR);
 
         ImGui::TreePop();
     } else {
@@ -372,9 +404,70 @@ void InitGfx(std::vector<Gfx>& gfx, ColRenderSetting setting) {
     gfx.push_back(gsDPSetEnvColor(0xFF, 0xFF, 0xFF, alpha));
 }
 
+// sturdy-bassoon#196: the "Climb setting" colour mode's palette, read once per DrawDynapoly call
+// rather than once per poly (a CVar read is a string lookup, and a grid-tool map has tens of
+// thousands of polys).
+struct ClimbPalette {
+    Color_RGBA8 vanilla;
+    Color_RGBA8 noClimb;
+    Color_RGBA8 hands;
+    Color_RGBA8 other;
+    Color_RGBA8 floor;
+};
+
+static ClimbPalette ReadClimbPalette() {
+    return {
+        CVarGetColor(CVAR_DEVELOPER_TOOLS("ColViewer.ColorClimbVanilla.Value"), { 255, 176, 0, 255 }),
+        CVarGetColor(CVAR_DEVELOPER_TOOLS("ColViewer.ColorClimbNone.Value"), { 230, 40, 40, 255 }),
+        CVarGetColor(CVAR_DEVELOPER_TOOLS("ColViewer.ColorClimbHands.Value"), { 40, 200, 90, 255 }),
+        CVarGetColor(CVAR_DEVELOPER_TOOLS("ColViewer.ColorInteractable.Value"), { 192, 0, 192, 255 }),
+        CVarGetColor(CVAR_DEVELOPER_TOOLS("ColViewer.ColorClimbFloor.Value"), { 140, 140, 140, 255 }),
+    };
+}
+
+// The climb colour of one poly, shaded by the way it faces. Flat colour would draw a prop's
+// collision as a silhouette; the shade is what lets its shape be read - an `auto` prop as a few
+// boxes, a `native` one as its mesh, `bounds` as one box - which is how the overlay shows the
+// collision mode without the export carrying it. The shade is quantized to sixteenths so the
+// faces of a box share a colour and the display list still batches.
+static Color_RGBA8 ClimbColor(const ClimbPalette& palette, CollisionPoly* poly, int32_t bgId) {
+    Color_RGBA8 base;
+    // The engine's own split (z_bgcheck.c, StaticLookup_AddPoly): a floor above 0.5, a ceiling below
+    // -0.8, a wall in between. Wall type only means anything on a wall.
+    if (poly->normal.y > COLPOLY_SNORMAL(0.5f) || poly->normal.y < COLPOLY_SNORMAL(-0.8f)) {
+        base = palette.floor;
+        sClimbStats.nonWall++;
+    } else {
+        const u32 wallType = func_80041D94(&gPlayState->colCtx, poly, bgId);
+        if (wallType == WALL_TYPE_0) {
+            base = palette.vanilla;
+            sClimbStats.vanilla++;
+        } else if (wallType == WALL_TYPE_1) {
+            base = palette.noClimb;
+            sClimbStats.noClimb++;
+        } else if (wallType == WALL_TYPE_HANDS_CLIMB) {
+            base = palette.hands;
+            sClimbStats.hands++;
+        } else {
+            base = palette.other;
+            sClimbStats.otherWall++;
+        }
+    }
+    const float nx = fabsf(COLPOLY_GET_NORMAL(poly->normal.x));
+    const float ny = COLPOLY_GET_NORMAL(poly->normal.y);
+    const float nz = fabsf(COLPOLY_GET_NORMAL(poly->normal.z));
+    // Tops brightest, X-facing sides brighter than Z-facing ones, undersides darkest.
+    float shade = 0.45f + 0.35f * nx + 0.2f * nz + 0.55f * (ny > 0.0f ? ny : 0.0f);
+    shade = floorf(CLAMP(shade, 0.0f, 1.0f) * 16.0f) / 16.0f;
+    return { (u8)(base.r * shade), (u8)(base.g * shade), (u8)(base.b * shade), 255 };
+}
+
 // Draws a dynapoly structure (scenes or Bg Actors)
 void DrawDynapoly(std::vector<Gfx>& dl, CollisionHeader* col, int32_t bgId) {
     Color_RGBA8 color = { 255, 255, 255, 255 };
+    const bool climbMode =
+        CVarGetInteger(CVAR_DEVELOPER_TOOLS("ColViewer.ColorMode"), COLVIEW_COLOR_CLASS) == COLVIEW_COLOR_CLIMB;
+    const ClimbPalette palette = climbMode ? ReadClimbPalette() : ClimbPalette{};
 
     uint32_t lastColorR = color.r;
     uint32_t lastColorG = color.g;
@@ -391,7 +484,9 @@ void DrawDynapoly(std::vector<Gfx>& dl, CollisionHeader* col, int32_t bgId) {
     for (uint32_t i = 0; i < col->numPolygons; i++) {
         CollisionPoly* poly = &col->polyList[i];
 
-        if (SurfaceType_IsHookshotSurface(&gPlayState->colCtx, poly, bgId)) {
+        if (climbMode) {
+            color = ClimbColor(palette, poly, bgId);
+        } else if (SurfaceType_IsHookshotSurface(&gPlayState->colCtx, poly, bgId)) {
             color = CVarGetColor(CVAR_DEVELOPER_TOOLS("ColViewer.ColorHookshot.Value"), { 128, 128, 255, 255 });
         } else if (func_80041D94(&gPlayState->colCtx, poly, bgId) > 0x01) {
             color = CVarGetColor(CVAR_DEVELOPER_TOOLS("ColViewer.ColorInteractable.Value"), { 192, 0, 192, 255 });
@@ -750,6 +845,8 @@ template <typename T> size_t ResetVector(T& vec) {
 }
 
 extern "C" void DrawColViewer() {
+    sClimbStatsLast = {};
+    sClimbStatsLast.frames = sClimbFrames;
     if (gPlayState == nullptr) {
         return;
     }
@@ -758,6 +855,7 @@ extern "C" void DrawColViewer() {
     ResetVector(xluDl);
     size_t vtxDlCapacity = ResetVector(vtxDl);
     size_t mtxDlCapacity = ResetVector(mtxDl);
+    sClimbStats = {};
 
     DrawSceneCollision();
     DrawBgActorCollision();
@@ -773,6 +871,7 @@ extern "C" void DrawColViewer() {
         ResetVector(xluDl);
         vtxDlCapacity = ResetVector(vtxDl);
         mtxDlCapacity = ResetVector(mtxDl);
+        sClimbStats = {};
 
         DrawSceneCollision();
         DrawBgActorCollision();
@@ -785,6 +884,14 @@ extern "C" void DrawColViewer() {
         SPDLOG_WARN("Error drawing collision, vertex/matrix sizes didn't settle.");
         return;
     }
+
+    // The frame is going to the screen: publish its climb tally (sturdy-bassoon#196).
+    if (sClimbStats.vanilla + sClimbStats.noClimb + sClimbStats.hands + sClimbStats.otherWall + sClimbStats.nonWall >
+        0) {
+        sClimbFrames++;
+    }
+    sClimbStatsLast = sClimbStats;
+    sClimbStatsLast.frames = sClimbFrames;
 
     OPEN_DISPS(gPlayState->state.gfxCtx);
 
