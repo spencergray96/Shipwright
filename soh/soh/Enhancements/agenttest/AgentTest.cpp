@@ -198,6 +198,14 @@
  *                                        (#153). active=0 on a backend that cannot bake (supported=0).
  *                                        props adds one line per archive prop list (#171; the format
  *                                        is in StaticBakeConsole.h)
+ *   colview <line>                       one line of ColViewerConsole_Run output per marker, from
+ *                                        `agenttest colview [status|climb on|climb off]` (sturdy-bassoon#196):
+ *                                        `op=<sub> result=ok enabled=<0|1> scene=<layer> bgactors=<layer>
+ *                                        mode=<class|climb> vanilla=<n> noclimb=<n> hands=<n> other=<n>
+ *                                        nonwall=<n> frames=<n>`: the Collision Viewer's climb colours and the
+ *                                        polys the last drawn frame coloured, by wall type (0, 1, 13, other).
+ *                                        Same renderer as the human `colview` command; ColViewerConsole.h
+ *                                        documents the fields
  *   imgui <line>                         one line of ImGuiProbeConsole_Run output per marker, from
  *                                        `agenttest imgui status|dump [kind]|click [kind:]<label>|clickat <x> <y>|
  *                                        key <name>` (sturdy-bassoon#163): `op=<sub> result=ok|error ...`, and for
@@ -611,6 +619,7 @@
 #include "soh/Enhancements/rs/menu/MenuConsole.h"
 #include "soh/Enhancements/rs/menu/RsMenu.h"
 #include "soh/Enhancements/staticbake/StaticBakeConsole.h"
+#include "soh/Enhancements/debugger/ColViewerConsole.h"
 #include "ImGuiProbeConsole.h"
 #include "soh/Enhancements/texturemips/TextureMipsConsole.h"
 #include "soh/Enhancements/distancefog/DistanceFogConsole.h"
@@ -2897,6 +2906,13 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(StaticBakeConsole_RunSession, sub, "staticbake ", output, WriteMarker);
     }
+    // The Collision Viewer's climb colours (sturdy-bassoon#196). Same arrangement as `region`: one
+    // renderer (ColViewerConsole_Run) behind the human `colview` command and these markers. `>= 2`: a
+    // bare `agenttest colview` is the status report.
+    if (args.size() >= 2 && args[1] == "colview") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(ColViewerConsole_Run, sub, "colview ", output, WriteMarker);
+    }
     // The ImGui menu (sturdy-bassoon#163). Same arrangement as `region`: one renderer
     // (ImGuiProbeConsole_Run) behind the human `imgui` command and these markers. `>= 2`: a bare
     // `agenttest imgui` is the status report, which is also what arms the probe.
@@ -2944,6 +2960,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|fadein <s>|"
               "baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
             "keepinput [on|off] | kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|reset|link <a> <b>|sort on|off] | "
+              "colview [status|climb on|off] | "
               "imgui status|dump [kind]|click [kind:]<label>|clickat <x> <y>|key <name> | "
             "mipmaps [status|archive|on|off|lod <mode>|bias <n>] | save <fileNum> | loadsave <fileNum> | mark <text>";
     }
@@ -2989,6 +3006,7 @@ void RegisterAgentTest() {
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|"
               "fadein <s>|baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
               "keepinput [on|off] | kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|reset|link <a> <b>|sort on|off] | "
+              "colview [status|climb on|off] | "
               "imgui status|dump [kind]|click [kind:]<label>|clickat <x> <y>|key <name> | "
               "mipmaps [status|archive|on|off|lod <mode>|bias <n>] | save <fileNum> | loadsave <fileNum> | mark <text>. "
               "walk/press inject controller 1 for N frames and end with an input_done marker.",
