@@ -13,6 +13,7 @@
 #include <overlays/actors/ovl_Obj_Switch/z_obj_switch.h>
 #include <overlays/effects/ovl_Effect_Ss_HitMark/z_eff_ss_hitmark.h>
 #include "soh/OTRGlobals.h"
+#include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include <assets/objects/object_efc_tw/object_efc_tw.h>
 
 #define FLAGS                                                                                                   \
@@ -1019,7 +1020,7 @@ void EnPartner_Draw(Actor* thisx, PlayState* play) {
     Gfx* dListHead;
     Player* player = GET_PLAYER(play);
 
-    if (play->pauseCtx.state != 0 && this->usedItem != 0xFF) {
+    if (!GameInteractor_Should(VB_RUN_UNPAUSED_GAMEPLAY, play->pauseCtx.state == 0, play) && this->usedItem != 0xFF) {
         UseItem(this->usedItem, 0, this, play);
         this->usedItem = 0xFF;
     }

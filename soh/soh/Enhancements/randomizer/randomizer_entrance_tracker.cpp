@@ -17,6 +17,7 @@ extern PlayState* gPlayState;
 }
 
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
+#include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "entrance.h"
 
 using namespace UIWidgets;
@@ -811,7 +812,8 @@ void EntranceTrackerWindow::DrawElement() {
     Color_Background = CVarGetColor(CVAR_TRACKER_ENTRANCE("BgColor.Value"), Color_Bg_Default);
     if (CVarGetInteger(CVAR_TRACKER_ENTRANCE("WindowType"), TRACKER_WINDOW_WINDOW) == TRACKER_WINDOW_FLOATING) {
         if (CVarGetInteger(CVAR_TRACKER_ENTRANCE("ShowOnlyPaused"), 0) &&
-            (gPlayState == nullptr || gPlayState->pauseCtx.state == 0)) {
+            (gPlayState == nullptr ||
+             GameInteractor_Should(VB_DRAW_UNPAUSED_HUD, gPlayState->pauseCtx.state == 0, gPlayState))) {
             return;
         }
 

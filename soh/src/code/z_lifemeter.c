@@ -652,8 +652,9 @@ void HealthMeter_HandleCriticalAlarm(PlayState* play) {
             interfaceCtx->unk_22A = 0;
             interfaceCtx->unk_22C = 0;
             if (CVarGetInteger(CVAR_AUDIO("LowHpAlarm"), 0) == 0 && !Player_InCsMode(play) &&
-                (play->pauseCtx.state == 0) && (play->pauseCtx.debugState == 0) && HealthMeter_IsCritical() &&
-                !Play_InCsMode(play)) {
+                GameInteractor_Should(VB_RUN_UNPAUSED_GAMEPLAY,
+                                      (play->pauseCtx.state == 0) && (play->pauseCtx.debugState == 0), play) &&
+                HealthMeter_IsCritical() && !Play_InCsMode(play)) {
                 Sfx_PlaySfxCentered(NA_SE_SY_HITPOINT_ALARM);
             }
         }

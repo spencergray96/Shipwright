@@ -5175,7 +5175,8 @@ void Interface_Draw(PlayState* play) {
     s16 svar4;
     s16 svar5;
     s16 timerId;
-    bool fullUi = !CVarGetInteger(CVAR_ENHANCEMENT("MinimalUI"), 0) || !R_MINIMAP_DISABLED || play->pauseCtx.state != 0;
+    bool fullUi = !CVarGetInteger(CVAR_ENHANCEMENT("MinimalUI"), 0) || !R_MINIMAP_DISABLED ||
+                  !GameInteractor_Should(VB_DRAW_UNPAUSED_HUD, play->pauseCtx.state == 0, play);
     // #region SOH [NTSC]
     s32 languageOffset = gSaveContext.language;
 
@@ -5447,8 +5448,7 @@ void Interface_Draw(PlayState* play) {
 
         Minimap_Draw(play);
 
-        if (GameInteractor_Should(VB_DRAW_UNPAUSED_HUD, (R_PAUSE_MENU_MODE != 2) && (R_PAUSE_MENU_MODE != 3),
-                                  play)) {
+        if (GameInteractor_Should(VB_DRAW_UNPAUSED_HUD, (R_PAUSE_MENU_MODE != 2) && (R_PAUSE_MENU_MODE != 3), play)) {
             if (CVarGetInteger(CVAR_ENHANCEMENT("MirroredWorld"), 0)) {
                 gSPMatrix(OVERLAY_DISP++, interfaceCtx->view.projectionFlippedPtr,
                           G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
@@ -5989,7 +5989,8 @@ void Interface_Draw(PlayState* play) {
             }
         }
 
-        if ((play->pauseCtx.state == 0) && (play->pauseCtx.debugState == 0) &&
+        if (GameInteractor_Should(VB_RUN_UNPAUSED_GAMEPLAY,
+                                  (play->pauseCtx.state == 0) && (play->pauseCtx.debugState == 0), play) &&
             (play->gameOverCtx.state == GAMEOVER_INACTIVE) && (msgCtx->msgMode == MSGMODE_NONE) &&
             !(player->stateFlags2 & PLAYER_STATE2_ATTEMPT_PLAY_FOR_ACTOR) &&
             (play->transitionTrigger == TRANS_TRIGGER_OFF) && (play->transitionMode == TRANS_MODE_OFF) &&
@@ -6822,9 +6823,11 @@ void Interface_Update(PlayState* play) {
 
     WREG(7) = interfaceCtx->unk_1F4;
 
-    if ((play->pauseCtx.state == 0) && (play->pauseCtx.debugState == 0) && (msgCtx->msgMode == MSGMODE_NONE) &&
-        (play->transitionTrigger == TRANS_TRIGGER_OFF) && (play->gameOverCtx.state == GAMEOVER_INACTIVE) &&
-        (play->transitionMode == TRANS_MODE_OFF) && ((play->csCtx.state == CS_STATE_IDLE) || !Player_InCsMode(play))) {
+    if (GameInteractor_Should(VB_RUN_UNPAUSED_GAMEPLAY, (play->pauseCtx.state == 0) && (play->pauseCtx.debugState == 0),
+                              play) &&
+        (msgCtx->msgMode == MSGMODE_NONE) && (play->transitionTrigger == TRANS_TRIGGER_OFF) &&
+        (play->gameOverCtx.state == GAMEOVER_INACTIVE) && (play->transitionMode == TRANS_MODE_OFF) &&
+        ((play->csCtx.state == CS_STATE_IDLE) || !Player_InCsMode(play))) {
         if ((gSaveContext.isMagicAcquired != 0) && (gSaveContext.magicLevel == 0)) {
             gSaveContext.magicLevel = gSaveContext.isDoubleMagicAcquired + 1;
             gSaveContext.magicState = MAGIC_STATE_STEP_CAPACITY;

@@ -10,6 +10,7 @@ GameInteractor functions can be called directly.
 */
 
 #include "GameInteractor.h"
+#include "GameInteractor_Hooks.h"
 
 extern "C" {
 #include "variables.h"
@@ -59,7 +60,8 @@ bool GameInteractor::IsGameplayPaused() {
         return true;
     }
 
-    return (Player_InBlockingCsMode(gPlayState, player) || gPlayState->pauseCtx.state != 0 ||
+    return (Player_InBlockingCsMode(gPlayState, player) ||
+            !GameInteractor_Should(VB_RUN_UNPAUSED_GAMEPLAY, gPlayState->pauseCtx.state == 0, gPlayState) ||
             gPlayState->msgCtx.msgMode != 0)
                ? true
                : false;
@@ -83,7 +85,8 @@ bool GameInteractor::IsPlayerInControl() {
         return false;
     }
 
-    if (Player_InBlockingCsMode(gPlayState, player) || gPlayState->pauseCtx.state != 0 ||
+    if (Player_InBlockingCsMode(gPlayState, player) ||
+        !GameInteractor_Should(VB_RUN_UNPAUSED_GAMEPLAY, gPlayState->pauseCtx.state == 0, gPlayState) ||
         gPlayState->msgCtx.msgMode != 0 || player->unk_6AD == 4) {
         return false;
     }

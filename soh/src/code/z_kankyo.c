@@ -7,6 +7,7 @@
 #include "soh/OTRGlobals.h"
 #include "soh/ResourceManagerHelpers.h"
 #include "soh/Enhancements/savestate_serialize.h"
+#include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 
 typedef enum {
     /* 0 */ LENS_FLARE_CIRCLE0,
@@ -936,7 +937,7 @@ void Environment_Update(PlayState* play, EnvironmentContext* envCtx, LightContex
         Rumble_ClearRequests();
     }
 
-    if (pauseCtx->state == 0) {
+    if (GameInteractor_Should(VB_RUN_UNPAUSED_GAMEPLAY, pauseCtx->state == 0, play)) {
         if ((play->pauseCtx.state == 0) && (play->pauseCtx.debugState == 0)) {
             if (play->skyboxId == SKYBOX_NORMAL_SKY) {
                 play->skyboxCtx.rot.y -= 0.001f;

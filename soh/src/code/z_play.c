@@ -1145,7 +1145,8 @@ void Play_Update(PlayState* play) {
             }
 
             PLAY_LOG(3551);
-            isPaused = (play->pauseCtx.state != 0) || (play->pauseCtx.debugState != 0);
+            isPaused = !GameInteractor_Should(VB_RUN_UNPAUSED_GAMEPLAY,
+                                              (play->pauseCtx.state == 0) && (play->pauseCtx.debugState == 0), play);
 
             PLAY_LOG(3555);
             AnimationContext_Reset(&play->animationCtx);

@@ -124,11 +124,13 @@
  *   - FREEZE: `play->haltAllActors = 1`, which skips ONLY Actor_UpdateAll (z_play.c:1207-1209).
  *     Player has no separate update path, so Link freezes with everything else, and `pauseCtx`
  *     stays 0 - which is why the agent harness keeps running through the pause where a real
- *     `press START` wedges it (research D.3). IREG(72) would also work and freezes far more:
- *     collision, effects, gameplayFrames, the play timers. Two consequences handled below: the
- *     camera keeps updating (Camera_Update is gated on pauseCtx, not on this), and a scene load
- *     with the flag set never emits the harness's `ready` marker, so the menu closes itself on a
- *     pending transition AND on OnSceneInit.
+ *     `press START` wedges it (research D.3). Since #198 (Spencer: exactly as vanilla) the scroll
+ *     also answers VB_RUN_UNPAUSED_GAMEPLAY false, which stops what vanilla's pause stops and
+ *     haltAllActors did not: Play_Update's whole world block (collision, effects, gameplayFrames,
+ *     the play timers) and the camera, the clock, the countdown timers, the magic bar and the
+ *     low-health alarm. It holds vanilla's audio mute and counts the pause stats as well. Still
+ *     true: a scene load with the flag set never emits the harness's `ready` marker, so the menu
+ *     closes itself on a pending transition AND on OnSceneInit.
  *   - DRAW: OnPlayDrawEnd (z_play.c:1644), appending to OVERLAY_DISP. The pool matters and was
  *     picked the hard way: POLY_OPA put the panel UNDER every translucent thing the world had
  *     already drawn, because the four pools are CHAINED WORK -> POLY_OPA -> POLY_XLU -> OVERLAY
@@ -182,6 +184,8 @@ extern "C" {
 #include "variables.h"
 #include "macros.h"
 extern PlayState* gPlayState;
+// code_800EC960.c: vanilla's "the pause has muted the sequence players" flag (func_800F64E0). #198.
+extern s8 D_80130608;
 // OTRGlobals.h declares this only for C (#ifndef __cplusplus); the definition is extern "C". Same
 // forward declaration AgentTest.cpp carries, for the same reason. The dim quad needs it because it
 // is the one piece of this menu that spans the whole window rather than the 4:3 band.
@@ -568,6 +572,22 @@ static bool MenuIsSettled() {
 }
 
 static u8 sHaltPrev = 0;
+
+// #198: vanilla's audio "mute" for the whole pause - what func_800F64E0 does on open (z_kaleido_setup.c:67)
+// and at the START of the close (z_kaleido_scope_PAL.c:4267 and its siblings), minus its window sounds,
+// which the scroll plays itself (#131). It is not silence: every sequence's own mute behaviour applies -
+// by default half volume (muteVolumeScale 0.5) and no new notes on channels flagged 0x40 - so area music
+// goes quiet rather than off. D_80130608 is vanilla's "pause muted" flag; the river sound reads it.
+static bool sPauseMuteHeld = false;
+static void HoldPauseMute(bool hold) {
+    if (hold == sPauseMuteHeld) {
+        return;
+    }
+    sPauseMuteHeld = hold;
+    D_80130608 = hold ? 1 : 0;
+    Audio_QueueCmdS32(hold ? 0xF1000000 : 0xF2000000, 0);
+}
+
 static bool sHudApplied = false;
 static u16 sHudPrev = 0;
 // #125: the button states the menu found on open, put back on close - kaleido's sButtonStatusSave
@@ -2942,6 +2962,8 @@ static void RsMenu_OnGameFrameUpdate() {
             for (int32_t i = 0; i < RsMenu_PageCount(); i++) {
                 ResetPage(i);
             }
+            // #198: and so does the pause's own mute.
+            HoldPauseMute(false);
             RsNamePanel_Reset();
         }
         sStartEdge = false;
@@ -3001,6 +3023,11 @@ static void RsMenu_OnGameFrameUpdate() {
         // in its update, and the flight a press starts first moves on the next tick.
         RsVanilla_UpdateEquipFlight(play);
         sOpenFrames++;
+        // #198: pause time, counted as KaleidoScopeCall_Update counts it - play time stops with the world
+        // (VB_RUN_UNPAUSED_GAMEPLAY), so without this the stats would lose the time outright.
+        if (!gSaveContext.ship.stats.gameComplete && (!IS_BOSS_RUSH || !gSaveContext.ship.quest.data.bossRush.isPaused)) {
+            gSaveContext.ship.stats.pauseTimer++;
+        }
         // The probe's clock is the GAME tick, which is the whole point: it is the 20 Hz lattice the
         // rendered frames are measured against. Advanced whether or not the probe is on, so
         // switching it on does not start from a stale phase.
@@ -3440,6 +3467,20 @@ static void RegisterRsMenu() {
             *should = false;
         }
     });
+    // #198 (Spencer: exactly as vanilla, for now): the game logic vanilla runs only while unpaused stops
+    // too - Play_Update's world update and camera, the clock, the countdown timers, the magic bar, the
+    // low-health alarm, GameInteractor's pause helpers. haltAllActors alone stopped only the actors.
+    COND_VB_SHOULD(VB_RUN_UNPAUSED_GAMEPLAY, true, {
+        if (MenuIsUp()) {
+            *should = false;
+        }
+    });
+    // ...and Jabu-Jabu's walls stop wobbling, as they do under kaleido's still background.
+    COND_VB_SHOULD(VB_JABU_WOBBLE, true, {
+        if (MenuIsUp()) {
+            *should = false;
+        }
+    });
     // C-up toggles a house's camera between fixed and pivoting (Play_Update) unless vanilla pause is up.
     // Player is frozen under the scroll but Play_Update is not, so without this C-up moved the camera
     // behind the menu (Spencer's play test, 2026-09-23, in Link's house).
@@ -3449,8 +3490,9 @@ static void RegisterRsMenu() {
             sViewpointVetoes++;
         }
     });
-    // #138: free look's right stick and mouse would turn the camera behind the scroll (Camera_Update runs
-    // under it); refused while the scroll is up, which leaves the camera where it was pointed.
+    // #138: free look's right stick and mouse would turn the camera behind the scroll (Camera_Update ran
+    // under it); refused while the scroll is up, which leaves the camera where it was pointed. Since #198
+    // Camera_Update does not run under the scroll at all, so this is a second net rather than the guard.
     COND_VB_SHOULD(VB_FREE_LOOK_TAKE_INPUT, true, {
         if (MenuIsUp()) {
             *should = false;
@@ -3575,6 +3617,22 @@ bool RsMenu_IsEnabled() {
     return CVarGetInteger(CVAR_RS_MENU_ON, 1) != 0;
 }
 
+bool RsMenu_TestSetTimer(int32_t seconds) {
+    if (gPlayState == nullptr) {
+        return false;
+    }
+    if (seconds < 0) {
+        gSaveContext.timerState = TIMER_STATE_OFF;
+        return true;
+    }
+    Interface_SetTimer((s16)seconds);
+    return true;
+}
+
+bool RsMenu_PauseMuteHeld() {
+    return sPauseMuteHeld;
+}
+
 bool RsMenu_IsOpen() {
     return MenuIsUp();
 }
@@ -3697,6 +3755,13 @@ RsMenuOpenResult RsMenu_Open() {
     // move the cursor through JumpCursor, so opening plays this and nothing else - vanilla likewise
     // has no cursor sound as its menu comes up.
     RsMenu_PlaySfx(RS_MENU_SFX_OPEN);
+    // #198: the rest of what vanilla's open does (KaleidoSetup_Update, KaleidoScopeCall_Update): the
+    // sequence players muted, the letterbox let go, and the pause counted in the gameplay stats.
+    HoldPauseMute(true);
+    if (ShrinkWindow_GetVal()) {
+        Letterbox_SetSizeTarget(0);
+    }
+    gSaveContext.ship.stats.count[COUNT_PAUSES]++;
     return RS_MENU_OPEN_OK;
 }
 
@@ -3721,6 +3786,8 @@ bool RsMenu_BeginClose() {
     // the CVar going off, not a player leaving, and it also runs at the END of this slide, where a
     // second sound would double every close.
     RsMenu_PlaySfx(RS_MENU_SFX_CLOSE);
+    // #198: vanilla lifts its mute here, with the close sound, not at the end of the slide.
+    HoldPauseMute(false);
     return true;
 }
 
@@ -3763,6 +3830,8 @@ static bool CloseMenu(bool syncPlayer) {
     for (int32_t i = 0; i < RsMenu_PageCount(); i++) {
         ResetPage(i);
     }
+    // #198: an instant close (a scene load, the CVar going off) never passed through BeginClose.
+    HoldPauseMute(false);
     sPageHold = RS_MENU_HOLD_NONE;
     // #132: and the name panel, which takes its test-only custom name down with it.
     RsNamePanel_Reset();
@@ -4194,6 +4263,14 @@ RsMenuStatus RsMenu_Status() {
     status.lockOn = (gPlayState != nullptr && gPlayState->actorCtx.targetCtx.targetedActor != nullptr)
                         ? (int32_t)gPlayState->actorCtx.targetCtx.targetedActor->id
                         : -1;
+    status.gameplayFrames = gPlayState != nullptr ? (uint32_t)gPlayState->gameplayFrames : 0;
+    status.playTimer = gSaveContext.ship.stats.playTimer;
+    status.pauseTimer = gSaveContext.ship.stats.pauseTimer;
+    status.pauses = (int32_t)gSaveContext.ship.stats.count[COUNT_PAUSES];
+    status.pauseMute = sPauseMuteHeld;
+    status.bgmMuted = gAudioContext.seqPlayers[SEQ_PLAYER_BGM_MAIN].muted;
+    status.timerState = (int32_t)gSaveContext.timerState;
+    status.timerSeconds = (int32_t)gSaveContext.timerSeconds;
     status.csMode = gPlayState != nullptr ? Play_InCsMode(gPlayState) : 0;
     status.csIndex = gSaveContext.cutsceneIndex;
     status.csNext = gSaveContext.nextCutsceneIndex;
