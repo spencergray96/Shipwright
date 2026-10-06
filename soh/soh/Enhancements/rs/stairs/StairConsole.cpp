@@ -266,6 +266,9 @@ int32_t Actors(std::vector<std::string>& lines) {
         lines.push_back("op=actors scene=none actors=0");
         return 0;
     }
+    const Player* player = GET_PLAYER(gPlayState);
+    const Actor* focusActor = player != nullptr ? player->focusActor : nullptr;
+    const TargetContext& targetCtx = gPlayState->actorCtx.targetCtx;
     int32_t found = 0;
     for (int32_t cat = 0; cat < ACTORCAT_MAX; cat++) {
         for (Actor* actor = gPlayState->actorCtx.actorLists[cat].head; actor != nullptr; actor = actor->next) {
@@ -277,18 +280,32 @@ int32_t Actors(std::vector<std::string>& lines) {
             // The walk-into state: `bump=` the count against the hold (`offered=1` once it is reached),
             // `latched=1` from a conversation's end until the push that was running is let go.
             const RsStairsBump& bump = reinterpret_cast<const RsStairs*>(actor)->bump;
+            // Targeting (#192): `attention=1` while it may be targeted at all (Link on its storey),
+            // `focus=1` while Link is locked on to it, `arrow=1` while the attention arrow is over it -
+            // what the next Z press locks on to when nothing is locked on yet - and `next=1` while it
+            // is the candidate a Z press switches to from the current lock-on. `ydist` is
+            // yDistToPlayer, the number the storey gate tests.
             Addf(lines,
                  "actor[%d]=rs_stairs stair=%d row=%d params=0x%04X rsvd=%d registered=%d landing=%d room=%d yaw=%d "
-                 "pos=%d,%d,%d bump=%d offered=%d latched=%d",
+                 "pos=%d,%d,%d bump=%d offered=%d latched=%d attention=%d focus=%d arrow=%d next=%d ydist=%.1f",
                  found, stairId, row, static_cast<unsigned>(actor->params) & 0xFFFF,
                  RS_STAIR_PARAMS_GET_RSVD(actor->params), RsStair_IsRegistered(stairId),
                  RsStair_GetLanding(stairId, row) != nullptr ? 1 : 0, actor->room, actor->home.rot.y,
                  static_cast<int>(actor->world.pos.x), static_cast<int>(actor->world.pos.y),
-                 static_cast<int>(actor->world.pos.z), bump.count, bump.offered, bump.latched);
+                 static_cast<int>(actor->world.pos.z), bump.count, bump.offered, bump.latched,
+                 (actor->flags & ACTOR_FLAG_ATTENTION_ENABLED) ? 1 : 0, focusActor == actor ? 1 : 0,
+                 targetCtx.arrowPointedActor == actor ? 1 : 0, targetCtx.unk_94 == actor ? 1 : 0,
+                 actor->yDistToPlayer);
             found++;
         }
     }
-    Addf(lines, "op=actors scene=0x%X actors=%d", gPlayState->sceneNum, found);
+    // `focus=` the actor id Link is locked on to, whatever it is, so a lock on something other than a
+    // staircase is visible too.
+    char focus[16] = "none";
+    if (focusActor != nullptr) {
+        std::snprintf(focus, sizeof(focus), "0x%X", static_cast<unsigned>(focusActor->id) & 0xFFFF);
+    }
+    Addf(lines, "op=actors scene=0x%X actors=%d focus=%s", gPlayState->sceneNum, found, focus);
     return 0;
 }
 
