@@ -94,7 +94,12 @@ static f32 Camera_PlayerHeight(Camera* camera) {
  * mode, at the moment of a console command. Keyed on t alone, never on the height, so getting on a
  * horse reloads nothing it did not reload before.
  */
-static f32 sCamHeightTSeen[NUM_CAMS]; // zero: the default t never forces a reload
+// Starts at zero. With a non-zero default, the first main-camera frame of the process records t
+// without a reload on any vanilla scene (the title screen, a normal boot); only when that first
+// frame is a follow camera on a grid-tool scene is one reload forced. Even then it is a no-op: that
+// frame follows Camera_InitPlayerSettings or a setting/mode change, and both already left
+// animState at 0 (Camera_CopyDataToRegs).
+static f32 sCamHeightTSeen[NUM_CAMS];
 static void Camera_ReloadOnHeightChange(Camera* camera) {
     f32 t = Camera_AdultHeightT();
     s16 idx = camera->thisIdx;
@@ -120,18 +125,20 @@ static void Camera_ReloadOnHeightChange(Camera* camera) {
 }
 
 /**
- * The #155 ledge knobs on the slope probe's two floor readings, as heights relative to the ground
- * under Link. Only drops (negative values) are touched; a rise and #103's rules are left alone.
+ * The #155 ledge rules on the slope probe's two floor readings, as heights relative to the ground
+ * under Link: a rise with a drop behind it is a parapet, not a slope, and a drop counts as no
+ * deeper than the cap. Grid-tool scenes only. The values in CameraIndoorTuning.h say why.
  */
-static void Camera_SoftenLedgeDrop(Camera* camera, f32* dNear, f32* dFar) {
+static void Camera_SoftenLedge(Camera* camera, f32* dNear, f32* dFar) {
     f32 cap;
 
     if (!GridToolSceneRegistry_IsCustomScene(camera->play->sceneNum)) {
         return;
     }
-    // "At a ledge", not "within 170 units of one": a drop only the far probe sees does not count.
-    if (CVarGetInteger(CVAR_CAM_LEDGE_NEAR_ONLY, CAM_LEDGE_NEAR_ONLY_DEFAULT) && *dFar < 0.0f && *dNear >= -1.0f) {
-        *dFar = 0.0f;
+    // The near probe on a parapet's top, the far one past it over the drop. Tested on the raw
+    // readings, before the cap shrinks the drop that gives the parapet away.
+    if (CVarGetInteger(CVAR_CAM_LEDGE_RAIL, CAM_LEDGE_RAIL_DEFAULT) && *dNear > 1.0f && *dFar < -1.0f) {
+        *dNear = 0.0f;
     }
     cap = CVarGetFloat(CVAR_CAM_LEDGE_DROP_CAP, CAM_LEDGE_DROP_CAP_DEFAULT);
     if (cap > CAM_LEDGE_DROP_CAP_MAX) {
@@ -145,23 +152,6 @@ static void Camera_SoftenLedgeDrop(Camera* camera, f32* dNear, f32* dFar) {
             *dFar = -cap;
         }
     }
-}
-
-// The #155 angle scale, applied to one probe's contribution. Rises pass through.
-static s16 Camera_ScaleLedgePitch(Camera* camera, s16 pitch) {
-    f32 scale;
-
-    if (pitch >= 0 || !GridToolSceneRegistry_IsCustomScene(camera->play->sceneNum)) {
-        return pitch;
-    }
-    scale = CVarGetFloat(CVAR_CAM_LEDGE_DROP_SCALE, CAM_LEDGE_DROP_SCALE_DEFAULT);
-    if (!(scale < CAM_LEDGE_DROP_SCALE_MAX)) {
-        return pitch;
-    }
-    if (scale < CAM_LEDGE_DROP_SCALE_MIN) {
-        scale = CAM_LEDGE_DROP_SCALE_MIN;
-    }
-    return (s16)(pitch * scale);
 }
 
 /**
@@ -843,12 +833,12 @@ s16 func_80044ADC(Camera* camera, s16 yaw, s16 arg2) {
 
         sCamDiag.dropNear = dNear;
         sCamDiag.dropFar = dFar;
-        Camera_SoftenLedgeDrop(camera, &dNear, &dFar); // #155
+        Camera_SoftenLedge(camera, &dNear, &dFar); // #155
         phi_f16 = PCT(OREG(20)) * dNear;
         phi_f18 = (1.0f - PCT(OREG(20))) * dFar;
     }
-    temp_s0 = Camera_ScaleLedgePitch(camera, DEGF_TO_BINANG(RADF_TO_DEGF(Math_FAtan2F(phi_f16, sp30))));
-    temp_s1 = Camera_ScaleLedgePitch(camera, DEGF_TO_BINANG(RADF_TO_DEGF(Math_FAtan2F(phi_f18, sp2C))));
+    temp_s0 = DEGF_TO_BINANG(RADF_TO_DEGF(Math_FAtan2F(phi_f16, sp30)));
+    temp_s1 = DEGF_TO_BINANG(RADF_TO_DEGF(Math_FAtan2F(phi_f18, sp2C)));
     return temp_s0 + temp_s1;
 }
 
@@ -1522,12 +1512,6 @@ s16 Camera_CalcDefaultPitch(Camera* camera, s16 arg1, s16 arg2, s16 arg3) {
 
     phi_v1 = ABS(arg1);
     phi_v0 = arg3 > 0 ? (s16)(Math_CosS(arg3) * arg3) : arg3;
-    // #155: damp a falling slope the way vanilla damps a rising one. Only Camera_Normal1 passes a
-    // non-zero slope, so this reaches nothing else.
-    if (arg3 < 0 && CVarGetInteger(CVAR_CAM_LEDGE_DROP_COS, CAM_LEDGE_DROP_COS_DEFAULT) &&
-        GridToolSceneRegistry_IsCustomScene(camera->play->sceneNum)) {
-        phi_v0 = (s16)(Math_CosS(arg3) * arg3);
-    }
     sp1C = arg2 - phi_v0;
 
     if (ABS(sp1C) < phi_v1) {
@@ -2199,6 +2183,105 @@ void Camera_IndoorPullInProbe(Camera* camera, CameraIndoorProbe* out) {
     out->height = (camera->player != NULL) ? Camera_PlayerHeight(camera) : 0.0f;
 }
 
+// Last Normal1 frame's shown eye, its distance and `at`, and the eye vanilla had computed before the
+// release held it, per camera, for the eye release (#174). Read back only on the very next frame, like
+// the ceiling clamp's hysteresis.
+static Vec3f sCamEyeRelEye[NUM_CAMS];
+static Vec3f sCamEyeRelVanilla[NUM_CAMS];
+static f32 sCamEyeRelDist[NUM_CAMS];
+static Vec3f sCamEyeRelAt[NUM_CAMS];
+static u32 sCamEyeRelFrame[NUM_CAMS];
+
+/**
+ * The eye release (sturdy-bassoon#174): the eye may move away from `at` by at most `at`'s own
+ * movement plus `release` units a frame. CameraIndoorTuning.h says why. Runs last in Normal1, on
+ * the eye the collision has already placed, so the target and every vanilla rule that moves it are
+ * untouched.
+ *
+ * Normally the excess is held back along the eye's own line. Not on a frame `peeked` says
+ * func_80046E20 took its corner peek (cases 1 and 2, with swing.unk_18 left set): that eye is swung
+ * round a corner and then turned halfway back without a second line test, so its line from `at` can
+ * run along the corner itself - an eye held back on it sat 1.6 from the wall with the near plane in it
+ * (#103's alcove samples), and at the tower doorway the held point lands on the tower's face. A peek
+ * frame keeps last frame's eye instead, if `at` can still see it; it is always inside the limit,
+ * since it was at most last frame's distance from last frame's `at`. If a wall now stands between
+ * them, the frame is vanilla's. So a run of peek frames holds the eye still rather than gliding, for
+ * as long as it lasts: 24 frames in the owner's walk, Link just inside the tower doorway, ending with
+ * vanilla's own pin 1 unit away.
+ *
+ * Only what is shown is held. Camera_RestoreVanillaEye hands vanilla its own eye back at the top of
+ * the next frame, because vanilla reads `camera->eye` as state: its eye-to-at line test, and the
+ * `*eyeNext = *eye` the frame after a corner peek. A held eye left there leaked into the distance
+ * target and changed the camera's path for seconds - #103's moving samples went from 8 near-plane
+ * hits to 11, every new one an ordinary pin somewhere the vanilla camera never went.
+ */
+static void Camera_LimitEyeRelease(Camera* camera, Vec3f* at, Vec3f* eye, s32 peeked) {
+    s16 idx = camera->thisIdx;
+    u32 frame = camera->play->state.frames;
+    f32 release;
+    f32 dist;
+    f32 cap;
+
+    sCamDiag.eyeHeld = 0.0f;
+    if (idx < 0 || idx >= NUM_CAMS) {
+        return;
+    }
+    sCamEyeRelVanilla[idx] = *eye;
+    dist = OLib_Vec3fDist(at, eye);
+    release = CVarGetFloat(CVAR_CAM_EYE_RELEASE, CAM_EYE_RELEASE_DEFAULT);
+    if (release > CAM_EYE_RELEASE_MAX) {
+        release = CAM_EYE_RELEASE_MAX;
+    }
+    if ((release > 0.0f) && (sCamEyeRelFrame[idx] + 1 == frame) && (dist > 0.001f) &&
+        GridToolSceneRegistry_IsCustomScene(camera->play->sceneNum)) {
+        cap = sCamEyeRelDist[idx] + OLib_Vec3fDist(at, &sCamEyeRelAt[idx]) + release;
+        if (dist > cap) {
+            if (!peeked) {
+                f32 scale = cap / dist;
+
+                eye->x = at->x + ((eye->x - at->x) * scale);
+                eye->y = at->y + ((eye->y - at->y) * scale);
+                eye->z = at->z + ((eye->z - at->z) * scale);
+                sCamDiag.eyeHeld = dist - cap;
+                dist = cap;
+            } else {
+                Vec3f hit;
+                CollisionPoly* poly;
+                s32 bgId;
+
+                if (!BgCheck_CameraLineTest1(&camera->play->colCtx, at, &sCamEyeRelEye[idx], &hit, &poly, 1, 1, 1,
+                                             1, &bgId)) {
+                    *eye = sCamEyeRelEye[idx];
+                    sCamDiag.eyeHeld = dist - OLib_Vec3fDist(at, eye);
+                    dist = OLib_Vec3fDist(at, eye);
+                }
+            }
+        }
+    }
+    sCamEyeRelEye[idx] = *eye;
+    sCamEyeRelDist[idx] = dist;
+    sCamEyeRelAt[idx] = *at;
+    sCamEyeRelFrame[idx] = frame;
+}
+
+/**
+ * The other half of Camera_LimitEyeRelease: at the top of a Normal1 frame, put back the eye vanilla
+ * computed last frame if the release showed a different one, so everything vanilla derives from
+ * `camera->eye` runs on its own state. Only when the shown eye is still exactly where the release
+ * left it on the frame before: anything else that moved it since takes precedence.
+ */
+static void Camera_RestoreVanillaEye(Camera* camera) {
+    s16 idx = camera->thisIdx;
+    Vec3f* eye = &camera->eye;
+
+    if (idx < 0 || idx >= NUM_CAMS || sCamEyeRelFrame[idx] + 1 != camera->play->state.frames) {
+        return;
+    }
+    if (eye->x == sCamEyeRelEye[idx].x && eye->y == sCamEyeRelEye[idx].y && eye->z == sCamEyeRelEye[idx].z) {
+        *eye = sCamEyeRelVanilla[idx];
+    }
+}
+
 s32 Camera_Normal1(Camera* camera) {
     if (CVarGetInteger(CVAR_SETTING("FreeLook.Enabled"), 0) && SetCameraManual(camera) == 1) {
         Camera_Free(camera);
@@ -2224,6 +2307,7 @@ s32 Camera_Normal1(Camera* camera) {
     f32 playerHeight;
     f32 rate = 0.1f;
 
+    Camera_RestoreVanillaEye(camera);
     playerHeight = Camera_PlayerHeight(camera);
     if (RELOAD_PARAMS) {
         CameraModeValue* values = sCameraSettings[camera->setting].cameraModes[camera->mode].values;
@@ -2448,6 +2532,8 @@ s32 Camera_Normal1(Camera* camera) {
         sUpdateCameraDirection = 0;
         *eye = *eyeNext;
     }
+    Camera_LimitEyeRelease(camera, at, eye,
+                          (sCamDiagColCase == 1 || sCamDiagColCase == 2) && anim->swing.unk_18);
 
     spA0 = (gSaveContext.health <= 16 ? 0.8f : 1.0f);
     camera->fov = Camera_LERPCeilF(norm1->fovTarget * spA0, camera->fov, camera->fovUpdateRate, 1.0f);

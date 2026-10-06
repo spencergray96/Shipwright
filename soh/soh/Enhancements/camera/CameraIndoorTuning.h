@@ -160,28 +160,50 @@ extern "C" {
 
 /*
  * The ledge look-down (sturdy-bassoon#155). The slope probe in func_80044ADC reads a drop ahead as
- * a downhill slope, and Camera_CalcDefaultPitch applies a falling slope undamped, so the look-down
- * grows with the height of the drop. Grid-tool scenes only; every knob ships as a no-op until the
- * measurement and a feel walk pick one. The cap, scale and near-only knobs act on func_80044ADC's
- * answer, which Camera_Normal3 and Camera_Parallel1 read too, not only Normal1; `cos` is Normal1's
- * alone (the only caller passing a slope to Camera_CalcDefaultPitch).
+ * a downhill slope: atan2(0.8 * dNear, 1.0 h) + atan2(0.2 * dFar, 2.5 h) for player height h, and
+ * Camera_CalcDefaultPitch applies a falling slope undamped. So the look-down grows with the height
+ * of the drop. Measured on Lumbridge Castle's level-2 bridge (both probes over a 164 drop): slope
+ * -73.6 degrees, camera pitch 57.9 at the parapet against a resting ~10; the level-1 balcony (84):
+ * -50.3 and 54.9. Grid-tool scenes only, and Camera_Normal1 only in effect: Normal3 and Parallel1
+ * call the probe with arg2 = 1, which reads Link's own ground for both probes, so their slope is
+ * always 0 and nothing here can reach them.
  */
-// Largest drop the probe may report, in OoT units below the feet. 0 = off (vanilla: no cap). A
-// grid-tool storey is 80 floor to floor (+4 slab), so 84 would make every drop read as one storey.
+// Largest drop the probe may report, in OoT units below the feet. 0 = no cap. Vanilla behaviour is
+// this at 0 with CamLedgeRail off as well.
+//
+// 20, picked by the owner's feel walk from a live sweep. A capped drop gives the same lean at any
+// height, so the bridge and the balcony read alike and so will #178's tall and grand storeys:
+// adult camera pitch at the bridge parapet / at the balcony edge, against ~10 resting, measured at
+// the vanilla camera height 68 (at #136's shipped 56 the bridge is 24.5, the balcony 24.1) -
+//   cap 10: 15.7 / 19.4    cap 20: 22.1 / 24.3    cap 30: 27.9 / 30.5    cap 40: 33.2 / 36.1.
+// It also shrinks the lean when only the far probe sees the drop (looking across the bridge from
+// its centre) from 18.9 to 10.1, so a separate "near probe only" rule was not needed.
+// The alternatives were measured and deleted: scaling the drop's pitch (0.5: 40.0 / 34.0) still
+// grows with the drop, and vanilla's cos(x)*x rise damping applied to drops peaks near 49 degrees
+// and then falls, so the bridge leaned less than the balcony (33.5 / 40.8) and a 264 drop would
+// lean under 1 degree. The probes' length is the camera height, so a lower one leans harder at the
+// same cap: about 22 degrees of slope at Young Link's 44, 17.6 at the shipped 56, 14.6 at 68.
+// Known cost at height 68, gone at the shipped 56: on a balcony facing out with a taller
+// crenellated wall behind Link, the ledge lean lifts the eye over the wall, behind the merlons, and
+// partly hides him. Raising the cap would bring it back. The repro is in ENGINE_BUDGETS "Not
+// handled: on a balcony, the camera can sit behind a wall's crenellations".
+// docs/test-runs/2026-10-04-issue-155-ledge-look-down/ in sturdy-bassoon.
 #define CVAR_CAM_LEDGE_DROP_CAP CVAR_ENHANCEMENT("CamLedgeDropCap")
-#define CAM_LEDGE_DROP_CAP_DEFAULT 0.0f
+#define CAM_LEDGE_DROP_CAP_DEFAULT 20.0f
 #define CAM_LEDGE_DROP_CAP_MAX 400.0f
-// Multiplier on each probe's downward pitch angle. 1.0 = vanilla, 0 = no look-down at all.
-#define CVAR_CAM_LEDGE_DROP_SCALE CVAR_ENHANCEMENT("CamLedgeDropScale")
-#define CAM_LEDGE_DROP_SCALE_DEFAULT 1.0f
-#define CAM_LEDGE_DROP_SCALE_MIN 0.0f
-#define CAM_LEDGE_DROP_SCALE_MAX 1.0f
-// 1 = damp a falling slope by cos(x)*x in Camera_CalcDefaultPitch, the way vanilla damps a rise.
-#define CVAR_CAM_LEDGE_DROP_COS CVAR_ENHANCEMENT("CamLedgeDropCos")
-#define CAM_LEDGE_DROP_COS_DEFAULT 0
-// 1 = ignore a drop only the far probe (2.5 player-heights ahead) sees.
-#define CVAR_CAM_LEDGE_NEAR_ONLY CVAR_ENHANCEMENT("CamLedgeNearOnly")
-#define CAM_LEDGE_NEAR_ONLY_DEFAULT 0
+// 1 = when the far probe reads a drop below Link's ground, ignore a rise the near probe reads: a
+// low top with a drop behind it is a parapet or a rail, not ground he could walk up onto. 0 = the
+// rise counts (vanilla, and #103's "feet to head height is left alone").
+//
+// Found by the feel walk on the cap: looking at a bridge parapet at an angle, the near probe lands
+// on its top (+26) and the far probe past it, over the 164 drop. The rise pitches the camera low
+// behind Link, looking up at him. Vanilla's undamped drop half cancelled it (slope +6); the cap
+// takes that counterweight away (+15.7; the eye 7.8 below `at` scripted, 9.7 in the owner's trace).
+// Only a rise with a drop behind it is dropped, so a real step or a ramp, and a prop with floor
+// beyond it (the uphill case in #155's comments), keep the vanilla reaction. "Rise" and "drop" mean
+// more than 1 unit off Link's ground, the tolerance Camera_FloorAheadIfReachable calls level.
+#define CVAR_CAM_LEDGE_RAIL CVAR_ENHANCEMENT("CamLedgeRail")
+#define CAM_LEDGE_RAIL_DEFAULT 1
 
 /*
  * Young Link's framing on adult Link (sturdy-bassoon#136). The camera reads a camera-only player
@@ -191,13 +213,63 @@ extern "C" {
  *
  * The per-setting parameters are cached on a reload (RELOAD_PARAMS), so a change of t forces one
  * on the main camera; see Camera_ReloadOnHeightChange.
+ *
+ * 0.5 (height 56), picked by the owner's stepped walk of Lumbridge Castle at 0 / 0.25 / 0.5 / 0.75 /
+ * 1 with a Young Link reference walk. At 0.25 the eye still visibly drops under the #103 ceiling
+ * clamp on entering the castle; at 0.5 the clamp barely touches it; 0.75 and 1 never clamp but sit
+ * "too close to Link vs vanilla". So 0.5 is also the highest t that still reads as the vanilla adult
+ * camera. It lowers every number derived from the height, including the #155 slope probe's reach
+ * (the bridge-parapet lean grows 22.1 -> 24.5 degrees). Lever: this value, live as
+ * `camindoor heightt <t>`. Alternative, declined: gating t by place (indoors, or a settlement zone),
+ * because an eased t at an edge is the camera changing height as Link walks. Tuned on 80-unit
+ * storeys only. Measurements: ENGINE_BUDGETS "Camera eye vs grid-tool storeys", and
+ * docs/test-runs/2026-10-04-issue-136-young-camera-framing/ in sturdy-bassoon.
  */
 #define CVAR_CAM_ADULT_HEIGHT_T CVAR_ENHANCEMENT("CamAdultHeightT")
-#define CAM_ADULT_HEIGHT_T_DEFAULT 0.0f
+#define CAM_ADULT_HEIGHT_T_DEFAULT 0.5f
 #define CAM_ADULT_HEIGHT_T_MIN 0.0f
 #define CAM_ADULT_HEIGHT_T_MAX 1.0f
 #define CAM_HEIGHT_ADULT 68.0f
 #define CAM_HEIGHT_CHILD 44.0f
+
+/*
+ * The eye release (sturdy-bassoon#174). Vanilla's follow camera keeps its distance target, eyeNext,
+ * wherever the follow puts it - behind a wall too - and shows the eye at the first thing the line from
+ * `at` to eyeNext hits (func_80046E20). So a wall only ever pins the eye; the target stays out at the
+ * full follow distance, and the frame that line comes free - it threads a doorway, or slides off a
+ * wall's end - the eye jumps the whole way out at once. That is the in-and-out at Lumbridge's tower
+ * doorway, and it is vanilla's: 83 units in one frame with every one of our camera switches off.
+ *
+ * On a grid-tool scene the eye's distance from `at` may now grow by at most how far `at` moved since
+ * the last Normal1 frame plus this many units; anything more is held back along the eye's own line,
+ * which stays on Link's side of whatever vanilla's eye was stopped by (that eye is the first hit on
+ * the line, plus one unit of the wall's normal). On a corner-peek frame, whose line is not tested,
+ * last frame's eye is kept instead (Camera_LimitEyeRelease says why). Only the shown eye is held:
+ * vanilla gets its own back at the top of the next frame, so the target, and every rule that moves
+ * it, runs exactly as it would with this off. Pulling in is never limited - a wall between Link and the camera
+ * is never allowed to show - and a pinned eye Link walks away from still stays put, because its
+ * distance grows only by how far `at` moved. Expires on any frame gap (Z-target, a cutscene).
+ * 0 = off, vanilla.
+ *
+ * 4, adopted after the owner's feel walk ("looks good": in five minutes of free play it held back 23
+ * pops of up to 115 units, and no step out over 15.1 was left), and measured on 17 scripted walks
+ * through the tower doorway (entrance 0x625): the largest one-frame
+ * step out goes 83.9 -> 14.4 (15.9 at 8, from an earlier build), a 34 -> 93 pop becomes 34 46 56 67 79
+ * 91, mean distance 114.8 -> 114.1, and it acts on 4-8 frames of the four walks that cross the
+ * doorway's line of sight and on none of the other 13. Lower glides slower; at 0 the pop is back. It
+ * does nothing for the snap IN when a wall cuts the line (60 units at the doorway), which is the wall
+ * being kept out of view. Its cost: an eye coming off a wall stays near it a few frames longer, so
+ * #103's 48 moving samples catch 10 near-plane hits against vanilla's 8 - the same 8, plus two taken
+ * mid-glide with the eye where vanilla had just pinned it (clearance 2.0, a side edge, no top edge).
+ * Alternative, measured and deleted: pulling the target itself in to within N units of the wall the
+ * eye is pinned on. It removed the snap in too (at 10), but camera->dist is a smoothed state that
+ * vanilla only eases back up to the band minimum, so after touching any wall the camera followed
+ * closer for seconds: mean distance 115 -> 90 at 10, 105 at 20, and with 20 the eye parked 28 from
+ * Link. docs/test-runs/2026-10-05-issue-174-entrance-camera/ in sturdy-bassoon.
+ */
+#define CVAR_CAM_EYE_RELEASE CVAR_ENHANCEMENT("CamEyeRelease")
+#define CAM_EYE_RELEASE_DEFAULT 4.0f
+#define CAM_EYE_RELEASE_MAX 400.0f
 
 /*
  * One Camera_Normal1 frame, for `agenttest trace` (sturdy-bassoon#152). Written by the camera and
@@ -228,6 +300,7 @@ typedef struct {
     f32 dropNear;    // slope probe floors, relative to the ground under Link, as the probe
     f32 dropFar;     // last read them (before the #155 knobs; they hold between odd frames)
     f32 height;      // the camera's player height this frame (#136)
+    f32 eyeHeld;     // how far the eye release held the eye back this frame, 0 when it did not (#174)
 } CameraFrameDiag;
 
 void Camera_GetFrameDiag(CameraFrameDiag* out);
