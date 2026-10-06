@@ -40,4 +40,5 @@
 #include "../underground_entry_overworld/CustomUndergroundEntryOverworldScene.h" // project 4a8f1c2e-148a-4d0e-9a11-0f3c2b7e1a01 name underground_entry_overworld
 #include "../underground_entry_basements/CustomUndergroundEntryBasementsScene.h" // project 4a8f1c2e-148b-4d0e-9a11-0f3c2b7e1a02 name underground_entry_basements
 #include "../carve_collision_test/CustomCarveCollisionTestScene.h" // project fe2320b0-4510-48fa-9e70-50ef0cfd0678 name carve_collision_test
+#include "../hands_climb_179_bench_copy/CustomHandsClimb179BenchCopyScene.h" // project 1790a991-0000-4000-8000-0000000b0179 name hands_climb_179_bench_copy
 // END GRID TOOL EXPORTS
