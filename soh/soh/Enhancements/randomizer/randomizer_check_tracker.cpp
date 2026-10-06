@@ -30,6 +30,7 @@
 #include "item_location.h"
 #include "randomizer_check_objects.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
+#include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "z64item.h"
 
 extern "C" {
@@ -1273,7 +1274,8 @@ void CheckTrackerWindow::DrawElement() {
     alwaysShowGS = CVarGetInteger(CVAR_TRACKER_CHECK("AlwaysShowGSLocs"), 0);
     if (CVarGetInteger(CVAR_TRACKER_CHECK("WindowType"), TRACKER_WINDOW_WINDOW) == TRACKER_WINDOW_FLOATING) {
         if (CVarGetInteger(CVAR_TRACKER_CHECK("ShowOnlyPaused"), 0) &&
-            (gPlayState == nullptr || gPlayState->pauseCtx.state == 0)) {
+            (gPlayState == nullptr ||
+             GameInteractor_Should(VB_DRAW_UNPAUSED_HUD, gPlayState->pauseCtx.state == 0, gPlayState))) {
             return;
         }
 

@@ -522,15 +522,25 @@ int32_t Dump(std::vector<std::string>& lines) {
     Addf(lines, "op=dump section=entry phase=%s tick=%d of=%d progress=%.3f dim=%d",
          RsMenu_PhaseName(status.phase), status.entryTick, status.entryTicks, status.entryProgress,
          status.dimAlpha);
+    // #193: `lock=` is the Z-target's actor id, `none` without one.
+    char lock[8];
+    if (status.lockOn >= 0) {
+        snprintf(lock, sizeof(lock), "0x%04X", status.lockOn);
+    } else {
+        snprintf(lock, sizeof(lock), "none");
+    }
     Addf(lines,
          "op=dump section=freeze halt=%d halt_prev=%d hud_held=%d hud_prev=%d hud_now=%d hud_reasserts=%d "
          "kaleido=%d viewpoint=%d viewpoint_vetoes=%d free_look_vetoes=%d manual_cam=%d cam_xy=%.1f,%.1f "
-         "minimap_off=%d cs_mode=%d cs_index=0x%04X cs_next=0x%04X",
+         "minimap_off=%d cs_mode=%d cs_index=0x%04X cs_next=0x%04X lock=%s gameplay_frames=%u play_timer=%u "
+         "pause_timer=%u pauses=%d pause_mute=%d bgm_muted=%d timer_state=%d timer_seconds=%d",
          status.halt ? 1 : 0, status.haltPrev ? 1 : 0, status.hudHeld ? 1 : 0, status.hudPrev, status.hudNow,
          status.hudReasserts,
          status.kaleido, status.viewpoint, status.viewpointVetoes, status.freeLookVetoes,
          status.manualCamera ? 1 : 0, status.camX, status.camY, status.minimapOff,
-         status.csMode, status.csIndex, status.csNext);
+         status.csMode, status.csIndex, status.csNext, lock, status.gameplayFrames, status.playTimer,
+         status.pauseTimer, status.pauses, status.pauseMute ? 1 : 0, status.bgmMuted ? 1 : 0, status.timerState,
+         status.timerSeconds);
     // The START filter's witness. `filter_armed` counts the frames it was entitled to swallow on,
     // `start_swallowed` the edges it actually took, and `kaleido=` above says whether vanilla pause
     // got in anyway - which is the difference between "the filter worked" and "no START arrived".
@@ -878,13 +888,30 @@ int32_t NamePanelCmd(const std::vector<std::string>& args, std::vector<std::stri
     return 0;
 }
 
+// TEST-ONLY `timer <seconds>|off` (#197/#198): start the main countdown timer, or stop it, so a run can show
+// the pause freezes it. Read it back as `timer_state=` / `timer_seconds=` on `section=freeze`.
+int32_t Timer(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    int32_t seconds = -1;
+    const bool off = args.size() == 2 && args[1] == "off";
+    if (!off && !(args.size() == 2 && ParseIndex(args[1], &seconds) && seconds <= 999)) {
+        Addf(lines, "op=timer result=error error=arg %s", Describe().c_str());
+        return 1;
+    }
+    if (!RsMenu_TestSetTimer(off ? -1 : seconds)) {
+        Addf(lines, "op=timer result=error error=no_play %s", Describe().c_str());
+        return 1;
+    }
+    Addf(lines, "op=timer result=ok seconds=%d %s", off ? -1 : seconds, Describe().c_str());
+    return 0;
+}
+
 const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custom|vanilla] | "
                      "sweep [l|r|loop|hold <l|r> <tick>|stop] | "
                      "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
                      "stress [<n> [same]|off|memo <on|off>] | "
                      "cursor [left|right|up|down|select|<id>] | probe [on|off] | kaleido | equips | hud | "
                      "flight hold <n>|release | song | "
-                     "inv <kind> <a> <b> | namepanel custom <item>|off | dump";
+                     "inv <kind> <a> <b> | namepanel custom <item>|off | timer <seconds>|off | dump";
 
 } // namespace
 
@@ -945,6 +972,9 @@ int32_t RsMenuConsole_Run(const std::vector<std::string>& args, std::vector<std:
     }
     if (sub == "namepanel") {
         return NamePanelCmd(args, lines);
+    }
+    if (sub == "timer") {
+        return Timer(args, lines);
     }
     if (sub == "dump") {
         return Dump(lines);

@@ -22,6 +22,7 @@ extern PlayState* gPlayState;
 }
 
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
+#include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/randomizer/hint.h"
 #include "soh/Enhancements/randomizer/item_category_adj.h"
 #include "soh/Enhancements/randomizer/randomizer_check_objects.h"
@@ -644,7 +645,8 @@ void HintTrackerWindow::DrawElement() {
     Color_Background = CVarGetColor(CVAR_TRACKER_HINT("BgColor.Value"), Color_Bg_Default);
     if (CVarGetInteger(CVAR_TRACKER_HINT("WindowType"), TRACKER_WINDOW_WINDOW) == TRACKER_WINDOW_FLOATING) {
         if (CVarGetInteger(CVAR_TRACKER_HINT("ShowOnlyPaused"), 0) &&
-            (gPlayState == nullptr || gPlayState->pauseCtx.state == 0)) {
+            (gPlayState == nullptr ||
+             GameInteractor_Should(VB_DRAW_UNPAUSED_HUD, gPlayState->pauseCtx.state == 0, gPlayState))) {
             return;
         }
 

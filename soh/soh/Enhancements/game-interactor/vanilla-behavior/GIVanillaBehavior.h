@@ -1786,14 +1786,29 @@ typedef enum {
 
     // #### `result`
     // ```c
-    // the call site's own "not paused" test on play->pauseCtx
+    // the call site's own "not paused" test (play->pauseCtx, or R_PAUSE_MENU_MODE for the lock-on)
     // ```
-    // Whether a HUD piece vanilla draws only while unpaused draws now: the minimap (Minimap_Draw) and
-    // the horse carrots and minigame scores (Interface_Draw). The rs/ pause scroll answers false while
-    // it is up, so they hide under it as they hide under kaleido.
+    // Whether a HUD piece vanilla draws only while unpaused draws now: the minimap (Minimap_Draw), and
+    // in Interface_Draw the horse carrots and minigame scores, Navi's blink on C-up, and the lock-on
+    // reticle (Attention_Draw) with the enemy health bar beside it. The rs/ pause scroll answers false
+    // while it is up, so they hide under it as they hide under kaleido. The reticle and health bar are
+    // drawn into OVERLAY after the scroll, so without this they land on top of it (sturdy-bassoon#193).
     // #### `args`
     // - `*PlayState`
     VB_DRAW_UNPAUSED_HUD,
+
+    // #### `result`
+    // ```c
+    // the call site's own "not paused" test (play->pauseCtx)
+    // ```
+    // The logic counterpart of VB_DRAW_UNPAUSED_HUD: whether game logic vanilla runs only while unpaused
+    // runs now. Play_Update's world update and camera (z_play.c `isPaused`), the clock and day cycle
+    // (Environment_Update), the countdown timers (Interface_Draw), the magic bar, the low-health alarm,
+    // co-op Ivan's item release, and GameInteractor's IsGameplayPaused/IsPlayerInControl. The rs/ pause
+    // scroll answers false while it is up, so the game pauses under it as it does under kaleido.
+    // #### `args`
+    // - `*PlayState`
+    VB_RUN_UNPAUSED_GAMEPLAY,
 
     // #### `result`
     // ```c

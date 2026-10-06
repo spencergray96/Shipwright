@@ -9,6 +9,7 @@
 #include "randomizer_check_tracker.h"
 #include "randomizer_item_tracker.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
+#include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/randomizer/dungeon.h"
 #include "soh/Enhancements/randomizer/item.h"
 #include "soh/Enhancements/randomizer/randomizerEnums.h"
@@ -1822,7 +1823,8 @@ void ItemTrackerWindow::DrawElement() {
     bool comboButtonsHeld = buttonsPressed != nullptr && buttonsPressed[0].button & comboButton1Mask &&
                             buttonsPressed[0].button & comboButton2Mask;
     bool isPaused = CVarGetInteger(CVAR_TRACKER_ITEM("ShowOnlyPaused"), 0) == 0 ||
-                    gPlayState != nullptr && gPlayState->pauseCtx.state > 0;
+                    gPlayState != nullptr &&
+                        !GameInteractor_Should(VB_DRAW_UNPAUSED_HUD, gPlayState->pauseCtx.state == 0, gPlayState);
 
     if (CVarGetInteger(CVAR_TRACKER_ITEM("WindowType"), TRACKER_WINDOW_FLOATING) == TRACKER_WINDOW_WINDOW ||
         isPaused &&

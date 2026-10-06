@@ -263,6 +263,9 @@ static void QuestStatusPageDraw(struct PlayState* play, int32_t pageIndex, void*
 //   - The BGM mutes only while a song runs - kaleido mutes it for the whole pause - through the audio
 //     thread's own mute (the 0xF1000000 / 0xF2000000 pair func_800F64E0 queues, without its window
 //     sounds). A mute stops nothing, so the zone music director's track is still there after.
+//     SUPERSEDED by #198 (Spencer, 2026-10-05: exactly as vanilla): the scroll now holds that mute for the
+//     whole pause itself, so SetMuted below stands aside while it does. It still works on its own if the
+//     scroll ever stops holding it.
 // Kaleido's input rules come with it: nothing but the song moves in 9, 2, 4 and 6; in 5 the stick and
 // START still act (the stick leaves the song), L/R do not.
 
@@ -318,6 +321,11 @@ static void SetMuted(bool mute) {
     // 0xF2 lifts every sequence player's mute. If vanilla pause has come up (the scroll stands down for
     // it), that mute is kaleido's now, and kaleido lifts it on its own close.
     if (!mute && gPlayState != nullptr && gPlayState->pauseCtx.state != 0) {
+        return;
+    }
+    // #198: the scroll holds the same mute for the whole pause; queuing ours on top would be redundant,
+    // and lifting ours at a song's end would lift the pause's mid-menu.
+    if (RsMenu_PauseMuteHeld()) {
         return;
     }
     Audio_QueueCmdS32(mute ? 0xF1000000 : 0xF2000000, 0);

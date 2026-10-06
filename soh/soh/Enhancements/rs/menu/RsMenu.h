@@ -295,6 +295,10 @@ bool RsMenu_IsEnabled();
 // True from the moment an open is accepted until the closing slide has finished - i.e. whenever the
 // menu is on screen in any form, which is also whenever the world is frozen.
 bool RsMenu_IsOpen();
+// #198: whether the scroll holds vanilla's pause mute (open, until its close begins). A page that mutes
+// for itself - the Quest Status page's songs - leaves the audio alone while this is true, or its unmute
+// would lift the pause's.
+bool RsMenu_PauseMuteHeld();
 
 // --- the arrival -----------------------------------------------------------------------------
 //
@@ -708,6 +712,23 @@ struct RsMenuStatus {
     int32_t freeLookVetoes;  // #138: free-look input reads refused (VB_FREE_LOOK_TAKE_INPUT), several a frame
     bool manualCamera;       // play->manualCamera: free look has taken the camera
     int32_t minimapOff;      // #138: R_MINIMAP_DISABLED, which N64 L toggles in gameplay (z_map_exp.c)
+    // #193: the Z-target's actor id (targetCtx.targetedActor), -1 for none. What proves a run's
+    // "no reticle over the scroll" capture had a lock to draw one for, and that it survived the close.
+    int32_t lockOn;
+    // #198: what the pause stops, read straight off the engine, so a run can show it did not move:
+    // play->gameplayFrames (Play_Update's world block), the stats' play and pause timers, the pause
+    // count, whether the scroll holds vanilla's audio mute, and the audio thread's own flag on the BGM
+    // player (what the mute actually reached).
+    uint32_t gameplayFrames;
+    uint32_t playTimer;
+    uint32_t pauseTimer;
+    int32_t pauses;
+    bool pauseMute;
+    bool bgmMuted;
+    // #197/#198: the main countdown timer (gSaveContext.timerState / timerSeconds), which Interface_Draw
+    // ticks and the pause must freeze. `menu timer` starts one.
+    int32_t timerState;
+    int32_t timerSeconds;
     // #138: the three terms of the cutscene refusal, so an `error=cutscene` can say which one it was:
     // Play_InCsMode, gSaveContext.cutsceneIndex and nextCutsceneIndex (>= 0xFFF0 is a cutscene entry).
     int32_t csMode;
@@ -755,6 +776,10 @@ struct RsMenuStatus {
     uint32_t filterPressSeen;
 };
 RsMenuStatus RsMenu_Status();
+
+// TEST-ONLY (#197/#198): start the main countdown timer at `seconds` (Interface_SetTimer, the call a timed
+// event makes), or stop it with a negative value. Writes gSaveContext. False with no play state.
+bool RsMenu_TestSetTimer(int32_t seconds);
 
 // --- #131: vanilla's menu sounds, in one place ---------------------------------------------------
 //
