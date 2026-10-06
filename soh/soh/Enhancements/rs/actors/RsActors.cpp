@@ -509,12 +509,14 @@ void RegisterRsActors() {
 
         // No draw function: the shaft is the visible thing (RsStairs.h). ActorDB and Actor_DrawAll
         // both take a null draw - the actor is still projected, so it can still be targeted.
+        // No ACTOR_FLAG_ATTENTION_ENABLED here: RsStairs_Update sets it each tick, only while Link is
+        // on the placement's own storey (#192).
         ActorDBInit stairs = {
             "Rs_Stairs",
             "RS staircase (menu-driven storey move)",
             ACTOR_RS_STAIRS,
             ACTORCAT_PROP,
-            (u32)(ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_FRIENDLY | ACTOR_FLAG_UPDATE_CULLING_DISABLED),
+            (u32)(ACTOR_FLAG_FRIENDLY | ACTOR_FLAG_UPDATE_CULLING_DISABLED),
             OBJECT_GAMEPLAY_KEEP,
             sizeof(RsStairs),
             (ActorFunc)RsStairs_Init,
