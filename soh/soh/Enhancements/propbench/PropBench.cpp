@@ -11,6 +11,8 @@
 //   mode 5 comp_plant   mode 1 + 6 planted G_DL calls to an empty compiled list
 //   mode 6 trigger      draws nothing; a talk trigger that opens a direct-text line ("search")
 //   mode 7 pickup       draws the archive crate; checking it opens a line, closing it kills the actor
+//   mode 11 flipbook    sturdy-bassoon#187: one of N bake-registered frame lists, picked by the clock
+//   mode 12 split       sturdy-bassoon#187: a bake-registered base list plus an interpreted one beside it
 //
 // `propbench spawn <mode> <n> [dist]` kills any bench actors and spawns n in a wall in front of Link.
 // `propbench clear`, `propbench status`.
@@ -63,11 +65,13 @@ enum PbMode {
     PB_TEXFLOOD,
     PB_ARCH_BAKED,
     PB_NULLDRAW,
+    PB_FLIPBOOK,
+    PB_SPLIT,
     PB_MODE_COUNT
 };
 const char* const kModeNames[PB_MODE_COUNT] = { "nodraw",     "comp_crate", "arch_crate", "comp_barrel", "arch_plant",
                                                 "comp_plant", "trigger",    "pickup",     "texflood",    "arch_baked",
-                                                "nulldraw" };
+                                                "nulldraw",   "flipbook",   "split" };
 
 // mode 8: the planted texture-cache overflow. One actor draws the compiled crate K times, each copy
 // binding its own 64x64 CI4 texture from this pool by raw pointer, so a frame uses K distinct cache
@@ -83,8 +87,22 @@ s32 sFloodCount = 0;
 std::string sArchPath = "__OTR__objects/rs_props/rs_crate_355/rs_crate_355";
 char kArchEmptyPath[] = "objects/propbench/empty"; // in mods/propbench.o2r
 
+// sturdy-bassoon#187: the flipbook's frame lists and their lengths in RS client cycles (20 ms), and
+// the split route's interpreted list. `propbench flip` and `propbench split` set them.
+constexpr s32 kFlipMax = 128;
+std::vector<std::string> sFlipPaths;
+std::vector<s32> sFlipCycles;
+s32 sFlipPinned = -1; // a frame index to hold every flipbook at, or -1 to run
+std::string sSplitPath;
+u32 sFlipSwitches = 0; // frame changes drawn, for the status line
+
 typedef struct {
     Actor actor;
+    Gfx* flip[kFlipMax];
+    s32 flipCount;
+    s32 flipPhase; // this copy's start, in cycles: RS starts each placement at a random frame
+    s32 flipLast;
+    Gfx* splitDl;
     Gfx* archDl; // resolved once at init
     s32 mode;
     s32 talking;
@@ -126,7 +144,26 @@ void PbMarker(const char* fmt, ...) {
 }
 
 bool UsesArch(s32 mode) {
-    return mode == PB_ARCH_CRATE || mode == PB_ARCH_PLANT || mode == PB_PICKUP || mode == PB_ARCH_BAKED;
+    return mode == PB_ARCH_CRATE || mode == PB_ARCH_PLANT || mode == PB_PICKUP || mode == PB_ARCH_BAKED || mode == PB_SPLIT;
+}
+
+// The flipbook's frame at `cycles` RS client cycles into its loop.
+s32 FlipFrameAt(s32 count, s32 cycles) {
+    s32 total = 0;
+    for (s32 i = 0; i < count; i++) {
+        total += sFlipCycles[i];
+    }
+    if (total <= 0) {
+        return 0;
+    }
+    s32 t = cycles % total;
+    for (s32 i = 0; i < count; i++) {
+        if (t < sFlipCycles[i]) {
+            return i;
+        }
+        t -= sFlipCycles[i];
+    }
+    return count - 1;
 }
 
 void PropBench_Init(Actor* thisx, PlayState* play) {
@@ -135,11 +172,34 @@ void PropBench_Init(Actor* thisx, PlayState* play) {
     pb->archDl = nullptr;
     pb->talking = 0;
     pb->checks = 0;
+    pb->flipCount = 0;
+    pb->flipLast = -1;
+    pb->splitDl = nullptr;
+    if (pb->mode == PB_FLIPBOOK) {
+        s32 total = 0;
+        for (size_t i = 0; i < sFlipPaths.size() && i < (size_t)kFlipMax; i++) {
+            Gfx* dl = ResourceMgr_LoadGfxByName(sFlipPaths[i].c_str());
+            if (dl == nullptr) {
+                sArchNull++;
+                continue;
+            }
+            Fast::StaticBakeRegister(dl);
+            pb->flip[pb->flipCount++] = dl;
+            total += sFlipCycles[i];
+        }
+        pb->flipPhase = total > 0 ? (s32)(Rand_ZeroOne() * total) : 0;
+    }
+    if (pb->mode == PB_SPLIT && !sSplitPath.empty()) {
+        pb->splitDl = ResourceMgr_LoadGfxByName(sSplitPath.c_str()); // never registered: interpreted
+        if (pb->splitDl == nullptr) {
+            sArchNull++;
+        }
+    }
     if (UsesArch(pb->mode)) {
         pb->archDl = ResourceMgr_LoadGfxByName(sArchPath.c_str());
         if (pb->archDl == nullptr) {
             sArchNull++;
-        } else if (pb->mode == PB_ARCH_BAKED) {
+        } else if (pb->mode == PB_ARCH_BAKED || pb->mode == PB_SPLIT) {
             // Offered to the bake the way ArchiveProps offers a room's lists: by the resolved pointer.
             // Registering twice is harmless; the first submission records it, under this actor's
             // matrix, and every later one replays.
@@ -239,6 +299,27 @@ static void PropBench_Draw(Actor* thisx, PlayState* play) {
                 gSPDisplayList(POLY_OPA_DISP++, pb->archDl);
             }
             gSPDisplayList(POLY_OPA_DISP++, sArchPlant);
+            break;
+        case PB_FLIPBOOK:
+            if (pb->flipCount > 0) {
+                // The game ticks at 20 Hz and RS's clock at 50: 2.5 cycles a tick, so a frame of 5
+                // cycles holds for two ticks. Stepped, as RS draws it.
+                s32 k = sFlipPinned >= 0 ? sFlipPinned % pb->flipCount
+                                         : FlipFrameAt(pb->flipCount, (s32)(play->gameplayFrames * 5 / 2) + pb->flipPhase);
+                if (k != pb->flipLast) {
+                    sFlipSwitches++;
+                    pb->flipLast = k;
+                }
+                gSPDisplayList(POLY_OPA_DISP++, pb->flip[k]);
+            }
+            break;
+        case PB_SPLIT:
+            if (pb->archDl != nullptr) {
+                gSPDisplayList(POLY_OPA_DISP++, pb->archDl);
+            }
+            if (pb->splitDl != nullptr) {
+                gSPDisplayList(POLY_OPA_DISP++, pb->splitDl);
+            }
             break;
         case PB_TEXFLOOD:
             if (sFloodCount > 0) {
@@ -348,6 +429,79 @@ int32_t Run(const std::vector<std::string>& args, std::vector<std::string>& line
         gSPEndDisplayList(g++);
         sFloodCount = k;
         Addf(lines, "propbench flood k=%d words=%d", k, (int)(g - sFlood));
+        PbMarker("%s", lines.back().c_str());
+        return 0;
+    }
+    // sturdy-bassoon#187 routes.
+    if (sub == "flip" && args.size() >= 3) {
+        // flip <path pattern with two %d> <cycles,cycles,...>: frame k's list is the pattern with k.
+        sFlipPaths.clear();
+        sFlipCycles.clear();
+        const std::string& cyc = args[2];
+        size_t at = 0;
+        s32 k = 0;
+        while (at <= cyc.size() && k < kFlipMax) {
+            size_t comma = cyc.find(',', at);
+            std::string one = cyc.substr(at, comma == std::string::npos ? std::string::npos : comma - at);
+            char path[256];
+            snprintf(path, sizeof(path), args[1].c_str(), k, k);
+            sFlipPaths.push_back(std::string("__OTR__") + path);
+            sFlipCycles.push_back(atoi(one.c_str()));
+            k++;
+            if (comma == std::string::npos) {
+                break;
+            }
+            at = comma + 1;
+        }
+        s32 resolved = 0;
+        for (const std::string& fp : sFlipPaths) {
+            resolved += ResourceMgr_LoadGfxByName(fp.c_str()) != nullptr ? 1 : 0;
+        }
+        Addf(lines, "propbench flip frames=%d resolved=%d", (int)sFlipPaths.size(), resolved);
+        PbMarker("%s", lines.back().c_str());
+        return 0;
+    }
+    if (sub == "flippin" && args.size() >= 2) {
+        sFlipPinned = atoi(args[1].c_str());
+        Addf(lines, "propbench flippin=%d", sFlipPinned);
+        PbMarker("%s", lines.back().c_str());
+        return 0;
+    }
+    if (sub == "split" && args.size() >= 3) {
+        sArchPath = "__OTR__" + args[1];
+        sSplitPath = "__OTR__" + args[2];
+        Addf(lines, "propbench split base=%s resolves=%d slow=%s resolves=%d", args[1].c_str(),
+             ResourceMgr_LoadGfxByName(sArchPath.c_str()) != nullptr, args[2].c_str(),
+             ResourceMgr_LoadGfxByName(sSplitPath.c_str()) != nullptr);
+        PbMarker("%s", lines.back().c_str());
+        return 0;
+    }
+    if (sub == "scroll" && args.size() >= 2) {
+        // scroll <texture path> <du> <dv> (texture widths a second) | scroll clear
+        if (args[1] == "clear") {
+            Fast::StaticBakeClearTextureScrolls();
+            Addf(lines, "propbench scroll cleared");
+        } else if (args.size() >= 4) {
+            Fast::StaticBakeSetTextureScroll(args[1].c_str(), (float)atof(args[2].c_str()), (float)atof(args[3].c_str()));
+            Addf(lines, "propbench scroll path=%s du=%s dv=%s", args[1].c_str(), args[2].c_str(), args[3].c_str());
+        } else {
+            Addf(lines, "propbench error=scroll_usage");
+            return 1;
+        }
+        PbMarker("%s", lines.back().c_str());
+        return 0;
+    }
+    if (sub == "clock" && args.size() >= 2) {
+        Fast::StaticBakeSetScrollClock((float)atof(args[1].c_str()));
+        Addf(lines, "propbench clock=%s", args[1].c_str());
+        PbMarker("%s", lines.back().c_str());
+        return 0;
+    }
+    if (sub == "recordtime") {
+        uint32_t passes = 0;
+        double ms = 0.0;
+        Fast::StaticBakeTakeRecordTime(&passes, &ms);
+        Addf(lines, "propbench recordtime passes=%u ms=%.3f flip_switches=%u", passes, ms, sFlipSwitches);
         PbMarker("%s", lines.back().c_str());
         return 0;
     }
