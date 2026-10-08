@@ -10,6 +10,18 @@
 #define CVAR_STATIC_BAKE CVAR_SETTING("StaticBake")
 #define STATIC_BAKE_DEFAULT 1
 
+// The saved wind (sturdy-bassoon#209 W1; libultraship's fast/StaticMeshCache.h, "Wind in the replay"):
+// amplitude (world units of swing at the hem), frequency (Hz), wavelength (world units), yaw (degrees,
+// where it blows to) and ripple (radians). Each one unset is the owner's default, libultraship's
+// StaticBakeWind. Not "StaticBake.Wind...": CVAR_STATIC_BAKE is a value, and a CVar name nests in the
+// saved config at its dots.
+#define CVAR_STATIC_BAKE_WIND(name) CVAR_SETTING("StaticBakeWind." name)
+#define CVAR_STATIC_BAKE_WIND_AMPLITUDE CVAR_STATIC_BAKE_WIND("Amplitude")
+#define CVAR_STATIC_BAKE_WIND_FREQUENCY CVAR_STATIC_BAKE_WIND("Frequency")
+#define CVAR_STATIC_BAKE_WIND_WAVELENGTH CVAR_STATIC_BAKE_WIND("Wavelength")
+#define CVAR_STATIC_BAKE_WIND_YAW CVAR_STATIC_BAKE_WIND("Yaw")
+#define CVAR_STATIC_BAKE_WIND_RIPPLE CVAR_STATIC_BAKE_WIND("Ripple")
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -66,8 +78,22 @@ int StaticBake_IsActive(void);
 int StaticBake_Setting(void);
 int StaticBake_BackendSupported(void);
 
+// Wind in the replay (sturdy-bassoon#209 W1): apply the saved wind (CVAR_STATIC_BAKE_WIND_*). Startup
+// does, and again whenever the menu or a preset may have changed one. The wind itself is a frame-level
+// value in libultraship that any code may change at any time - a scripted gust, the weather - through
+// Fast::StaticBakeSetWind; calling this goes back to the saved one.
+void StaticBake_ApplyWindSettings(void);
+
 #ifdef __cplusplus
 }
+
+#include <fast/StaticMeshCache.h>
+
+// The saved wind, each value unset taking the owner's default; save one (CVarSave included); clear
+// them all, so the defaults hold again. For `staticbake wind` (StaticBakeConsole.cpp).
+Fast::StaticBakeWind StaticBake_WindSettings();
+void StaticBake_SaveWindSettings(const Fast::StaticBakeWind& wind);
+void StaticBake_ClearWindSettings();
 #endif
 
 #endif // SOH_STATIC_BAKE_REGISTRY_H
