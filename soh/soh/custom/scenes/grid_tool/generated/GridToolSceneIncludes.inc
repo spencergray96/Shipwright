@@ -43,4 +43,5 @@
 #include "../hands_climb_179_bench_copy/CustomHandsClimb179BenchCopyScene.h" // project 1790a991-0000-4000-8000-0000000b0179 name hands_climb_179_bench_copy
 #include "../../lumbridge_castle_traversal/CustomLumbridgeCastleTraversalScene.h" // hand-frozen lumbridge_castle_traversal (sturdy-bassoon#173)
 #include "../storey_classes_178/CustomStoreyClasses178Scene.h" // project fc7008b5-fdbf-4201-9e4d-6675a06f5fe8 name storey_classes_178
+#include "../scene_203_still_torch/CustomScene203StillTorchScene.h" // project 649e5ee3-19b1-4d56-b0ef-e00dc8bbfba4 name scene_203_still_torch
 // END GRID TOOL EXPORTS

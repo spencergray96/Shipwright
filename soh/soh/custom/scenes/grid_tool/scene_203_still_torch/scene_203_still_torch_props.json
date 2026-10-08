@@ -1,0 +1,26 @@
+{
+  "format": 2,
+  "scene": "scene_203_still_torch",
+  "list": "objects/rs_props/scene_203_still_torch/props",
+  "kinds": {
+    "barrels-4641": "rs_stacked_barrels_4641",
+    "barrels-4641-flat": "rs_stacked_barrels_4641_vcolonly",
+    "crate-355": "rs_crate_355",
+    "pew-5788": "rs_church_pew_5788",
+    "standard-5628": "rs_5628",
+    "standing-torch-724": "rs_724"
+  },
+  "props": [
+    {"id":"bar","kind":"barrels-4641","pos":[780,0,-260],"rot":0},
+    {"id":"barn","kind":"barrels-4641","pos":[-20,0,-260],"rot":0},
+    {"id":"crate","kind":"crate-355","pos":[-420,0,-260],"rot":0},
+    {"id":"flat","kind":"barrels-4641-flat","pos":[380,0,-260],"rot":0},
+    {"id":"pa1uf07","kind":"standing-torch-724","pos":[180,0,-460],"rot":0},
+    {"id":"pew","kind":"pew-5788","pos":[760,0,220],"rot":0},
+    {"id":"pewc","kind":"pew-5788","pos":[360,0,220],"rot":0},
+    {"id":"phdm36y","kind":"standard-5628","pos":[20,0,-340],"rot":0},
+    {"id":"pmwpg65","kind":"standing-torch-724","pos":[-140,0,-460],"rot":0},
+    {"id":"pokfkko","kind":"standing-torch-724","pos":[100,0,-460],"rot":0},
+    {"id":"ptyui2c","kind":"standing-torch-724","pos":[-60,0,-460],"rot":0}
+  ]
+}
