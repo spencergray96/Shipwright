@@ -192,7 +192,7 @@
  *                                        sort on|off|props|scroll ...|clock ...|texclear|wind ...]`: `op=<sub>
  *                                        result=ok active=<0|1> setting=<0|1> registered=<n> baked=<n>
  *                                        rejected=<n> supported=<0|1> sort=<0|1> group=<0x..|none>
- *                                        scenes=<n> links=<n> scrolls=<n> wind=<amp>` (group, scenes, links:
+ *                                        scenes=<n> links=<n> scrolls=<n> wind_amp=<f>` (group, scenes, links:
  *                                        the bake group held, #157; scrolls: textures registered to scroll,
  *                                        #187; wind: the frame's wind amplitude, #209).
  *                                        Same renderer as the human `staticbake` command
@@ -2965,7 +2965,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|fadein <s>|"
               "baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
             "keepinput [on|off] | kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|reset|link <a> <b>|sort on|off|props|"
-              "scroll [list|clear|<path> <du> <dv>]|clock [<s>|run]|texclear|wind [list|reset|saved|<key> <value>...]] | "
+              "scroll [list|clear|<path> <du> <dv>]|clock [<s>|run]|texclear|"
+              "wind [list|reset|saved|<key> <value>...]] | "
               "colview [status|climb on|off] | "
               "imgui status|dump [kind]|click [kind:]<label>|clickat <x> <y>|key <name> | "
             "mipmaps [status|archive|on|off|lod <mode>|bias <n>] | save <fileNum> | loadsave <fileNum> | mark <text>";
@@ -3012,7 +3013,8 @@ void RegisterAgentTest() {
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|"
               "fadein <s>|baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
               "keepinput [on|off] | kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|reset|link <a> <b>|sort on|off|props|"
-              "scroll [list|clear|<path> <du> <dv>]|clock [<s>|run]|texclear|wind [list|reset|saved|<key> <value>...]] | "
+              "scroll [list|clear|<path> <du> <dv>]|clock [<s>|run]|texclear|"
+              "wind [list|reset|saved|<key> <value>...]] | "
               "colview [status|climb on|off] | "
               "imgui status|dump [kind]|click [kind:]<label>|clickat <x> <y>|key <name> | "
               "mipmaps [status|archive|on|off|lod <mode>|bias <n>] | save <fileNum> | loadsave <fileNum> | mark <text>. "

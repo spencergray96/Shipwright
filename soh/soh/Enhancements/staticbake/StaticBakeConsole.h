@@ -26,8 +26,8 @@
 // `sort=` whether recordings are ordered by material (sturdy-bassoon#158), `group=` the bake group the registry holds
 // (0x<smallest scene id in it>, or `none`), `scenes=` how many of its scenes have registered rooms
 // since the last reset and `links=` how many `link`s this session added (sturdy-bassoon#157),
-// `scrolls=` how many textures are registered to scroll (sturdy-bassoon#187 A1), and `wind=` the frame's
-// wind amplitude, 0 when nothing bends (sturdy-bassoon#209 W1).
+// `scrolls=` how many textures are registered to scroll (sturdy-bassoon#187 A1), and `wind_amp=` the
+// frame's wind amplitude, 0 when nothing bends (sturdy-bassoon#209 W1).
 // registered/baked/rejected count the WHOLE group: a return to a scene visited earlier in the group
 // finds its entries still baked. baked + rejected <
 // registered means some have not been drawn since they were registered or invalidated - or, in a
@@ -101,8 +101,9 @@
 //   wind <key> <value> [<key> <value>...]  set some of amp (units of swing at the hem, 0-100; 0 stills
 //             every prop), freq (Hz, 0-20), wavelength (world units, 0-100000; 0 = every placement in
 //             step), yaw (degrees, -360-360: where it blows to, as OoT's yaw) and ripple (radians,
-//             -20-20). All or nothing. From the human command it is also saved; from the agent loop it
-//             is for the session only
+//             -20-20), each key once. All or nothing. From the human command it is also saved; from the
+//             agent loop it is for the session only. A plain `set` of one of the saved CVars shows after
+//             `wind saved`
 //   wind reset  the owner's defaults (amp 6, freq 1.0638, wavelength 400, yaw 0, ripple 1.5); the human
 //             command also clears the saved values
 //   wind saved  go back to the saved wind - after a session-only set, or a scripted one
@@ -114,7 +115,8 @@
 // a `clock` that is neither run nor a number in range,
 // `op=clock result=error error=bad_argument usage=clock|clock(<seconds>)|clock(run)`; a `wind` that is
 // not list, reset, saved or whole key-value pairs in range, `op=wind result=error error=bad_argument
-// usage=...`. No error line echoes what was typed.
+// usage=wind(list)|wind(reset)|wind(saved)|wind(<key>,<value>...):amp[0,100],freq[0,20],
+// wavelength[0,100000],yaw[-360,360],ripple[-20,20]` (one line). No error line echoes what was typed.
 //
 // Returns 0 for all twelve, 1 for an unknown subcommand or a bad sort, link, scroll, clock or wind
 // argument - so `rc=` on the agent loop's cmd marker is the pass/fail bit.
