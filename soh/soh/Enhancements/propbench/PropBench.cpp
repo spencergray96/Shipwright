@@ -476,34 +476,12 @@ int32_t Run(const std::vector<std::string>& args, std::vector<std::string>& line
         PbMarker("%s", lines.back().c_str());
         return 0;
     }
-    if (sub == "scroll" && args.size() >= 2) {
-        // scroll <texture path> <du> <dv> (texture widths a second) | scroll clear
-        if (args[1] == "clear") {
-            Fast::StaticBakeClearTextureScrolls();
-            Addf(lines, "propbench scroll cleared");
-        } else if (args.size() >= 4) {
-            Fast::StaticBakeSetTextureScroll(args[1].c_str(), (float)atof(args[2].c_str()), (float)atof(args[3].c_str()));
-            Addf(lines, "propbench scroll path=%s du=%s dv=%s", args[1].c_str(), args[2].c_str(), args[3].c_str());
-        } else {
-            Addf(lines, "propbench error=scroll_usage");
-            return 1;
-        }
+    // sturdy-bassoon#187 A1: the prototype's scroll, clock and record timer are gone. The scroll and the
+    // clock are the built `staticbake scroll` and `staticbake clock` now.
+    if (sub == "scroll" || sub == "clock" || sub == "recordtime") {
+        Addf(lines, "propbench error=moved use=staticbake_scroll|staticbake_clock flip_switches=%u", sFlipSwitches);
         PbMarker("%s", lines.back().c_str());
-        return 0;
-    }
-    if (sub == "clock" && args.size() >= 2) {
-        Fast::StaticBakeSetScrollClock((float)atof(args[1].c_str()));
-        Addf(lines, "propbench clock=%s", args[1].c_str());
-        PbMarker("%s", lines.back().c_str());
-        return 0;
-    }
-    if (sub == "recordtime") {
-        uint32_t passes = 0;
-        double ms = 0.0;
-        Fast::StaticBakeTakeRecordTime(&passes, &ms);
-        Addf(lines, "propbench recordtime passes=%u ms=%.3f flip_switches=%u", passes, ms, sFlipSwitches);
-        PbMarker("%s", lines.back().c_str());
-        return 0;
+        return 1;
     }
     if (sub == "path" && args.size() >= 2) {
         sArchPath = "__OTR__" + args[1];
