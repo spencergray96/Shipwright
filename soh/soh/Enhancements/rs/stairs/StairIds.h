@@ -27,7 +27,8 @@
 
 typedef enum RsStairId {
     // --- production band: [0, RS_STAIR_ID_DEBUG_FIRST) ------------------------------------
-    RS_STAIR_CASTLE_SOUTH_TOWER = 0, // Lumbridge castle (0x625), the 1x1 shaft at grid (32,29):
+    RS_STAIR_CASTLE_SOUTH_TOWER = 0, // lumbridge_castle_traversal, the frozen copy of Lumbridge
+                                     // castle (#173); the 1x1 shaft at grid (32,29):
                                      // ground, first and second floor through one 40-unit hole
     RS_STAIR_CASTLE_NORTH_TOWER = 1, // the same, at grid (32,40)
 

@@ -21,15 +21,20 @@ namespace {
 
 // --- Lumbridge castle, the two 1x1 tower shafts -------------------------------------------------
 //
+// In lumbridge_castle_traversal (ENTR_LUMBRIDGE_CASTLE_TRAVERSAL_0), the frozen copy of the castle
+// that keeps its staircases, so the grid tool's lumbridge_castle can be re-exported freely (#173). The
+// geometry is the castle's as it was when these landings were read; the real castle has the same
+// shafts but no placements, so these staircases do not exist there.
+//
 // Each shaft is an open 40x40 hole through the first- and second-floor slabs, with floor on all
-// four sides at every storey (read off lumbridge_castle_scene_col.c, not assumed). Too small for
+// four sides at every storey (read off the castle's _scene_col.c, not assumed). Too small for
 // the walkable spiral the 2x2 shafts got (2026-09-25 spiral ADR), and three storeys through one
 // hole is the straight-shot ladder the ladder ADR closed - so both are this actor's by design.
 //
 // The placements stand at each shaft's centre, one per storey, turned toward the tower room (see
-// CustomLumbridgeCastleScene.cpp); Link lands on the neighbouring cell, 40 in front. 40 clears the
-// placement's collider with room to spare and is inside its talk range, so he can turn round and
-// go straight back. One room, so every row is room 0.
+// CustomLumbridgeCastleTraversalScene.cpp); Link lands on the neighbouring cell, 40 in front. 40
+// clears the placement's collider with room to spare and is inside its talk range, so he can turn
+// round and go straight back. One room, so every row is room 0.
 const RsStairLanding kCastleTower[] = {
     { 0, 0 },
     { 1, 0 },
@@ -37,12 +42,12 @@ const RsStairLanding kCastleTower[] = {
 };
 
 const RsStairDef kStairCastleSouthTower = {
-    RS_STAIR_CASTLE_SOUTH_TOWER, "castle_south_tower", SCENE_LUMBRIDGE_CASTLE, 40, kCastleTower,
+    RS_STAIR_CASTLE_SOUTH_TOWER, "castle_south_tower", SCENE_LUMBRIDGE_CASTLE_TRAVERSAL, 40, kCastleTower,
     ARRAY_COUNT(kCastleTower),
 };
 
 const RsStairDef kStairCastleNorthTower = {
-    RS_STAIR_CASTLE_NORTH_TOWER, "castle_north_tower", SCENE_LUMBRIDGE_CASTLE, 40, kCastleTower,
+    RS_STAIR_CASTLE_NORTH_TOWER, "castle_north_tower", SCENE_LUMBRIDGE_CASTLE_TRAVERSAL, 40, kCastleTower,
     ARRAY_COUNT(kCastleTower),
 };
 

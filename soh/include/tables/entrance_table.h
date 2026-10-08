@@ -1990,4 +1990,5 @@
 /* 0x646 */ DEFINE_ENTRANCE(ENTR_LOCAL_FIXTURE_7_0, SCENE_LOCAL_FIXTURE_7, 0, false, false, TRANS_TYPE_FADE_BLACK, TRANS_TYPE_FADE_BLACK) // local fixture slot 7: reserved, filled from a gitignored folder (GridToolSceneRegistry.cpp)
 /* 0x647 */ DEFINE_ENTRANCE(ENTR_CARVE_COLLISION_TEST_0, SCENE_CARVE_COLLISION_TEST, 0, false, false, TRANS_TYPE_FADE_BLACK, TRANS_TYPE_FADE_BLACK) // project fe2320b0-4510-48fa-9e70-50ef0cfd0678 name carve_collision_test
 /* 0x648 */ DEFINE_ENTRANCE(ENTR_HANDS_CLIMB_179_BENCH_COPY_0, SCENE_HANDS_CLIMB_179_BENCH_COPY, 0, false, false, TRANS_TYPE_FADE_BLACK, TRANS_TYPE_FADE_BLACK) // project 1790a991-0000-4000-8000-0000000b0179 name hands_climb_179_bench_copy
+/* 0x649 */ DEFINE_ENTRANCE(ENTR_LUMBRIDGE_CASTLE_TRAVERSAL_0, SCENE_LUMBRIDGE_CASTLE_TRAVERSAL, 0, false, false, TRANS_TYPE_FADE_BLACK, TRANS_TYPE_FADE_BLACK) // hand-frozen lumbridge_castle_traversal: lumbridge_castle with its staircases (sturdy-bassoon#173)
 // END GRID TOOL EXPORTS
