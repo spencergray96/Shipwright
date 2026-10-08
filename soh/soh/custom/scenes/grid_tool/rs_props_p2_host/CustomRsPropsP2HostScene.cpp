@@ -132,7 +132,9 @@ static void InitScene(PlayState* play, s32 spawn) {
 // writes: sturdy-bassoon docs/reference/ASSET_PIPELINE.md, "Archive props". Hand-written here, to
 // test slice A on the #160 proof's area list; its archive (x64/<Config>/mods/rs-props-160.o2r) is
 // RS-derived and never committed, and without it this scene loads exactly as before.
-static const char* const sRsPropsP2HostPropLists[] = { "objects/rs_props/area160/area" };
+// THROWAWAY (sturdy-bassoon#117 step 2): bench117's three-crate list, from mods/rs-props-bench117.o2r.
+static const char* const sRsPropsP2HostPropLists[] = { "objects/rs_props/area160/area",
+                                                       "objects/rs_props/bench117/props" };
 
 extern "C" void CustomRsPropsP2HostScene_InitRoom(PlayState* play, RoomContext* roomCtx) {
     roomCtx->curRoom.echo       = 0;
