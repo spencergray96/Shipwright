@@ -174,4 +174,5 @@
 /* 0x9D */ DEFINE_SCENE(local_fixture_7_scene, none, SCENE_LOCAL_FIXTURE_7, SDC_DEFAULT, 0, 0) // local fixture slot 7: reserved, filled from a gitignored folder (GridToolSceneRegistry.cpp)
 /* 0x9E */ DEFINE_SCENE(carve_collision_test_scene, none, SCENE_CARVE_COLLISION_TEST, SDC_DEFAULT, 0, 0) // project fe2320b0-4510-48fa-9e70-50ef0cfd0678 name carve_collision_test
 /* 0x9F */ DEFINE_SCENE(hands_climb_179_bench_copy_scene, none, SCENE_HANDS_CLIMB_179_BENCH_COPY, SDC_DEFAULT, 0, 0) // project 1790a991-0000-4000-8000-0000000b0179 name hands_climb_179_bench_copy
+/* 0xA0 */ DEFINE_SCENE(lumbridge_castle_traversal_scene, none, SCENE_LUMBRIDGE_CASTLE_TRAVERSAL, SDC_DEFAULT, 0, 0) // hand-frozen lumbridge_castle_traversal: lumbridge_castle with its staircases (sturdy-bassoon#173)
 // END GRID TOOL EXPORTS
