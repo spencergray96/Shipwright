@@ -13,6 +13,12 @@
 //   mode 7 pickup       draws the archive crate; checking it opens a line, closing it kills the actor
 //   mode 11 flipbook    sturdy-bassoon#187: one of N bake-registered frame lists, picked by the clock
 //   mode 12 split       sturdy-bassoon#187: a bake-registered base list plus an interpreted one beside it
+//   mode 13 fliprt      sturdy-bassoon#208: the flipbook's poses picked at render time (every interpolated
+//                       frame, not once a game tick), after an optional still base list (the pole)
+//   mode 14 arch_baked2 sturdy-bassoon#208: mode 9 again, so two baked lists can stand side by side
+//
+// sturdy-bassoon#208 also pushes the wind CVars (gEnhancements.Rs208Wind*) into the bake every frame;
+// `propbench wind` sets and shows them.
 //
 // `propbench spawn <mode> <n> [dist]` kills any bench actors and spawns n in a wall in front of Link.
 // `propbench clear`, `propbench status`.
@@ -23,6 +29,9 @@
 #include <string>
 #include <vector>
 
+#include <cmath>
+
+#include <libultraship/bridge/consolevariablebridge.h>
 #include <ship/Context.h>
 #include <ship/resource/ResourceManager.h>
 #include <fast/StaticMeshCache.h>
@@ -30,6 +39,8 @@
 #include "soh/ActorDB.h"
 #include "soh/Enhancements/agenttest/AgentTest.h"
 #include "soh/Enhancements/console/ConsoleSink.h"
+#include "soh/Enhancements/game-interactor/GameInteractor.h"
+#include "soh/cvar_prefixes.h"
 #include "soh/Enhancements/rs/actors/RsActors.h"
 #include "soh/Enhancements/rs/dialogue/NpcDialogueDef.h"
 #include "soh/ResourceManagerHelpers.h"
@@ -67,11 +78,13 @@ enum PbMode {
     PB_NULLDRAW,
     PB_FLIPBOOK,
     PB_SPLIT,
+    PB_FLIPRT,
+    PB_ARCH_BAKED2,
     PB_MODE_COUNT
 };
 const char* const kModeNames[PB_MODE_COUNT] = { "nodraw",     "comp_crate", "arch_crate", "comp_barrel", "arch_plant",
                                                 "comp_plant", "trigger",    "pickup",     "texflood",    "arch_baked",
-                                                "nulldraw",   "flipbook",   "split" };
+                                                "nulldraw",   "flipbook",   "split",       "fliprt",      "arch_baked2" };
 
 // mode 8: the planted texture-cache overflow. One actor draws the compiled crate K times, each copy
 // binding its own 64x64 CI4 texture from this pool by raw pointer, so a frame uses K distinct cache
@@ -96,6 +109,15 @@ s32 sFlipPinned = -1; // a frame index to hold every flipbook at, or -1 to run
 std::string sSplitPath;
 u32 sFlipSwitches = 0; // frame changes drawn, for the status line
 
+// sturdy-bassoon#208: a list path per mode (`propbench pathfor`), so routes can stand side by side;
+// the render-time flipbook's pose rate and its still base list.
+std::string sModePath[32];
+f32 sFlipRate = 50.0f; // poses a second: one a 20 ms RS client cycle
+f32 sFlipPhaseFixed = -1.0f; // a phase, in poses, for every new copy; -1 = random, as RS starts a placement
+std::string sFlipBasePath;
+
+#define CVAR_RS208_WIND(n) CVAR_ENHANCEMENT("Rs208Wind" n)
+
 typedef struct {
     Actor actor;
     Gfx* flip[kFlipMax];
@@ -104,6 +126,8 @@ typedef struct {
     s32 flipLast;
     Gfx* splitDl;
     Gfx* archDl; // resolved once at init
+    Gfx flipHead[1]; // #208: this copy's flip head, unique to it; the interpreter redirects it to a pose
+    Gfx* flipBase;
     s32 mode;
     s32 talking;
     s32 checks;
@@ -144,7 +168,8 @@ void PbMarker(const char* fmt, ...) {
 }
 
 bool UsesArch(s32 mode) {
-    return mode == PB_ARCH_CRATE || mode == PB_ARCH_PLANT || mode == PB_PICKUP || mode == PB_ARCH_BAKED || mode == PB_SPLIT;
+    return mode == PB_ARCH_CRATE || mode == PB_ARCH_PLANT || mode == PB_PICKUP || mode == PB_ARCH_BAKED || mode == PB_SPLIT ||
+           mode == PB_ARCH_BAKED2;
 }
 
 // The flipbook's frame at `cycles` RS client cycles into its loop.
@@ -175,6 +200,33 @@ void PropBench_Init(Actor* thisx, PlayState* play) {
     pb->flipCount = 0;
     pb->flipLast = -1;
     pb->splitDl = nullptr;
+    pb->flipBase = nullptr;
+    if (pb->mode == PB_FLIPRT) {
+        const void* poses[kFlipMax];
+        for (size_t i = 0; i < sFlipPaths.size() && i < (size_t)kFlipMax; i++) {
+            Gfx* dl = ResourceMgr_LoadGfxByName(sFlipPaths[i].c_str());
+            if (dl == nullptr) {
+                sArchNull++;
+                continue;
+            }
+            Fast::StaticBakeRegister(dl);
+            poses[pb->flipCount++] = dl;
+        }
+        gSPEndDisplayList(&pb->flipHead[0]);
+        if (pb->flipCount > 0) {
+            // RS starts each placement at a random point of its loop.
+            Fast::StaticBakeRegisterFlip(&pb->flipHead[0], poses, pb->flipCount, sFlipRate,
+                                         sFlipPhaseFixed >= 0.0f ? sFlipPhaseFixed : Rand_ZeroOne() * pb->flipCount);
+        }
+        if (!sFlipBasePath.empty()) {
+            pb->flipBase = ResourceMgr_LoadGfxByName(sFlipBasePath.c_str());
+            if (pb->flipBase == nullptr) {
+                sArchNull++;
+            } else {
+                Fast::StaticBakeRegister(pb->flipBase);
+            }
+        }
+    }
     if (pb->mode == PB_FLIPBOOK) {
         s32 total = 0;
         for (size_t i = 0; i < sFlipPaths.size() && i < (size_t)kFlipMax; i++) {
@@ -196,10 +248,11 @@ void PropBench_Init(Actor* thisx, PlayState* play) {
         }
     }
     if (UsesArch(pb->mode)) {
-        pb->archDl = ResourceMgr_LoadGfxByName(sArchPath.c_str());
+        const std::string& path = (pb->mode < 32 && !sModePath[pb->mode].empty()) ? sModePath[pb->mode] : sArchPath;
+        pb->archDl = ResourceMgr_LoadGfxByName(path.c_str());
         if (pb->archDl == nullptr) {
             sArchNull++;
-        } else if (pb->mode == PB_ARCH_BAKED || pb->mode == PB_SPLIT) {
+        } else if (pb->mode == PB_ARCH_BAKED || pb->mode == PB_SPLIT || pb->mode == PB_ARCH_BAKED2) {
             // Offered to the bake the way ArchiveProps offers a room's lists: by the resolved pointer.
             // Registering twice is harmless; the first submission records it, under this actor's
             // matrix, and every later one replays.
@@ -217,6 +270,10 @@ void PropBench_Init(Actor* thisx, PlayState* play) {
 }
 
 void PropBench_Destroy(Actor* thisx, PlayState* play) {
+    PropBench* pb = (PropBench*)thisx;
+    if (pb->mode == PB_FLIPRT) {
+        Fast::StaticBakeUnregisterFlip(&pb->flipHead[0]);
+    }
 }
 
 void PropBench_Update(Actor* thisx, PlayState* play) {
@@ -290,6 +347,7 @@ static void PropBench_Draw(Actor* thisx, PlayState* play) {
         case PB_ARCH_CRATE:
         case PB_PICKUP:
         case PB_ARCH_BAKED:
+        case PB_ARCH_BAKED2:
             if (pb->archDl != nullptr) {
                 gSPDisplayList(POLY_OPA_DISP++, pb->archDl);
             }
@@ -311,6 +369,14 @@ static void PropBench_Draw(Actor* thisx, PlayState* play) {
                     pb->flipLast = k;
                 }
                 gSPDisplayList(POLY_OPA_DISP++, pb->flip[k]);
+            }
+            break;
+        case PB_FLIPRT:
+            if (pb->flipBase != nullptr) {
+                gSPDisplayList(POLY_OPA_DISP++, pb->flipBase);
+            }
+            if (pb->flipCount > 0) {
+                gSPDisplayList(POLY_OPA_DISP++, &pb->flipHead[0]); // the interpreter picks the pose
             }
             break;
         case PB_SPLIT:
@@ -368,6 +434,36 @@ void RegisterPropBench() {
 }
 
 RegisterShipInitFunc propBenchInit(RegisterPropBench);
+
+// sturdy-bassoon#208: the wind's parameters live in CVars (so `set` tunes them live from the console)
+// and are pushed into the bake every game frame. The default frequency is RS's own loop, 0.94 s.
+Fast::StaticBakeWindParams ReadWindCVars() {
+    Fast::StaticBakeWindParams p;
+    p.amplitude = CVarGetFloat(CVAR_RS208_WIND("Amp"), 6.0f);
+    p.frequency = CVarGetFloat(CVAR_RS208_WIND("Freq"), 1.0638f);
+    p.wavelength = CVarGetFloat(CVAR_RS208_WIND("Wavelength"), 400.0f);
+    p.yawDeg = CVarGetFloat(CVAR_RS208_WIND("Yaw"), 0.0f);
+    p.ripple = CVarGetFloat(CVAR_RS208_WIND("Ripple"), 1.5f);
+    p.axisMode = CVarGetInteger(CVAR_RS208_WIND("Axis"), 1);
+    p.localAxis[0] = CVarGetFloat(CVAR_RS208_WIND("AxisX"), 0.0f);
+    p.localAxis[1] = CVarGetFloat(CVAR_RS208_WIND("AxisY"), 0.0f);
+    p.localAxis[2] = CVarGetFloat(CVAR_RS208_WIND("AxisZ"), 1.0f);
+    return p;
+}
+
+void RegisterWindPush() {
+    GameInteractor::Instance->RegisterGameHook<GameInteractor::OnGameFrameUpdate>(
+        []() { Fast::StaticBakeSetWind(ReadWindCVars()); });
+}
+
+RegisterShipInitFunc windPushInit(RegisterWindPush);
+
+void WindLine(std::vector<std::string>& lines) {
+    const Fast::StaticBakeWindParams p = ReadWindCVars();
+    Addf(lines, "propbench wind amp=%.3f freq=%.4f wavelength=%.1f yaw=%.1f ripple=%.3f axis=%d local=%.2f,%.2f,%.2f",
+         p.amplitude, p.frequency, p.wavelength, p.yawDeg, p.ripple, p.axisMode, p.localAxis[0], p.localAxis[1],
+         p.localAxis[2]);
+}
 
 s32 CountBench(PlayState* play) {
     s32 n = 0;
@@ -432,11 +528,83 @@ int32_t Run(const std::vector<std::string>& args, std::vector<std::string>& line
         PbMarker("%s", lines.back().c_str());
         return 0;
     }
+    // sturdy-bassoon#208.
+    if (sub == "wind") {
+        // wind [amp] [freq] [wavelength] [yaw] [ripple]: set those given (CVars), then show them all.
+        static const char* const kNames[] = { "Amp", "Freq", "Wavelength", "Yaw", "Ripple" };
+        for (size_t i = 1; i < args.size() && i <= 5; i++) {
+            if (!args[i].empty()) {
+                CVarSetFloat((std::string(CVAR_ENHANCEMENT("Rs208Wind")) + kNames[i - 1]).c_str(),
+                             (float)atof(args[i].c_str()));
+            }
+        }
+        Fast::StaticBakeSetWind(ReadWindCVars());
+        WindLine(lines);
+        PbMarker("%s", lines.back().c_str());
+        return 0;
+    }
+    if (sub == "windaxis" && args.size() >= 2) {
+        // windaxis 0 (along the wind) | windaxis 1 [x y z] (a fixed axis of the prop's own space)
+        CVarSetInteger(CVAR_RS208_WIND("Axis"), atoi(args[1].c_str()));
+        if (args.size() >= 5) {
+            CVarSetFloat(CVAR_RS208_WIND("AxisX"), (float)atof(args[2].c_str()));
+            CVarSetFloat(CVAR_RS208_WIND("AxisY"), (float)atof(args[3].c_str()));
+            CVarSetFloat(CVAR_RS208_WIND("AxisZ"), (float)atof(args[4].c_str()));
+        }
+        Fast::StaticBakeSetWind(ReadWindCVars());
+        WindLine(lines);
+        PbMarker("%s", lines.back().c_str());
+        return 0;
+    }
+    if (sub == "pathfor" && args.size() >= 3) {
+        // pathfor <mode> <list path>: what that mode's copies draw, overriding `path`
+        s32 mode = atoi(args[1].c_str());
+        if (mode < 0 || mode >= 32) {
+            Addf(lines, "propbench error=bad_mode");
+            return 1;
+        }
+        sModePath[mode] = "__OTR__" + args[2];
+        Addf(lines, "propbench pathfor mode=%d path=%s resolves=%d", mode, args[2].c_str(),
+             ResourceMgr_LoadGfxByName(sModePath[mode].c_str()) != nullptr);
+        PbMarker("%s", lines.back().c_str());
+        return 0;
+    }
+    if (sub == "fliprate" && args.size() >= 2) {
+        sFlipRate = (f32)atof(args[1].c_str());
+        Addf(lines, "propbench fliprate=%.3f", sFlipRate);
+        PbMarker("%s", lines.back().c_str());
+        return 0;
+    }
+    if (sub == "flipphase" && args.size() >= 2) {
+        sFlipPhaseFixed = (f32)atof(args[1].c_str());
+        Addf(lines, "propbench flipphase=%.3f", sFlipPhaseFixed);
+        PbMarker("%s", lines.back().c_str());
+        return 0;
+    }
+    if (sub == "flipbase" && args.size() >= 2) {
+        sFlipBasePath = args[1] == "none" ? std::string() : "__OTR__" + args[1];
+        Addf(lines, "propbench flipbase=%s resolves=%d", args[1].c_str(),
+             sFlipBasePath.empty() ? 0 : ResourceMgr_LoadGfxByName(sFlipBasePath.c_str()) != nullptr);
+        PbMarker("%s", lines.back().c_str());
+        return 0;
+    }
     // sturdy-bassoon#187 routes.
     if (sub == "flip" && args.size() >= 3) {
-        // flip <path pattern with two %d> <cycles,cycles,...>: frame k's list is the pattern with k.
+        // flip <path pattern with two %d> <cycles,cycles,...> [i,i,...]: frame k's list is the pattern
+        // with k, or (#208) with the k-th of the given indices.
         sFlipPaths.clear();
         sFlipCycles.clear();
+        std::vector<s32> idx;
+        if (args.size() >= 4 && !args[3].empty()) {
+            for (size_t a = 0; a <= args[3].size();) {
+                size_t c = args[3].find(',', a);
+                idx.push_back(atoi(args[3].substr(a, c == std::string::npos ? std::string::npos : c - a).c_str()));
+                if (c == std::string::npos) {
+                    break;
+                }
+                a = c + 1;
+            }
+        }
         const std::string& cyc = args[2];
         size_t at = 0;
         s32 k = 0;
@@ -444,7 +612,8 @@ int32_t Run(const std::vector<std::string>& args, std::vector<std::string>& line
             size_t comma = cyc.find(',', at);
             std::string one = cyc.substr(at, comma == std::string::npos ? std::string::npos : comma - at);
             char path[256];
-            snprintf(path, sizeof(path), args[1].c_str(), k, k);
+            const s32 which = k < (s32)idx.size() ? idx[k] : k;
+            snprintf(path, sizeof(path), args[1].c_str(), which, which);
             sFlipPaths.push_back(std::string("__OTR__") + path);
             sFlipCycles.push_back(atoi(one.c_str()));
             k++;
@@ -501,7 +670,8 @@ int32_t Run(const std::vector<std::string>& args, std::vector<std::string>& line
         uint32_t passes = 0;
         double ms = 0.0;
         Fast::StaticBakeTakeRecordTime(&passes, &ms);
-        Addf(lines, "propbench recordtime passes=%u ms=%.3f flip_switches=%u", passes, ms, sFlipSwitches);
+        Addf(lines, "propbench recordtime passes=%u ms=%.3f flip_switches=%u rt_switches=%u", passes, ms, sFlipSwitches,
+             Fast::StaticBakeTakeFlipSwitches());
         PbMarker("%s", lines.back().c_str());
         return 0;
     }
