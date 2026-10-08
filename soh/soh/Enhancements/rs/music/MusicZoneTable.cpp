@@ -10,8 +10,9 @@
  *     npm run gen:music-zones            # rewrite the block
  *     npm run gen:music-zones -- --check # fail if the block is stale
  *
- * Outside the markers is this file's own scaffolding - the includes and the accessor functions the
- * runtime calls. That part is hand-written and the generator never touches it.
+ * Outside the markers is this file's own scaffolding - the includes, the stitched scenes' rows (read
+ * from the grid tool's world export, sturdy-bassoon#173) and the accessor functions the runtime calls.
+ * That part is hand-written and the generator never touches it.
  *
  * The rows the generator currently emits are POC content on their way out; the format around them
  * is not. The generated block says so at length, in the words of the zone file itself.
@@ -467,6 +468,35 @@ const RsMusicScene kScenes[] = {
 };
 // END RS MUSIC ZONE TABLE
 
+/*
+ * Stitched scenes (sturdy-bassoon#173 slice E): one row each, read from the `<slug>_world.inc` the
+ * grid tool's world export writes beside the scene's C. Its RS_WORLD_SCENE line carries the anchor in
+ * WorldToRs's own convention (directorRs: the tile whose NORTH-west corner is OoT (0,0), one row south
+ * of the matrix's origin), so nothing here is derived or copied by hand, and a re-export after the
+ * matrix moves keeps the row right. Outside the generated block because the export, not zones.json,
+ * owns these numbers; the accessors below read both tables, the generated one first.
+ *
+ * The macro parameters carry a trailing underscore so `.unitsPerTile = unitsPerTile_` is not itself
+ * rewritten by the preprocessor.
+ */
+#define RS_WORLD_SCENE(scene_, originRsX_, originRsY_, directorRsX_, directorRsY_, unitsPerTile_) \
+    {                                                                                             \
+        .sceneId = scene_,                                                                        \
+        .rsOriginX = directorRsX_,                                                                \
+        .rsOriginY = directorRsY_,                                                                \
+        .unitsPerTile = unitsPerTile_,                                                            \
+        .flags = 0,                                                                               \
+    },
+#define RS_WORLD_CHUNK(scene_, squareX_, squareY_, title_, nodeTitle_, nodeRsX_, nodeRsY_, nodeX_, nodeZ_)
+const RsMusicScene kWorldScenes[] = {
+#include "soh/custom/scenes/grid_tool/f2p_overworld/f2p_overworld_world.inc"
+};
+#undef RS_WORLD_SCENE
+#undef RS_WORLD_CHUNK
+
+constexpr size_t kSceneRows = sizeof(kScenes) / sizeof(kScenes[0]);
+constexpr size_t kWorldSceneRows = sizeof(kWorldScenes) / sizeof(kWorldScenes[0]);
+
 } // namespace
 
 extern "C" const RsMusicZone* RsMusicZones_All(int32_t* count) {
@@ -488,21 +518,29 @@ extern "C" const RsMusicZone* RsMusicZones_At(int32_t index) {
 }
 
 extern "C" const RsMusicScene* RsMusicZones_Scene(int16_t sceneId) {
-    for (size_t i = 0; i < sizeof(kScenes) / sizeof(kScenes[0]); i++) {
+    for (size_t i = 0; i < kSceneRows; i++) {
         if (kScenes[i].sceneId == sceneId) {
             return &kScenes[i];
+        }
+    }
+    for (size_t i = 0; i < kWorldSceneRows; i++) {
+        if (kWorldScenes[i].sceneId == sceneId) {
+            return &kWorldScenes[i];
         }
     }
     return NULL;
 }
 
 extern "C" int32_t RsMusicZones_SceneCount(void) {
-    return (int32_t)(sizeof(kScenes) / sizeof(kScenes[0]));
+    return (int32_t)(kSceneRows + kWorldSceneRows);
 }
 
 extern "C" const RsMusicScene* RsMusicZones_SceneAt(int32_t index) {
     if (index < 0 || index >= RsMusicZones_SceneCount()) {
         return NULL;
     }
-    return &kScenes[index];
+    if ((size_t)index < kSceneRows) {
+        return &kScenes[index];
+    }
+    return &kWorldScenes[(size_t)index - kSceneRows];
 }
