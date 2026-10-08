@@ -1,0 +1,13 @@
+{
+  "format": 2,
+  "scene": "world_export_173",
+  "list": "objects/rs_props/world_export_173_50_50/props",
+  "kinds": {
+    "crate-355": "rs_crate_355",
+    "pew-5788": "rs_church_pew_5788"
+  },
+  "props": [
+    {"id":"crate1","kind":"crate-355","pos":[4980,4,4540],"rot":4},
+    {"id":"pew1","kind":"pew-5788","pos":[5120,0,3900],"rot":4}
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "format": 2,
+  "scene": "world_export_173",
+  "list": "objects/rs_props/world_export_173_51_50/props",
+  "kinds": {
+    "crate-355": "rs_crate_355"
+  },
+  "props": [
+    {"id":"crate1","kind":"crate-355","pos":[5260,4,4540],"rot":6}
+  ]
+}
