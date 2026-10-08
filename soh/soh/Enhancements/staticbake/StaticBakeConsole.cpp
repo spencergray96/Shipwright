@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <iterator>
 
 #include <fast/StaticMeshCache.h>
 
@@ -32,10 +33,10 @@ void Describe(const char* op, std::vector<std::string>& lines) {
     } else {
         std::snprintf(groupText, sizeof(groupText), "0x%X", group);
     }
-    // scrolls= (#187 A1) after those, then wind= (#209 W1): the frame's amplitude, 0 when nothing bends.
+    // scrolls= (#187 A1) after those, then wind_amp= (#209 W1): the frame's amplitude, 0 when nothing bends.
     Addf(lines,
          "op=%s result=ok active=%d setting=%d registered=%u baked=%u rejected=%u supported=%d sort=%d group=%s "
-         "scenes=%d links=%d scrolls=%u wind=%g",
+         "scenes=%d links=%d scrolls=%u wind_amp=%g",
          op, StaticBake_IsActive(), StaticBake_Setting(), registered, baked, rejected, StaticBake_BackendSupported(),
          Fast::StaticBakeSortsByMaterial() ? 1 : 0, groupText, StaticBake_HeldScenes(), StaticBake_Links(),
          (unsigned)Fast::StaticBakeGetTextureScrolls().size(), Fast::StaticBakeGetWind().amplitude);
@@ -128,9 +129,9 @@ int32_t RunClock(const std::vector<std::string>& args, std::vector<std::string>&
 // `props`' second half (#187 A1): every baked list with a scrolling draw, keyed as the list lines are.
 // A list with no line here has no scrolling draw.
 void DescribeScrollingLists(std::vector<std::string>& lines) {
-    const std::vector<Fast::StaticBakeScrollingEntry> entries = Fast::StaticBakeGetScrollingEntries();
+    const std::vector<Fast::StaticBakeKeyedEntry> entries = Fast::StaticBakeGetScrollingEntries();
     Addf(lines, "op=props result=ok scroll_lists=%u", (unsigned)entries.size());
-    for (const Fast::StaticBakeScrollingEntry& e : entries) {
+    for (const Fast::StaticBakeKeyedEntry& e : entries) {
         Addf(lines, "op=props scroll_key=%p draws=%u tris=%u scroll_draws=%u scroll_tris=%u", e.key, e.info.draws,
              e.info.tris, e.info.scrollingDraws, e.info.scrollingTris);
     }
@@ -139,9 +140,9 @@ void DescribeScrollingLists(std::vector<std::string>& lines) {
 // And its third (#209 W1): every baked list that recorded a weighted vertex, keyed the same way. A list
 // with no line here has nothing that sways.
 void DescribeWindLists(std::vector<std::string>& lines) {
-    const std::vector<Fast::StaticBakeScrollingEntry> entries = Fast::StaticBakeGetWindEntries();
+    const std::vector<Fast::StaticBakeKeyedEntry> entries = Fast::StaticBakeGetWindEntries();
     Addf(lines, "op=props result=ok wind_lists=%u", (unsigned)entries.size());
-    for (const Fast::StaticBakeScrollingEntry& e : entries) {
+    for (const Fast::StaticBakeKeyedEntry& e : entries) {
         Addf(lines, "op=props wind_key=%p draws=%u tris=%u wind_vertices=%u wind_tris=%u", e.key, e.info.draws,
              e.info.tris, e.info.windVertices, e.info.windTris);
     }
@@ -151,72 +152,84 @@ void DescribeWindLists(std::vector<std::string>& lines) {
 // now is the saved wind (not a session-only or scripted one).
 void DescribeWind(std::vector<std::string>& lines) {
     const Fast::StaticBakeWind w = Fast::StaticBakeGetWind();
-    const Fast::StaticBakeWind s = StaticBake_WindSettings();
-    const bool saved = w.amplitude == s.amplitude && w.frequency == s.frequency && w.wavelength == s.wavelength &&
-                       w.yawDeg == s.yawDeg && w.ripple == s.ripple;
     const Fast::StaticBakeWindStats st = Fast::StaticBakeGetWindStats();
     Addf(lines,
          "op=wind result=ok amp=%g freq=%g wavelength=%g yaw=%g ripple=%g on=%d saved=%d replay_entries=%u "
          "interp_vertices=%u interp_vectors=%u",
-         w.amplitude, w.frequency, w.wavelength, w.yawDeg, w.ripple, w.amplitude != 0.0f ? 1 : 0, saved ? 1 : 0,
-         st.replayEntries, st.interpVertices, st.interpVectors);
+         w.amplitude, w.frequency, w.wavelength, w.yawDeg, w.ripple, w.amplitude != 0.0f ? 1 : 0,
+         w == StaticBake_WindSettings() ? 1 : 0, st.replayEntries, st.interpVertices, st.interpVectors);
+}
+
+// The keys `wind` sets, the field each writes (a pointer to a member of StaticBakeWind: `w.*field` is
+// that member of w) and the range a typed value must fall in. The usage line is built from it too.
+struct WindKey {
+    const char* name;
+    float Fast::StaticBakeWind::* field;
+    double lo;
+    double hi;
+};
+constexpr WindKey kWindKeys[] = {
+    { "amp", &Fast::StaticBakeWind::amplitude, 0.0, 100.0 },
+    { "freq", &Fast::StaticBakeWind::frequency, 0.0, 20.0 },
+    { "wavelength", &Fast::StaticBakeWind::wavelength, 0.0, 100000.0 },
+    { "yaw", &Fast::StaticBakeWind::yawDeg, -360.0, 360.0 },
+    { "ripple", &Fast::StaticBakeWind::ripple, -20.0, 20.0 },
+};
+
+// args[1..] as <key> <value> pairs onto w: each key once, every value in its range. False (w half
+// written; the caller drops it) for anything else.
+bool ParseWindPairs(const std::vector<std::string>& args, Fast::StaticBakeWind& w) {
+    if (args.size() < 3 || (args.size() - 1) % 2 != 0) {
+        return false;
+    }
+    bool seen[std::size(kWindKeys)] = {};
+    for (size_t i = 1; i + 1 < args.size(); i += 2) {
+        size_t k = 0;
+        while (k < std::size(kWindKeys) && args[i] != kWindKeys[k].name) {
+            k++;
+        }
+        double v = 0.0;
+        if (k == std::size(kWindKeys) || seen[k] || !ParseNumber(args[i + 1], kWindKeys[k].lo, kWindKeys[k].hi, v)) {
+            return false;
+        }
+        seen[k] = true;
+        w.*kWindKeys[k].field = (float)v;
+    }
+    return true;
 }
 
 // `wind`: report; set some of the five (all or nothing); reset to the owner's defaults; or go back to the
-// saved wind. `save` (the human sink) also saves a set, and clears the saved values on a reset.
+// saved wind. `save` (the human sink) also saves a set, and clears the saved values on a reset. Every
+// form that succeeds prints the same two lines.
 int32_t RunWind(const std::vector<std::string>& args, std::vector<std::string>& lines, bool save) {
-    if (args.size() <= 1 || (args.size() == 2 && args[1] == "list")) {
-        Describe("wind", lines);
-        DescribeWind(lines);
-        return 0;
-    }
+    const bool report = args.size() <= 1 || (args.size() == 2 && args[1] == "list");
     if (args.size() == 2 && args[1] == "reset") {
         Fast::StaticBakeSetWind(Fast::StaticBakeWind{});
         if (save) {
             StaticBake_ClearWindSettings();
         }
-        Describe("wind", lines);
-        DescribeWind(lines);
-        return 0;
-    }
-    if (args.size() == 2 && args[1] == "saved") {
+    } else if (args.size() == 2 && args[1] == "saved") {
         StaticBake_ApplyWindSettings();
-        Describe("wind", lines);
-        DescribeWind(lines);
-        return 0;
-    }
-    // <key> <value> pairs, each key once, every value in its range; nothing changes unless all are.
-    Fast::StaticBakeWind w = Fast::StaticBakeGetWind();
-    bool ok = args.size() >= 3 && (args.size() - 1) % 2 == 0;
-    for (size_t i = 1; ok && i + 1 < args.size(); i += 2) {
-        double v = 0.0;
-        const std::string& key = args[i];
-        if (key == "amp" && ParseNumber(args[i + 1], 0.0, 100.0, v)) {
-            w.amplitude = (float)v;
-        } else if (key == "freq" && ParseNumber(args[i + 1], 0.0, 20.0, v)) {
-            w.frequency = (float)v;
-        } else if (key == "wavelength" && ParseNumber(args[i + 1], 0.0, 100000.0, v)) {
-            w.wavelength = (float)v;
-        } else if (key == "yaw" && ParseNumber(args[i + 1], -360.0, 360.0, v)) {
-            w.yawDeg = (float)v;
-        } else if (key == "ripple" && ParseNumber(args[i + 1], -20.0, 20.0, v)) {
-            w.ripple = (float)v;
-        } else {
-            ok = false;
+    } else if (!report) {
+        Fast::StaticBakeWind w = Fast::StaticBakeGetWind();
+        if (!ParseWindPairs(args, w) || !Fast::StaticBakeSetWind(w)) {
+            std::string usage = "op=wind result=error error=bad_argument "
+                                "usage=wind(list)|wind(reset)|wind(saved)|wind(<key>,<value>...):";
+            for (const WindKey& k : kWindKeys) {
+                char range[64];
+                std::snprintf(range, sizeof(range), "%s%s[%g,%g]", &k == kWindKeys ? "" : ",", k.name, k.lo, k.hi);
+                usage += range;
+            }
+            lines.push_back(usage);
+            return 1;
         }
-    }
-    if (ok && Fast::StaticBakeSetWind(w)) {
         if (save) {
             StaticBake_SaveWindSettings(w);
         }
-        Describe("wind", lines);
-        DescribeWind(lines);
-        return 0;
     }
-    lines.push_back("op=wind result=error error=bad_argument usage=wind(list)|wind(reset)|wind(saved)|"
-                    "wind(<key>,<value>...):amp[0,100],freq[0,20],wavelength[0,100000],yaw[-360,360],"
-                    "ripple[-20,20]");
-    return 1;
+    Describe("wind", lines);
+    DescribeWind(lines);
+    return 0;
 }
 
 // Both sinks' renderer. `save` is the one difference between them: the human command saves the
@@ -345,8 +358,7 @@ const ConsoleSink::Command staticBakeCommand(
     "(Hz), wavelength, yaw (where it blows to) and ripple, as <key> <value> pairs; reset puts the "
     "owner's defaults back and saved the saved wind. Here a set or reset is saved; from agenttest it "
     "is not. No rebake needed: the wind is read every frame.",
-    { { "status|on|off|rebake|reset|link|sort|props|scroll|clock|texclear|wind", Ship::ArgumentType::TEXT,
-        true },
+    { { "status|on|off|rebake|reset|link|sort|props|scroll|clock|texclear|wind", Ship::ArgumentType::TEXT, true },
       { "on|off|scene|list|clear|path|seconds|run|reset|saved|key", Ship::ArgumentType::TEXT, true },
       { "scene|du|value", Ship::ArgumentType::TEXT, true },
       { "dv|key", Ship::ArgumentType::TEXT, true },
