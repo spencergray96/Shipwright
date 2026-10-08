@@ -81,8 +81,10 @@ bool ValidPath(const std::string& text) {
 int32_t RunScroll(const std::vector<std::string>& args, std::vector<std::string>& lines) {
     if (args.size() <= 1 || (args.size() == 2 && args[1] == "list")) {
         Describe("scroll", lines);
+        // The path goes last: a registration from the host (#187 A2) is not checked the way a typed
+        // one is, and a field that could hold a space has to be the rest of the line.
         for (const Fast::StaticBakeTextureScroll& s : Fast::StaticBakeGetTextureScrolls()) {
-            Addf(lines, "op=scroll path=%s du=%g dv=%g bound=%d", s.path.c_str(), s.du, s.dv, s.bound ? 1 : 0);
+            Addf(lines, "op=scroll du=%g dv=%g bound=%d path=%s", s.du, s.dv, s.bound ? 1 : 0, s.path.c_str());
         }
         return 0;
     }
@@ -99,7 +101,7 @@ int32_t RunScroll(const std::vector<std::string>& args, std::vector<std::string>
         ParseNumber(args[3], -1000.0, 1000.0, dv)) {
         const bool changed = Fast::StaticBakeSetTextureScroll(args[1].c_str(), (float)du, (float)dv);
         Describe("scroll", lines);
-        Addf(lines, "op=scroll set=%s du=%g dv=%g changed=%d", args[1].c_str(), (float)du, (float)dv, changed ? 1 : 0);
+        Addf(lines, "op=scroll du=%g dv=%g changed=%d set=%s", (float)du, (float)dv, changed ? 1 : 0, args[1].c_str());
         return 0;
     }
     lines.push_back("op=scroll result=error error=bad_argument "
@@ -124,9 +126,10 @@ int32_t RunClock(const std::vector<std::string>& args, std::vector<std::string>&
 }
 
 // `props`' second half (#187 A1): every baked list with a scrolling draw, keyed as the list lines are.
+// A list with no line here has no scrolling draw.
 void DescribeScrollingLists(std::vector<std::string>& lines) {
     const std::vector<Fast::StaticBakeScrollingEntry> entries = Fast::StaticBakeGetScrollingEntries();
-    Addf(lines, "op=props scroll_lists=%u", (unsigned)entries.size());
+    Addf(lines, "op=props result=ok scroll_lists=%u", (unsigned)entries.size());
     for (const Fast::StaticBakeScrollingEntry& e : entries) {
         Addf(lines, "op=props scroll_key=%p draws=%u tris=%u scroll_draws=%u scroll_tris=%u", e.key, e.info.draws,
              e.info.tris, e.info.scrollingDraws, e.info.scrollingTris);
@@ -202,7 +205,6 @@ int32_t Run(const std::vector<std::string>& args, std::vector<std::string>& line
     if (sub == "texclear") {
         gfx_texture_cache_clear();
         Describe("texclear", lines);
-        lines.push_back("op=texclear result=ok");
         return 0;
     }
     // The typed word is not echoed: it is free text, and this line is parsed field by field - so no
