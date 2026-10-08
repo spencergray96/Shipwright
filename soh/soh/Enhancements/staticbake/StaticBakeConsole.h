@@ -59,28 +59,30 @@
 //             draws=<n> tris=<n> reason=<rest of line>`. state= is missing (in no mounted archive),
 //             not_displaylist, empty (offered to nothing), or the bake's own: unbaked, baked,
 //             rejected, unregistered. draws= and tris= are the baked entry's, 0 otherwise; reason= is
-//             why the recorder refused it, `none` otherwise. Then `op=props scroll_lists=<n>` and one
-//             line per baked list with a scrolling draw (sturdy-bassoon#187 A1), archive or not:
-//             `op=props scroll_key=<p> draws=<n> tris=<n> scroll_draws=<n> scroll_tris=<n>`, keyed
-//             as the list lines' key= so the two join. Read-only, the same from both sinks
+//             why the recorder refused it, `none` otherwise. Then `op=props result=ok scroll_lists=<n>`
+//             and one line per baked list with a scrolling draw (sturdy-bassoon#187 A1), archive or
+//             not: `op=props scroll_key=<p> draws=<n> tris=<n> scroll_draws=<n> scroll_tris=<n>`,
+//             keyed as the list lines' key= so the two join; a list with no such line has none.
+//             scroll_draws counts the draws whose TEXEL0 moves. Read-only, the same from both sinks
 //
 // Texture scroll (sturdy-bassoon#187 A1): libultraship's registry (fast/StaticMeshCache.h, "Texture
 // scroll"), which belongs to the process - a scene change, `reset`, `rebake` and a texture-cache clear
 // all keep it. Session only from both sinks: nothing here is saved.
 //   scroll [list]  the status line, then one line per registered texture:
-//             `op=scroll path=<archive path> du=<f> dv=<f> bound=<0|1>`. bound=1 once an archive list
-//             has named the path since it was registered; until then nothing draws it scrolling
+//             `op=scroll du=<f> dv=<f> bound=<0|1> path=<archive path>`, the path last, as the rest of
+//             the line. bound=1 once an archive list has named the path since it was registered; until
+//             then nothing draws it scrolling
 //   scroll <path> <du> <dv>  register, change or (0 0) remove one texture's scroll, in texture widths
-//             and heights a second; the status line, then `op=scroll set=<path> du=<f> dv=<f>
-//             changed=<0|1>`. changed=0 is the idempotent case. The rate is read when a list is
+//             and heights a second; the status line, then `op=scroll du=<f> dv=<f> changed=<0|1>
+//             set=<path>`. changed=0 is the idempotent case. The rate is read when a list is
 //             RECORDED: a change to a texture an existing bake holds shows on baked draws after `rebake`
 //   scroll clear  remove every registration; the status line, then `op=scroll cleared=<n>`
 //   clock [<seconds>|run]  the clock every scroll reads: pin it at <seconds> (0-1000000) for
 //             same-picture comparisons, or let it run. Bare, it reports. The status line, then
-//             `op=clock pinned=<0|1> t=<seconds>` (t= the last frame's value)
+//             `op=clock pinned=<0|1> t=<seconds>`, the value the next draw reads (bare and running:
+//             the last frame's sample)
 //   texclear  clear the interpreter's texture cache, as an ocarina textbox does: bakes hold their own
-//             textures and scroll registrations stay. For proving both. The status line, then
-//             `op=texclear result=ok`
+//             textures and scroll registrations stay. For proving both. The status line only
 //
 // `sort` without on or off prints `op=sort result=error error=bad_argument usage=sort(on|off)`; `link`
 // without two scene ids, `op=link result=error error=bad_argument usage=link(<scene>,<scene>)`; a
