@@ -17,7 +17,7 @@
 // inside one session keeps the camera, the time and everything else still, and turning it back on
 // replays the existing bakes rather than re-recording them.
 //
-// Every successful line is `op=<sub> result=ok` and the same ten fields: `active=` whether the bake
+// Every successful line is `op=<sub> result=ok` and the same eleven fields: `active=` whether the bake
 // runs (StaticBake_IsActive: the switch, and 0 on a backend that cannot bake), `setting=` the saved
 // setting (sturdy-bassoon#153; it differs from active= when SOH_STATIC_BAKE decided the session, after
 // an agent-loop switch, or on a backend that cannot bake), `registered=` display lists offered by the
@@ -25,7 +25,8 @@
 // (interpreted for good), `supported=` whether this rendering backend can bake at all (DX11 only),
 // `sort=` whether recordings are ordered by material (sturdy-bassoon#158), `group=` the bake group the registry holds
 // (0x<smallest scene id in it>, or `none`), `scenes=` how many of its scenes have registered rooms
-// since the last reset and `links=` how many `link`s this session added (sturdy-bassoon#157).
+// since the last reset and `links=` how many `link`s this session added (sturdy-bassoon#157), and
+// `scrolls=` how many textures are registered to scroll (sturdy-bassoon#187 A1).
 // registered/baked/rejected count the WHOLE group: a return to a scene visited earlier in the group
 // finds its entries still baked. baked + rejected <
 // registered means some have not been drawn since they were registered or invalidated - or, in a
@@ -58,13 +59,41 @@
 //             draws=<n> tris=<n> reason=<rest of line>`. state= is missing (in no mounted archive),
 //             not_displaylist, empty (offered to nothing), or the bake's own: unbaked, baked,
 //             rejected, unregistered. draws= and tris= are the baked entry's, 0 otherwise; reason= is
-//             why the recorder refused it, `none` otherwise. Read-only, the same from both sinks
+//             why the recorder refused it, `none` otherwise. Then `op=props result=ok scroll_lists=<n>`
+//             and one line per baked list with a scrolling draw (sturdy-bassoon#187 A1), archive or
+//             not: `op=props scroll_key=<p> draws=<n> tris=<n> scroll_draws=<n> scroll_tris=<n>`,
+//             keyed as the list lines' key= so the two join; a list with no such line has none.
+//             scroll_draws counts the draws whose TEXEL0 moves. Read-only, the same from both sinks
+//
+// Texture scroll (sturdy-bassoon#187 A1): libultraship's registry (fast/StaticMeshCache.h, "Texture
+// scroll"), which belongs to the process - a scene change, `reset`, `rebake` and a texture-cache clear
+// all keep it. Session only from both sinks: nothing here is saved.
+//   scroll [list]  the status line, then one line per registered texture:
+//             `op=scroll du=<f> dv=<f> bound=<0|1> path=<archive path>`, the path last, as the rest of
+//             the line. bound=1 once an archive list has named the path since it was registered; until
+//             then nothing draws it scrolling
+//   scroll <path> <du> <dv>  register, change or (0 0) remove one texture's scroll, in texture widths
+//             and heights a second; the status line, then `op=scroll du=<f> dv=<f> changed=<0|1>
+//             set=<path>`. changed=0 is the idempotent case. The rate is read when a list is
+//             RECORDED: a change to a texture an existing bake holds shows on baked draws after `rebake`
+//   scroll clear  remove every registration; the status line, then `op=scroll cleared=<n>`
+//   clock [<seconds>|run]  the clock every scroll reads: pin it at <seconds> (0-1000000) for
+//             same-picture comparisons, or let it run. Bare, it reports. The status line, then
+//             `op=clock pinned=<0|1> t=<seconds>`, the value the next draw reads (bare and running:
+//             the last frame's sample)
+//   texclear  clear the interpreter's texture cache, as an ocarina textbox does: bakes hold their own
+//             textures and scroll registrations stay. For proving both. The status line only
 //
 // `sort` without on or off prints `op=sort result=error error=bad_argument usage=sort(on|off)`; `link`
-// without two scene ids, `op=link result=error error=bad_argument usage=link(<scene>,<scene>)`.
+// without two scene ids, `op=link result=error error=bad_argument usage=link(<scene>,<scene>)`; a
+// `scroll` that is not list, clear or a path with two finite rates (-1000 to 1000),
+// `op=scroll result=error error=bad_argument usage=scroll(list)|scroll(clear)|scroll(<path>,<du>,<dv>)`;
+// a `clock` that is neither run nor a number in range,
+// `op=clock result=error error=bad_argument usage=clock|clock(<seconds>)|clock(run)`. No error line
+// echoes what was typed.
 //
-// Returns 0 for all eight, 1 for an unknown subcommand or a bad sort or link argument - so `rc=` on the agent
-// loop's cmd marker is the pass/fail bit.
+// Returns 0 for all eleven, 1 for an unknown subcommand or a bad sort, link, scroll or clock argument -
+// so `rc=` on the agent loop's cmd marker is the pass/fail bit.
 int32_t StaticBakeConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines);
 int32_t StaticBakeConsole_RunSession(const std::vector<std::string>& args, std::vector<std::string>& lines);
 
