@@ -14,6 +14,11 @@
 //   mode 11 flipbook    sturdy-bassoon#187: one of N bake-registered frame lists, picked by the clock
 //   mode 12 split       sturdy-bassoon#187: a bake-registered base list plus an interpreted one beside it
 //
+// sturdy-bassoon#205 (THROWAWAY): `propbench at <mode + 256> ...` draws that copy in the translucent
+// pass (POLY_XLU_DISP) instead of the opaque one; `propbench room opa|xlu <path>` puts an archive list in
+// the room's own draw, in the opaque pass where a map's prop lists go (before the room's geometry) or
+// in its translucent pass; `propbench alpha ...` sets the replay's alpha curves.
+//
 // `propbench spawn <mode> <n> [dist]` kills any bench actors and spawns n in a wall in front of Link.
 // `propbench clear`, `propbench status`.
 #include <cstdarg>
@@ -105,6 +110,7 @@ typedef struct {
     Gfx* splitDl;
     Gfx* archDl; // resolved once at init
     s32 mode;
+    s32 xlu; // sturdy-bassoon#205: draw into POLY_XLU_DISP
     s32 talking;
     s32 checks;
 } PropBench;
@@ -128,6 +134,8 @@ Gfx sArchPlant[] = {
 };
 
 s32 sBenchId = -1;
+Gfx* sRoomOpa = nullptr; // sturdy-bassoon#205: drawn by z_room.c's room draw
+Gfx* sRoomXlu = nullptr;
 s32 sNullDrawId = -1;
 s32 sLastMode = -1;
 s32 sLastCount = 0;
@@ -169,6 +177,7 @@ s32 FlipFrameAt(s32 count, s32 cycles) {
 void PropBench_Init(Actor* thisx, PlayState* play) {
     PropBench* pb = (PropBench*)thisx;
     pb->mode = thisx->params & 0xFF;
+    pb->xlu = (thisx->params >> 8) & 1;
     pb->archDl = nullptr;
     pb->talking = 0;
     pb->checks = 0;
@@ -261,7 +270,13 @@ static void PropBench_Draw(Actor* thisx, PlayState* play) {
         return;
     }
     OPEN_DISPS(play->state.gfxCtx);
-    Gfx_SetupDL_25Opa(play->state.gfxCtx);
+    // sturdy-bassoon#205: a translucent-pass copy writes its matrix and list into POLY_XLU_DISP.
+    Gfx** disp = pb->xlu ? &POLY_XLU_DISP : &POLY_OPA_DISP;
+    if (pb->xlu) {
+        Gfx_SetupDL_25Xlu(play->state.gfxCtx);
+    } else {
+        Gfx_SetupDL_25Opa(play->state.gfxCtx);
+    }
     switch (pb->mode) {
         case PB_COMP_CRATE:
         case PB_COMP_PLANT:
@@ -275,7 +290,7 @@ static void PropBench_Draw(Actor* thisx, PlayState* play) {
         default:
             break;
     }
-    gSPMatrix(POLY_OPA_DISP++, MATRIX_NEWMTX(play->state.gfxCtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    gSPMatrix((*disp)++, MATRIX_NEWMTX(play->state.gfxCtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
     switch (pb->mode) {
         case PB_COMP_CRATE:
             gSPDisplayList(POLY_OPA_DISP++, sCompCrate);
@@ -291,7 +306,7 @@ static void PropBench_Draw(Actor* thisx, PlayState* play) {
         case PB_PICKUP:
         case PB_ARCH_BAKED:
             if (pb->archDl != nullptr) {
-                gSPDisplayList(POLY_OPA_DISP++, pb->archDl);
+                gSPDisplayList((*disp)++, pb->archDl);
             }
             break;
         case PB_ARCH_PLANT:
@@ -483,6 +498,73 @@ int32_t Run(const std::vector<std::string>& args, std::vector<std::string>& line
         PbMarker("%s", lines.back().c_str());
         return 1;
     }
+    // sturdy-bassoon#205: alpha curves, and lists in the room's own passes.
+    if (sub == "alpha" && args.size() >= 2 && args[1] == "clear") {
+        Fast::StaticBakeClearAlphaCurves();
+        Addf(lines, "propbench alpha cleared=1");
+        PbMarker("%s", lines.back().c_str());
+        return 0;
+    }
+    if (sub == "alpha" && (args.size() < 2 || args[1] == "status")) {
+        const Fast::StaticBakeAlphaStats st = Fast::StaticBakeGetAlphaStats();
+        Addf(lines, "propbench alpha interp_vertices=%u recorded_vertices=%u clock=%.3f", st.interpVertices,
+             st.recordedVertices, Fast::StaticBakeClockSeconds());
+        PbMarker("%s", lines.back().c_str());
+        return 0;
+    }
+    if (sub == "alpha" && args.size() >= 5) {
+        // alpha <curve 0-7> <loop seconds> <end,end,...> <delta,delta,...>: ends are fractions of the
+        // loop, deltas RS transparency steps (0-255), one per frame.
+        std::vector<float> ends, deltas;
+        for (int w = 0; w < 2; w++) {
+            const std::string& list = args[3 + w];
+            size_t at = 0;
+            while (at <= list.size()) {
+                size_t comma = list.find(',', at);
+                (w == 0 ? ends : deltas)
+                    .push_back((float)atof(list.substr(at, comma == std::string::npos ? std::string::npos : comma - at).c_str()));
+                if (comma == std::string::npos) {
+                    break;
+                }
+                at = comma + 1;
+            }
+        }
+        for (float& d : deltas) {
+            d = d / 255.0f;
+        }
+        const bool ok = ends.size() == deltas.size() &&
+                        Fast::StaticBakeSetAlphaCurve(atoi(args[1].c_str()), (float)atof(args[2].c_str()), (int)ends.size(),
+                                                      ends.data(), deltas.data());
+        Addf(lines, "propbench alpha curve=%s loop=%s frames=%d ok=%d", args[1].c_str(), args[2].c_str(), (int)ends.size(), ok);
+        PbMarker("%s", lines.back().c_str());
+        return ok ? 0 : 1;
+    }
+    if (sub == "room" && args.size() >= 2) {
+        // room opa|xlu <path> | room clear: a list in the room's opaque pass (where a map's prop lists go,
+        // before its geometry) or its translucent pass. Registered with the bake unless its path ends in
+        // _interp.
+        if (args[1] == "clear") {
+            sRoomOpa = sRoomXlu = nullptr;
+            Addf(lines, "propbench room cleared=1");
+            PbMarker("%s", lines.back().c_str());
+            return 0;
+        }
+        if (args.size() < 3 || (args[1] != "opa" && args[1] != "xlu")) {
+            Addf(lines, "propbench error=bad_room usage=room_opa|xlu_<path>|clear");
+            return 1;
+        }
+        const std::string p = "__OTR__" + args[2];
+        Gfx* dl = ResourceMgr_LoadGfxByName(p.c_str());
+        const bool interp = p.size() > 7 && p.compare(p.size() - 7, 7, "_interp") == 0;
+        if (dl != nullptr && !interp) {
+            Fast::StaticBakeRegister(dl);
+        }
+        (args[1] == "opa" ? sRoomOpa : sRoomXlu) = dl;
+        Addf(lines, "propbench room pass=%s path=%s resolves=%d registered=%d", args[1].c_str(), args[2].c_str(),
+             dl != nullptr, dl != nullptr && !interp);
+        PbMarker("%s", lines.back().c_str());
+        return dl != nullptr ? 0 : 1;
+    }
     if (sub == "path" && args.size() >= 2) {
         sArchPath = "__OTR__" + args[1];
         Gfx* dl = ResourceMgr_LoadGfxByName(sArchPath.c_str());
@@ -491,15 +573,17 @@ int32_t Run(const std::vector<std::string>& args, std::vector<std::string>& line
         return 0;
     }
     if (sub == "at" && args.size() >= 5) {
-        s32 mode = atoi(args[1].c_str());
+        const s32 raw = atoi(args[1].c_str());
+        s32 mode = raw & 0xFF;
         f32 x = (f32)atof(args[2].c_str()), y = (f32)atof(args[3].c_str()), z = (f32)atof(args[4].c_str());
         s16 ry = args.size() >= 6 ? (s16)strtol(args[5].c_str(), nullptr, 0) : 0;
         if (mode < 0 || mode >= PB_MODE_COUNT) {
             Addf(lines, "propbench error=bad_mode");
             return 1;
         }
-        Actor* a = Actor_Spawn(&play->actorCtx, play, (s16)(mode == PB_NULLDRAW ? sNullDrawId : sBenchId), x, y, z, 0, ry, 0, (s16)mode);
-        Addf(lines, "propbench at mode=%s x=%.0f y=%.0f z=%.0f ry=%d ok=%d", kModeNames[mode], x, y, z, (int)ry, a != nullptr);
+        Actor* a = Actor_Spawn(&play->actorCtx, play, (s16)(mode == PB_NULLDRAW ? sNullDrawId : sBenchId), x, y, z, 0, ry, 0, (s16)raw);
+        Addf(lines, "propbench at mode=%s xlu=%d x=%.0f y=%.0f z=%.0f ry=%d ok=%d", kModeNames[mode], (raw >> 8) & 1, x, y,
+             z, (int)ry, a != nullptr);
         PbMarker("%s", lines.back().c_str());
         return a != nullptr ? 0 : 1;
     }
@@ -512,7 +596,8 @@ int32_t Run(const std::vector<std::string>& args, std::vector<std::string>& line
         return 0;
     }
     if (sub == "spawn" && args.size() >= 3) {
-        s32 mode = atoi(args[1].c_str());
+        const s32 raw = atoi(args[1].c_str()); // sturdy-bassoon#205: + 256 draws in the translucent pass
+        s32 mode = raw & 0xFF;
         s32 n = atoi(args[2].c_str());
         f32 dist = args.size() >= 4 ? (f32)atof(args[3].c_str()) : 500.0f;
         s32 cols = args.size() >= 5 ? atoi(args[4].c_str()) : 25;
@@ -535,7 +620,7 @@ int32_t Run(const std::vector<std::string>& args, std::vector<std::string>& line
             f32 x = base.x + fx * dist + rx * lat;
             f32 z = base.z + fz * dist + rz * lat;
             f32 y = base.y + row * spacing;
-            if (Actor_Spawn(&play->actorCtx, play, (s16)(mode == PB_NULLDRAW ? sNullDrawId : sBenchId), x, y, z, 0, (s16)(yaw + 0x8000), 0, (s16)mode) != nullptr) {
+            if (Actor_Spawn(&play->actorCtx, play, (s16)(mode == PB_NULLDRAW ? sNullDrawId : sBenchId), x, y, z, 0, (s16)(yaw + 0x8000), 0, (s16)raw) != nullptr) {
                 spawned++;
             }
         }
@@ -559,3 +644,8 @@ const ConsoleSink::Command propBenchCommand("propbench", Run, "THROWAWAY #117 pr
                                               { "e", Ship::ArgumentType::TEXT, true } });
 
 } // namespace
+
+// sturdy-bassoon#205: the room draw's lists (z_room.c, func_80095AB4). pass 0 opaque, 1 translucent.
+extern "C" Gfx* PropBench_RoomList(s32 pass) {
+    return pass == 0 ? sRoomOpa : sRoomXlu;
+}
