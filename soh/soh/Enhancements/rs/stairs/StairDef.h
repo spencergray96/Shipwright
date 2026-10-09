@@ -29,6 +29,15 @@
 // not a bigger number here. It is also the width of the row field in `params` and in the text id.
 #define RS_STAIR_MAX_ROWS 4
 
+// One option's WHOLE TEXT, for one destination (the slice F ADR's decision 20, sturdy-bassoon#173): the
+// escape hatch for wording a destination name cannot give. On a two-storey staircase it replaces the
+// question line. It wins over the destination's name. Prose that names a storey writes `{floor:N}`
+// (decision 21), which still expands at read time.
+typedef struct RsStairOverride {
+    int32_t storey;   // the DESTINATION's storey index - the option it replaces
+    const char* text; // the whole option, or the whole question on a two-storey staircase
+} RsStairOverride;
+
 typedef struct RsStairLanding {
     // The STOREY INDEX this row is, 0..9 - what `{floor:N}` names in the menu, never a label
     // (REGION_SETTINGS.md). Rows are ordered by it, strictly ascending, so "up" and "down" are a
@@ -42,6 +51,18 @@ typedef struct RsStairLanding {
     // Checked against the live scene's room count before any move, never here, because
     // registration does not know which scene will be loaded.
     int32_t room;
+
+    // --- the menu's words for this storey (#173 F3; the slice F ADR's decisions 19-21) -------------
+    // Authored on the staircase placement in the grid tool, and so only ever in a generated row; a
+    // hand row leaves all three zero and its menu reads exactly as before.
+    //
+    // What the menu calls this storey wherever ANOTHER storey points at it, article included ("the
+    // throne room"): "Up to the throne room", "Go up to the throne room?". NULL is "the {floor:N}".
+    // Never used for the storey Link is on ("You are on the {floor:N}." stays).
+    const char* destName;
+    // Whole option texts for this placement's own menu, one per destination storey at most.
+    const RsStairOverride* overrides;
+    int32_t overrideCount;
 } RsStairLanding;
 
 // The shortest `landForward` that puts Link down clear of the placement he lands in front of: its

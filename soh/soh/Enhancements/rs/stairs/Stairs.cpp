@@ -41,44 +41,59 @@ namespace {
 
 // --- the menu's words ---------------------------------------------------------------------------
 //
-// Every string a staircase menu can show, as LITERALS, one per storey index. Built by a macro
-// rather than composed at registration so each is a definition string that outlives every textbox
-// (RsActors.h's rule for anything the renderer is handed a pointer to) with no storage to manage.
-// `{floor:N}` is expanded at READ time, so a save-slot switch changes what the menu says with
-// nothing here knowing about it. Ten per phrase because the token takes exactly one digit.
-#define RS_STAIR_TEN(pre, post)                                                                                        \
-    {                                                                                                                  \
-        pre "{floor:0}" post, pre "{floor:1}" post, pre "{floor:2}" post, pre "{floor:3}" post, pre "{floor:4}" post, \
-            pre "{floor:5}" post, pre "{floor:6}" post, pre "{floor:7}" post, pre "{floor:8}" post,                    \
-            pre "{floor:9}" post                                                                                       \
-    }
-
-constexpr int32_t kStoreyCount = 10;
-
-// Two storeys: the question IS the menu, so it names where you are going and the choice confirms.
-const char* const kGoUpTo[kStoreyCount] = RS_STAIR_TEN("Go up to the ", "?");
-const char* const kGoDownTo[kStoreyCount] = RS_STAIR_TEN("Go down to the ", "?");
+// Composed ONCE, at registration, into storage the staircase owns (StairMenus) - so each string
+// outlives every textbox (RsActors.h's rule for anything the renderer is handed a pointer to).
+// `{floor:N}` stays a token in them and is expanded at READ time, so a save-slot switch changes what
+// the menu says with nothing here knowing about it.
+//
+// Two storeys: the question IS the menu, so it names where you are going and the choice confirms:
+// "Go up to <noun>?" with "Go up". Three or four: the body says where you ARE - in a 1x1 shaft every
+// storey looks the same, and that is the one fact the options cannot carry - and each option names a
+// destination: "You are on the {floor:N}." with "Up to <noun>" ... "Down to <noun>", then Cancel.
+//
+// <noun> is the destination's NAME when its placement has one (decision 19), else "the {floor:N}".
+// A placement's OVERRIDE for a destination (decision 20) replaces that whole option - or, on two
+// storeys, the whole question - and wins over the name. A staircase with neither reads byte for byte
+// as it did before either existed.
 const char* const kGoUp = "Go up";
 const char* const kGoDown = "Go down";
-
-// Three or four: the body says where you ARE - in a 1x1 shaft every storey looks the same, and
-// that is the one fact the options cannot carry - and each option names a destination.
-const char* const kYouAreOn[kStoreyCount] = RS_STAIR_TEN("You are on the ", ".");
-const char* const kUpTo[kStoreyCount] = RS_STAIR_TEN("Up to the ", "");
-const char* const kDownTo[kStoreyCount] = RS_STAIR_TEN("Down to the ", "");
-
 const char* const kCancel = "Cancel";
 
-#undef RS_STAIR_TEN
+// Storey indices 0..9: `{floor:N}` takes exactly one digit.
+constexpr int32_t kStoreyCount = 10;
 
-// One staircase's menus, one screen per row, built once. The option arrays are RsDialogueOption so
-// the quest-giver's renderer lays them out unchanged; `dest` is the part the renderer does not need
-// and the actor does - which row picking that line moves to (-1 = Cancel).
+// What another storey calls this one.
+std::string Noun(const RsStairLanding& landing) {
+    if (landing.destName != nullptr) {
+        return landing.destName;
+    }
+    return "the {floor:" + std::to_string(landing.storey) + "}";
+}
+
+// `from`'s override for the option that goes to storey `toStorey`, or null.
+const char* OverrideFor(const RsStairLanding& from, int32_t toStorey) {
+    for (int32_t i = 0; i < from.overrideCount; i++) {
+        if (from.overrides[i].storey == toStorey) {
+            return from.overrides[i].text;
+        }
+    }
+    return nullptr;
+}
+
+// One staircase's menus: one screen per row in each of the four orders, built once. The option arrays
+// are RsDialogueOption so the quest-giver's renderer lays them out unchanged; `dest` is the part the
+// renderer does not need and the actor does - which row picking that line moves to (-1 = Cancel).
+//
+// The words are composed once per (row, destination), and every order's options point into them. They
+// must never move: a StairMenus lives behind a unique_ptr, and nothing resizes a string after
+// BuildMenus.
 struct StairMenus {
     const RsStairDef* def = nullptr;
-    RsDialogueRule screens[RS_STAIR_MAX_ROWS] = {};
-    RsDialogueOption options[RS_STAIR_MAX_ROWS][RS_STAIR_MAX_ROWS] = {};
-    int32_t dest[RS_STAIR_MAX_ROWS][RS_STAIR_MAX_ROWS] = {};
+    std::string bodies[RS_STAIR_MAX_ROWS];
+    std::string labels[RS_STAIR_MAX_ROWS][RS_STAIR_MAX_ROWS]; // [row][the row the option goes to]
+    RsDialogueRule screens[RS_STAIR_MENU_ORDERS][RS_STAIR_MAX_ROWS] = {};
+    RsDialogueOption options[RS_STAIR_MENU_ORDERS][RS_STAIR_MAX_ROWS][RS_STAIR_MAX_ROWS] = {};
+    int32_t dest[RS_STAIR_MENU_ORDERS][RS_STAIR_MAX_ROWS][RS_STAIR_MAX_ROWS] = {};
 };
 
 // unique_ptr, so a registered staircase's screens never move: the renderer and the actor hold
@@ -100,45 +115,110 @@ RsDialogueOption MakeOption(const char* label) {
     return option;
 }
 
-// Builds every row's screen. Assumes the definition's rows and storeys are already known good -
-// the validator calls this only after those checks, then measures what it built.
+// The rows `row`'s menu lists, in `order` (decision 22). Rows are strictly ascending by storey, so
+// "higher" is a bigger row. Each direction's group is listed highest or lowest first, and the lead
+// says which group comes first; a top or bottom storey has one group. Order 0 - highest first, up
+// first - is the lift panel every staircase had before the settings existed.
+int32_t DestinationRows(int32_t count, int32_t row, int32_t order, int32_t* out) {
+    const bool highestFirst = RS_STAIR_MENU_ORDER_LIST(order) == RS_STAIR_LIST_HIGHEST_FIRST;
+    const bool upFirst = RS_STAIR_MENU_ORDER_LEAD(order) == RS_STAIR_LEAD_UP;
+    int32_t n = 0;
+    for (int32_t pass = 0; pass < 2; pass++) {
+        const bool up = (pass == 0) == upFirst;
+        for (int32_t i = 0; i < count; i++) {
+            const int32_t other = highestFirst ? count - 1 - i : i;
+            if (up ? other > row : other < row) {
+                out[n++] = other;
+            }
+        }
+    }
+    return n;
+}
+
+// Builds every row's screen in every order. Assumes the definition's rows, storeys and words are
+// already known good - the validator calls this only after those checks, then measures what it built.
 void BuildMenus(const RsStairDef& def, StairMenus& out) {
     out.def = &def;
+    const bool twoStoreys = def.landingCount == 2;
     for (int32_t row = 0; row < def.landingCount; row++) {
-        RsDialogueRule& screen = out.screens[row];
-        RsDialogueOption* options = out.options[row];
-        int32_t* dest = out.dest[row];
-        int32_t count = 0;
-
-        if (def.landingCount == 2) {
+        const RsStairLanding& here = def.landings[row];
+        if (twoStoreys) {
             // Skip the menu: the other storey is the only place to go, so ask about it by name.
             const int32_t other = 1 - row;
             const bool up = other > row;
-            screen.text = up ? kGoUpTo[def.landings[other].storey] : kGoDownTo[def.landings[other].storey];
-            options[count] = MakeOption(up ? kGoUp : kGoDown);
-            dest[count++] = other;
+            const char* override = OverrideFor(here, def.landings[other].storey);
+            out.bodies[row] = override != nullptr ? std::string(override)
+                                                  : (up ? "Go up to " : "Go down to ") + Noun(def.landings[other]) + "?";
+            out.labels[row][other] = up ? kGoUp : kGoDown;
         } else {
-            screen.text = kYouAreOn[def.landings[row].storey];
-            // Highest first, like a lift panel, so the list reads in the same order as the building.
-            for (int32_t other = def.landingCount - 1; other >= 0; other--) {
+            out.bodies[row] = "You are on the {floor:" + std::to_string(here.storey) + "}.";
+            for (int32_t other = 0; other < def.landingCount; other++) {
                 if (other == row) {
                     continue;
                 }
-                options[count] = MakeOption(other > row ? kUpTo[def.landings[other].storey]
-                                                        : kDownTo[def.landings[other].storey]);
-                dest[count++] = other;
+                const char* override = OverrideFor(here, def.landings[other].storey);
+                out.labels[row][other] = override != nullptr ? std::string(override)
+                                                             : (other > row ? "Up to " : "Down to ") +
+                                                                   Noun(def.landings[other]);
             }
         }
-        options[count] = MakeOption(kCancel);
-        dest[count++] = RS_STAIR_MENU_CANCEL;
-
-        screen.when = nullptr;
-        screen.whenCount = 0;
-        screen.options = options;
-        screen.optionCount = count;
-        screen.missingOf = RS_DLG_NO_MISSING;
-        screen.next = RS_DLG_NO_NEXT;
     }
+    for (int32_t order = 0; order < RS_STAIR_MENU_ORDERS; order++) {
+        for (int32_t row = 0; row < def.landingCount; row++) {
+            RsDialogueRule& screen = out.screens[order][row];
+            RsDialogueOption* options = out.options[order][row];
+            int32_t* dest = out.dest[order][row];
+            int32_t others[RS_STAIR_MAX_ROWS];
+            const int32_t otherCount = DestinationRows(def.landingCount, row, order, others);
+            int32_t count = 0;
+            for (int32_t i = 0; i < otherCount; i++) {
+                options[count] = MakeOption(out.labels[row][others[i]].c_str());
+                dest[count++] = others[i];
+            }
+            options[count] = MakeOption(kCancel);
+            dest[count++] = RS_STAIR_MENU_CANCEL;
+
+            screen.text = out.bodies[row].c_str();
+            screen.when = nullptr;
+            screen.whenCount = 0;
+            screen.options = options;
+            screen.optionCount = count;
+            screen.missingOf = RS_DLG_NO_MISSING;
+            screen.next = RS_DLG_NO_NEXT;
+        }
+    }
+}
+
+// The destination names and overrides (decisions 19-20), before anything is built from them. `where`
+// is the row carrying the bad one.
+bool WordsOk(const RsStairDef& def, int32_t* where) {
+    for (int32_t row = 0; row < def.landingCount; row++) {
+        const RsStairLanding& landing = def.landings[row];
+        *where = row;
+        if (landing.destName != nullptr && landing.destName[0] == '\0') {
+            return false;
+        }
+        if (landing.overrideCount < 0 || (landing.overrideCount > 0 && landing.overrides == nullptr)) {
+            return false;
+        }
+        for (int32_t i = 0; i < landing.overrideCount; i++) {
+            const RsStairOverride& o = landing.overrides[i];
+            if (o.text == nullptr || o.text[0] == '\0' || o.storey == landing.storey) {
+                return false;
+            }
+            bool another = false;
+            for (int32_t other = 0; other < def.landingCount; other++) {
+                another = another || def.landings[other].storey == o.storey;
+            }
+            for (int32_t j = 0; j < i; j++) {
+                another = another && landing.overrides[j].storey != o.storey;
+            }
+            if (!another) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 bool IsToken(const char* name) {
@@ -194,6 +274,13 @@ constexpr int32_t kDefaultBump = 0;
 // the cone within a few ticks. Measured, running at the shaft from off its centre line: 2 ticks opens
 // within 6 units of dead centre, 4 within 3, 8 only dead on (#151 run record, the sweep).
 constexpr int32_t kDefaultBumpHold = 2;
+
+// THE MENU'S ORDER (decision 22, #173 F3): Stairs.h says what the two settings mean and why they are
+// CVars. Their defaults are RS_STAIR_LIST_HIGHEST_FIRST and RS_STAIR_LEAD_UP, the menu as it always was.
+#define CVAR_RS_STAIRS_MENU_LIST CVAR_ENHANCEMENT("RsStairsMenuList")
+#define CVAR_RS_STAIRS_MENU_LEAD CVAR_ENHANCEMENT("RsStairsMenuLead")
+// The order the open box was laid out in (RsStair_LatchMenuOrder).
+int32_t sLatchedMenuOrder = 0;
 
 // Ticks spent at full black after the move, before fading back in. Player's floor raycast runs on
 // its next update, so the first of these is what gives `floorHeight` - and the respawn point, which
@@ -1006,6 +1093,8 @@ extern "C" const char* RsStair_ProblemName(int32_t problem) {
             return "id_taken";
         case RS_STAIR_PROBLEM_LAND_FORWARD:
             return "land_forward";
+        case RS_STAIR_PROBLEM_BAD_WORDS:
+            return "bad_words";
         default:
             return "unknown";
     }
@@ -1047,14 +1136,20 @@ extern "C" int32_t RsStair_DefProblem(const RsStairDef* def, int32_t* where) {
             return RS_STAIR_PROBLEM_BAD_ROOM;
         }
     }
+    if (!WordsOk(*def, at)) {
+        return RS_STAIR_PROBLEM_BAD_WORDS;
+    }
     // Every storey is known good, so the menus can be built - and then measured, which is the only
-    // check that needs them built.
-    StairMenus menus;
-    BuildMenus(*def, menus);
-    for (int32_t row = 0; row < def->landingCount; row++) {
-        *at = row;
-        if (!MenuRenders(menus.screens[row])) {
-            return RS_STAIR_PROBLEM_MENU_OVERFLOWS;
+    // check that needs them built. Every order: the same words, but a box is measured as laid out.
+    // On the heap: four orders of screens and the words behind them are too big for a console's stack.
+    auto menus = std::make_unique<StairMenus>();
+    BuildMenus(*def, *menus);
+    for (int32_t order = 0; order < RS_STAIR_MENU_ORDERS; order++) {
+        for (int32_t row = 0; row < def->landingCount; row++) {
+            *at = row;
+            if (!MenuRenders(menus->screens[order][row])) {
+                return RS_STAIR_PROBLEM_MENU_OVERFLOWS;
+            }
         }
     }
     *at = -1;
@@ -1147,20 +1242,82 @@ extern "C" int32_t RsStair_RowNearestPlayer(int32_t stairId) {
     return best;
 }
 
-extern "C" const RsDialogueRule* RsStair_Screen(int32_t stairId, int32_t row) {
+extern "C" const RsDialogueRule* RsStair_Screen(int32_t stairId, int32_t row, int32_t order) {
     const RsStairDef* def = RsStair_GetDef(stairId);
-    if (def == nullptr || row < 0 || row >= def->landingCount) {
+    if (def == nullptr || row < 0 || row >= def->landingCount || order < 0 || order >= RS_STAIR_MENU_ORDERS) {
         return nullptr;
     }
-    return &sStairs[stairId]->screens[row];
+    return &sStairs[stairId]->screens[order][row];
 }
 
-extern "C" int32_t RsStair_MenuDestination(int32_t stairId, int32_t row, int32_t choiceIndex) {
-    const RsDialogueRule* screen = RsStair_Screen(stairId, row);
+extern "C" int32_t RsStair_MenuDestination(int32_t stairId, int32_t row, int32_t order, int32_t choiceIndex) {
+    const RsDialogueRule* screen = RsStair_Screen(stairId, row, order);
     if (screen == nullptr || choiceIndex < 0 || choiceIndex >= screen->optionCount) {
         return RS_STAIR_MENU_NO_OPTION;
     }
-    return sStairs[stairId]->dest[row][choiceIndex];
+    return sStairs[stairId]->dest[order][row][choiceIndex];
+}
+
+extern "C" int32_t RsStair_GetMenuList(void) {
+    return CVarGetInteger(CVAR_RS_STAIRS_MENU_LIST, RS_STAIR_LIST_HIGHEST_FIRST) == RS_STAIR_LIST_LOWEST_FIRST
+               ? RS_STAIR_LIST_LOWEST_FIRST
+               : RS_STAIR_LIST_HIGHEST_FIRST;
+}
+
+extern "C" int32_t RsStair_GetMenuLead(void) {
+    return CVarGetInteger(CVAR_RS_STAIRS_MENU_LEAD, RS_STAIR_LEAD_UP) == RS_STAIR_LEAD_DOWN ? RS_STAIR_LEAD_DOWN
+                                                                                            : RS_STAIR_LEAD_UP;
+}
+
+extern "C" void RsStair_SetMenuList(int32_t list) {
+    if (list != RS_STAIR_LIST_HIGHEST_FIRST && list != RS_STAIR_LIST_LOWEST_FIRST) {
+        return;
+    }
+    CVarSetInteger(CVAR_RS_STAIRS_MENU_LIST, list);
+    CVarSave();
+}
+
+extern "C" void RsStair_SetMenuLead(int32_t lead) {
+    if (lead != RS_STAIR_LEAD_UP && lead != RS_STAIR_LEAD_DOWN) {
+        return;
+    }
+    CVarSetInteger(CVAR_RS_STAIRS_MENU_LEAD, lead);
+    CVarSave();
+}
+
+extern "C" void RsStair_ClearMenuOrder(void) {
+    CVarClear(CVAR_RS_STAIRS_MENU_LIST);
+    CVarClear(CVAR_RS_STAIRS_MENU_LEAD);
+    CVarSave();
+}
+
+extern "C" int32_t RsStair_MenuListOverridden(void) {
+    return CVarIsSet(CVAR_RS_STAIRS_MENU_LIST);
+}
+
+extern "C" int32_t RsStair_MenuLeadOverridden(void) {
+    return CVarIsSet(CVAR_RS_STAIRS_MENU_LEAD);
+}
+
+extern "C" const char* RsStair_MenuListName(int32_t list) {
+    return list == RS_STAIR_LIST_LOWEST_FIRST ? "lowest" : "highest";
+}
+
+extern "C" const char* RsStair_MenuLeadName(int32_t lead) {
+    return lead == RS_STAIR_LEAD_DOWN ? "down" : "up";
+}
+
+extern "C" int32_t RsStair_MenuOrder(void) {
+    return RS_STAIR_MENU_ORDER(RsStair_GetMenuList(), RsStair_GetMenuLead());
+}
+
+extern "C" int32_t RsStair_LatchMenuOrder(void) {
+    sLatchedMenuOrder = RsStair_MenuOrder();
+    return sLatchedMenuOrder;
+}
+
+extern "C" int32_t RsStair_LatchedMenuOrder(void) {
+    return sLatchedMenuOrder;
 }
 
 extern "C" int32_t RsStair_GetFadeTicks(void) {
@@ -1397,13 +1554,13 @@ int32_t RsStair_ListIds(int32_t* out, int32_t max) {
     return count;
 }
 
-std::string RsStair_ComposeBody(int32_t stairId, int32_t row) {
-    const RsDialogueRule* screen = RsStair_Screen(stairId, row);
+std::string RsStair_ComposeBody(int32_t stairId, int32_t row, int32_t order) {
+    const RsDialogueRule* screen = RsStair_Screen(stairId, row, order);
     return screen != nullptr ? RsFloorText_Compose(screen->text) : std::string();
 }
 
-std::string RsStair_ComposeLabel(int32_t stairId, int32_t row, int32_t index) {
-    const RsDialogueRule* screen = RsStair_Screen(stairId, row);
+std::string RsStair_ComposeLabel(int32_t stairId, int32_t row, int32_t order, int32_t index) {
+    const RsDialogueRule* screen = RsStair_Screen(stairId, row, order);
     if (screen == nullptr || index < 0 || index >= screen->optionCount) {
         return std::string();
     }

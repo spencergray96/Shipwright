@@ -80,16 +80,24 @@ std::string StoreyList(const RsStairDef& def) {
     return out;
 }
 
-// One row's menu, as the textbox composes it under the live convention. The body and labels come
-// from RsStair_Compose*, which read the same screen the renderer is handed.
+// One row's menu, as the textbox composes it under the live convention and in the order the settings
+// say now - the order the next box opened would use. The body and labels come from RsStair_Compose*,
+// which read the same screen the renderer is handed.
 void MenuLines(int32_t stairId, int32_t row, std::vector<std::string>& lines) {
-    const RsDialogueRule* screen = RsStair_Screen(stairId, row);
+    const int32_t order = RsStair_MenuOrder();
+    const RsDialogueRule* screen = RsStair_Screen(stairId, row, order);
     Addf(lines, "menu[%d] options=%d body=\"%s\"", row, screen->optionCount,
-         RsStair_ComposeBody(stairId, row).c_str());
+         RsStair_ComposeBody(stairId, row, order).c_str());
     for (int32_t i = 0; i < screen->optionCount; i++) {
-        Addf(lines, "menu[%d.%d] to_row=%d label=\"%s\"", row, i, RsStair_MenuDestination(stairId, row, i),
-             RsStair_ComposeLabel(stairId, row, i).c_str());
+        Addf(lines, "menu[%d.%d] to_row=%d label=\"%s\"", row, i, RsStair_MenuDestination(stairId, row, order, i),
+             RsStair_ComposeLabel(stairId, row, order, i).c_str());
     }
+}
+
+// The order fields every menu line set is read under: `list=` and `lead=`.
+std::string OrderFields() {
+    return std::string("list=") + RsStair_MenuListName(RsStair_GetMenuList()) +
+           " lead=" + RsStair_MenuLeadName(RsStair_GetMenuLead());
 }
 
 int32_t List(std::vector<std::string>& lines) {
@@ -111,9 +119,9 @@ int32_t Dump(const std::vector<std::string>& args, std::vector<std::string>& lin
     }
     const RsStairDef* def = RsStair_GetDef(stairId);
     const int32_t convention = RsPrefs_GetFloorConvention();
-    Addf(lines, "op=dump stair=%d name=%s scene=0x%X here=%d rows=%d land_forward=%d convention=%s", def->id,
+    Addf(lines, "op=dump stair=%d name=%s scene=0x%X here=%d rows=%d land_forward=%d convention=%s %s", def->id,
          def->name, def->sceneId, InPlay() && gPlayState->sceneNum == def->sceneId ? 1 : 0, def->landingCount,
-         def->landForward, RsPrefs_FloorConventionName(convention));
+         def->landForward, RsPrefs_FloorConventionName(convention), OrderFields().c_str());
     // Each storey's landing is computed from its placement, so it exists only while that placement
     // is loaded: `placed=0` is a storey in another room, or one nobody placed.
     for (int32_t row = 0; row < def->landingCount; row++) {
@@ -143,8 +151,8 @@ int32_t Menu(const std::vector<std::string>& args, std::vector<std::string>& lin
     if (!ParseStair(args, 1, &stairId, lines) || !ParseRow(args, 2, stairId, &row, lines)) {
         return 1;
     }
-    Addf(lines, "op=menu stair=%d row=%d convention=%s", stairId, row,
-         RsPrefs_FloorConventionName(RsPrefs_GetFloorConvention()));
+    Addf(lines, "op=menu stair=%d row=%d convention=%s %s", stairId, row,
+         RsPrefs_FloorConventionName(RsPrefs_GetFloorConvention()), OrderFields().c_str());
     MenuLines(stairId, row, lines);
     return 0;
 }
@@ -262,6 +270,33 @@ int32_t Bump(const std::vector<std::string>& args, std::vector<std::string>& lin
     return 0;
 }
 
+// `stairs order`: the menu's order (decision 22, #173 F3) - two settings, each an override over a build
+// default, the fade's shape. Read when a menu opens, so a change shows on the next box with no reload.
+// Both persist in the owner's config, so a run that sets them clears them again (`order default`).
+int32_t Order(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() >= 2) {
+        const std::string& what = args[1];
+        const std::string value = args.size() >= 3 ? args[2] : "";
+        if (what == "default") {
+            RsStair_ClearMenuOrder();
+        } else if (what == "list" && (value == "highest" || value == "lowest")) {
+            RsStair_SetMenuList(value == "lowest" ? RS_STAIR_LIST_LOWEST_FIRST : RS_STAIR_LIST_HIGHEST_FIRST);
+        } else if (what == "lead" && (value == "up" || value == "down")) {
+            RsStair_SetMenuLead(value == "down" ? RS_STAIR_LEAD_DOWN : RS_STAIR_LEAD_UP);
+        } else {
+            lines.push_back(
+                "op=order result=error error=usage usage=\"stairs order [list highest|lowest | lead up|down | default]\"");
+            return 1;
+        }
+    }
+    // `open_*` is the order the last box was laid out in, which `event=text` named as it opened.
+    const int32_t open = RsStair_LatchedMenuOrder();
+    Addf(lines, "op=order %s list_source=%s lead_source=%s open_list=%s open_lead=%s", OrderFields().c_str(),
+         RsStair_MenuListOverridden() ? "cvar" : "default", RsStair_MenuLeadOverridden() ? "cvar" : "default",
+         RsStair_MenuListName(RS_STAIR_MENU_ORDER_LIST(open)), RsStair_MenuLeadName(RS_STAIR_MENU_ORDER_LEAD(open)));
+    return 0;
+}
+
 int32_t Actors(std::vector<std::string>& lines) {
     if (gPlayState == nullptr) {
         lines.push_back("op=actors scene=none actors=0");
@@ -339,7 +374,8 @@ int32_t BadCheck(std::vector<std::string>& lines) {
 
 const char* kUsage =
     "usage: stairs list | dump <id> | menu <id> <row> | where | go <id> <row> | status | fade [ticks|default] | "
-    "bump [on|off|default|hold <ticks|default>] | actors | badcheck";
+    "bump [on|off|default|hold <ticks|default>] | order [list highest|lowest | lead up|down | default] | actors | "
+    "badcheck";
 
 } // namespace
 
@@ -373,6 +409,9 @@ int32_t RsStairConsole_Run(const std::vector<std::string>& args, std::vector<std
     if (sub == "bump") {
         return Bump(args, lines);
     }
+    if (sub == "order") {
+        return Order(args, lines);
+    }
     if (sub == "actors") {
         return Actors(lines);
     }
@@ -392,11 +431,12 @@ namespace {
 const ConsoleSink::Command stairsCommand(
     "stairs", RsStairConsole_Run,
     "Staircases - menu-driven storey moves (sturdy-bassoon#147): list | dump <id> | menu <id> <row> | where | "
-    "go <id> <row> | status | fade [ticks|default] | bump [on|off|default|hold <ticks|default>] | actors | "
-    "badcheck. `go` runs the same move a staircase's menu does, without the conversation. The move fades by "
+    "go <id> <row> | status | fade [ticks|default] | bump [on|off|default|hold <ticks|default>] | "
+    "order [list highest|lowest | lead up|down | default] | actors | badcheck. `go` runs the same move a staircase's menu does, without the conversation. The move fades by "
     "default; `fade 0` makes it a hard cut and `fade default` goes back. `bump` is walk-into (#151): pushing into "
-    "a staircase opens its menu after the hold. It is off by default; `bump on` switches it on.",
-    { { "list|dump|menu|where|go|status|fade|bump|actors|badcheck", Ship::ArgumentType::TEXT },
+    "a staircase opens its menu after the hold. It is off by default; `bump on` switches it on. `order` is the "
+    "menu's order (#173): destinations highest or lowest first, and from a middle storey up or down first.",
+    { { "list|dump|menu|where|go|status|fade|bump|order|actors|badcheck", Ship::ArgumentType::TEXT },
       { "staircase id, ticks, or on|off|default|hold", Ship::ArgumentType::TEXT, true },
       { "row or ticks", Ship::ArgumentType::TEXT, true } });
 

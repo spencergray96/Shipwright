@@ -78,6 +78,9 @@ typedef enum RsStairProblem {
     RS_STAIR_PROBLEM_ID_TAKEN,        // a different definition already holds this id
     RS_STAIR_PROBLEM_LAND_FORWARD,    // landForward under RS_STAIR_MIN_LAND_FORWARD: Link would land
                                       // inside the placement's collider
+    RS_STAIR_PROBLEM_BAD_WORDS,       // a destination name or an override that is empty, or an override
+                                      // for a storey that is not another row of this staircase, or two
+                                      // for one storey (#173 F3) - the row is the placement carrying it
     RS_STAIR_PROBLEM_COUNT,
 } RsStairProblem;
 
@@ -100,13 +103,59 @@ int32_t RsStair_PlacedLanding(int32_t stairId, int32_t row, float* x, float* y, 
 // console uses as "from"; the actor never needs it, because every placement states its own row.
 int32_t RsStair_RowNearestPlayer(int32_t stairId);
 
-// The menu. `RsStair_Screen` is the screen the renderer lays out for (staircase, row); NULL for a
-// pair that does not exist. `RsStair_MenuDestination` maps a picked row of that box back to the
-// row it moves to, or one of the two sentinels below.
+// THE MENU'S ORDER (the slice F ADR's decision 22, sturdy-bassoon#173 F3): two global settings, read
+// when a menu opens, so a change needs no rebuild and no reload - the owner is testing them with
+// players. Neither is authored per staircase.
+//
+//   list  HIGHEST first (the default: a lift panel, the building's own order) or LOWEST first - the
+//         order within each direction's group;
+//   lead  from a middle storey, the UP group first (the default) or the DOWN group first.
+//
+// Both at their defaults is exactly the menu every staircase had before them. A two-storey staircase
+// has one destination, so neither changes it; a top or bottom storey has one group, so only `list`
+// does. Every staircase builds all four orders at registration (the screens never move while a box
+// is open), so the settings only pick one. CVars, beside the fade and walk-into settings: per install,
+// not per save - a player's preference for reading the menu, not a fact about the world, so it must
+// not change when they load another save (that is rsPrefs' floor convention).
+typedef enum RsStairMenuList {
+    RS_STAIR_LIST_HIGHEST_FIRST = 0,
+    RS_STAIR_LIST_LOWEST_FIRST = 1,
+} RsStairMenuList;
+typedef enum RsStairMenuLead {
+    RS_STAIR_LEAD_UP = 0,
+    RS_STAIR_LEAD_DOWN = 1,
+} RsStairMenuLead;
+// An ORDER is one (list, lead) pair, 0..3; 0 is both defaults.
+#define RS_STAIR_MENU_ORDERS 4
+#define RS_STAIR_MENU_ORDER(list, lead) ((list)*2 + (lead))
+#define RS_STAIR_MENU_ORDER_LIST(order) ((order) / 2)
+#define RS_STAIR_MENU_ORDER_LEAD(order) ((order) % 2)
+
+int32_t RsStair_GetMenuList(void);
+int32_t RsStair_GetMenuLead(void);
+void RsStair_SetMenuList(int32_t list); // an RsStairMenuList; anything else is ignored
+void RsStair_SetMenuLead(int32_t lead); // an RsStairMenuLead; anything else is ignored
+void RsStair_ClearMenuOrder(void);      // both back to the build default
+int32_t RsStair_MenuListOverridden(void);
+int32_t RsStair_MenuLeadOverridden(void);
+const char* RsStair_MenuListName(int32_t list); // "highest" / "lowest"
+const char* RsStair_MenuLeadName(int32_t lead); // "up" / "down"
+
+// The order the settings say right now.
+int32_t RsStair_MenuOrder(void);
+// The order a staircase box is opened in: the settings now, remembered as the open box's order, so
+// the choice it returns is read against the same screen it showed whatever the settings do in
+// between. The text hook calls it once per box; the actor reads the choice back with the latched one.
+int32_t RsStair_LatchMenuOrder(void);
+int32_t RsStair_LatchedMenuOrder(void);
+
+// The menu. `RsStair_Screen` is the screen the renderer lays out for (staircase, row) in `order`; NULL
+// for a pair that does not exist or an order out of range. `RsStair_MenuDestination` maps a picked row
+// of that box back to the row it moves to, or one of the two sentinels below.
 #define RS_STAIR_MENU_CANCEL (-1)    // the Cancel line: close, move nothing
 #define RS_STAIR_MENU_NO_OPTION (-2) // an index the box does not have
-const RsDialogueRule* RsStair_Screen(int32_t stairId, int32_t row);
-int32_t RsStair_MenuDestination(int32_t stairId, int32_t row, int32_t choiceIndex);
+const RsDialogueRule* RsStair_Screen(int32_t stairId, int32_t row, int32_t order);
+int32_t RsStair_MenuDestination(int32_t stairId, int32_t row, int32_t order, int32_t choiceIndex);
 
 // THE MOVE. Arms the controller: fade out, change rooms if the landing is in another one, put Link
 // down in front of `toRow`'s placement, point a void-out at where he landed, fade back in, give
@@ -216,10 +265,10 @@ RsStairStatus RsStair_GetStatus();
 int32_t RsStair_ListIds(int32_t* out, int32_t max);
 
 // The menu as the player would read it RIGHT NOW: the body and each option label expanded under
-// the live floor convention. The console prints this, the textbox renders the same screen, and the
-// labels come from one place, so the two cannot disagree.
-std::string RsStair_ComposeBody(int32_t stairId, int32_t row);
-std::string RsStair_ComposeLabel(int32_t stairId, int32_t row, int32_t index);
+// the live floor convention, in `order`. The console prints this, the textbox renders the same
+// screen, and the labels come from one place, so the two cannot disagree.
+std::string RsStair_ComposeBody(int32_t stairId, int32_t row, int32_t order);
+std::string RsStair_ComposeLabel(int32_t stairId, int32_t row, int32_t order, int32_t index);
 #endif
 
 #endif // SOH_RS_STAIRS_H
