@@ -327,6 +327,9 @@ void LoadInteractionText(uint16_t id, bool* loadFromMessageTable) {
 // naming the staircase it resolved, which is what lets a run check it against the `event=open` the
 // placement wrote a moment earlier.
 void LoadStairText(uint16_t id, bool* loadFromMessageTable) {
+    // Player only, never msgCtx.talkActor: a staircase menu is always a first box Link opened by
+    // talking, and msgCtx.talkActor is only ever cleared by Message_StartOcarina, so between talks it
+    // can name an actor a scene change has freed. Reading it there crashed a planted build (#214).
     Actor* speaker = nullptr;
     const char* via = "none";
     if (gPlayState != nullptr) {
@@ -334,10 +337,6 @@ void LoadStairText(uint16_t id, bool* loadFromMessageTable) {
         if (player != nullptr && player->talkActor != nullptr && player->talkActor->id == ACTOR_RS_STAIRS) {
             speaker = player->talkActor;
             via = "player";
-        } else if (gPlayState->msgCtx.talkActor != nullptr && gPlayState->msgCtx.talkActor->id == ACTOR_RS_STAIRS) {
-            // A continued box: Player may have let go, and the context has caught up by now.
-            speaker = gPlayState->msgCtx.talkActor;
-            via = "msgctx";
         }
     }
     const int32_t row = RS_TEXT_STAIR_GET_ROW(id);
