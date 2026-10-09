@@ -343,11 +343,17 @@ void LoadStairText(uint16_t id, bool* loadFromMessageTable) {
     }
     const int32_t row = RS_TEXT_STAIR_GET_ROW(id);
     const int32_t stairId = speaker != nullptr ? RS_STAIR_PARAMS_GET_ID(speaker->params) : -1;
-    const RsDialogueRule* screen = speaker != nullptr ? RsStair_Screen(stairId, row) : nullptr;
+    // The menu's order is read as the box opens (decision 22, #173 F3), and latched so the choice is
+    // read back against the screen shown here. `list=`/`lead=` name it: the marker the order settings
+    // are proved by.
+    const int32_t order = RsStair_LatchMenuOrder();
+    const RsDialogueRule* screen = speaker != nullptr ? RsStair_Screen(stairId, row, order) : nullptr;
 
-    char line[128];
-    std::snprintf(line, sizeof(line), "rs_stairs stair=%d event=text row=%d options=%d via=%s", stairId, row,
-                  screen != nullptr ? static_cast<int>(screen->optionCount) : 0, via);
+    char line[160];
+    std::snprintf(line, sizeof(line), "rs_stairs stair=%d event=text row=%d options=%d via=%s list=%s lead=%s",
+                  stairId, row, screen != nullptr ? static_cast<int>(screen->optionCount) : 0, via,
+                  RsStair_MenuListName(RS_STAIR_MENU_ORDER_LIST(order)),
+                  RsStair_MenuLeadName(RS_STAIR_MENU_ORDER_LEAD(order)));
     AgentTest_WriteMarker(line);
 
     if (screen == nullptr) {

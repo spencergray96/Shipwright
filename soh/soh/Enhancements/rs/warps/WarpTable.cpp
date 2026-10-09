@@ -3,6 +3,8 @@
 
 #include "soh/ShipInit.hpp"
 
+#include <vector>
+
 extern "C" {
 #include <z64.h> // the SCENE_* ids a table belongs to
 #include "macros.h"
@@ -138,11 +140,32 @@ const RsWarpSceneDef kStoreyHeightsScene = {
     ARRAY_COUNT(kStoreyHeightsTiles),
 };
 
+// --- GENERATED warp tiles (#173 slice F3) ----------------------------------------------------------
+//
+// Every warp tile the grid tool authored, from every exported scene's `<slug>_warps.inc`, through the
+// one aggregate the export keeps (the grid tool README, "The generated tables"). MAP-keyed: a tile's
+// local id is unique within its map, and its destinations name (map, local id). The hand tables above
+// are scene-keyed (the slice F ADR's decision 18), and no scene holds both. A function rather than an
+// array initialiser, so an aggregate with no rows yet compiles.
+void CollectGenerated(std::vector<RsWarpGenRow>& rows, std::vector<RsWarpGenDest>& dests) {
+#define RS_GEN_WARP(map, tile, entry, room) rows.push_back({ (map), (tile), (entry), (room) });
+#define RS_GEN_WARP_DEST(map, tile, toMap, toTile) dests.push_back({ (map), (tile), (toMap), (toTile) });
+#include "soh/custom/scenes/grid_tool/generated/GridToolWarps.inc"
+#undef RS_GEN_WARP
+#undef RS_GEN_WARP_DEST
+}
+
 void RegisterWarpTables() {
     RsWarp_RegisterScene(&kFixtureScene);
     RsWarp_RegisterScene(&kUndergroundOverworldScene);
     RsWarp_RegisterScene(&kUndergroundBasementsScene);
     RsWarp_RegisterScene(&kStoreyHeightsScene);
+
+    std::vector<RsWarpGenRow> rows;
+    std::vector<RsWarpGenDest> dests;
+    CollectGenerated(rows, dests);
+    RsWarp_RegisterGenerated(rows.data(), static_cast<int32_t>(rows.size()), dests.data(),
+                             static_cast<int32_t>(dests.size()));
 }
 
 RegisterShipInitFunc warpTableInitFunc(RegisterWarpTables);
@@ -192,7 +215,104 @@ const RsWarpSceneDef kBadDefs[] = {
     /* 13 */ { SCENE_DEKU_TREE, "entrance_into_itself", kBadEntranceHere, ARRAY_COUNT(kBadEntranceHere) },
 };
 
+// --- the malformed GENERATED tables, for `warps badcheck` (#173 F3) ---------------------------------
+//
+// APPEND ONLY, like kBadDefs. Maps 90 and up are never in any scene. Each warp table has one mistake;
+// the last is a GOOD one that must be accepted: a map's rows carried twice, as its solo scene and a
+// stitched scene both carry them, destinations and all.
+const RsWarpGenRow kGenPair[] = { { 90, 1, RS_WARP_ENTRY_STEP, 0 }, { 90, 2, RS_WARP_ENTRY_STEP, 0 } };
+const RsWarpGenDest kGenPairDests[] = { { 90, 1, 90, 2 }, { 90, 2, 90, 1 } };
+const RsWarpGenRow kGenEntryDiffers[] = { { 91, 1, RS_WARP_ENTRY_STEP, 0 },
+                                          { 91, 2, RS_WARP_ENTRY_STEP, 0 },
+                                          { 91, 1, RS_WARP_ENTRY_PUSH, 0 } };
+const RsWarpGenDest kGenEntryDiffersDests[] = { { 91, 1, 91, 2 }, { 91, 2, 91, 1 }, { 91, 1, 91, 2 } };
+const RsWarpGenRow kGenDestsDiffer[] = { { 92, 1, RS_WARP_ENTRY_STEP, 0 },
+                                         { 92, 2, RS_WARP_ENTRY_STEP, 0 },
+                                         { 92, 3, RS_WARP_ENTRY_STEP, 0 },
+                                         { 92, 1, RS_WARP_ENTRY_STEP, 0 } };
+const RsWarpGenDest kGenDestsDifferDests[] = { { 92, 1, 92, 2 }, { 92, 1, 92, 3 } };
+const RsWarpGenDest kGenOrphanDests[] = { { 90, 1, 90, 2 }, { 90, 2, 90, 1 }, { 90, 5, 90, 1 } };
+const RsWarpGenDest kGenNowhereDests[] = { { 90, 1, 90, 9 } };
+const RsWarpGenDest kGenSelfDests[] = { { 90, 1, 90, 1 } };
+const RsWarpGenRow kGenMapZero[] = { { 0, 1, RS_WARP_ENTRY_STEP, 0 } };
+const RsWarpGenRow kGenTooBig[] = { { 93, RS_WARP_TILE_ID_MAX + 1, RS_WARP_ENTRY_STEP, 0 } };
+const RsWarpGenRow kGenRepeatGood[] = { { 94, 1, RS_WARP_ENTRY_STEP, 0 },
+                                        { 94, 2, RS_WARP_ENTRY_STEP, 0 },
+                                        { 94, 1, RS_WARP_ENTRY_STEP, 0 },
+                                        { 94, 2, RS_WARP_ENTRY_STEP, 0 } };
+const RsWarpGenDest kGenRepeatGoodDests[] = { { 94, 1, 94, 2 }, { 94, 2, 94, 1 }, { 94, 1, 94, 2 },
+                                              { 94, 2, 94, 1 } };
+
+const RsWarpBadGen kBadGen[] = {
+    /* 0 */
+    { kGenEntryDiffers, ARRAY_COUNT(kGenEntryDiffers), kGenEntryDiffersDests, ARRAY_COUNT(kGenEntryDiffersDests),
+      RS_WARP_PROBLEM_ROWS_DISAGREE },
+    /* 1 */
+    { kGenDestsDiffer, ARRAY_COUNT(kGenDestsDiffer), kGenDestsDifferDests, ARRAY_COUNT(kGenDestsDifferDests),
+      RS_WARP_PROBLEM_ROWS_DISAGREE },
+    /* 2 */ { kGenPair, ARRAY_COUNT(kGenPair), kGenOrphanDests, ARRAY_COUNT(kGenOrphanDests), RS_WARP_PROBLEM_DEST_ORPHAN },
+    /* 3 */ { kGenPair, ARRAY_COUNT(kGenPair), kGenNowhereDests, ARRAY_COUNT(kGenNowhereDests), RS_WARP_PROBLEM_BAD_DEST },
+    /* 4 */ { kGenPair, ARRAY_COUNT(kGenPair), kGenSelfDests, ARRAY_COUNT(kGenSelfDests), RS_WARP_PROBLEM_SELF_DEST },
+    /* 5 */ { kGenMapZero, ARRAY_COUNT(kGenMapZero), nullptr, 0, RS_WARP_PROBLEM_BAD_MAP },
+    /* 6 */ { kGenTooBig, ARRAY_COUNT(kGenTooBig), nullptr, 0, RS_WARP_PROBLEM_BAD_ID },
+    /* 7 */
+    { kGenRepeatGood, ARRAY_COUNT(kGenRepeatGood), kGenRepeatGoodDests, ARRAY_COUNT(kGenRepeatGoodDests),
+      RS_WARP_PROBLEM_NONE },
+};
+
+// The map->scene validator's (SceneMaps.h). The step warp fixture's scene and entrance stand in for an
+// exported scene: the validator checks only that the entrance loads the scene the row names.
+const RsGenSceneRow kScene[] = { { SCENE_STEP_WARP_FIXTURE, ENTR_STEP_WARP_FIXTURE_0, RS_GEN_WORLD_NEUTRAL } };
+const RsGenSceneRow kSceneTwice[] = { { SCENE_STEP_WARP_FIXTURE, ENTR_STEP_WARP_FIXTURE_0, RS_GEN_WORLD_NEUTRAL },
+                                      { SCENE_STEP_WARP_FIXTURE, ENTR_STEP_WARP_FIXTURE_0, RS_GEN_WORLD_SOLO } };
+const RsGenSceneRow kSceneWrongEntrance[] = { { SCENE_STEP_WARP_FIXTURE, ENTR_STOREY_HEIGHTS_IN_GAME_178_0,
+                                                RS_GEN_WORLD_NEUTRAL } };
+const RsGenSceneRow kSceneBadWorld[] = { { SCENE_STEP_WARP_FIXTURE, ENTR_STEP_WARP_FIXTURE_0, -7 } };
+const RsGenSceneMapRow kOneMap[] = { { SCENE_STEP_WARP_FIXTURE, { 1, -240, -200, 240, 200 } } };
+const RsGenSceneMapRow kOtherScene[] = { { SCENE_STEP_WARP_FIXTURE, { 1, -240, -200, 240, 200 } },
+                                         { SCENE_STOREY_HEIGHTS_IN_GAME_178, { 2, -240, -200, 240, 200 } } };
+const RsGenSceneMapRow kMapZero[] = { { SCENE_STEP_WARP_FIXTURE, { 0, -240, -200, 240, 200 } } };
+const RsGenSceneMapRow kMapTwice[] = { { SCENE_STEP_WARP_FIXTURE, { 1, -240, -200, 0, 200 } },
+                                       { SCENE_STEP_WARP_FIXTURE, { 1, 0, -200, 240, 200 } } };
+const RsGenSceneMapRow kFlatRect[] = { { SCENE_STEP_WARP_FIXTURE, { 1, 240, -200, 240, 200 } } };
+const RsGenSceneMapRow kOverlap[] = { { SCENE_STEP_WARP_FIXTURE, { 1, -240, -200, 1, 200 } },
+                                      { SCENE_STEP_WARP_FIXTURE, { 2, 0, -200, 240, 200 } } };
+// Two chunks side by side, sharing the edge x = 0: min <= p < max puts x = 0 in the second only.
+const RsGenSceneMapRow kTwoChunks[] = { { SCENE_STEP_WARP_FIXTURE, { 1, -240, -200, 0, 200 } },
+                                        { SCENE_STEP_WARP_FIXTURE, { 2, 0, -200, 240, 200 } } };
+
+const RsMapsBad kBadMaps[] = {
+    /* 0 */ { kSceneTwice, ARRAY_COUNT(kSceneTwice), kOneMap, ARRAY_COUNT(kOneMap), RS_MAPS_PROBLEM_SCENE_TWICE },
+    /* 1 */
+    { kSceneWrongEntrance, ARRAY_COUNT(kSceneWrongEntrance), kOneMap, ARRAY_COUNT(kOneMap),
+      RS_MAPS_PROBLEM_BAD_ENTRANCE },
+    /* 2 */ { kSceneBadWorld, ARRAY_COUNT(kSceneBadWorld), kOneMap, ARRAY_COUNT(kOneMap), RS_MAPS_PROBLEM_BAD_WORLD },
+    /* 3 */ { kScene, ARRAY_COUNT(kScene), kOtherScene, ARRAY_COUNT(kOtherScene), RS_MAPS_PROBLEM_NO_SCENE },
+    /* 4 */ { kScene, ARRAY_COUNT(kScene), nullptr, 0, RS_MAPS_PROBLEM_NO_MAPS },
+    /* 5 */ { kScene, ARRAY_COUNT(kScene), kMapZero, ARRAY_COUNT(kMapZero), RS_MAPS_PROBLEM_BAD_MAP },
+    /* 6 */ { kScene, ARRAY_COUNT(kScene), kMapTwice, ARRAY_COUNT(kMapTwice), RS_MAPS_PROBLEM_MAP_TWICE },
+    /* 7 */ { kScene, ARRAY_COUNT(kScene), kFlatRect, ARRAY_COUNT(kFlatRect), RS_MAPS_PROBLEM_BAD_RECT },
+    /* 8 */ { kScene, ARRAY_COUNT(kScene), kOverlap, ARRAY_COUNT(kOverlap), RS_MAPS_PROBLEM_OVERLAP },
+    /* 9 */ { kScene, ARRAY_COUNT(kScene), kTwoChunks, ARRAY_COUNT(kTwoChunks), RS_MAPS_PROBLEM_NONE },
+};
+
 } // namespace
+
+int32_t RsWarpTable_BadGenCount() {
+    return ARRAY_COUNT(kBadGen);
+}
+
+const RsWarpBadGen* RsWarpTable_BadGen(int32_t index) {
+    return index >= 0 && index < RsWarpTable_BadGenCount() ? &kBadGen[index] : nullptr;
+}
+
+int32_t RsWarpTable_BadMapsCount() {
+    return ARRAY_COUNT(kBadMaps);
+}
+
+const RsMapsBad* RsWarpTable_BadMaps(int32_t index) {
+    return index >= 0 && index < RsWarpTable_BadMapsCount() ? &kBadMaps[index] : nullptr;
+}
 
 int32_t RsWarpTable_BadCount() {
     return ARRAY_COUNT(kBadDefs);

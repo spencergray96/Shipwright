@@ -29,6 +29,15 @@
 // not a bigger number here. It is also the width of the row field in `params` and in the text id.
 #define RS_STAIR_MAX_ROWS 4
 
+// One option's WHOLE TEXT, for one destination (the slice F ADR's decision 20, sturdy-bassoon#173): the
+// escape hatch for wording a destination name cannot give. On a two-storey staircase it replaces the
+// question line. It wins over the destination's name. Prose that names a storey writes `{floor:N}`
+// (decision 21), which still expands at read time.
+typedef struct RsStairOverride {
+    int32_t storey;   // the DESTINATION's storey index - the option it replaces
+    const char* text; // the whole option, or the whole question on a two-storey staircase
+} RsStairOverride;
+
 typedef struct RsStairLanding {
     // The STOREY INDEX this row is, 0..9 - what `{floor:N}` names in the menu, never a label
     // (REGION_SETTINGS.md). Rows are ordered by it, strictly ascending, so "up" and "down" are a
@@ -42,6 +51,24 @@ typedef struct RsStairLanding {
     // Checked against the live scene's room count before any move, never here, because
     // registration does not know which scene will be loaded.
     int32_t room;
+
+    // The MAP NUMBER this storey's placement is in (CONTEXT.md, "Map number"), for a GENERATED row -
+    // one the grid tool authored (#173 slice F). 0 for a hand row, which is SCENE-keyed instead: its
+    // staircase's `sceneId` says where it is (the slice F ADR's decision 18). The mover's `wrong_scene`
+    // asks "is this row's map in the scene Link is in" of a generated row (decision 17).
+    int32_t map;
+
+    // --- the menu's words for this storey (#173 F3; the slice F ADR's decisions 19-21) -------------
+    // Authored on the staircase placement in the grid tool, and so only ever in a generated row; a
+    // hand row leaves all three zero and its menu reads exactly as before.
+    //
+    // What the menu calls this storey wherever ANOTHER storey points at it, article included ("the
+    // throne room"): "Up to the throne room", "Go up to the throne room?". NULL is "the {floor:N}".
+    // Never used for the storey Link is on ("You are on the {floor:N}." stays).
+    const char* destName;
+    // Whole option texts for this placement's own menu, one per destination storey at most.
+    const RsStairOverride* overrides;
+    int32_t overrideCount;
 } RsStairLanding;
 
 // The shortest `landForward` that puts Link down clear of the placement he lands in front of: its
@@ -53,8 +80,11 @@ typedef struct RsStairDef {
     int32_t id;       // RsStairId (StairIds.h)
     const char* name; // snake_case token for console lines and markers
 
-    // The scene the staircase is in. A staircase is a PLACE, not a character, so unlike an NpcId it
-    // does not travel: its rooms are that scene's rooms, and the mover refuses a move anywhere else
+    // The scene the staircase is in - for a HAND staircase. A generated one is RS_STAIR_SCENE_BY_MAP:
+    // each of its rows names its map instead, and the scene is whichever holds that map.
+    //
+    // A staircase is a PLACE, not a character, so unlike an NpcId it does not travel: its rooms are
+    // that scene's rooms (or, generated, its maps' scene's), and the mover refuses a move anywhere else
     // (`wrong_scene`) rather than loading a room number that means something different there. This
     // is the one reason the stairs code reads a scene number.
     int32_t sceneId;
@@ -68,6 +98,36 @@ typedef struct RsStairDef {
     const RsStairLanding* landings;
     int32_t landingCount; // [2, RS_STAIR_MAX_ROWS]
 } RsStairDef;
+
+// --- GENERATED staircases (sturdy-bassoon#173 slice F3) -----------------------------------------
+//
+// A staircase the grid tool authored arrives as ROWS, one per placement, in each exported scene's
+// `<slug>_stairs.inc` (the grid tool README's "The generated tables": RS_GEN_STAIR and
+// RS_GEN_STAIR_OPTION). StairTable.cpp reads every scene's rows through one aggregate, and
+// RsStair_RegisterGenerated (Stairs.h) merges them by staircase id into one RsStairDef each. A
+// staircase's rows may come from more than one scene - a map's solo scene and the stitched scene that
+// holds it carry the same rows - so the merge takes a row it has already seen, and refuses rows for one
+// id that DISAGREE on name, storey, map, room or words (decision 15).
+#define RS_STAIR_SCENE_BY_MAP (-1)
+// One tile, for every generated staircase (decision 1); the rows do not carry it.
+#define RS_STAIR_GEN_LAND_FORWARD 40
+
+typedef struct RsStairGenRow {
+    int32_t stair;
+    const char* name; // snake_case token
+    int32_t row;      // 0 for the bottom; the row in its actor's RS_STAIR_PARAMS
+    int32_t storey;   // its level number in the map
+    int32_t map;      // map number, from 1
+    int32_t room;     // always 0 today
+    const char* destName; // decision 19, or NULL
+} RsStairGenRow;
+
+typedef struct RsStairGenOption {
+    int32_t stair;
+    int32_t row;      // the placement whose menu shows it
+    int32_t toStorey; // the destination it replaces
+    const char* text;
+} RsStairGenOption;
 
 // --- the staircase MENU text band ---------------------------------------------------------------
 //

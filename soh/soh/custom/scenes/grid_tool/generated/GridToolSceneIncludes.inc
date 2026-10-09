@@ -48,4 +48,5 @@
 #include "../../storey_heights_in_game_178/CustomStoreyHeightsInGame178Scene.h" // hand-frozen storey_heights_in_game_178 (sturdy-bassoon#178)
 #include "../storey_classes_178_s2/CustomStoreyClasses178S2Scene.h" // project c0c0178c-0178-4000-8000-000000000052 name storey_classes_178_s2
 #include "../storey_classes_178_s2_rays/CustomStoreyClasses178S2RaysScene.h" // project c0c0178c-0178-4000-8000-000000000053 name storey_classes_178_s2_rays
+#include "../stairs_warps_f3_173/CustomStairsWarpsF3173Scene.h" // project f1730000-0000-4000-8000-0000000000f3 name stairs_warps_f3_173
 // END GRID TOOL EXPORTS

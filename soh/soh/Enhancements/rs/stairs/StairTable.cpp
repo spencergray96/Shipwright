@@ -3,6 +3,8 @@
 
 #include "soh/ShipInit.hpp"
 
+#include <vector>
+
 extern "C" {
 #include <z64.h> // the SCENE_* ids a staircase's landings belong to
 #include "macros.h"
@@ -125,6 +127,22 @@ const RsStairDef kStairStoreyMistyped = {
     ARRAY_COUNT(kStoreyTwo),
 };
 
+// --- GENERATED staircases (#173 slice F3) ----------------------------------------------------------
+//
+// Every staircase the grid tool authored, from every exported scene's `<slug>_stairs.inc`, through the
+// one aggregate the export keeps (the grid tool README, "The generated tables"). These rows are
+// MAP-keyed - each names the map its placement is in - where the hand rows above are scene-keyed
+// (the slice F ADR's decision 18); no scene holds both. RsStair_RegisterGenerated merges them by id.
+// A function rather than an array initialiser, so an aggregate with no rows yet compiles.
+void CollectGenerated(std::vector<RsStairGenRow>& rows, std::vector<RsStairGenOption>& options) {
+#define RS_GEN_STAIR(stair, name, row, storey, map, room, destName) \
+    rows.push_back({ (stair), (name), (row), (storey), (map), (room), (destName) });
+#define RS_GEN_STAIR_OPTION(stair, row, toStorey, text) options.push_back({ (stair), (row), (toStorey), (text) });
+#include "soh/custom/scenes/grid_tool/generated/GridToolStairs.inc"
+#undef RS_GEN_STAIR
+#undef RS_GEN_STAIR_OPTION
+}
+
 void RegisterStairs() {
     RsStair_Register(&kStairCastleSouthTower);
     RsStair_Register(&kStairCastleNorthTower);
@@ -135,6 +153,13 @@ void RegisterStairs() {
     RsStair_Register(&kStairStoreyGrand);
     RsStair_Register(&kStairStoreyParty);
     RsStair_Register(&kStairStoreyMistyped);
+
+    // After the hand rows, so a generated id that clashes with one is the one refused (`id_taken`).
+    std::vector<RsStairGenRow> rows;
+    std::vector<RsStairGenOption> options;
+    CollectGenerated(rows, options);
+    RsStair_RegisterGenerated(rows.data(), static_cast<int32_t>(rows.size()), options.data(),
+                              static_cast<int32_t>(options.size()));
 }
 
 RegisterShipInitFunc stairTableInitFunc(RegisterStairs);
@@ -169,7 +194,128 @@ const RsStairDef kBadDefs[] = {
     /* 11 */ { 250, "lands_in_collider", 0, RS_STAIR_MIN_LAND_FORWARD - 1, kGood, ARRAY_COUNT(kGood) },
 };
 
+// --- the malformed GENERATED tables, for `stairs badcheck` (#173 F3) -------------------------------
+//
+// Rows as an export would write them, one mistake per table. APPEND ONLY, like kBadDefs. Ids 8100 and
+// up are in the debug band and never registered; the last-but-one table is about a clash with a
+// registered hand fixture, and the last is a GOOD table that must be accepted: a row and an option
+// carried twice, as a map's solo scene and a stitched scene that holds it both carry them.
+const RsStairGenRow kGenNameDiffers[] = { { 8100, "gen_a", 0, 0, 1, 0, nullptr }, { 8100, "gen_b", 1, 1, 1, 0, nullptr } };
+const RsStairGenRow kGenStoreyDiffers[] = { { 8101, "gen", 0, 0, 1, 0, nullptr },
+                                            { 8101, "gen", 1, 1, 1, 0, nullptr },
+                                            { 8101, "gen", 1, 2, 1, 0, nullptr } };
+const RsStairGenRow kGenMapDiffers[] = { { 8102, "gen", 0, 0, 1, 0, nullptr },
+                                         { 8102, "gen", 1, 1, 1, 0, nullptr },
+                                         { 8102, "gen", 1, 1, 2, 0, nullptr } };
+const RsStairGenRow kGenWordsDiffer[] = { { 8103, "gen", 0, 0, 1, 0, nullptr },
+                                          { 8103, "gen", 1, 1, 1, 0, "the attic" },
+                                          { 8103, "gen", 1, 1, 1, 0, "the loft" } };
+const RsStairGenRow kGenTwoRows[] = { { 8104, "gen", 0, 0, 1, 0, nullptr }, { 8104, "gen", 1, 1, 1, 0, nullptr } };
+const RsStairGenOption kGenOptionDiffers[] = { { 8104, 0, 1, "Climb up" }, { 8104, 0, 1, "Clamber up" } };
+const RsStairGenRow kGenGap[] = { { 8105, "gen", 0, 0, 1, 0, nullptr }, { 8105, "gen", 2, 2, 1, 0, nullptr } };
+const RsStairGenRow kGenTwoRows106[] = { { 8106, "gen", 0, 0, 1, 0, nullptr }, { 8106, "gen", 1, 1, 1, 0, nullptr } };
+const RsStairGenOption kGenOrphan[] = { { 8106, 3, 1, "Up" } };
+const RsStairGenRow kGenTwoRows107[] = { { 8107, "gen", 0, 0, 1, 0, nullptr }, { 8107, "gen", 1, 1, 1, 0, nullptr } };
+const RsStairGenOption kGenOwnStorey[] = { { 8107, 0, 0, "Stay here" } };
+const RsStairGenRow kGenThreeRows108[] = { { 8108, "gen", 0, 0, 1, 0, nullptr },
+                                           { 8108, "gen", 1, 1, 1, 0, nullptr },
+                                           { 8108, "gen", 2, 2, 1, 0, nullptr } };
+// Too long for its row: since decision 23 this falls back instead of refusing, so the table is ACCEPTED
+// (the expectation below changed with it; the words are checked in kWords).
+const RsStairGenOption kGenTooLong[] = {
+    { 8108, 0, 2, "Climb all the way up the winding stair to the very top of the tall tower" }
+};
+const RsStairGenRow kGenClash[] = { { RS_STAIR_DEBUG_STOREY_STANDARD, "gen", 0, 0, 1, 0, nullptr },
+                                    { RS_STAIR_DEBUG_STOREY_STANDARD, "gen", 1, 1, 1, 0, nullptr } };
+const RsStairGenRow kGenRepeatGood[] = { { 8109, "gen", 0, 0, 1, 0, nullptr },
+                                         { 8109, "gen", 1, 1, 1, 0, "the attic" },
+                                         { 8109, "gen", 0, 0, 1, 0, nullptr },
+                                         { 8109, "gen", 1, 1, 1, 0, "the attic" } };
+const RsStairGenOption kGenRepeatGoodOptions[] = { { 8109, 0, 1, "Climb to {floor:1}" },
+                                                   { 8109, 0, 1, "Climb to {floor:1}" } };
+
+const RsStairBadGen kBadGen[] = {
+    /* 0 */ { kGenNameDiffers, ARRAY_COUNT(kGenNameDiffers), nullptr, 0, RS_STAIR_PROBLEM_ROWS_DISAGREE },
+    /* 1 */ { kGenStoreyDiffers, ARRAY_COUNT(kGenStoreyDiffers), nullptr, 0, RS_STAIR_PROBLEM_ROWS_DISAGREE },
+    /* 2 */ { kGenMapDiffers, ARRAY_COUNT(kGenMapDiffers), nullptr, 0, RS_STAIR_PROBLEM_ROWS_DISAGREE },
+    /* 3 */ { kGenWordsDiffer, ARRAY_COUNT(kGenWordsDiffer), nullptr, 0, RS_STAIR_PROBLEM_ROWS_DISAGREE },
+    /* 4 */
+    { kGenTwoRows, ARRAY_COUNT(kGenTwoRows), kGenOptionDiffers, ARRAY_COUNT(kGenOptionDiffers),
+      RS_STAIR_PROBLEM_ROWS_DISAGREE },
+    /* 5 */ { kGenGap, ARRAY_COUNT(kGenGap), nullptr, 0, RS_STAIR_PROBLEM_ROW_MISSING },
+    /* 6 */
+    { kGenTwoRows106, ARRAY_COUNT(kGenTwoRows106), kGenOrphan, ARRAY_COUNT(kGenOrphan), RS_STAIR_PROBLEM_OPTION_ORPHAN },
+    /* 7 */
+    { kGenTwoRows107, ARRAY_COUNT(kGenTwoRows107), kGenOwnStorey, ARRAY_COUNT(kGenOwnStorey), RS_STAIR_PROBLEM_BAD_WORDS },
+    /* 8 */
+    { kGenThreeRows108, ARRAY_COUNT(kGenThreeRows108), kGenTooLong, ARRAY_COUNT(kGenTooLong),
+      RS_STAIR_PROBLEM_NONE },
+    /* 9 */ { kGenClash, ARRAY_COUNT(kGenClash), nullptr, 0, RS_STAIR_PROBLEM_ID_TAKEN },
+    /* 10 */
+    { kGenRepeatGood, ARRAY_COUNT(kGenRepeatGood), kGenRepeatGoodOptions, ARRAY_COUNT(kGenRepeatGoodOptions),
+      RS_STAIR_PROBLEM_NONE },
+};
+
+// --- the words that fall back, for `stairs badcheck` (decision 23, #173 F3) ------------------------
+//
+// Each staircase registers - none of these is refused - and each must drop exactly `fallbacks` of its
+// words for not fitting. Widths are the renderer's pixel table: an option row is 184 px, and
+// "Down to " is 57 of them, so a destination name has 127 when another storey points DOWN at it. The
+// three balconies straddle that: 126, 127 (exactly at the limit) and 133 px. Ids 8120 and up, never
+// registered.
+const char kLongName[] = "the very top of the party room's great balcony";
+const char kLongOverride[] = "Climb all the way up to the balcony at the very top of the tower";
+const RsStairOverride kLongToStorey1[] = { { 1, kLongOverride } };
+const RsStairOverride kLongToStorey2[] = { { 2, kLongOverride } };
+
+const RsStairLanding kWordsTwoOverride[] = { { 0, 0, 0, nullptr, kLongToStorey1, 1 }, { 1, 0 } };
+const RsStairLanding kWordsTwoName[] = { { 0, 0 }, { 1, 0, 0, kLongName } };
+const RsStairLanding kWordsThreeName[] = { { 0, 0 }, { 1, 0 }, { 2, 0, 0, kLongName } };
+const RsStairLanding kWordsNearLimit[] = { { 0, 0 }, { 1, 0, 0, "the musicians balcony" }, { 2, 0 } };
+const RsStairLanding kWordsAtLimit[] = { { 0, 0 }, { 1, 0, 0, "the minstrels balcony" }, { 2, 0 } };
+const RsStairLanding kWordsOverLimit[] = { { 0, 0 }, { 1, 0, 0, "the bandstand balcony" }, { 2, 0 } };
+const RsStairLanding kWordsChain[] = { { 0, 0, 0, nullptr, kLongToStorey2, 1 }, { 1, 0 }, { 2, 0, 0, kLongName } };
+
+const RsStairDef kWordsDefs[] = {
+    { 8120, "words_two_override", 0, 40, kWordsTwoOverride, ARRAY_COUNT(kWordsTwoOverride) },
+    { 8121, "words_two_name", 0, 40, kWordsTwoName, ARRAY_COUNT(kWordsTwoName) },
+    { 8122, "words_three_name", 0, 40, kWordsThreeName, ARRAY_COUNT(kWordsThreeName) },
+    { 8123, "words_near_limit", 0, 40, kWordsNearLimit, ARRAY_COUNT(kWordsNearLimit) },
+    { 8124, "words_at_limit", 0, 40, kWordsAtLimit, ARRAY_COUNT(kWordsAtLimit) },
+    { 8125, "words_over_limit", 0, 40, kWordsOverLimit, ARRAY_COUNT(kWordsOverLimit) },
+    { 8126, "words_chain", 0, 40, kWordsChain, ARRAY_COUNT(kWordsChain) },
+};
+
+const RsStairWordsCase kWords[] = {
+    /* 0 */ { &kWordsDefs[0], 1 }, // the two-storey question, overridden too long: back to "Go up to ..."
+    /* 1 */ { &kWordsDefs[1], 1 }, // the two-storey question, named too long
+    /* 2 */ { &kWordsDefs[2], 2 }, // the roof named too long: rows 0 and 1 both point at it
+    /* 3 */ { &kWordsDefs[3], 0 }, // 126 px of name: fits under "Down to "
+    /* 4 */ { &kWordsDefs[4], 0 }, // 127 px: exactly the row
+    /* 5 */ { &kWordsDefs[5], 1 }, // 133 px: fits "Up to " from the ground, not "Down to " from the roof
+    /* 6 */ { &kWordsDefs[6], 3 }, // override AND name too long: the ground's option drops both, row 1 the name
+};
+
 } // namespace
+
+int32_t RsStairTable_WordsCount() {
+    return ARRAY_COUNT(kWords);
+}
+
+const RsStairWordsCase* RsStairTable_Words(int32_t index) {
+    return index >= 0 && index < RsStairTable_WordsCount() ? &kWords[index] : nullptr;
+}
+
+int32_t RsStairTable_BadGenCount() {
+    return ARRAY_COUNT(kBadGen);
+}
+
+const RsStairBadGen* RsStairTable_BadGen(int32_t index) {
+    if (index < 0 || index >= RsStairTable_BadGenCount()) {
+        return nullptr;
+    }
+    return &kBadGen[index];
+}
 
 int32_t RsStairTable_BadCount() {
     return ARRAY_COUNT(kBadDefs);

@@ -454,6 +454,7 @@ static void RsStairs_Wait(RsStairs* this, PlayState* play) {
     RsStairsPush push;
     const char* via;
     s32 autoAccept;
+    s32 order;
 
     // Cleared at the top of every tick, and set again below only on a tick the hold is reached.
     // Player updates before props, so it reads a flag set here on its NEXT update; one left standing
@@ -470,9 +471,14 @@ static void RsStairs_Wait(RsStairs* this, PlayState* play) {
         }
         this->bump.count = 0;
         this->bump.offered = 0;
-        screen = RsStair_Screen(this->stairId, this->row);
-        RsStairs_Marker("rs_stairs stair=%d event=open row=%d options=%d via=%s", this->stairId, this->row,
-                        screen != NULL ? (int)screen->optionCount : 0, via);
+        // `list=` and `lead=` are the menu order the settings say now (#173 F3); the box itself is laid
+        // out in the order the text hook latches as it loads, which its `event=text` line names.
+        order = RsStair_MenuOrder();
+        screen = RsStair_Screen(this->stairId, this->row, order);
+        RsStairs_Marker("rs_stairs stair=%d event=open row=%d options=%d via=%s list=%s lead=%s", this->stairId,
+                        this->row, screen != NULL ? (int)screen->optionCount : 0, via,
+                        RsStair_MenuListName(RS_STAIR_MENU_ORDER_LIST(order)),
+                        RsStair_MenuLeadName(RS_STAIR_MENU_ORDER_LEAD(order)));
         this->actionFunc = RsStairs_Talk;
         return;
     }
@@ -524,7 +530,8 @@ static void RsStairs_Talk(RsStairs* this, PlayState* play) {
         }
         // No gating on a staircase menu, so the visible row IS the declared option.
         choice = play->msgCtx.choiceIndex;
-        dest = RsStair_MenuDestination(this->stairId, this->row, choice);
+        // Read against the order the box was laid out in, whatever the settings did since it opened.
+        dest = RsStair_MenuDestination(this->stairId, this->row, RsStair_LatchedMenuOrder(), choice);
         if (dest == RS_STAIR_MENU_NO_OPTION) {
             return;
         }

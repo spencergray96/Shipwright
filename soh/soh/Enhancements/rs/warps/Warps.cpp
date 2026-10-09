@@ -8,11 +8,13 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "soh/Enhancements/agenttest/AgentTest.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
+#include "soh/Enhancements/rs/maps/SceneMaps.h"
 #include "soh/Enhancements/rs/stairs/Stairs.h"
 #include "soh/ShipInit.hpp"
 #include <spdlog/spdlog.h>
@@ -135,6 +137,8 @@ std::string DestToken(const RsWarpDest& dest) {
 // --- per-scene state ----------------------------------------------------------------------------
 
 struct TileState {
+    int32_t id = 0;                    // its local id (the collision's), 1..RS_WARP_TILE_ID_MAX
+    int32_t map = 0;                   // its map number; 0 in a hand scene
     bool present = false;              // found in the collision
     const RsWarpTileDef* def = nullptr; // its row in the table
     const char* bad = nullptr;         // why it is inert for this visit
@@ -158,18 +162,67 @@ struct State {
     bool scanned = false;
     int16_t sceneNum = -1;
     const RsWarpSceneDef* def = nullptr;
-    std::array<TileState, RS_WARP_TILE_ID_MAX + 1> tiles = {};
+    // MAP-KEYED (#173 F3): the scene's tiles are its maps' (SceneMaps.h), one slot per map, so `tiles`
+    // is indexed by TILE KEY (Warps.h), slot * RS_WARP_KEYS_PER_SLOT + local id. A hand scene is one
+    // slot, and its keys are its tile ids. Index 0 of every slot is never a tile.
+    bool mapKeyed = false;
+    int32_t slots = 1;
+    int32_t orphans = 0; // warp polygons in no map's rectangle
+    std::vector<TileState> tiles = std::vector<TileState>(RS_WARP_KEYS_PER_SLOT);
     int32_t present = 0;
     int32_t ok = 0;
     int32_t bad = 0;
     bool arrived = false;     // the first grounded tick in the scene has happened
-    int32_t onTile = 0;       // the tile under him last tick: a CONTACT lasts while this holds
+    int32_t onTile = 0;       // the tile key under him last tick: a CONTACT lasts while this holds
     uint32_t refusedMask = 0; // the reasons already reported this contact, by WhyBit
     int32_t pendingLatch = 0;
     std::string last;
 };
 
 State sState;
+
+bool IsKey(int32_t key) {
+    return key > 0 && key < static_cast<int32_t>(sState.tiles.size()) && key % RS_WARP_KEYS_PER_SLOT != 0;
+}
+
+// A tile by key; only for IsKey keys.
+TileState& T(int32_t key) {
+    return sState.tiles[key];
+}
+
+// How markers name a key: "3" in a hand scene, "<map>:3" in a map-keyed one (Warps.h).
+std::string Token(int32_t key) {
+    char buf[24];
+    RsWarp_TileToken(key, buf, sizeof(buf));
+    return buf;
+}
+
+// Where an IN-PLACE destination of the tile in `fromSlot` is, as a key: a hand scene's RS_WARP_TO, or a
+// generated destination whose map this scene holds. kKeyElsewhere for a generated one whose map is in no
+// map of this scene (slice F5's, until then inert as `dest_elsewhere`), kKeyOtherScene for a hand
+// RS_WARP_TO_SCENE.
+constexpr int32_t kKeyElsewhere = -2;
+constexpr int32_t kKeyOtherScene = -1;
+int32_t DestKey(const RsWarpDest& dest) {
+    if (!sState.mapKeyed) {
+        return IsHere(dest) ? dest.tile : kKeyOtherScene;
+    }
+    const int32_t slot = RsMaps_SlotOf(sState.sceneNum, dest.map);
+    return slot < 0 ? kKeyElsewhere : slot * RS_WARP_KEYS_PER_SLOT + dest.tile;
+}
+
+// The slot a polygon is in: its centroid's map. 0 in a hand scene; -1 for a polygon in no map.
+int32_t SlotOfPoly(const CollisionHeader* col, const CollisionPoly& poly) {
+    if (!sState.mapKeyed) {
+        return 0;
+    }
+    const Vec3s& a = col->vtxList[COLPOLY_VTX_INDEX(poly.flags_vIA)];
+    const Vec3s& b = col->vtxList[COLPOLY_VTX_INDEX(poly.flags_vIB)];
+    const Vec3s& c = col->vtxList[COLPOLY_VTX_INDEX(poly.vIC)];
+    const float x = (static_cast<float>(a.x) + b.x + c.x) / 3.0f;
+    const float z = (static_cast<float>(a.z) + b.z + c.z) / 3.0f;
+    return RsMaps_SlotAt(sState.sceneNum, x, z);
+}
 
 void Marker(const char* fmt, ...) {
     char line[320];
@@ -276,13 +329,35 @@ void Scan(PlayState* play) {
     sState.scanned = true;
     sState.sceneNum = play->sceneNum;
     sState.def = RsWarp_GetSceneDef(play->sceneNum);
+    const int32_t maps = RsMaps_MapCount(play->sceneNum);
 
     // A scene with no route table has no warp tiles, whatever its collision says. The engine never
     // reads these bits, but nothing proves every vanilla scene's data leaves them at zero - so vanilla
-    // scenes, and any other scene nobody routed, are never looked at.
-    if (sState.def == nullptr) {
+    // scenes, and any other scene nobody routed, are never looked at. A MAP-KEYED scene (#173 F3) is
+    // routed by its maps' generated tables instead.
+    if (sState.def == nullptr && maps == 0) {
         return;
     }
+    // A hand table AND generated maps: the slice F ADR's decision 18 says no scene mixes the two, so
+    // this is two exports' worth of disagreement about one scene. Loud, and nothing fires.
+    if (sState.def != nullptr && maps > 0) {
+        SPDLOG_ERROR("RsWarps: scene 0x{:X} has a hand warp table and generated maps; no tile is live", play->sceneNum);
+        Marker("rs_warp event=mixed scene=0x%X table=%s maps=%d", play->sceneNum, sState.def->name, maps);
+        sState.def = nullptr;
+        return;
+    }
+    sState.mapKeyed = maps > 0;
+    sState.slots = sState.mapKeyed ? maps : 1;
+    sState.tiles.assign(static_cast<size_t>(sState.slots) * RS_WARP_KEYS_PER_SLOT, TileState());
+    for (int32_t slot = 0; slot < sState.slots; slot++) {
+        const RsSceneMap* m = sState.mapKeyed ? RsMaps_Map(play->sceneNum, slot) : nullptr;
+        for (int32_t id = 1; id <= RS_WARP_TILE_ID_MAX; id++) {
+            TileState& t = T(slot * RS_WARP_KEYS_PER_SLOT + id);
+            t.id = id;
+            t.map = m != nullptr ? m->map : 0;
+        }
+    }
+
     const CollisionHeader* col = play->colCtx.colHeader;
     if (col != nullptr && col->polyList != nullptr && col->surfaceTypeList != nullptr && col->vtxList != nullptr) {
         for (u32 i = 0; i < col->numPolygons; i++) {
@@ -291,7 +366,13 @@ void Scan(PlayState* play) {
             if (id == 0) {
                 continue;
             }
-            TileState& t = sState.tiles[id];
+            // Position -> map -> (map, local id): the slice F ADR's decision 17.
+            const int32_t slot = SlotOfPoly(col, poly);
+            if (slot < 0) {
+                sState.orphans++;
+                continue;
+            }
+            TileState& t = T(slot * RS_WARP_KEYS_PER_SLOT + id);
             const int32_t dir = RS_WARP_TILE_DIR(col->surfaceTypeList[poly.type].data[0]);
             const Vec3s& a = col->vtxList[COLPOLY_VTX_INDEX(poly.flags_vIA)];
             const Vec3s& b = col->vtxList[COLPOLY_VTX_INDEX(poly.flags_vIB)];
@@ -317,21 +398,39 @@ void Scan(PlayState* play) {
             t.present = true;
         }
     }
+    if (sState.orphans > 0) {
+        // Warp bits outside every map's rectangle: the collision and the map->scene table disagree about
+        // where the maps are. Those polygons belong to no tile, so they never fire.
+        SPDLOG_ERROR("RsWarps: scene 0x{:X} has {} warp polygons in no map", play->sceneNum, sState.orphans);
+    }
 
-    for (int32_t id = 1; id <= RS_WARP_TILE_ID_MAX; id++) {
-        TileState& t = sState.tiles[id];
-        if (t.present) {
+    const int32_t keys = static_cast<int32_t>(sState.tiles.size());
+    for (int32_t key = 1; key < keys; key++) {
+        TileState& t = T(key);
+        if (IsKey(key) && t.present) {
             sState.present++;
             Measure(play, t);
         }
     }
 
     // The table against the collision. A tile only the table knows has nowhere to be; a tile only the
-    // collision knows has nothing to do.
-    if (sState.def != nullptr) {
-        for (int32_t i = 0; i < sState.def->tileCount; i++) {
-            const RsWarpTileDef& row = sState.def->tiles[i];
-            TileState& t = sState.tiles[row.id];
+    // collision knows has nothing to do. A hand scene has one table; a map-keyed one, one per map.
+    for (int32_t slot = 0; slot < sState.slots; slot++) {
+        const RsWarpTileDef* rows = nullptr;
+        int32_t rowCount = 0;
+        if (sState.mapKeyed) {
+            const RsWarpMapDef* mapDef = RsWarp_GetMapDef(RsMaps_Map(play->sceneNum, slot)->map);
+            if (mapDef != nullptr) {
+                rows = mapDef->tiles;
+                rowCount = mapDef->tileCount;
+            }
+        } else {
+            rows = sState.def->tiles;
+            rowCount = sState.def->tileCount;
+        }
+        for (int32_t i = 0; i < rowCount; i++) {
+            const RsWarpTileDef& row = rows[i];
+            TileState& t = T(slot * RS_WARP_KEYS_PER_SLOT + row.id);
             t.def = &row;
             if (!t.present) {
                 t.bad = "missing";
@@ -340,38 +439,46 @@ void Scan(PlayState* play) {
             }
         }
     }
-    for (int32_t id = 1; id <= RS_WARP_TILE_ID_MAX; id++) {
-        TileState& t = sState.tiles[id];
-        if (t.present && t.def == nullptr && t.bad == nullptr) {
+    for (int32_t key = 1; key < keys; key++) {
+        TileState& t = T(key);
+        if (IsKey(key) && t.present && t.def == nullptr && t.bad == nullptr) {
             t.bad = "unrouted";
         }
     }
     // A tile that sends Link to ANOTHER scene (#148) needs that scene's table to have the tile - else
     // there is no room to load him into and no way back. Whether its collision has the tile too is
-    // only knowable there, once it loads: `arrival_failed`, and the scene's spawn instead.
-    for (int32_t id = 1; id <= RS_WARP_TILE_ID_MAX; id++) {
-        TileState& t = sState.tiles[id];
-        if (t.bad != nullptr || t.def == nullptr) {
+    // only knowable there, once it loads: `arrival_failed`, and the scene's spawn instead. A generated
+    // destination in a map this scene does not hold is slice F5's scene picker, not built yet.
+    for (int32_t key = 1; key < keys; key++) {
+        TileState& t = T(key);
+        if (!IsKey(key) || t.bad != nullptr || t.def == nullptr) {
             continue;
         }
         for (int32_t k = 0; k < t.def->destCount; k++) {
-            if (!IsHere(t.def->dests[k]) && OtherSceneRow(t.def->dests[k]) == nullptr) {
+            const int32_t to = DestKey(t.def->dests[k]);
+            if (to == kKeyElsewhere) {
+                t.bad = "dest_elsewhere";
+                break;
+            }
+            if (to == kKeyOtherScene && OtherSceneRow(t.def->dests[k]) == nullptr) {
                 t.bad = "dest_unrouted";
                 break;
             }
         }
     }
     // A tile that sends Link to a broken one is broken too - otherwise it would fire and have nowhere
-    // to put him. Repeated until nothing changes, so a chain of them all goes inert.
+    // to put him. Repeated until nothing changes, so a chain of them all goes inert. In a map-keyed scene
+    // a destination in another of its maps may also be a tile that map's table never routed.
     for (bool changed = true; changed;) {
         changed = false;
-        for (int32_t id = 1; id <= RS_WARP_TILE_ID_MAX; id++) {
-            TileState& t = sState.tiles[id];
-            if (t.bad != nullptr || t.def == nullptr) {
+        for (int32_t key = 1; key < keys; key++) {
+            TileState& t = T(key);
+            if (!IsKey(key) || t.bad != nullptr || t.def == nullptr) {
                 continue;
             }
             for (int32_t k = 0; k < t.def->destCount; k++) {
-                if (IsHere(t.def->dests[k]) && sState.tiles[t.def->dests[k].tile].bad != nullptr) {
+                const int32_t to = DestKey(t.def->dests[k]);
+                if (to >= 0 && (!IsKey(to) || T(to).bad != nullptr || T(to).def == nullptr)) {
                     t.bad = "bad_dest";
                     changed = true;
                     break;
@@ -380,23 +487,28 @@ void Scan(PlayState* play) {
         }
     }
 
-    if (sState.present == 0 && sState.def == nullptr) {
+    if (sState.present == 0 && sState.def == nullptr && !sState.mapKeyed) {
         return; // nothing here, and nothing to say
     }
-    for (int32_t id = 1; id <= RS_WARP_TILE_ID_MAX; id++) {
-        const TileState& t = sState.tiles[id];
-        if (!t.present && t.def == nullptr) {
+    for (int32_t key = 1; key < keys; key++) {
+        const TileState& t = T(key);
+        if (!IsKey(key) || (!t.present && t.def == nullptr)) {
             continue;
         }
         if (t.bad != nullptr) {
             sState.bad++;
             // Loud, never fatal: a broken tile is scene data that disagrees with its table, which a
             // run and a human should both see - and the rest of the scene's tiles still work.
-            SPDLOG_ERROR("RsWarps: scene 0x{:X} tile {} is inert: {}", play->sceneNum, id, t.bad);
-            Marker("rs_warp tile=%d event=bad_tile reason=%s", id, t.bad);
+            SPDLOG_ERROR("RsWarps: scene 0x{:X} tile {} is inert: {}", play->sceneNum, Token(key), t.bad);
+            Marker("rs_warp tile=%s event=bad_tile reason=%s", Token(key).c_str(), t.bad);
         } else {
             sState.ok++;
         }
+    }
+    if (sState.mapKeyed) {
+        Marker("rs_warp event=loaded scene=0x%X table=by_map tiles=%d ok=%d bad=%d maps=%d orphans=%d", play->sceneNum,
+               sState.ok + sState.bad, sState.ok, sState.bad, sState.slots, sState.orphans);
+        return;
     }
     Marker("rs_warp event=loaded scene=0x%X table=%s tiles=%d ok=%d bad=%d", play->sceneNum,
            sState.def != nullptr ? sState.def->name : "none", sState.ok + sState.bad, sState.ok, sState.bad);
@@ -414,7 +526,15 @@ int32_t TileUnder(PlayState* play, Player* player) {
     if (std::fabs(player->actor.world.pos.y - player->actor.floorHeight) > kOnTileY) {
         return 0;
     }
-    return TileIdOf(play->colCtx.colHeader, poly);
+    const int32_t id = TileIdOf(play->colCtx.colHeader, poly);
+    if (id == 0) {
+        return 0;
+    }
+    // Which map's tile (#173 F3): the polygon's own map, the way the scan placed it. Slot 0 in a hand
+    // scene, so the key is the id there.
+    const int32_t slot = SlotOfPoly(play->colCtx.colHeader, *poly);
+    const int32_t key = slot * RS_WARP_KEYS_PER_SLOT + id;
+    return slot >= 0 && IsKey(key) ? key : 0;
 }
 
 float XZDist(const Vec3f& a, const Vec3f& b) {
@@ -424,7 +544,7 @@ float XZDist(const Vec3f& a, const Vec3f& b) {
 }
 
 void Latch(int32_t id, const char* reason, float stick) {
-    TileState& t = sState.tiles[id];
+    TileState& t = T(id);
     if (t.latched) {
         return;
     }
@@ -432,11 +552,11 @@ void Latch(int32_t id, const char* reason, float stick) {
     if (sState.onTile == id) {
         sState.refusedMask &= ~WhyBit(Why::Disarmed); // refused by the latch now: a new thing to say
     }
-    Marker("rs_warp tile=%d event=latch reason=%s stick=%d", id, reason, static_cast<int>(stick));
+    Marker("rs_warp tile=%s event=latch reason=%s stick=%d", Token(id).c_str(), reason, static_cast<int>(stick));
 }
 
 void Rearm(int32_t id, const char* reason) {
-    TileState& t = sState.tiles[id];
+    TileState& t = T(id);
     if (!t.latched) {
         return;
     }
@@ -449,7 +569,7 @@ void Rearm(int32_t id, const char* reason) {
         t.mustLeave = true;
         sState.refusedMask &= ~WhyBit(Why::Disarmed); // still `disarmed`, now for this reason
     }
-    Marker("rs_warp tile=%d event=rearm reason=%s on_tile=%d", id, reason, sState.onTile == id ? 1 : 0);
+    Marker("rs_warp tile=%s event=rearm reason=%s on_tile=%d", Token(id).c_str(), reason, sState.onTile == id ? 1 : 0);
 }
 
 // The direction Link is moving, against "into" the tile: 0 is dead into it. Player keeps his heading
@@ -489,7 +609,7 @@ Why Evaluate(PlayState* play, Player* player, const TileState& t) {
 }
 
 void Fire(Player* player, int32_t id) {
-    TileState& t = sState.tiles[id];
+    TileState& t = T(id);
     const int32_t choices = t.def->destCount;
     // Picked now, every time - not shuffled once when the scene loads. The game's RNG is seeded from
     // the clock in Play_Init (z_play.c), so no visit repeats another's sequence either.
@@ -499,6 +619,9 @@ void Fire(Player* player, int32_t id) {
         pick = pick >= choices ? choices - 1 : pick;
     }
     const RsWarpDest& to = t.def->dests[pick];
+    // In place, the destination's key: the scan made sure it is a live tile of this scene. To another
+    // scene (#148, hand tables only), the tile's id there.
+    const int32_t toKey = DestKey(to) >= 0 ? DestKey(to) : to.tile;
 
     // To another scene, the line says where: an in-place line is unchanged.
     char sceneFields[64] = "";
@@ -506,17 +629,17 @@ void Fire(Player* player, int32_t id) {
         std::snprintf(sceneFields, sizeof(sceneFields), " entrance=0x%X scene_to=0x%X", to.entrance,
                       EntranceScene(to.entrance));
     }
-    Event("rs_warp tile=%d event=fired to=%d pick=%d choices=%d entry=%s pos=%.1f,%.1f,%.1f floor_y=%.1f "
+    Event("rs_warp tile=%s event=fired to=%s pick=%d choices=%d entry=%s pos=%.1f,%.1f,%.1f floor_y=%.1f "
           "move_yaw=%d aim=%d speed=%.1f%s",
-          id, to.tile, pick, choices, RsWarp_EntryName(t.def->entry), player->actor.world.pos.x,
+          Token(id).c_str(), IsHere(to) ? Token(toKey).c_str() : std::to_string(to.tile).c_str(), pick, choices, RsWarp_EntryName(t.def->entry), player->actor.world.pos.x,
           player->actor.world.pos.y, player->actor.world.pos.z, player->actor.floorHeight, player->actor.world.rot.y,
           Degrees(AimOff(t, player)), player->linearVelocity, sceneFields);
 
     RsWarpMoveDest dest = {};
     dest.fromTile = id;
-    dest.toTile = to.tile;
+    dest.toTile = toKey;
     if (IsHere(to)) {
-        const TileState& d = sState.tiles[to.tile];
+        const TileState& d = T(toKey);
         dest.x = d.landing.x;
         dest.y = d.landing.y;
         dest.z = d.landing.z;
@@ -540,7 +663,7 @@ void Fire(Player* player, int32_t id) {
         // In place, the latch is owed here. To another scene this state is gone by the time he lands;
         // the arrival there owes it instead (OnSceneInitWarps).
         if (IsHere(to)) {
-            sState.pendingLatch = to.tile;
+            sState.pendingLatch = toKey;
         }
     }
     // So the `moving` refusal that follows on this same tile is reported.
@@ -572,7 +695,7 @@ void OnPlayerUpdateWarps() {
     if (!sState.arrived && grounded) {
         sState.arrived = true;
         if (tile != 0) {
-            sState.tiles[tile].mustLeave = true;
+            T(tile).mustLeave = true;
         }
     }
     // STEPPING OFF a tile is standing on some other floor - GROUNDED on it, not just a different
@@ -581,9 +704,9 @@ void OnPlayerUpdateWarps() {
     // re-armed the covered hole at the deck's edge in the #154 run, and it fired under a stick that
     // had only just been let go.
     if (grounded && sState.arrived) {
-        for (int32_t id = 1; id <= RS_WARP_TILE_ID_MAX; id++) {
+        for (int32_t id = 1; id < static_cast<int32_t>(sState.tiles.size()); id++) {
             if (id != tile) {
-                sState.tiles[id].mustLeave = false;
+                T(id).mustLeave = false;
             }
         }
     }
@@ -600,8 +723,8 @@ void OnPlayerUpdateWarps() {
         }
         sState.pendingLatch = 0;
     }
-    for (int32_t id = 1; id <= RS_WARP_TILE_ID_MAX; id++) {
-        TileState& t = sState.tiles[id];
+    for (int32_t id = 1; id < static_cast<int32_t>(sState.tiles.size()); id++) {
+        TileState& t = T(id);
         if (!t.latched) {
             continue;
         }
@@ -617,7 +740,7 @@ void OnPlayerUpdateWarps() {
     if (tile == 0) {
         return;
     }
-    TileState& t = sState.tiles[tile];
+    TileState& t = T(tile);
     const Why why = Evaluate(play, player, t);
     if (why == Why::Ok) {
         Fire(player, tile);
@@ -630,9 +753,9 @@ void OnPlayerUpdateWarps() {
     sState.refusedMask |= WhyBit(why);
     // THE marker that proves a negative was challenged: Link was ON the tile, and this is why it did
     // not fire - as opposed to him never reaching it.
-    Event("rs_warp tile=%d event=refused reason=%s entry=%s pos=%.1f,%.1f,%.1f move_yaw=%d aim=%d speed=%.1f stick=%d "
+    Event("rs_warp tile=%s event=refused reason=%s entry=%s pos=%.1f,%.1f,%.1f move_yaw=%d aim=%d speed=%.1f stick=%d "
           "latched=%d must_leave=%d",
-          tile, kWhyNames[whyIndex], t.def != nullptr ? RsWarp_EntryName(t.def->entry) : "none",
+          Token(tile).c_str(), kWhyNames[whyIndex], t.def != nullptr ? RsWarp_EntryName(t.def->entry) : "none",
           player->actor.world.pos.x, player->actor.world.pos.y, player->actor.world.pos.z, player->actor.world.rot.y,
           t.bad == nullptr ? Degrees(AimOff(t, player)) : 0, player->linearVelocity, static_cast<int>(stick),
           t.latched ? 1 : 0, t.mustLeave ? 1 : 0);
@@ -655,7 +778,7 @@ void OnSceneInitWarps(int16_t sceneNum) {
         return;
     }
     Scan(play);
-    const TileState* t = tile >= 1 && tile <= RS_WARP_TILE_ID_MAX ? &sState.tiles[tile] : nullptr;
+    const TileState* t = IsKey(tile) ? &T(tile) : nullptr;
     if (t != nullptr && t->present && t->bad == nullptr) {
         // A tile that is not bad has a row, and the scan checked its room against this scene's.
         RsStair_PlaceSceneArrival(t->landing.x, t->landing.y, t->landing.z, t->yaw, t->def->room, 1);
@@ -715,6 +838,12 @@ extern "C" const char* RsWarp_ProblemName(int32_t problem) {
             return "bad_entrance";
         case RS_WARP_PROBLEM_ENTRANCE_HERE:
             return "entrance_here";
+        case RS_WARP_PROBLEM_ROWS_DISAGREE:
+            return "rows_disagree";
+        case RS_WARP_PROBLEM_DEST_ORPHAN:
+            return "dest_orphan";
+        case RS_WARP_PROBLEM_BAD_MAP:
+            return "bad_map";
         default:
             return "unknown";
     }
@@ -863,6 +992,237 @@ extern "C" int32_t RsWarp_SceneGroup(int32_t sceneId) {
     return group;
 }
 
+// --- generated warp tiles (#173 F3) ---------------------------------------------------------------
+
+namespace {
+
+// One map's generated tiles, merged from its rows. Owned by the registry for the life of the game: the
+// RsWarpMapDef points into `tiles` and each tile into its `dests`, so none of it moves once built - it
+// lives behind a unique_ptr, and the vectors are complete before any pointer into them is taken.
+struct GenMap {
+    RsWarpMapDef def = {};
+    std::vector<RsWarpTileDef> tiles;
+    std::vector<std::vector<RsWarpDest>> dests; // parallel to `tiles`
+    std::vector<int32_t> seen;                  // how many RS_GEN_WARP rows each tile had, parallel too
+    int32_t problem = RS_WARP_PROBLEM_NONE;
+    int32_t where = -1; // the tile's local id
+};
+
+std::vector<std::unique_ptr<GenMap>> sGenMaps;
+bool sGenMapsDone = false;
+
+void FailMap(GenMap& m, int32_t problem, int32_t where) {
+    if (m.problem == RS_WARP_PROBLEM_NONE) {
+        m.problem = problem;
+        m.where = where;
+    }
+}
+
+GenMap& FindOrAddMap(std::vector<std::unique_ptr<GenMap>>& out, int32_t map) {
+    for (auto& m : out) {
+        if (m->def.map == map) {
+            return *m;
+        }
+    }
+    out.push_back(std::make_unique<GenMap>());
+    out.back()->def.map = map;
+    return *out.back();
+}
+
+int32_t TileIndex(const GenMap& m, int32_t id) {
+    for (size_t i = 0; i < m.tiles.size(); i++) {
+        if (m.tiles[i].id == id) {
+            return static_cast<int32_t>(i);
+        }
+    }
+    return -1;
+}
+
+// The checks RsWarp_SceneDefProblem makes of a scene's table, made of one map's. A destination in this
+// map must be one of its tiles; one in another map can only be checked for shape here, since that map's
+// rows may be anywhere - whether the scene holds that map, and the map the tile, is the scan's.
+void CheckMap(GenMap& m) {
+    if (m.def.map < 1) {
+        FailMap(m, RS_WARP_PROBLEM_BAD_MAP, -1);
+    }
+    for (const RsWarpTileDef& tile : m.tiles) {
+        if (tile.id < 1 || tile.id > RS_WARP_TILE_ID_MAX) {
+            FailMap(m, RS_WARP_PROBLEM_BAD_ID, tile.id);
+        } else if (tile.entry < 0 || tile.entry >= RS_WARP_ENTRY_COUNT) {
+            FailMap(m, RS_WARP_PROBLEM_BAD_ENTRY, tile.id);
+        } else if (tile.room < 0 || tile.room > 255) {
+            FailMap(m, RS_WARP_PROBLEM_BAD_ROOM, tile.id);
+        } else if (tile.destCount < 0 || tile.destCount > RS_WARP_MAX_DESTS) {
+            FailMap(m, RS_WARP_PROBLEM_DEST_COUNT, tile.id);
+        }
+    }
+    for (const RsWarpTileDef& tile : m.tiles) {
+        for (int32_t k = 0; k < tile.destCount; k++) {
+            const RsWarpDest& dest = tile.dests[k];
+            if (dest.map < 1) {
+                FailMap(m, RS_WARP_PROBLEM_BAD_MAP, tile.id);
+            } else if (dest.tile < 1 || dest.tile > RS_WARP_TILE_ID_MAX) {
+                FailMap(m, RS_WARP_PROBLEM_BAD_DEST, tile.id);
+            } else if (dest.map == m.def.map && dest.tile == tile.id) {
+                FailMap(m, RS_WARP_PROBLEM_SELF_DEST, tile.id);
+            } else if (dest.map == m.def.map && TileIndex(m, dest.tile) < 0) {
+                FailMap(m, RS_WARP_PROBLEM_BAD_DEST, tile.id);
+            }
+        }
+    }
+}
+
+// Merges the rows by map into `out`, ascending by map, each with the first problem it met (or none).
+//
+// A tile seen twice is the same tile carried by two scenes' tables - its map's solo scene and a
+// stitched scene that holds it (decision 15). Its destination rows then come once per copy, and since
+// every file lists a tile's destinations right after it and the files are read one after another, the
+// rows for one tile are its lists laid end to end: k copies of the same list. So a tile with k rows
+// keeps the first of k equal runs, and any other shape - a count that does not divide, or two runs that
+// differ - is two exports disagreeing about where the tile goes.
+void MergeWarps(const RsWarpGenRow* rows, int32_t rowCount, const RsWarpGenDest* dests, int32_t destCount,
+                std::vector<std::unique_ptr<GenMap>>& out) {
+    for (int32_t i = 0; i < rowCount; i++) {
+        const RsWarpGenRow& r = rows[i];
+        GenMap& m = FindOrAddMap(out, r.map);
+        const int32_t at = TileIndex(m, r.tile);
+        if (at >= 0) {
+            m.seen[at]++;
+            if (m.tiles[at].entry != r.entry || m.tiles[at].room != r.room) {
+                FailMap(m, RS_WARP_PROBLEM_ROWS_DISAGREE, r.tile);
+            }
+            continue;
+        }
+        RsWarpTileDef tile = {};
+        tile.id = r.tile;
+        tile.entry = r.entry;
+        tile.room = r.room;
+        m.tiles.push_back(tile);
+        m.dests.emplace_back();
+        m.seen.push_back(1);
+    }
+    for (int32_t i = 0; i < destCount; i++) {
+        const RsWarpGenDest& d = dests[i];
+        GenMap& m = FindOrAddMap(out, d.map);
+        const int32_t at = TileIndex(m, d.tile);
+        if (at < 0) {
+            FailMap(m, RS_WARP_PROBLEM_DEST_ORPHAN, d.tile);
+            continue;
+        }
+        RsWarpDest dest = {};
+        dest.tile = d.toTile;
+        dest.entrance = RS_WARP_HERE;
+        dest.map = d.toMap;
+        m.dests[at].push_back(dest);
+    }
+    std::sort(out.begin(), out.end(), [](const auto& a, const auto& b) { return a->def.map < b->def.map; });
+    for (auto& mp : out) {
+        GenMap& m = *mp;
+        for (size_t i = 0; i < m.tiles.size(); i++) {
+            std::vector<RsWarpDest>& list = m.dests[i];
+            const size_t copies = static_cast<size_t>(m.seen[i]);
+            if (copies > 1) {
+                const size_t length = list.size() / copies;
+                bool same = list.size() % copies == 0;
+                for (size_t k = length; same && k < list.size(); k++) {
+                    const RsWarpDest& a = list[k % length];
+                    same = a.tile == list[k].tile && a.map == list[k].map;
+                }
+                if (!same) {
+                    FailMap(m, RS_WARP_PROBLEM_ROWS_DISAGREE, m.tiles[i].id);
+                }
+                list.resize(same ? length : list.size());
+            }
+            m.tiles[i].dests = list.empty() ? nullptr : list.data();
+            m.tiles[i].destCount = static_cast<int32_t>(list.size());
+        }
+        m.def.tiles = m.tiles.empty() ? nullptr : m.tiles.data();
+        m.def.tileCount = static_cast<int32_t>(m.tiles.size());
+        CheckMap(m);
+    }
+}
+
+} // namespace
+
+extern "C" int32_t RsWarp_GeneratedProblem(const RsWarpGenRow* rows, int32_t rowCount, const RsWarpGenDest* dests,
+                                           int32_t destCount, int32_t* map, int32_t* where) {
+    std::vector<std::unique_ptr<GenMap>> merged;
+    MergeWarps(rows, rowCount, dests, destCount, merged);
+    for (const auto& m : merged) {
+        if (m->problem != RS_WARP_PROBLEM_NONE) {
+            if (map != nullptr) {
+                *map = m->def.map;
+            }
+            if (where != nullptr) {
+                *where = m->where;
+            }
+            return m->problem;
+        }
+    }
+    if (map != nullptr) {
+        *map = -1;
+    }
+    if (where != nullptr) {
+        *where = -1;
+    }
+    return RS_WARP_PROBLEM_NONE;
+}
+
+extern "C" int32_t RsWarp_RegisterGenerated(const RsWarpGenRow* rows, int32_t rowCount, const RsWarpGenDest* dests,
+                                            int32_t destCount) {
+    if (sGenMapsDone) {
+        return 0; // a ShipInit re-run: the rows are compiled in, and already registered
+    }
+    sGenMapsDone = true;
+    std::vector<std::unique_ptr<GenMap>> merged;
+    MergeWarps(rows, rowCount, dests, destCount, merged);
+    int32_t refused = 0;
+    for (auto& m : merged) {
+        if (m->problem == RS_WARP_PROBLEM_NONE) {
+            sGenMaps.push_back(std::move(m));
+            continue;
+        }
+        // RsWarp_RegisterScene's refusal, keyed on the map: the kind and the tile, never prose.
+        refused++;
+        char line[160];
+        std::snprintf(line, sizeof(line), "rs_warp event=refused problem=%s map=%d row=%d",
+                      RsWarp_ProblemName(m->problem), m->def.map, m->where);
+        AgentTest_WriteMarker(line);
+        SPDLOG_ERROR("RsWarps: register generated map {}: {} at tile {}", m->def.map, RsWarp_ProblemName(m->problem),
+                     m->where);
+        assert(false && "generated warp rows failed validation");
+    }
+    return refused;
+}
+
+extern "C" const RsWarpMapDef* RsWarp_GetMapDef(int32_t map) {
+    for (const auto& m : sGenMaps) {
+        if (m->def.map == map) {
+            return &m->def;
+        }
+    }
+    return nullptr;
+}
+
+extern "C" void RsWarp_TileToken(int32_t key, char* out, int32_t size) {
+    if (out == nullptr || size <= 0) {
+        return;
+    }
+    if (!sState.mapKeyed || !IsKey(key)) {
+        std::snprintf(out, static_cast<size_t>(size), "%d", key);
+        return;
+    }
+    std::snprintf(out, static_cast<size_t>(size), "%d:%d", T(key).map, T(key).id);
+}
+
+std::vector<const RsWarpMapDef*> RsWarp_ListMaps() {
+    std::vector<const RsWarpMapDef*> maps;
+    for (const auto& m : sGenMaps) {
+        maps.push_back(&m->def);
+    }
+    return maps;
+}
+
 // --- C++ surface --------------------------------------------------------------------------------
 
 std::vector<const RsWarpSceneDef*> RsWarp_ListScenes() {
@@ -881,18 +1241,24 @@ RsWarpSceneReport RsWarp_Report() {
     report.scanned = sState.scanned;
     report.sceneNum = sState.sceneNum;
     report.def = sState.def;
+    report.mapKeyed = sState.mapKeyed;
+    report.maps = sState.mapKeyed ? sState.slots : 0;
+    report.orphans = sState.orphans;
     report.ok = sState.ok;
     report.bad = sState.bad;
     report.onTile = sState.onTile;
     report.pendingLatch = sState.pendingLatch;
     report.last = sState.last;
-    for (int32_t id = 1; id <= RS_WARP_TILE_ID_MAX; id++) {
-        const TileState& t = sState.tiles[id];
-        if (!t.present && t.def == nullptr) {
+    for (int32_t key = 1; key < static_cast<int32_t>(sState.tiles.size()); key++) {
+        const TileState& t = T(key);
+        if (!IsKey(key) || (!t.present && t.def == nullptr)) {
             continue;
         }
         RsWarpTileReport r;
-        r.id = id;
+        r.key = key;
+        r.id = t.id;
+        r.map = t.map;
+        r.token = Token(key);
         r.present = t.present;
         r.routed = t.def != nullptr;
         r.bad = t.bad;

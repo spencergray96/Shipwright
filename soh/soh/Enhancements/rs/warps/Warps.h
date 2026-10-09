@@ -87,6 +87,10 @@ typedef enum RsWarpProblem {
     // tables register in no set order - but by the scan, as `dest_unrouted`.
     RS_WARP_PROBLEM_BAD_ENTRANCE,  // neither RS_WARP_HERE nor an entrance id below ENTR_MAX
     RS_WARP_PROBLEM_ENTRANCE_HERE, // an entrance into this table's own scene: that is RS_WARP_TO
+    // Generated rows only (#173 F3), found while merging them by map - RsWarp_RegisterGenerated:
+    RS_WARP_PROBLEM_ROWS_DISAGREE, // one tile given twice with a different entry, room or destinations
+    RS_WARP_PROBLEM_DEST_ORPHAN,   // a destination row for a tile with no RS_GEN_WARP row
+    RS_WARP_PROBLEM_BAD_MAP,       // a map number under 1, here or in a destination
     RS_WARP_PROBLEM_COUNT,
 } RsWarpProblem;
 
@@ -96,6 +100,27 @@ const char* RsWarp_ProblemName(int32_t problem);
 // Idempotent for the same pointer (ShipInit "*" functions re-run on preset apply and config load).
 int32_t RsWarp_RegisterScene(const RsWarpSceneDef* def);
 const RsWarpSceneDef* RsWarp_GetSceneDef(int32_t sceneId);
+
+// GENERATED warp tiles (WarpDef.h): merge every exported scene's rows by map, check each map's table as
+// RsWarp_SceneDefProblem checks a scene's (ids, entries, rooms, destination counts, a destination in the
+// same map that is not one of its tiles, a tile sending Link to itself), and register one RsWarpMapDef
+// per map that the registry owns. A map whose rows are refused is refused whole - BUG class, loud - and
+// the rest still register. Once at boot (a ShipInit re-run is a no-op). Returns how many it refused.
+int32_t RsWarp_RegisterGenerated(const RsWarpGenRow* rows, int32_t rowCount, const RsWarpGenDest* dests,
+                                 int32_t destCount);
+// The same, silent: the first refused map's problem, its number in `map` and the offending tile in `where`.
+int32_t RsWarp_GeneratedProblem(const RsWarpGenRow* rows, int32_t rowCount, const RsWarpGenDest* dests,
+                                int32_t destCount, int32_t* map, int32_t* where);
+const RsWarpMapDef* RsWarp_GetMapDef(int32_t map);
+
+// A TILE KEY: how this scene's scan names one tile. A scene holds up to its map count of SLOTS, one per
+// map (SceneMaps.h; a hand scene is one slot), and each slot numbers its tiles 1..RS_WARP_TILE_ID_MAX,
+// so the key is slot * RS_WARP_KEYS_PER_SLOT + local id. Slot 0's keys are the local ids themselves, so
+// a hand scene's - and a solo scene's - keys are exactly its tile ids. Every `rs_warp tile=` field in a
+// marker names a key by its TOKEN: the id in a hand scene, so those lines are unchanged, and
+// `<map>:<id>` in a map-keyed one, so a stitched scene's two tile 1s are told apart.
+#define RS_WARP_KEYS_PER_SLOT (RS_WARP_TILE_ID_MAX + 1)
+void RsWarp_TileToken(int32_t key, char* out, int32_t size);
 
 // The scene's WARP GROUP (sturdy-bassoon#157): every scene joined to it by a chain of step-warp
 // routes into another scene (RS_WARP_TO_SCENE), in either direction - an overworld and the
@@ -114,7 +139,10 @@ int32_t RsWarp_SceneGroup(int32_t sceneId);
 
 // C++ only, for the console. What the scan found and what the detector holds, for this scene.
 struct RsWarpTileReport {
-    int32_t id;
+    int32_t key;      // the scan's tile key
+    int32_t id;       // the local id the collision carries
+    int32_t map;      // its map number, 0 in a hand scene
+    std::string token; // how markers name it: "3", or "1:3" in a map-keyed scene
     bool present;     // found in the collision
     bool routed;      // in the scene's table
     const char* bad;  // why it is inert, or nullptr
@@ -136,18 +164,22 @@ struct RsWarpSceneReport {
     bool scanned;
     int32_t sceneNum;
     const RsWarpSceneDef* def; // this scene's table, or nullptr
+    bool mapKeyed;             // the scene's tiles are its maps' (SceneMaps.h), not a hand table's
+    int32_t maps;              // how many maps it holds; 0 when not map-keyed
+    int32_t orphans;           // warp polygons in no map's rectangle - an export mistake, so inert
     int32_t ok;
     int32_t bad;
     std::vector<RsWarpTileReport> tiles; // every tile found or routed, by id
-    int32_t onTile;       // the tile under Link as of the last detector tick, 0 for none
+    int32_t onTile;       // the tile KEY under Link as of the last detector tick, 0 for none
     int32_t pendingLatch; // the tile a warp move in flight will latch, if it ends with the stick held
     std::string last;     // the detector's last event (`fired` / `refused`), minus `rs_warp `
 };
 
 RsWarpSceneReport RsWarp_Report();
 std::vector<const RsWarpSceneDef*> RsWarp_ListScenes(); // every registered table, in registration order
+std::vector<const RsWarpMapDef*> RsWarp_ListMaps();     // every generated map table, by map number
 
-// The tile id under Link right now (0 for none), read the way the detector reads it.
+// The tile key under Link right now (0 for none), read the way the detector reads it.
 int32_t RsWarp_TileUnderPlayer();
 
 const char* RsWarp_DirName(int32_t dir);     // "+z", "+x", "-z", "-x"

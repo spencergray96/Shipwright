@@ -42,7 +42,8 @@ typedef enum RsStairResult {
     RS_STAIR_ERR_BAD_ROW = 2,     // not a row of that staircase
     RS_STAIR_ERR_BUSY = 3,        // a move is already in flight
     RS_STAIR_ERR_NO_PLAY = 4,     // no scene, or Link does not exist yet
-    RS_STAIR_ERR_WRONG_SCENE = 5, // the staircase's landings are in a different scene
+    RS_STAIR_ERR_WRONG_SCENE = 5, // the destination row is in a different scene: a hand staircase's
+                                  // scene is another, or a generated row's map is in no map of this one
     RS_STAIR_ERR_BAD_ROOM = 6,    // the landing names a room this scene does not have
     RS_STAIR_ERR_NO_PLACEMENT = 7, // the destination storey has no placement to land in front of.
                                    // Refused up front when that storey is in the loaded room; in
@@ -78,11 +79,37 @@ typedef enum RsStairProblem {
     RS_STAIR_PROBLEM_ID_TAKEN,        // a different definition already holds this id
     RS_STAIR_PROBLEM_LAND_FORWARD,    // landForward under RS_STAIR_MIN_LAND_FORWARD: Link would land
                                       // inside the placement's collider
+    RS_STAIR_PROBLEM_BAD_WORDS,       // a destination name or an override that is empty, or an override
+                                      // for a storey that is not another row of this staircase, or two
+                                      // for one storey (#173 F3) - the row is the placement carrying it
+    // Generated rows only (#173 F3), found while merging them by id - RsStair_RegisterGenerated:
+    RS_STAIR_PROBLEM_ROWS_DISAGREE, // two rows for one id disagree on name, or one row given twice
+                                    // with a different storey, map, room, name or option text
+    RS_STAIR_PROBLEM_ROW_MISSING,   // rows are not 0..n-1: one in the middle has no placement
+    RS_STAIR_PROBLEM_OPTION_ORPHAN, // an option override for a row with no placement row
     RS_STAIR_PROBLEM_COUNT,
 } RsStairProblem;
 
 int32_t RsStair_DefProblem(const RsStairDef* def, int32_t* where);
 const char* RsStair_ProblemName(int32_t problem); // "row_count", "storey_order", ...
+
+// GENERATED staircases (StairDef.h): merge every exported scene's rows by staircase id, then register
+// each one as an RsStairDef the registry owns, with sceneId RS_STAIR_SCENE_BY_MAP and landForward
+// RS_STAIR_GEN_LAND_FORWARD. A staircase whose rows cannot be merged, or whose merged definition
+// RsStair_DefProblem refuses, is refused as RsStair_Register refuses one - BUG class, loud - and the
+// rest still register. Called once at boot (a ShipInit re-run is a no-op). Returns how many it refused.
+int32_t RsStair_RegisterGenerated(const RsStairGenRow* rows, int32_t rowCount, const RsStairGenOption* options,
+                                  int32_t optionCount);
+// The same merge and checks, silent: the first refused staircase's problem (RS_STAIR_PROBLEM_NONE if
+// none is), its id in `stairId` and the row in `where`. For `stairs badcheck`'s planted tables.
+int32_t RsStair_GeneratedProblem(const RsStairGenRow* rows, int32_t rowCount, const RsStairGenOption* options,
+                                 int32_t optionCount, int32_t* stairId, int32_t* where);
+
+// Is (staircase, row) in `sceneId`? A hand row: its staircase's scene is. A generated one: its map is
+// one the scene holds (SceneMaps.h) - the slice F ADR's decision 17, and what `wrong_scene` asks.
+int32_t RsStair_RowInScene(int32_t stairId, int32_t row, int32_t sceneId);
+// ...and any row of it.
+int32_t RsStair_InScene(int32_t stairId, int32_t sceneId);
 
 // Lookups. Quiet: NULL / 0 / -1 for an id or row that does not exist, so a surface can ask about
 // anything a console was handed.
@@ -100,13 +127,71 @@ int32_t RsStair_PlacedLanding(int32_t stairId, int32_t row, float* x, float* y, 
 // console uses as "from"; the actor never needs it, because every placement states its own row.
 int32_t RsStair_RowNearestPlayer(int32_t stairId);
 
-// The menu. `RsStair_Screen` is the screen the renderer lays out for (staircase, row); NULL for a
-// pair that does not exist. `RsStair_MenuDestination` maps a picked row of that box back to the
-// row it moves to, or one of the two sentinels below.
+// THE MENU'S ORDER (the slice F ADR's decision 22, sturdy-bassoon#173 F3): two global settings, read
+// when a menu opens, so a change needs no rebuild and no reload - the owner is testing them with
+// players. Neither is authored per staircase.
+//
+//   list  the order within each direction's group: NEAREST first (the default), HIGHEST first (a lift
+//         panel - the menu every staircase had before these settings) or LOWEST first;
+//   lead  from a middle storey, the UP group first (the default) or the DOWN group first.
+//
+// The default is the owner's (2026-10-09, after playing the F3 test map): up before down, and the
+// nearest floor first either way - so going up the floors read ascending and going down descending.
+// On the ground floor of four: up to the first, second, third; on the first: up to the second, third,
+// then down to the ground; on the second: up to the third, down to the first, down to the ground; on
+// the top: down to the nearest first. `list highest` with `lead up` is the old menu, byte for byte.
+//
+// A two-storey staircase has one destination, so neither setting changes it; a top or bottom storey
+// has one group, so only `list` does. Every staircase builds all six orders at registration (the
+// screens never move while a box is open), so the settings only pick one. CVars, beside the fade and
+// walk-into settings: per install, not per save - a player's preference for reading the menu, not a
+// fact about the world, so it must not change when they load another save (that is rsPrefs' floor
+// convention).
+typedef enum RsStairMenuList {
+    RS_STAIR_LIST_NEAREST_FIRST = 0,
+    RS_STAIR_LIST_HIGHEST_FIRST = 1,
+    RS_STAIR_LIST_LOWEST_FIRST = 2,
+    RS_STAIR_LIST_COUNT,
+} RsStairMenuList;
+typedef enum RsStairMenuLead {
+    RS_STAIR_LEAD_UP = 0,
+    RS_STAIR_LEAD_DOWN = 1,
+} RsStairMenuLead;
+// An ORDER is one (list, lead) pair, 0..5; 0 is both defaults.
+#define RS_STAIR_MENU_ORDERS (RS_STAIR_LIST_COUNT * 2)
+#define RS_STAIR_MENU_ORDER(list, lead) ((list)*2 + (lead))
+#define RS_STAIR_MENU_ORDER_LIST(order) ((order) / 2)
+#define RS_STAIR_MENU_ORDER_LEAD(order) ((order) % 2)
+
+int32_t RsStair_GetMenuList(void);
+int32_t RsStair_GetMenuLead(void);
+void RsStair_SetMenuList(int32_t list); // an RsStairMenuList; anything else is ignored
+void RsStair_SetMenuLead(int32_t lead); // an RsStairMenuLead; anything else is ignored
+void RsStair_ClearMenuOrder(void);      // both back to the build default
+int32_t RsStair_MenuListOverridden(void);
+int32_t RsStair_MenuLeadOverridden(void);
+const char* RsStair_MenuListName(int32_t list); // "nearest" / "highest" / "lowest"
+const char* RsStair_MenuLeadName(int32_t lead); // "up" / "down"
+
+// The order the settings say right now.
+int32_t RsStair_MenuOrder(void);
+// The rows a `count`-storey staircase's menu on `row` lists, in `order`, top to bottom (Cancel not
+// included); returns how many. What every menu is built from - `stairs ordercheck` asks it about
+// staircases of every height, which the test maps do not all have.
+int32_t RsStair_DestinationRows(int32_t count, int32_t row, int32_t order, int32_t* out);
+// The order a staircase box is opened in: the settings now, remembered as the open box's order, so
+// the choice it returns is read against the same screen it showed whatever the settings do in
+// between. The text hook calls it once per box; the actor reads the choice back with the latched one.
+int32_t RsStair_LatchMenuOrder(void);
+int32_t RsStair_LatchedMenuOrder(void);
+
+// The menu. `RsStair_Screen` is the screen the renderer lays out for (staircase, row) in `order`; NULL
+// for a pair that does not exist or an order out of range. `RsStair_MenuDestination` maps a picked row
+// of that box back to the row it moves to, or one of the two sentinels below.
 #define RS_STAIR_MENU_CANCEL (-1)    // the Cancel line: close, move nothing
 #define RS_STAIR_MENU_NO_OPTION (-2) // an index the box does not have
-const RsDialogueRule* RsStair_Screen(int32_t stairId, int32_t row);
-int32_t RsStair_MenuDestination(int32_t stairId, int32_t row, int32_t choiceIndex);
+const RsDialogueRule* RsStair_Screen(int32_t stairId, int32_t row, int32_t order);
+int32_t RsStair_MenuDestination(int32_t stairId, int32_t row, int32_t order, int32_t choiceIndex);
 
 // THE MOVE. Arms the controller: fade out, change rooms if the landing is in another one, put Link
 // down in front of `toRow`'s placement, point a void-out at where he landed, fade back in, give
@@ -191,6 +276,7 @@ int32_t RsStair_BumpHoldOverridden(void);
 }
 
 #include <string>
+#include <vector>
 
 // C++ only, for the console.
 struct RsStairStatus {
@@ -215,11 +301,29 @@ RsStairStatus RsStair_GetStatus();
 // Every registered id, ascending.
 int32_t RsStair_ListIds(int32_t* out, int32_t max);
 
+// A destination name or override too long for its row, dropped for that one option (decision 23,
+// Stairs.cpp's "TOO LONG FALLS BACK"). `kind` is "override" or "name", `field` "label" (an option
+// row) or "question" (a two-storey staircase's body); `text` is the words that did not fit.
+struct RsStairWordsFallback {
+    int32_t row;
+    int32_t toRow;
+    const char* kind;
+    const char* field;
+    std::string text;
+};
+// What fell back for a registered staircase, and - silently, for `stairs badcheck`'s planted
+// definitions - for one that is not registered (empty if the definition would be refused).
+std::vector<RsStairWordsFallback> RsStair_Fallbacks(int32_t stairId);
+std::vector<RsStairWordsFallback> RsStair_FallbacksOf(const RsStairDef* def);
+// Whether a two-storey staircase's question fits its box beside "Go up"/"Go down" and Cancel - the
+// check the fallback makes, for `stairs limits` to measure the question's room with.
+bool RsStair_QuestionFits(const std::string& question, int32_t up);
+
 // The menu as the player would read it RIGHT NOW: the body and each option label expanded under
-// the live floor convention. The console prints this, the textbox renders the same screen, and the
-// labels come from one place, so the two cannot disagree.
-std::string RsStair_ComposeBody(int32_t stairId, int32_t row);
-std::string RsStair_ComposeLabel(int32_t stairId, int32_t row, int32_t index);
+// the live floor convention, in `order`. The console prints this, the textbox renders the same
+// screen, and the labels come from one place, so the two cannot disagree.
+std::string RsStair_ComposeBody(int32_t stairId, int32_t row, int32_t order);
+std::string RsStair_ComposeLabel(int32_t stairId, int32_t row, int32_t order, int32_t index);
 #endif
 
 #endif // SOH_RS_STAIRS_H
