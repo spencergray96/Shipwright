@@ -38,6 +38,11 @@
 #define RS_STAIRS_TALK_XZ 70.0f
 #define RS_STAIRS_TALK_Y 30.0f
 
+// How far a placement may sit from the floor under its landing before it is reported (#178). Grid-tool
+// floors are whole units, so an exported or measured height is exact; anything over this is a typed
+// height that missed - a slab forgotten (4), or a storey taken as 80 when its class is tall or grand.
+#define RS_STAIRS_FLOOR_SLACK 2.0f
+
 void RsStairs_Init(Actor* thisx, PlayState* play);
 void RsStairs_Destroy(Actor* thisx, PlayState* play);
 void RsStairs_Update(Actor* thisx, PlayState* play);
@@ -352,6 +357,48 @@ static s32 RsStairs_Bump(RsStairs* this, PlayState* play) {
 
 // --- the actor -------------------------------------------------------------------------------------
 
+// The floor Link will be put down on, measured where the mover puts him: `landForward` in front of
+// the placement as authored (Stairs.cpp, LandingFromPlacement), from RS_STAIRS_TALK_Y above its
+// height, so it reads this storey's floor and never the one above (#178: every storey is at least 80).
+//
+// REPORT ONLY: the landing still uses the placement's own height. A storey's height is a class per
+// tile (80 / 100 / 130), so a height typed as "level x 80" lands Link inside or under a tall floor
+// and he drops to the storey below; this says so when the room loads instead of on the first walk.
+// Snapping the landing to this floor was weighed and left for when terrain gives a staircase uneven
+// ground to land on (owner, 2026-10-08).
+static void RsStairs_MeasureLanding(RsStairs* this, PlayState* play) {
+    const RsStairDef* def = RsStair_GetDef(this->stairId);
+    const f32 forward = (def != NULL) ? (f32)def->landForward : 0.0f;
+    Vec3f probe;
+    CollisionPoly* poly = NULL;
+    s32 bgId = BGCHECK_SCENE;
+    f32 dy;
+
+    this->landingFloor = -1;
+    if (def == NULL) {
+        return; // no staircase to take landForward from: Init has already said so
+    }
+    probe.x = this->actor.home.pos.x + forward * Math_SinS(this->actor.home.rot.y);
+    probe.y = this->actor.home.pos.y + RS_STAIRS_TALK_Y;
+    probe.z = this->actor.home.pos.z + forward * Math_CosS(this->actor.home.rot.y);
+    this->landingFloorY = BgCheck_EntityRaycastFloor3(&play->colCtx, &poly, &bgId, &probe);
+    if (poly == NULL) {
+        this->landingFloor = 0;
+        LUSLOG_ERROR("RsStairs: stair %d row %d has no floor under its landing", this->stairId, this->row);
+        RsStairs_Marker("rs_stairs stair=%d event=bad_placement row=%d reason=no_floor landing=%.1f,%.1f,%.1f",
+                        this->stairId, this->row, probe.x, this->actor.home.pos.y, probe.z);
+        return;
+    }
+    this->landingFloor = 1;
+    dy = this->actor.home.pos.y - this->landingFloorY;
+    if (fabsf(dy) > RS_STAIRS_FLOOR_SLACK) {
+        LUSLOG_ERROR("RsStairs: stair %d row %d stands %.1f off the floor under its landing (%.1f)", this->stairId,
+                     this->row, dy, this->landingFloorY);
+        RsStairs_Marker("rs_stairs stair=%d event=bad_placement row=%d reason=off_floor y=%.1f floor_y=%.1f dy=%.1f",
+                        this->stairId, this->row, this->actor.home.pos.y, this->landingFloorY, dy);
+    }
+}
+
 void RsStairs_Init(Actor* thisx, PlayState* play) {
     RsStairs* this = (RsStairs*)thisx;
 
@@ -368,12 +415,13 @@ void RsStairs_Init(Actor* thisx, PlayState* play) {
         RsStairs_Marker("rs_stairs stair=%d event=bad_placement row=%d reason=reserved_bits params=0x%04X",
                         this->stairId, this->row, (unsigned)(u16)thisx->params);
     }
-    // Nothing to compare the placement's position against: the placement IS where its storey's
-    // landing is measured from (StairDef.h), so the only thing it can get wrong is which row it names.
+    // The placement IS where its storey's landing is measured from (StairDef.h), so what it can get
+    // wrong is which row it names, and its height against the floor it lands Link on (#178).
     if (RsStair_GetLanding(this->stairId, this->row) == NULL) {
         LUSLOG_ERROR("RsStairs: stair %d has no row %d in this build", this->stairId, this->row);
         RsStairs_Marker("rs_stairs stair=%d event=bad_placement row=%d reason=no_such_row", this->stairId, this->row);
     }
+    RsStairs_MeasureLanding(this, play);
 
     Collider_InitCylinder(play, &this->collider);
     Collider_SetCylinder(play, &this->collider, &this->actor, &sCylinderInit);

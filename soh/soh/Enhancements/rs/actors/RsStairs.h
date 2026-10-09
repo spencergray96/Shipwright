@@ -40,6 +40,10 @@ typedef struct RsStairs {
     /* */ int32_t stairId; // decoded from params once, at Init
     /* */ int32_t row;     // which of that staircase's rows this placement stands on
     /* */ RsStairsBump bump;
+    // The floor under this placement's landing, measured once at Init (sturdy-bassoon#178) and only
+    // reported: `stairs actors` prints it, and a placement off its floor writes `bad_placement`.
+    /* */ float landingFloorY; // what the raycast found; meaningful while landingFloor is 1
+    /* */ int8_t landingFloor; // 1 found, 0 no floor under the landing, -1 not measured (no such staircase)
 } RsStairs;
 
 #endif // SOH_RS_STAIRS_ACTOR_H
