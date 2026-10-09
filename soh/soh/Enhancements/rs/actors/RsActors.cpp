@@ -241,11 +241,17 @@ void LoadScreen(const RsDialogueRule& screen, bool* loadFromMessageTable) {
 }
 
 // An interaction's box (sturdy-bassoon#183). The text id says which screen; WHOSE screen is the actor
-// Link is talking to, read from Player - never from msgCtx->talkActor, which on a first box still
-// names the previous partner (InteractionIds.h), and never from a shared slot. The interaction id is
-// that actor's params. Every box writes a marker naming the id it rendered, which is what lets a run
+// Link is talking to, read from Player - never from msgCtx->talkActor, which on a first box is not
+// yet this box's (InteractionIds.h), and never from a shared slot. The interaction id is that
+// actor's params. Every box writes a marker naming the id it rendered, which is what lets a run
 // assert that two props in range each spoke their own line.
 void LoadInteractionText(uint16_t id, bool* loadFromMessageTable) {
+    // Player only, never msgCtx.talkActor, on a continued box too: Player holds its talk actor until
+    // the conversation ends (z_player.c clears it only once its own ACTOR_FLAG_TALK drops), so every
+    // box of one talk finds it there. msgCtx.talkActor is a pointer nobody can trust at hook time:
+    // only Message_StartOcarina clears it, so it can name a killed actor, and on a scene's first box
+    // it has never been written at all - each play state is fresh, unzeroed arena memory. A planted
+    // read crashed on that box (sturdy-bassoon#214).
     Actor* speaker = nullptr;
     const char* via = "none";
     if (gPlayState != nullptr) {
@@ -253,10 +259,6 @@ void LoadInteractionText(uint16_t id, bool* loadFromMessageTable) {
         if (player != nullptr && player->talkActor != nullptr && player->talkActor->id == ACTOR_RS_INTERACTION) {
             speaker = player->talkActor;
             via = "player";
-        } else if (gPlayState->msgCtx.talkActor != nullptr && gPlayState->msgCtx.talkActor->id == ACTOR_RS_INTERACTION) {
-            // A continued box: Player may have let go, and the context has caught up by now.
-            speaker = gPlayState->msgCtx.talkActor;
-            via = "msgctx";
         }
     }
     const int32_t interactionId = speaker != nullptr ? RS_INTERACTION_PARAMS_GET_ID(speaker->params) : 0;
@@ -328,8 +330,8 @@ void LoadInteractionText(uint16_t id, bool* loadFromMessageTable) {
 // placement wrote a moment earlier.
 void LoadStairText(uint16_t id, bool* loadFromMessageTable) {
     // Player only, never msgCtx.talkActor: a staircase menu is always a first box Link opened by
-    // talking, and msgCtx.talkActor is only ever cleared by Message_StartOcarina, so between talks it
-    // can name an actor a scene change has freed. Reading it there crashed a planted build (#214).
+    // talking, and msgCtx.talkActor cannot be trusted at hook time (LoadInteractionText says why).
+    // Reading it there crashed a planted build (#214).
     Actor* speaker = nullptr;
     const char* via = "none";
     if (gPlayState != nullptr) {

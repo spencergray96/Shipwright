@@ -49,10 +49,13 @@ RS_STATIC_ASSERT(RS_INTERACTION_ID_DEBUG_FIRST <= RS_INTERACTION_ID_MAX, "the de
 // exactly one talk actor - where the #117 prototype's shared direct-text slot let the last actor to
 // update win.
 //
-// Which actor is talking, at hook time: `Player::talkActor`. NOT `msgCtx->talkActor` on the first
-// box - Message_StartTextbox assigns that after Message_OpenText has already fired the hook
-// (z_message_PAL.c), and it is never cleared, so it would name the previous partner. Player sets
-// its own before it starts the box (z_player.c, Player_StartTalking). RsActors.cpp reads it.
+// Which actor is talking, at hook time: `Player::talkActor`, on every box. NOT `msgCtx->talkActor`
+// - Message_StartTextbox assigns that after Message_OpenText has already fired the hook
+// (z_message_PAL.c), and only Message_StartOcarina clears it, so on a first box it names the
+// previous partner, or - on a scene's first box - nothing ever written: each play state is fresh,
+// unzeroed arena memory, and a planted read crashed there (sturdy-bassoon#214). Player sets its own
+// before it starts the box (z_player.c, Player_StartTalking) and holds it until the talk ends, so
+// continued boxes find it too. RsActors.cpp reads it.
 //
 //   0xC100            ENTRY: the speaker's rule, resolved when the box opens. No rule index rides
 //                     on the id, because it is the actor's to resolve and the hook resolves the
