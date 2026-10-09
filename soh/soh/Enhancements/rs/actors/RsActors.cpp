@@ -242,10 +242,16 @@ void LoadScreen(const RsDialogueRule& screen, bool* loadFromMessageTable) {
 
 // An interaction's box (sturdy-bassoon#183). The text id says which screen; WHOSE screen is the actor
 // Link is talking to, read from Player - never from msgCtx->talkActor, which on a first box still
-// names the previous partner (InteractionIds.h), and never from a shared slot. The interaction id is
+// names the previous partner (InteractionIds.h) and between talks can dangle, and never from a
+// shared slot. The interaction id is
 // that actor's params. Every box writes a marker naming the id it rendered, which is what lets a run
 // assert that two props in range each spoke their own line.
 void LoadInteractionText(uint16_t id, bool* loadFromMessageTable) {
+    // Player only, never msgCtx.talkActor, on a continued box too: Player holds its talk actor until
+    // the conversation ends (z_player.c clears it only once its own ACTOR_FLAG_TALK drops), so every
+    // box of one talk finds it there. msgCtx.talkActor is only ever cleared by Message_StartOcarina,
+    // so between talks it can name an actor a scene change has freed - the staircase menu's read of
+    // it crashed a planted build (#214).
     Actor* speaker = nullptr;
     const char* via = "none";
     if (gPlayState != nullptr) {
@@ -253,10 +259,6 @@ void LoadInteractionText(uint16_t id, bool* loadFromMessageTable) {
         if (player != nullptr && player->talkActor != nullptr && player->talkActor->id == ACTOR_RS_INTERACTION) {
             speaker = player->talkActor;
             via = "player";
-        } else if (gPlayState->msgCtx.talkActor != nullptr && gPlayState->msgCtx.talkActor->id == ACTOR_RS_INTERACTION) {
-            // A continued box: Player may have let go, and the context has caught up by now.
-            speaker = gPlayState->msgCtx.talkActor;
-            via = "msgctx";
         }
     }
     const int32_t interactionId = speaker != nullptr ? RS_INTERACTION_PARAMS_GET_ID(speaker->params) : 0;
