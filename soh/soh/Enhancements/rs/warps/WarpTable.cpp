@@ -103,10 +103,46 @@ const RsWarpSceneDef kUndergroundBasementsScene = {
     ARRAY_COUNT(kUndergroundBasementsTiles),
 };
 
+// --- storey_heights_in_game_178: the #178 slice 3 test map ------------------------------------------
+//
+// Storey height classes in game: a standard, a tall and a grand building side by side (80 / 100 /
+// 130 a storey). A TEST FIXTURE, spliced like the ones above (tools/step-warps/
+// storey_heights_in_game_178.tiles.json), so a re-export drops the tiles. Each building has a stacked
+// pair in its north-west corner: a step tile on the ground and a step tile over the hole straight
+// above it, each landing east. The hole's cover sits at its landing's floor - 84, 104 and 134 - which
+// the splice used to put at 84 in all three.
+//
+//   1 <-> 2   standard (the control)
+//   3 <-> 4   tall
+//   5 <-> 6   grand
+const RsWarpDest kStoreyTo1[] = { RS_WARP_TO(1) };
+const RsWarpDest kStoreyTo2[] = { RS_WARP_TO(2) };
+const RsWarpDest kStoreyTo3[] = { RS_WARP_TO(3) };
+const RsWarpDest kStoreyTo4[] = { RS_WARP_TO(4) };
+const RsWarpDest kStoreyTo5[] = { RS_WARP_TO(5) };
+const RsWarpDest kStoreyTo6[] = { RS_WARP_TO(6) };
+
+const RsWarpTileDef kStoreyHeightsTiles[] = {
+    { 1, RS_WARP_ENTRY_STEP, 0, kStoreyTo2, ARRAY_COUNT(kStoreyTo2) },
+    { 2, RS_WARP_ENTRY_STEP, 0, kStoreyTo1, ARRAY_COUNT(kStoreyTo1) },
+    { 3, RS_WARP_ENTRY_STEP, 0, kStoreyTo4, ARRAY_COUNT(kStoreyTo4) },
+    { 4, RS_WARP_ENTRY_STEP, 0, kStoreyTo3, ARRAY_COUNT(kStoreyTo3) },
+    { 5, RS_WARP_ENTRY_STEP, 0, kStoreyTo6, ARRAY_COUNT(kStoreyTo6) },
+    { 6, RS_WARP_ENTRY_STEP, 0, kStoreyTo5, ARRAY_COUNT(kStoreyTo5) },
+};
+
+const RsWarpSceneDef kStoreyHeightsScene = {
+    SCENE_STOREY_HEIGHTS_IN_GAME_178,
+    "storey_heights_in_game_178",
+    kStoreyHeightsTiles,
+    ARRAY_COUNT(kStoreyHeightsTiles),
+};
+
 void RegisterWarpTables() {
     RsWarp_RegisterScene(&kFixtureScene);
     RsWarp_RegisterScene(&kUndergroundOverworldScene);
     RsWarp_RegisterScene(&kUndergroundBasementsScene);
+    RsWarp_RegisterScene(&kStoreyHeightsScene);
 }
 
 RegisterShipInitFunc warpTableInitFunc(RegisterWarpTables);

@@ -44,7 +44,10 @@
 //                           `on= source=cvar|default hold= hold_source=cvar|default`
 //   actors                  every live staircase actor: params decoded, reserved bits, room, the
 //                           yaw it faces (which is the landing's facing), pos, and its walk-into
-//                           state - `bump=` ticks counted, `offered=`, `latched=`
+//                           state - `bump=` ticks counted, `offered=`, `latched=` - its targeting
+//                           state (#192), and the floor under its landing (#178): `floor=1
+//                           floor_y= floor_dy=` (its height less that floor's), `floor=0` none,
+//                           `floor=-1` not measured
 //   badcheck                the validator over the malformed table (StairTable.cpp), one line each
 //
 // Returns 0 when the operation succeeded (or for read-only subcommands), 1 otherwise: a refused

@@ -46,4 +46,5 @@
     { SCENE_STOREY_CLASSES_178, CustomStoreyClasses178Scene_TrySpawn, CustomStoreyClasses178Scene_InitRoom }, // project fc7008b5-fdbf-4201-9e4d-6675a06f5fe8 name storey_classes_178
     { SCENE_WORLD_EXPORT_173, CustomWorldExport173Scene_TrySpawn, CustomWorldExport173Scene_InitRoom }, // world world_export_173 name world_export_173
     { SCENE_F2P_OVERWORLD, CustomF2pOverworldScene_TrySpawn, CustomF2pOverworldScene_InitRoom }, // world f2p name f2p_overworld
+    { SCENE_STOREY_HEIGHTS_IN_GAME_178, CustomStoreyHeightsInGame178Scene_TrySpawn, CustomStoreyHeightsInGame178Scene_InitRoom }, // hand-frozen storey_heights_in_game_178 (sturdy-bassoon#178)
 // END GRID TOOL EXPORTS

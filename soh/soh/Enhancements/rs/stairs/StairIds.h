@@ -39,6 +39,15 @@ typedef enum RsStairId {
     RS_STAIR_DEBUG_UNPLACED = 193, // the MISSING-PLACEMENT fixture, same scene: rows but no placements,
                                    // one storey in the loaded room and one in a room that is not, so
                                    // both ways a move can find no placement to land in front of
+    // The #178 storey-height fixtures, in storey_heights_in_game_178: one 1x1 shaft per building,
+    // ground to roof, so the landings are each building's real floors (80 / 100 / 130 a storey).
+    RS_STAIR_DEBUG_STOREY_STANDARD = 194, // 0 / 84 / 164, the control
+    RS_STAIR_DEBUG_STOREY_TALL = 195,     // 0 / 104 / 204
+    RS_STAIR_DEBUG_STOREY_GRAND = 196,    // 0 / 134 / 264
+    RS_STAIR_DEBUG_STOREY_PARTY = 197,    // 0 / 104 / 184: the Party Room, tall below, standard above
+    RS_STAIR_DEBUG_STOREY_MISTYPED = 198, // the grand building again, its upper placement typed at 84
+                                          // ("level x 80" + slab) where the floor is 134: the planted
+                                          // mistake `bad_placement reason=off_floor` must catch
 } RsStairId;
 
 #define RS_STAIR_ID_IS_VALID(id) ((id) >= 0 && (id) < RS_STAIR_MAX)
@@ -55,5 +64,8 @@ RS_STATIC_ASSERT(RS_STAIR_DEBUG_ROOMS >= RS_STAIR_ID_DEBUG_FIRST && RS_STAIR_DEB
                  "RS_STAIR_DEBUG_ROOMS must sit in the debug band");
 RS_STATIC_ASSERT(RS_STAIR_DEBUG_UNPLACED >= RS_STAIR_ID_DEBUG_FIRST && RS_STAIR_DEBUG_UNPLACED < RS_STAIR_MAX,
                  "RS_STAIR_DEBUG_UNPLACED must sit in the debug band");
+RS_STATIC_ASSERT(RS_STAIR_DEBUG_STOREY_STANDARD >= RS_STAIR_ID_DEBUG_FIRST &&
+                     RS_STAIR_DEBUG_STOREY_MISTYPED < RS_STAIR_MAX,
+                 "the #178 storey-height fixtures must sit in the debug band");
 
 #endif // SOH_RS_STAIR_IDS_H

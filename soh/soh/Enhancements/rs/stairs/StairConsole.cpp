@@ -279,7 +279,18 @@ int32_t Actors(std::vector<std::string>& lines) {
             const int32_t row = RS_STAIR_PARAMS_GET_ROW(actor->params);
             // The walk-into state: `bump=` the count against the hold (`offered=1` once it is reached),
             // `latched=1` from a conversation's end until the push that was running is let go.
-            const RsStairsBump& bump = reinterpret_cast<const RsStairs*>(actor)->bump;
+            const RsStairs* stairs = reinterpret_cast<const RsStairs*>(actor);
+            const RsStairsBump& bump = stairs->bump;
+            // #178: the floor under its landing, as Init measured it (RsStairs_MeasureLanding).
+            // `floor=1 floor_y= floor_dy=` (the placement's height less that floor's; 0 is exact),
+            // `floor=0` nothing under the landing, `floor=-1` not measured (no such staircase).
+            char floorText[64];
+            if (stairs->landingFloor == RS_STAIRS_FLOOR_FOUND) {
+                std::snprintf(floorText, sizeof(floorText), "floor=1 floor_y=%.1f floor_dy=%.1f",
+                              stairs->landingFloorY, actor->home.pos.y - stairs->landingFloorY);
+            } else {
+                std::snprintf(floorText, sizeof(floorText), "floor=%d", stairs->landingFloor);
+            }
             // Targeting (#192): `attention=1` while it may be targeted at all (Link on its storey),
             // `focus=1` while Link is locked on to it, `arrow=1` while the attention arrow is over it -
             // what the next Z press locks on to when nothing is locked on yet - and `next=1` while it
@@ -287,7 +298,7 @@ int32_t Actors(std::vector<std::string>& lines) {
             // yDistToPlayer, the number the storey gate tests.
             Addf(lines,
                  "actor[%d]=rs_stairs stair=%d row=%d params=0x%04X rsvd=%d registered=%d landing=%d room=%d yaw=%d "
-                 "pos=%d,%d,%d bump=%d offered=%d latched=%d attention=%d focus=%d arrow=%d next=%d ydist=%.1f",
+                 "pos=%d,%d,%d bump=%d offered=%d latched=%d attention=%d focus=%d arrow=%d next=%d ydist=%.1f %s",
                  found, stairId, row, static_cast<unsigned>(actor->params) & 0xFFFF,
                  RS_STAIR_PARAMS_GET_RSVD(actor->params), RsStair_IsRegistered(stairId),
                  RsStair_GetLanding(stairId, row) != nullptr ? 1 : 0, actor->room, actor->home.rot.y,
@@ -295,7 +306,7 @@ int32_t Actors(std::vector<std::string>& lines) {
                  static_cast<int>(actor->world.pos.z), bump.count, bump.offered, bump.latched,
                  (actor->flags & ACTOR_FLAG_ATTENTION_ENABLED) ? 1 : 0, focusActor == actor ? 1 : 0,
                  targetCtx.arrowPointedActor == actor ? 1 : 0, targetCtx.unk_94 == actor ? 1 : 0,
-                 actor->yDistToPlayer);
+                 actor->yDistToPlayer, floorText);
             found++;
         }
     }
