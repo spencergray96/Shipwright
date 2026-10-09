@@ -25,8 +25,9 @@
 // (interpreted for good), `supported=` whether this rendering backend can bake at all (DX11 only),
 // `sort=` whether recordings are ordered by material (sturdy-bassoon#158), `group=` the bake group the registry holds
 // (0x<smallest scene id in it>, or `none`), `scenes=` how many of its scenes have registered rooms
-// since the last reset and `links=` how many `link`s this session added (sturdy-bassoon#157), and
-// `scrolls=` how many textures are registered to scroll (sturdy-bassoon#187 A1).
+// since the last reset and `links=` how many `link`s this session added (sturdy-bassoon#157),
+// `scrolls=` how many textures are registered to scroll (sturdy-bassoon#187 A1), and `wind_amp=` the
+// frame's wind amplitude, 0 when nothing bends (sturdy-bassoon#209 W1).
 // registered/baked/rejected count the WHOLE group: a return to a scene visited earlier in the group
 // finds its entries still baked. baked + rejected <
 // registered means some have not been drawn since they were registered or invalidated - or, in a
@@ -63,7 +64,11 @@
 //             and one line per baked list with a scrolling draw (sturdy-bassoon#187 A1), archive or
 //             not: `op=props scroll_key=<p> draws=<n> tris=<n> scroll_draws=<n> scroll_tris=<n>`,
 //             keyed as the list lines' key= so the two join; a list with no such line has none.
-//             scroll_draws counts the draws whose TEXEL0 moves. Read-only, the same from both sinks
+//             scroll_draws counts the draws whose TEXEL0 moves. Then `op=props result=ok wind_lists=<n>`
+//             and one line per baked list that recorded a weighted vertex (sturdy-bassoon#209 W1):
+//             `op=props wind_key=<p> draws=<n> tris=<n> wind_vertices=<n> wind_tris=<n>`, keyed the
+//             same way. wind_vertices counts the weighted vertices its recording loaded, wind_tris the
+//             triangles with a weighted corner. Read-only, the same from both sinks
 //
 // Texture scroll (sturdy-bassoon#187 A1): libultraship's registry (fast/StaticMeshCache.h, "Texture
 // scroll"), which belongs to the process - a scene change, `reset`, `rebake` and a texture-cache clear
@@ -84,16 +89,37 @@
 //   texclear  clear the interpreter's texture cache, as an ocarina textbox does: bakes hold their own
 //             textures and scroll registrations stay. For proving both. The status line only
 //
+// Wind in the replay (sturdy-bassoon#209 W1): the frame's wind (libultraship's StaticBakeWind), which
+// sways the archive vertices an import marked for it. It is read every frame, so nothing needs a rebake;
+// the clock above is the one it reads. Every form prints the status line, then
+//   `op=wind result=ok amp=<f> freq=<f> wavelength=<f> yaw=<f> ripple=<f> on=<0|1> saved=<0|1>
+//   replay_entries=<n> interp_vertices=<n> interp_vectors=<n>`
+// saved=1 when the wind now is the saved one (CVAR_STATIC_BAKE_WIND_*). The last three are the last
+// frame drawn: baked lists replayed with wind, weighted vertices the interpreter bent, and how many times
+// the interpreter worked out the wind's vectors (once per list modelview, not per vertex load).
+//   wind [list]  report
+//   wind <key> <value> [<key> <value>...]  set some of amp (units of swing at the hem, 0-100; 0 stills
+//             every prop), freq (Hz, 0-20), wavelength (world units, 0-100000; 0 = every placement in
+//             step), yaw (degrees, -360-360: where it blows to, as OoT's yaw) and ripple (radians,
+//             -20-20), each key once. All or nothing. From the human command it is also saved; from the
+//             agent loop it is for the session only. A plain `set` of one of the saved CVars shows after
+//             `wind saved`
+//   wind reset  the owner's defaults (amp 6, freq 1.0638, wavelength 400, yaw 0, ripple 1.5); the human
+//             command also clears the saved values
+//   wind saved  go back to the saved wind - after a session-only set, or a scripted one
+//
 // `sort` without on or off prints `op=sort result=error error=bad_argument usage=sort(on|off)`; `link`
 // without two scene ids, `op=link result=error error=bad_argument usage=link(<scene>,<scene>)`; a
 // `scroll` that is not list, clear or a path with two finite rates (-1000 to 1000),
 // `op=scroll result=error error=bad_argument usage=scroll(list)|scroll(clear)|scroll(<path>,<du>,<dv>)`;
 // a `clock` that is neither run nor a number in range,
-// `op=clock result=error error=bad_argument usage=clock|clock(<seconds>)|clock(run)`. No error line
-// echoes what was typed.
+// `op=clock result=error error=bad_argument usage=clock|clock(<seconds>)|clock(run)`; a `wind` that is
+// not list, reset, saved or whole key-value pairs in range, `op=wind result=error error=bad_argument
+// usage=wind(list)|wind(reset)|wind(saved)|wind(<key>,<value>...):amp[0,100],freq[0,20],
+// wavelength[0,100000],yaw[-360,360],ripple[-20,20]` (one line). No error line echoes what was typed.
 //
-// Returns 0 for all eleven, 1 for an unknown subcommand or a bad sort, link, scroll or clock argument -
-// so `rc=` on the agent loop's cmd marker is the pass/fail bit.
+// Returns 0 for all twelve, 1 for an unknown subcommand or a bad sort, link, scroll, clock or wind
+// argument - so `rc=` on the agent loop's cmd marker is the pass/fail bit.
 int32_t StaticBakeConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines);
 int32_t StaticBakeConsole_RunSession(const std::vector<std::string>& args, std::vector<std::string>& lines);
 

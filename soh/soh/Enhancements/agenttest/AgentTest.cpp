@@ -189,18 +189,20 @@
  *                                        flip - OTRGlobals applies the CVar at the end of the next frame
  *   staticbake <line>                    one line of StaticBakeConsole_Run output per marker, from
  *                                        `agenttest staticbake [status|on|off|rebake|reset|link <a> <b>|
- *                                        sort on|off|props|scroll ...|clock ...|texclear]`: `op=<sub>
+ *                                        sort on|off|props|scroll ...|clock ...|texclear|wind ...]`: `op=<sub>
  *                                        result=ok active=<0|1> setting=<0|1> registered=<n> baked=<n>
  *                                        rejected=<n> supported=<0|1> sort=<0|1> group=<0x..|none>
- *                                        scenes=<n> links=<n> scrolls=<n>` (group, scenes, links: the bake
- *                                        group held, #157; scrolls: textures registered to scroll, #187).
+ *                                        scenes=<n> links=<n> scrolls=<n> wind_amp=<f>` (group, scenes, links:
+ *                                        the bake group held, #157; scrolls: textures registered to scroll,
+ *                                        #187; wind: the frame's wind amplitude, #209).
  *                                        Same renderer as the human `staticbake` command
  *                                        (sturdy-bassoon#142), except that on/off here switch for the
  *                                        session only; the human command also saves setting= (#153).
  *                                        active=0 on a backend that cannot bake (supported=0). props adds
- *                                        one line per archive prop list (#171) and one per list with
- *                                        scrolling draws; scroll and clock add their own lines (#187 A1;
- *                                        every format is in StaticBakeConsole.h)
+ *                                        one line per archive prop list (#171), one per list with
+ *                                        scrolling draws and one per list with weighted (swaying)
+ *                                        vertices; scroll, clock and wind add their own lines (#187 A1,
+ *                                        #209 W1; every format is in StaticBakeConsole.h)
  *   colview <line>                       one line of ColViewerConsole_Run output per marker, from
  *                                        `agenttest colview [status|climb on|climb off]` (sturdy-bassoon#196):
  *                                        `op=<sub> result=ok enabled=<0|1> scene=<layer> bgactors=<layer>
@@ -2963,7 +2965,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|fadein <s>|"
               "baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
             "keepinput [on|off] | kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|reset|link <a> <b>|sort on|off|props|"
-              "scroll [list|clear|<path> <du> <dv>]|clock [<s>|run]|texclear] | "
+              "scroll [list|clear|<path> <du> <dv>]|clock [<s>|run]|texclear|"
+              "wind [list|reset|saved|<key> <value>...]] | "
               "colview [status|climb on|off] | "
               "imgui status|dump [kind]|click [kind:]<label>|clickat <x> <y>|key <name> | "
             "mipmaps [status|archive|on|off|lod <mode>|bias <n>] | save <fileNum> | loadsave <fileNum> | mark <text>";
@@ -3010,7 +3013,8 @@ void RegisterAgentTest() {
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|"
               "fadein <s>|baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
               "keepinput [on|off] | kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|reset|link <a> <b>|sort on|off|props|"
-              "scroll [list|clear|<path> <du> <dv>]|clock [<s>|run]|texclear] | "
+              "scroll [list|clear|<path> <du> <dv>]|clock [<s>|run]|texclear|"
+              "wind [list|reset|saved|<key> <value>...]] | "
               "colview [status|climb on|off] | "
               "imgui status|dump [kind]|click [kind:]<label>|clickat <x> <y>|key <name> | "
               "mipmaps [status|archive|on|off|lod <mode>|bias <n>] | save <fileNum> | loadsave <fileNum> | mark <text>. "

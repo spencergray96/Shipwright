@@ -149,6 +149,7 @@ void RegisterStaticBakeWidgets() {
 static RegisterShipInitFunc sStaticBakeInit(OnStaticBakeSetting, { CVAR_STATIC_BAKE });
 static RegisterMenuInitFunc sStaticBakeMenuInit(RegisterStaticBakeWidgets);
 
+
 // WHAT STAYS RESIDENT (sturdy-bassoon#157): everything recorded in the current BAKE GROUP, until
 // Link enters a compiled-in scene of another group. The group is the step-warp group
 // (RsWarp_SceneGroup): an overworld and the underground areas its trapdoors lead to (#148), so
@@ -341,3 +342,56 @@ extern "C" int StaticBake_Group(void) {
 extern "C" int StaticBake_HeldScenes(void) {
     return (int)sHeldScenes.size();
 }
+
+// WIND IN THE REPLAY (sturdy-bassoon#209 W1). libultraship holds the frame's wind; this applies the
+// saved one at boot and whenever ShipInit says one of its settings may have moved (the menu, a preset).
+// Nothing reapplies it per frame, so a wind set by code (Fast::StaticBakeSetWind: a scripted gust, the
+// weather) holds until that code - or `staticbake wind saved` - puts the saved one back. A plain
+// console `set` of one of these CVars runs no ShipInit, so it shows after `staticbake wind saved`.
+Fast::StaticBakeWind StaticBake_WindSettings() {
+    const Fast::StaticBakeWind d;
+    Fast::StaticBakeWind w;
+    w.amplitude = CVarGetFloat(CVAR_STATIC_BAKE_WIND_AMPLITUDE, d.amplitude);
+    w.frequency = CVarGetFloat(CVAR_STATIC_BAKE_WIND_FREQUENCY, d.frequency);
+    w.wavelength = CVarGetFloat(CVAR_STATIC_BAKE_WIND_WAVELENGTH, d.wavelength);
+    w.yawDeg = CVarGetFloat(CVAR_STATIC_BAKE_WIND_YAW, d.yawDeg);
+    w.ripple = CVarGetFloat(CVAR_STATIC_BAKE_WIND_RIPPLE, d.ripple);
+    return w;
+}
+
+void StaticBake_SaveWindSettings(const Fast::StaticBakeWind& wind) {
+    CVarSetFloat(CVAR_STATIC_BAKE_WIND_AMPLITUDE, wind.amplitude);
+    CVarSetFloat(CVAR_STATIC_BAKE_WIND_FREQUENCY, wind.frequency);
+    CVarSetFloat(CVAR_STATIC_BAKE_WIND_WAVELENGTH, wind.wavelength);
+    CVarSetFloat(CVAR_STATIC_BAKE_WIND_YAW, wind.yawDeg);
+    CVarSetFloat(CVAR_STATIC_BAKE_WIND_RIPPLE, wind.ripple);
+    CVarSave();
+}
+
+void StaticBake_ClearWindSettings() {
+    CVarClear(CVAR_STATIC_BAKE_WIND_AMPLITUDE);
+    CVarClear(CVAR_STATIC_BAKE_WIND_FREQUENCY);
+    CVarClear(CVAR_STATIC_BAKE_WIND_WAVELENGTH);
+    CVarClear(CVAR_STATIC_BAKE_WIND_YAW);
+    CVarClear(CVAR_STATIC_BAKE_WIND_RIPPLE);
+    CVarSave();
+}
+
+extern "C" void StaticBake_ApplyWindSettings(void) {
+    const Fast::StaticBakeWind w = StaticBake_WindSettings();
+    if (!Fast::StaticBakeSetWind(w)) {
+        // A hand-edited config: keep what libultraship holds rather than bend by something unreadable.
+        const Fast::StaticBakeWind kept = Fast::StaticBakeGetWind();
+        SPDLOG_WARN("[staticbake] the saved wind is not usable (a value is not finite, or the amplitude or "
+                    "wavelength is negative); keeping amp={} freq={} wavelength={} yaw={} ripple={}",
+                    kept.amplitude, kept.frequency, kept.wavelength, kept.yawDeg, kept.ripple);
+        return;
+    }
+    SPDLOG_INFO("[staticbake] wind amp={} freq={} wavelength={} yaw={} ripple={}", w.amplitude, w.frequency,
+                w.wavelength, w.yawDeg, w.ripple);
+}
+
+static RegisterShipInitFunc sStaticBakeWindInit(StaticBake_ApplyWindSettings,
+                                                { CVAR_STATIC_BAKE_WIND_AMPLITUDE, CVAR_STATIC_BAKE_WIND_FREQUENCY,
+                                                  CVAR_STATIC_BAKE_WIND_WAVELENGTH, CVAR_STATIC_BAKE_WIND_YAW,
+                                                  CVAR_STATIC_BAKE_WIND_RIPPLE });
