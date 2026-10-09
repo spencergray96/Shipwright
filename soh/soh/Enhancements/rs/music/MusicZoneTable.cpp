@@ -469,12 +469,14 @@ const RsMusicScene kScenes[] = {
 // END RS MUSIC ZONE TABLE
 
 /*
- * Stitched scenes (sturdy-bassoon#173 slice E): one row each, read from the `<slug>_world.inc` the
- * grid tool's world export writes beside the scene's C. Its RS_WORLD_SCENE line carries the anchor in
- * WorldToRs's own convention (directorRs: the tile whose NORTH-west corner is OoT (0,0), one row south
- * of the matrix's origin), so nothing here is derived or copied by hand, and a re-export after the
- * matrix moves keeps the row right. Outside the generated block because the export, not zones.json,
- * owns these numbers; the accessors below read both tables, the generated one first.
+ * Stitched scenes (sturdy-bassoon#173 slice E): a row for each one that opts in with an #include below,
+ * read from the `<slug>_world.inc` the grid tool's world export writes beside the scene's C. A stitched
+ * scene with no #include here (world_export_173, the exporter's test fixture) is not opted in, like any
+ * other scene not in either table. The include's RS_WORLD_SCENE line carries the anchor in WorldToRs's
+ * own convention (directorRs: the tile whose NORTH-west corner is OoT (0,0), one row south of the
+ * matrix's origin), so nothing here is derived or copied by hand: the row is re-exported with the scene.
+ * Outside the generated block because the export, not zones.json, owns these numbers; the accessors
+ * below read both tables, the generated one first, so a scene in both is answered by its generated row.
  *
  * The macro parameters carry a trailing underscore so `.unitsPerTile = unitsPerTile_` is not itself
  * rewritten by the preprocessor.
