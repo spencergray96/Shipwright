@@ -284,12 +284,12 @@ int32_t Actors(std::vector<std::string>& lines) {
             // #178: the floor under its landing, as Init measured it (RsStairs_MeasureLanding).
             // `floor=1 floor_y= floor_dy=` (the placement's height less that floor's; 0 is exact),
             // `floor=0` nothing under the landing, `floor=-1` not measured (no such staircase).
-            char floor[64];
-            if (stairs->landingFloor == 1) {
-                std::snprintf(floor, sizeof(floor), "floor=1 floor_y=%.1f floor_dy=%.1f", stairs->landingFloorY,
-                              actor->home.pos.y - stairs->landingFloorY);
+            char floorText[64];
+            if (stairs->landingFloor == RS_STAIRS_FLOOR_FOUND) {
+                std::snprintf(floorText, sizeof(floorText), "floor=1 floor_y=%.1f floor_dy=%.1f",
+                              stairs->landingFloorY, actor->home.pos.y - stairs->landingFloorY);
             } else {
-                std::snprintf(floor, sizeof(floor), "floor=%d", stairs->landingFloor);
+                std::snprintf(floorText, sizeof(floorText), "floor=%d", stairs->landingFloor);
             }
             // Targeting (#192): `attention=1` while it may be targeted at all (Link on its storey),
             // `focus=1` while Link is locked on to it, `arrow=1` while the attention arrow is over it -
@@ -306,7 +306,7 @@ int32_t Actors(std::vector<std::string>& lines) {
                  static_cast<int>(actor->world.pos.z), bump.count, bump.offered, bump.latched,
                  (actor->flags & ACTOR_FLAG_ATTENTION_ENABLED) ? 1 : 0, focusActor == actor ? 1 : 0,
                  targetCtx.arrowPointedActor == actor ? 1 : 0, targetCtx.unk_94 == actor ? 1 : 0,
-                 actor->yDistToPlayer, floor);
+                 actor->yDistToPlayer, floorText);
             found++;
         }
     }

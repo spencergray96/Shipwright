@@ -42,6 +42,9 @@
 // floors are whole units, so an exported or measured height is exact; anything over this is a typed
 // height that missed - a slab forgotten (4), or a storey taken as 80 when its class is tall or grand.
 #define RS_STAIRS_FLOOR_SLACK 2.0f
+// Where that floor is looked for from: this far above the placement, so the probe starts under the
+// floor of the storey above (every storey is at least 80, #178) and finds this storey's floor.
+#define RS_STAIRS_FLOOR_PROBE_UP 30.0f
 
 void RsStairs_Init(Actor* thisx, PlayState* play);
 void RsStairs_Destroy(Actor* thisx, PlayState* play);
@@ -358,8 +361,13 @@ static s32 RsStairs_Bump(RsStairs* this, PlayState* play) {
 // --- the actor -------------------------------------------------------------------------------------
 
 // The floor Link will be put down on, measured where the mover puts him: `landForward` in front of
-// the placement as authored (Stairs.cpp, LandingFromPlacement), from RS_STAIRS_TALK_Y above its
-// height, so it reads this storey's floor and never the one above (#178: every storey is at least 80).
+// the placement as authored (Stairs.cpp, LandingFromPlacement), from RS_STAIRS_FLOOR_PROBE_UP above
+// its height, so it reads this storey's floor and never the one above.
+//
+// What it cannot see: WHICH storey a placement means. It finds the first floor at or below the probe,
+// so a placement far under its floor reports the floor further down (the mistyped fixture's 84 under a
+// 134 floor reads dy=84 against the ground), and one typed at exactly another storey's floor height
+// reads exact. "level x 80" in a tall or grand building is never a floor there, so it is always caught.
 //
 // REPORT ONLY: the landing still uses the placement's own height. A storey's height is a class per
 // tile (80 / 100 / 130), so a height typed as "level x 80" lands Link inside or under a tall floor
@@ -374,22 +382,22 @@ static void RsStairs_MeasureLanding(RsStairs* this, PlayState* play) {
     s32 bgId = BGCHECK_SCENE;
     f32 dy;
 
-    this->landingFloor = -1;
+    this->landingFloor = RS_STAIRS_FLOOR_UNMEASURED;
     if (def == NULL) {
         return; // no staircase to take landForward from: Init has already said so
     }
     probe.x = this->actor.home.pos.x + forward * Math_SinS(this->actor.home.rot.y);
-    probe.y = this->actor.home.pos.y + RS_STAIRS_TALK_Y;
+    probe.y = this->actor.home.pos.y + RS_STAIRS_FLOOR_PROBE_UP;
     probe.z = this->actor.home.pos.z + forward * Math_CosS(this->actor.home.rot.y);
     this->landingFloorY = BgCheck_EntityRaycastFloor3(&play->colCtx, &poly, &bgId, &probe);
     if (poly == NULL) {
-        this->landingFloor = 0;
+        this->landingFloor = RS_STAIRS_FLOOR_NONE;
         LUSLOG_ERROR("RsStairs: stair %d row %d has no floor under its landing", this->stairId, this->row);
         RsStairs_Marker("rs_stairs stair=%d event=bad_placement row=%d reason=no_floor landing=%.1f,%.1f,%.1f",
                         this->stairId, this->row, probe.x, this->actor.home.pos.y, probe.z);
         return;
     }
-    this->landingFloor = 1;
+    this->landingFloor = RS_STAIRS_FLOOR_FOUND;
     dy = this->actor.home.pos.y - this->landingFloorY;
     if (fabsf(dy) > RS_STAIRS_FLOOR_SLACK) {
         LUSLOG_ERROR("RsStairs: stair %d row %d stands %.1f off the floor under its landing (%.1f)", this->stairId,

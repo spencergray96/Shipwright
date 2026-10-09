@@ -42,8 +42,16 @@ typedef struct RsStairs {
     /* */ RsStairsBump bump;
     // The floor under this placement's landing, measured once at Init (sturdy-bassoon#178) and only
     // reported: `stairs actors` prints it, and a placement off its floor writes `bad_placement`.
-    /* */ float landingFloorY; // what the raycast found; meaningful while landingFloor is 1
-    /* */ int8_t landingFloor; // 1 found, 0 no floor under the landing, -1 not measured (no such staircase)
+    /* */ float landingFloorY; // what the raycast found; meaningful while landingFloor is FOUND
+    /* */ int8_t landingFloor; // an RsStairsLandingFloor
 } RsStairs;
+
+// What RsStairs_MeasureLanding found under a placement's landing. The values are what `stairs actors`
+// prints as `floor=`.
+typedef enum RsStairsLandingFloor {
+    RS_STAIRS_FLOOR_UNMEASURED = -1, // the placement names no staircase, so there is no landForward
+    RS_STAIRS_FLOOR_NONE = 0,        // nothing under the landing
+    RS_STAIRS_FLOOR_FOUND = 1,       // landingFloorY is the floor
+} RsStairsLandingFloor;
 
 #endif // SOH_RS_STAIRS_ACTOR_H
