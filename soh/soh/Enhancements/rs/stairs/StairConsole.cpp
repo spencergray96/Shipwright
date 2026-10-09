@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <string>
+#include <vector>
 
 #include <ship/debug/Console.h>
 
@@ -92,8 +93,8 @@ void MenuLines(int32_t stairId, int32_t row, std::vector<std::string>& lines) {
 }
 
 int32_t List(std::vector<std::string>& lines) {
-    int32_t ids[RS_STAIR_MAX];
-    const int32_t count = RsStair_ListIds(ids, RS_STAIR_MAX);
+    std::vector<int32_t> ids(RS_STAIR_MAX); // 32 KB since #214: the heap, not the console's stack
+    const int32_t count = RsStair_ListIds(ids.data(), RS_STAIR_MAX);
     Addf(lines, "op=list stairs=%d", count);
     for (int32_t i = 0; i < count; i++) {
         const RsStairDef* def = RsStair_GetDef(ids[i]);
@@ -155,8 +156,8 @@ int32_t Where(std::vector<std::string>& lines) {
         return 0;
     }
     Player* player = GET_PLAYER(gPlayState);
-    int32_t ids[RS_STAIR_MAX];
-    const int32_t count = RsStair_ListIds(ids, RS_STAIR_MAX);
+    std::vector<int32_t> ids(RS_STAIR_MAX); // 32 KB since #214: the heap, not the console's stack
+    const int32_t count = RsStair_ListIds(ids.data(), RS_STAIR_MAX);
     int32_t here = 0;
     for (int32_t i = 0; i < count; i++) {
         here += RsStair_GetDef(ids[i])->sceneId == gPlayState->sceneNum ? 1 : 0;
@@ -297,10 +298,10 @@ int32_t Actors(std::vector<std::string>& lines) {
             // is the candidate a Z press switches to from the current lock-on. `ydist` is
             // yDistToPlayer, the number the storey gate tests.
             Addf(lines,
-                 "actor[%d]=rs_stairs stair=%d row=%d params=0x%04X rsvd=%d registered=%d landing=%d room=%d yaw=%d "
+                 "actor[%d]=rs_stairs stair=%d row=%d params=0x%04X text=0x%04X registered=%d landing=%d room=%d yaw=%d "
                  "pos=%d,%d,%d bump=%d offered=%d latched=%d attention=%d focus=%d arrow=%d next=%d ydist=%.1f %s",
                  found, stairId, row, static_cast<unsigned>(actor->params) & 0xFFFF,
-                 RS_STAIR_PARAMS_GET_RSVD(actor->params), RsStair_IsRegistered(stairId),
+                 static_cast<unsigned>(actor->textId), RsStair_IsRegistered(stairId),
                  RsStair_GetLanding(stairId, row) != nullptr ? 1 : 0, actor->room, actor->home.rot.y,
                  static_cast<int>(actor->world.pos.x), static_cast<int>(actor->world.pos.y),
                  static_cast<int>(actor->world.pos.z), bump.count, bump.offered, bump.latched,

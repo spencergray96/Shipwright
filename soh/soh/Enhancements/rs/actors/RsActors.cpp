@@ -320,6 +320,49 @@ void LoadInteractionText(uint16_t id, bool* loadFromMessageTable) {
     LoadScreen(*screen, loadFromMessageTable);
 }
 
+// A staircase's menu (#147). The text id says which ROW; WHICH STAIRCASE is the placement Link is
+// talking to, read from Player exactly as LoadInteractionText reads its speaker - 8,192 staircases
+// cannot ride in a 16-bit text id (StairDef.h, sturdy-bassoon#214). The row is the id's, not the
+// actor's, so the text id stays the one authority on which screen opened. Every box writes a marker
+// naming the staircase it resolved, which is what lets a run check it against the `event=open` the
+// placement wrote a moment earlier.
+void LoadStairText(uint16_t id, bool* loadFromMessageTable) {
+    Actor* speaker = nullptr;
+    const char* via = "none";
+    if (gPlayState != nullptr) {
+        Player* player = GET_PLAYER(gPlayState);
+        if (player != nullptr && player->talkActor != nullptr && player->talkActor->id == ACTOR_RS_STAIRS) {
+            speaker = player->talkActor;
+            via = "player";
+        } else if (gPlayState->msgCtx.talkActor != nullptr && gPlayState->msgCtx.talkActor->id == ACTOR_RS_STAIRS) {
+            // A continued box: Player may have let go, and the context has caught up by now.
+            speaker = gPlayState->msgCtx.talkActor;
+            via = "msgctx";
+        }
+    }
+    const int32_t row = RS_TEXT_STAIR_GET_ROW(id);
+    const int32_t stairId = speaker != nullptr ? RS_STAIR_PARAMS_GET_ID(speaker->params) : -1;
+    const RsDialogueRule* screen = speaker != nullptr ? RsStair_Screen(stairId, row) : nullptr;
+
+    char line[128];
+    std::snprintf(line, sizeof(line), "rs_stairs stair=%d event=text row=%d options=%d via=%s", stairId, row,
+                  screen != nullptr ? static_cast<int>(screen->optionCount) : 0, via);
+    AgentTest_WriteMarker(line);
+
+    if (screen == nullptr) {
+        // No staircase is talking, or a placement naming a staircase or row this build does not have.
+        // Init has already said the second in the log; this is the half the player and a screenshot see.
+        const std::string what =
+            speaker == nullptr ? std::string("<no staircase is talking>")
+                               : "<staircase " + std::to_string(stairId) + " has no row " + std::to_string(row) + ">";
+        CustomMessage msg = BuildPlainMessage(what.c_str());
+        msg.LoadIntoFont();
+        *loadFromMessageTable = false;
+        return;
+    }
+    LoadScreen(*screen, loadFromMessageTable);
+}
+
 // The unfiltered OnOpenText bucket, which GameInteractor_ExecuteOnOpenText runs before the per-id
 // and filter buckets. Everything outside our band is left alone.
 //
@@ -369,22 +412,10 @@ void RsText_OnOpenText(uint16_t* textId, bool* loadFromMessageTable) {
         return;
     }
 
-    // A staircase's menu (#147): the id carries the staircase and the row the placement stands on,
-    // so like an NPC's entry box it renders from nothing but the id.
+    // A staircase's menu (#147): the id carries the row the placement stands on, the talking actor
+    // which staircase (#214).
     if (RS_TEXT_IS_STAIR(id)) {
-        const int32_t stairId = RS_TEXT_STAIR_GET_ID(id);
-        const int32_t row = RS_TEXT_STAIR_GET_ROW(id);
-        const RsDialogueRule* screen = RsStair_Screen(stairId, row);
-        if (screen == nullptr) {
-            // A placement naming a staircase or row this build does not have. Init has already said
-            // so in the log; this is the half the player and a screenshot see.
-            CustomMessage msg = BuildPlainMessage(
-                ("<staircase " + std::to_string(stairId) + " has no row " + std::to_string(row) + ">").c_str());
-            msg.LoadIntoFont();
-            *loadFromMessageTable = false;
-            return;
-        }
-        LoadScreen(*screen, loadFromMessageTable);
+        LoadStairText(id, loadFromMessageTable);
         return;
     }
 
