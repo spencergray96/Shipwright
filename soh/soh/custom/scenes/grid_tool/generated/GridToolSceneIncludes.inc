@@ -48,4 +48,5 @@
 #include "../../storey_heights_in_game_178/CustomStoreyHeightsInGame178Scene.h" // hand-frozen storey_heights_in_game_178 (sturdy-bassoon#178)
 #include "../storey_classes_178_s2/CustomStoreyClasses178S2Scene.h" // project c0c0178c-0178-4000-8000-000000000052 name storey_classes_178_s2
 #include "../storey_classes_178_s2_rays/CustomStoreyClasses178S2RaysScene.h" // project c0c0178c-0178-4000-8000-000000000053 name storey_classes_178_s2_rays
+#include "../scene_209_w2_wind/CustomScene209W2WindScene.h" // project 9faa04fb-c70e-4ca9-8c08-8faebd126e96 name scene_209_w2_wind
 // END GRID TOOL EXPORTS

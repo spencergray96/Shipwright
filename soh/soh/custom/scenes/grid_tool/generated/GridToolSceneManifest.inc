@@ -49,4 +49,5 @@
     { SCENE_STOREY_HEIGHTS_IN_GAME_178, CustomStoreyHeightsInGame178Scene_TrySpawn, CustomStoreyHeightsInGame178Scene_InitRoom }, // hand-frozen storey_heights_in_game_178 (sturdy-bassoon#178)
     { SCENE_STOREY_CLASSES_178_S2, CustomStoreyClasses178S2Scene_TrySpawn, CustomStoreyClasses178S2Scene_InitRoom }, // project c0c0178c-0178-4000-8000-000000000052 name storey_classes_178_s2
     { SCENE_STOREY_CLASSES_178_S2_RAYS, CustomStoreyClasses178S2RaysScene_TrySpawn, CustomStoreyClasses178S2RaysScene_InitRoom }, // project c0c0178c-0178-4000-8000-000000000053 name storey_classes_178_s2_rays
+    { SCENE_SCENE_209_W2_WIND, CustomScene209W2WindScene_TrySpawn, CustomScene209W2WindScene_InitRoom }, // project 9faa04fb-c70e-4ca9-8c08-8faebd126e96 name scene_209_w2_wind
 // END GRID TOOL EXPORTS
