@@ -179,4 +179,6 @@
 /* 0xA2 */ DEFINE_SCENE(world_export_173_scene, none, SCENE_WORLD_EXPORT_173, SDC_DEFAULT, 0, 0) // world world_export_173 name world_export_173
 /* 0xA3 */ DEFINE_SCENE(f2p_overworld_scene, none, SCENE_F2P_OVERWORLD, SDC_DEFAULT, 0, 0) // world f2p name f2p_overworld
 /* 0xA4 */ DEFINE_SCENE(storey_heights_in_game_178_scene, none, SCENE_STOREY_HEIGHTS_IN_GAME_178, SDC_DEFAULT, 0, 0) // hand-frozen storey_heights_in_game_178: #178 slice 3's staircase and warp test scene (sturdy-bassoon#178)
+/* 0xA5 */ DEFINE_SCENE(storey_classes_178_s2_scene, none, SCENE_STOREY_CLASSES_178_S2, SDC_DEFAULT, 0, 0) // project c0c0178c-0178-4000-8000-000000000052 name storey_classes_178_s2
+/* 0xA6 */ DEFINE_SCENE(storey_classes_178_s2_rays_scene, none, SCENE_STOREY_CLASSES_178_S2_RAYS, SDC_DEFAULT, 0, 0) // project c0c0178c-0178-4000-8000-000000000053 name storey_classes_178_s2_rays
 // END GRID TOOL EXPORTS
