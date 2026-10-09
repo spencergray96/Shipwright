@@ -417,12 +417,10 @@ void RsStairs_Init(Actor* thisx, PlayState* play) {
     // Loud, never fatal and never an assert - RsNpc's rule. A broken placement still stands there
     // and its menu says what is wrong (RsActors.cpp renders the diagnostic), which is a mistake you
     // can see rather than a staircase that silently is not there.
-    // Each mistake also gets a marker, so a run sees it without reading the engine log.
-    if (RS_STAIR_PARAMS_GET_RSVD(thisx->params) != 0) {
-        LUSLOG_ERROR("RsStairs: params 0x%04X has reserved bits set (stair %d)", (u16)thisx->params, this->stairId);
-        RsStairs_Marker("rs_stairs stair=%d event=bad_placement row=%d reason=reserved_bits params=0x%04X",
-                        this->stairId, this->row, (unsigned)(u16)thisx->params);
-    }
+    // Each mistake also gets a marker, so a run sees it without reading the engine log. There is no
+    // reserved-bits check: since #214 the id fills bits 10-14 too, so no params value is malformed,
+    // only an id or row this build has no row for.
+    //
     // The placement IS where its storey's landing is measured from (StairDef.h), so what it can get
     // wrong is which row it names, and its height against the floor it lands Link on (#178).
     if (RsStair_GetLanding(this->stairId, this->row) == NULL) {
@@ -439,7 +437,8 @@ void RsStairs_Init(Actor* thisx, PlayState* play) {
     // RsStairs_Update for what does.
     thisx->targetMode = 0;
     thisx->colChkInfo.mass = MASS_IMMOVABLE;
-    thisx->textId = RS_TEXT_STAIR_ID(this->stairId, this->row);
+    // The row only (#214): the text hook reads which staircase off this actor, as Link's talk partner.
+    thisx->textId = RS_TEXT_STAIR_ID(this->row);
 
     this->actionFunc = RsStairs_Wait;
 }
@@ -516,8 +515,12 @@ static void RsStairs_Talk(RsStairs* this, PlayState* play) {
         if (!Message_ShouldAdvance(play)) {
             return;
         }
-        if (play->msgCtx.textId != this->actor.textId) {
-            return; // somebody else's box
+        // Somebody else's box. The text id alone cannot say since #214: every staircase's placement on
+        // the same row opens the same id, so the box is ours only if we are the one being talked to.
+        // msgCtx.talkActor is right by now - Message_StartTextbox set it once the box opened - and
+        // the id test still keeps out a box of another kind opened mid-conversation.
+        if (play->msgCtx.textId != this->actor.textId || play->msgCtx.talkActor != &this->actor) {
+            return;
         }
         // No gating on a staircase menu, so the visible row IS the declared option.
         choice = play->msgCtx.choiceIndex;

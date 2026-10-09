@@ -42,7 +42,7 @@
 //   bump hold <n|default>   `on`/`off` set and save the override CVar, `default` clears it; `hold`
 //                           does the same for the hold, in game ticks (1..40). Both report
 //                           `on= source=cvar|default hold= hold_source=cvar|default`
-//   actors                  every live staircase actor: params decoded, reserved bits, room, the
+//   actors                  every live staircase actor: params decoded, `text=` its menu id, room, the
 //                           yaw it faces (which is the landing's facing), pos, and its walk-into
 //                           state - `bump=` ticks counted, `offered=`, `latched=` - its targeting
 //                           state (#192), and the floor under its landing (#178): `floor=1

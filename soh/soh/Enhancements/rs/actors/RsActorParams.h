@@ -128,28 +128,53 @@ RS_STATIC_ASSERT(((RS_ITEM_PARAMS_QUEST_MASK << RS_ITEM_PARAMS_QUEST_SHIFT) | RS
 // placement naming the wrong row shows as the wrong storey in its menu; one naming a row the
 // staircase does not have emits `rs_stairs event=bad_placement reason=no_such_row`.
 //
-// The row field is 2 bits because the menu caps a staircase at four storeys (StairDef.h). Growing
-// it later takes bit 10 out of the reserved span, which reinterprets nothing: every placement
-// authored before then carries zero there.
+// The row field is 2 bits because the menu caps a staircase at four storeys (StairDef.h).
+//
+// THE ID IS 13 BITS IN TWO PIECES (sturdy-bassoon#214): its low 8 bits in bits 0-7, where it always
+// was, and its high 5 bits in bits 10-14, which were reserved-and-zero until then. So the row stays
+// where it was, and every placement authored before #214 decodes to the same staircase - rule 1
+// holds because the bits it took read zero in all of them. No reserved bits are left, so there is
+// no reserved-bits check either: a staircase's params has no wrong bit pattern, only ids nobody
+// registered (`bad_placement reason=no_such_row`). Bit 15 stays zero (rule 2).
+//
+//   bit  15 | 14 ... 10 | 9 8 | 7 ... 0
+//        0  |  id 12-8  | row |  id 7-0
 
-#define RS_STAIR_PARAMS_ID_MASK 0x00FF  // bits 0-7: RsStairId
-#define RS_STAIR_PARAMS_ROW_SHIFT 8     // bits 8-9: which row of that staircase this placement is
+#define RS_STAIR_PARAMS_ID_LO_MASK 0x00FF // bits 0-7: the id's low 8 bits
+#define RS_STAIR_PARAMS_ROW_SHIFT 8       // bits 8-9: which row of that staircase this placement is
 #define RS_STAIR_PARAMS_ROW_MASK 0x0003
-#define RS_STAIR_PARAMS_RSVD_MASK 0x7C00 // bits 10-14: reserved, must read zero today
+#define RS_STAIR_PARAMS_ID_HI_SHIFT 2     // bits 10-14: the id's high 5 bits (id bit 8 -> params bit 10)
+#define RS_STAIR_PARAMS_ID_HI_MASK 0x7C00
+#define RS_STAIR_PARAMS_ID_BITS 13
 #define RS_STAIR_PARAMS(stairId, row)                                                                                  \
-    ((int16_t)((((row) & RS_STAIR_PARAMS_ROW_MASK) << RS_STAIR_PARAMS_ROW_SHIFT) |                                     \
-               ((stairId) & RS_STAIR_PARAMS_ID_MASK)))
-#define RS_STAIR_PARAMS_GET_ID(params) ((int32_t)((uint16_t)(params) & RS_STAIR_PARAMS_ID_MASK))
+    ((int16_t)((((stairId) << RS_STAIR_PARAMS_ID_HI_SHIFT) & RS_STAIR_PARAMS_ID_HI_MASK) |                             \
+               (((row) & RS_STAIR_PARAMS_ROW_MASK) << RS_STAIR_PARAMS_ROW_SHIFT) |                                     \
+               ((stairId) & RS_STAIR_PARAMS_ID_LO_MASK)))
+#define RS_STAIR_PARAMS_GET_ID(params)                                                                                 \
+    ((int32_t)((((uint16_t)(params) & RS_STAIR_PARAMS_ID_HI_MASK) >> RS_STAIR_PARAMS_ID_HI_SHIFT) |                   \
+               ((uint16_t)(params) & RS_STAIR_PARAMS_ID_LO_MASK)))
 #define RS_STAIR_PARAMS_GET_ROW(params)                                                                                \
     ((int32_t)(((uint16_t)(params) >> RS_STAIR_PARAMS_ROW_SHIFT) & RS_STAIR_PARAMS_ROW_MASK))
-#define RS_STAIR_PARAMS_GET_RSVD(params) ((int32_t)((uint16_t)(params) & RS_STAIR_PARAMS_RSVD_MASK))
 
-RS_STATIC_ASSERT(RS_STAIR_MAX <= RS_STAIR_PARAMS_ID_MASK + 1, "a staircase id must fit in the params id field");
+RS_STATIC_ASSERT(RS_STAIR_MAX <= (1 << RS_STAIR_PARAMS_ID_BITS), "a staircase id must fit in the params id field");
 RS_STATIC_ASSERT(RS_STAIR_MAX_ROWS <= RS_STAIR_PARAMS_ROW_MASK + 1, "a row must fit in the params row field");
-RS_STATIC_ASSERT(((RS_STAIR_PARAMS_ROW_MASK << RS_STAIR_PARAMS_ROW_SHIFT) & RS_STAIR_PARAMS_ID_MASK) == 0,
+RS_STATIC_ASSERT((RS_STAIR_PARAMS_ID_HI_MASK >> RS_STAIR_PARAMS_ID_HI_SHIFT) ==
+                     (((1 << RS_STAIR_PARAMS_ID_BITS) - 1) & ~RS_STAIR_PARAMS_ID_LO_MASK),
+                 "the high piece carries exactly the id bits the low piece does not");
+RS_STATIC_ASSERT(((RS_STAIR_PARAMS_ROW_MASK << RS_STAIR_PARAMS_ROW_SHIFT) &
+                  (RS_STAIR_PARAMS_ID_LO_MASK | RS_STAIR_PARAMS_ID_HI_MASK)) == 0 &&
+                     (RS_STAIR_PARAMS_ID_LO_MASK & RS_STAIR_PARAMS_ID_HI_MASK) == 0,
                  "params fields must not overlap");
-RS_STATIC_ASSERT(((RS_STAIR_PARAMS_ROW_MASK << RS_STAIR_PARAMS_ROW_SHIFT) | RS_STAIR_PARAMS_ID_MASK |
-                  RS_STAIR_PARAMS_RSVD_MASK) == 0x7FFF,
-                 "every stair params bit but 15 is a field or reserved");
+RS_STATIC_ASSERT(((RS_STAIR_PARAMS_ROW_MASK << RS_STAIR_PARAMS_ROW_SHIFT) | RS_STAIR_PARAMS_ID_LO_MASK |
+                  RS_STAIR_PARAMS_ID_HI_MASK) == 0x7FFF,
+                 "every stair params bit but 15 is a field");
+// Round trips at the edges, so a wrong shift fails the build rather than a placement.
+RS_STATIC_ASSERT(RS_STAIR_PARAMS_GET_ID(RS_STAIR_PARAMS(RS_STAIR_MAX - 1, 3)) == RS_STAIR_MAX - 1 &&
+                     RS_STAIR_PARAMS_GET_ROW(RS_STAIR_PARAMS(RS_STAIR_MAX - 1, 3)) == 3,
+                 "the top id and row survive a round trip through params");
+RS_STATIC_ASSERT(RS_STAIR_PARAMS_GET_ID(RS_STAIR_PARAMS(0x100, 0)) == 0x100 &&
+                     RS_STAIR_PARAMS_GET_ID(RS_STAIR_PARAMS(0xFF, 2)) == 0xFF,
+                 "the id survives the 8-bit boundary");
+RS_STATIC_ASSERT((uint16_t)RS_STAIR_PARAMS(RS_STAIR_MAX - 1, 3) == 0x7FFF, "the top params value is 0x7FFF: bit 15 stays zero");
 
 #endif // SOH_RS_ACTOR_PARAMS_H

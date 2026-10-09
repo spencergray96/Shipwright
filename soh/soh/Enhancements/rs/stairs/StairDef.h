@@ -71,27 +71,30 @@ typedef struct RsStairDef {
 
 // --- the staircase MENU text band ---------------------------------------------------------------
 //
-//     0xC400 + (stairId << 2) + row      256 staircases x 4 rows  ->  0xC400..0xC7FF
+//     0xC400 + row      4 ids  ->  0xC400..0xC403
 //
 // The menu a staircase opens depends on exactly two things - which staircase, and which storey Link
-// is standing on - so both ride in the id, and rendering needs no state. Same argument as the
-// quest-giver's entry box (NpcDialogueDef.h): two staircases in talk range at once cannot render
-// each other's menu. It sits in the gap between the direct-text id (0xC000) and the quest-item
-// pickup band (0xC800), which nothing else uses; SoH's own highest custom id is 0x9215.
+// is standing on. Until sturdy-bassoon#214 both rode in the text id (0xC400 + (id << 2) + row, 256
+// staircases in 0xC400..0xC7FF). 8,192 staircases x 4 rows would need 32,768 text ids, and the
+// whole 16-bit space above SoH's own highest custom id (0x9215) is 28,138 - so the id cannot ride.
+//
+// Now the text id carries only the ROW, and WHICH staircase is the actor Link is talking to: its
+// params carry the id (RsActorParams.h). That is the interaction band's rule (InteractionIds.h,
+// #183), read the same way - `Player::talkActor` at hook time, never a shared slot - so two
+// staircases in talk range still cannot render each other's menu: Player picks exactly one talk
+// actor. Two placements on the same row of different staircases now share a text id, so the actor
+// tells its own box from another's by the talk actor, not the id (RsStairs.c, RsStairs_Talk).
+// 0xC404..0xC7FF is free again.
 #define RS_TEXT_STAIR_BASE 0xC400
-#define RS_TEXT_STAIR_ROW_SHIFT 2
-#define RS_TEXT_STAIR_ID(stairId, row) ((uint16_t)(RS_TEXT_STAIR_BASE + ((stairId) << RS_TEXT_STAIR_ROW_SHIFT) + (row)))
-#define RS_TEXT_STAIR_GET_ID(textId) ((int32_t)(((textId)-RS_TEXT_STAIR_BASE) >> RS_TEXT_STAIR_ROW_SHIFT))
-#define RS_TEXT_STAIR_GET_ROW(textId) ((int32_t)(((textId)-RS_TEXT_STAIR_BASE) & (RS_STAIR_MAX_ROWS - 1)))
-#define RS_TEXT_STAIR_END (RS_TEXT_STAIR_BASE + (RS_STAIR_MAX << RS_TEXT_STAIR_ROW_SHIFT) - 1)
+#define RS_TEXT_STAIR_ID(row) ((uint16_t)(RS_TEXT_STAIR_BASE + (row)))
+#define RS_TEXT_STAIR_GET_ROW(textId) ((int32_t)((textId)-RS_TEXT_STAIR_BASE))
+#define RS_TEXT_STAIR_END (RS_TEXT_STAIR_BASE + RS_STAIR_MAX_ROWS - 1)
 #define RS_TEXT_IS_STAIR(textId) ((textId) >= RS_TEXT_STAIR_BASE && (textId) <= RS_TEXT_STAIR_END)
 
-RS_STATIC_ASSERT(RS_STAIR_MAX_ROWS == (1 << RS_TEXT_STAIR_ROW_SHIFT),
-                 "the stair text id's row field width and RS_STAIR_MAX_ROWS are the same number");
 RS_STATIC_ASSERT(RS_STAIR_MAX_ROWS <= RS_DIALOGUE_MAX_OPTIONS,
                  "a staircase's menu lists every other row plus Cancel, and the box is the cap");
 RS_STATIC_ASSERT(RS_TEXT_DIRECT < RS_TEXT_STAIR_BASE, "the stair band must start above RS_TEXT_DIRECT");
 RS_STATIC_ASSERT(RS_TEXT_STAIR_END < RS_TEXT_ITEM_BASE,
-                 "raising RS_STAIR_MAX must not push a stair text id onto the quest-item pickup band");
+                 "a stair text id must not reach the quest-item pickup band");
 
 #endif // SOH_RS_STAIR_DEF_H

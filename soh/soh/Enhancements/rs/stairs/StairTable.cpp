@@ -70,9 +70,9 @@ const RsStairDef kStairDebugRooms = {
     RS_STAIR_DEBUG_ROOMS, "debug_rooms", SCENE_TERRAIN_F2P_ROOMS_2X2, 40, kDebugRooms, ARRAY_COUNT(kDebugRooms),
 };
 
-// 193 is deliberately UNPLACED - the fixture for the missing-placement paths. Its storey 0 is in the
-// loaded room at spawn, so `stairs go 193 0` must be refused up front (`no_placement`); its storey
-// 1 is in room 3, so `stairs go 193 1` can only find out after loading room 3, and must load room 2
+// 7937 (193 before #214) is deliberately UNPLACED - the fixture for the missing-placement paths. Its
+// storey 0 is in the loaded room at spawn, so `stairs go 7937 0` must be refused up front
+// (`no_placement`); its storey 1 is in room 3, so `stairs go 7937 1` can only find out after loading room 3, and must load room 2
 // back and give Link back where he stood.
 const RsStairLanding kDebugUnplaced[] = {
     { 0, 2 },
