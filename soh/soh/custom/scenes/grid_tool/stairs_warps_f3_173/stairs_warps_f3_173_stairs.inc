@@ -11,8 +11,9 @@ RS_GEN_STAIR(7944, "grand_stair", 0, 0, 2, 0, NULL) // "Grand stair", level 0 at
 RS_GEN_STAIR(7944, "grand_stair", 1, 1, 2, 0, NULL) // "Grand stair", level 1 at (14, 4) facing W
 RS_GEN_STAIR(7944, "grand_stair", 2, 2, 2, 0, "the roof terrace") // "Grand stair", level 2 at (14, 4) facing W
 RS_GEN_STAIR(7945, "party_room_stair", 0, 0, 2, 0, NULL) // "Party Room stair", level 0 at (19, 4) facing W
-RS_GEN_STAIR(7945, "party_room_stair", 1, 1, 2, 0, NULL) // "Party Room stair", level 1 at (19, 4) facing W
-RS_GEN_STAIR(7945, "party_room_stair", 2, 2, 2, 0, NULL) // "Party Room stair", level 2 at (19, 4) facing W
+RS_GEN_STAIR_OPTION(7945, 0, 2, "Climb all the way up to the balcony at the very top of the tower")
+RS_GEN_STAIR(7945, "party_room_stair", 1, 1, 2, 0, "the musicians balcony") // "Party Room stair", level 1 at (19, 4) facing W
+RS_GEN_STAIR(7945, "party_room_stair", 2, 2, 2, 0, "the very top of the party room's great balcony") // "Party Room stair", level 2 at (19, 4) facing W
 RS_GEN_STAIR(7946, "standard_stair", 0, 0, 2, 0, NULL) // "Standard stair", level 0 at (4, 4) facing W
 RS_GEN_STAIR_OPTION(7946, 0, 2, "Climb to the roof")
 RS_GEN_STAIR(7946, "standard_stair", 1, 1, 2, 0, NULL) // "Standard stair", level 1 at (4, 4) facing W
