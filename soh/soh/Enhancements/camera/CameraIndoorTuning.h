@@ -49,6 +49,15 @@ extern "C" {
 // How far above the floor the player stands on a ceiling has to be to count as "indoors", in OoT
 // units. One grid-tool storey is 80 floor to floor, plus a 4-unit slab, so ~100 catches a single
 // storey and leaves a two-storey hall at the normal distance.
+//
+// Standard storeys only, and on purpose (sturdy-bassoon#178, owner 2026-10-08): tall (100) and grand
+// (130) storeys read as outdoors and keep the normal distance. Two things decide that, measured in
+// docs/test-runs/2026-10-08-issue-178-slice-3-game-heights/ in sturdy-bassoon:
+//   - the test is strict (`intersectDist < checkHeight`), so a ceiling exactly 100 up is missed;
+//   - BgCheck_CheckStaticCeiling scans only the static lookup cell holding the probe point, so a
+//     ceiling in the next cell up is missed AT ANY HEIGHT. A tall or grand upper storey's roof read
+//     outdoors at 100, 140, 200 and 300 alike. Raising this number reaches the ground storeys only.
+// Making those rooms read indoors would need a ceiling raycast rather than this lookup-cell query.
 #define CVAR_CAM_INDOOR_HEIGHT CVAR_ENHANCEMENT("CamIndoorCeilHeight")
 #define CAM_INDOOR_HEIGHT_DEFAULT 100.0f
 // BgCheck_AnyCheckCeiling needs a positive height. Past five storeys every roofed hall in a scene
