@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "scene": "scene_202_cutout_textures",
+  "list": "objects/rs_props/scene_202_cutout_textures/props",
+  "kinds": {
+    "loc-997": "rs_997",
+    "oak-tree-10820": "rs_10820"
+  },
+  "props": [
+    {"id":"oak0","kind":"oak-tree-10820","pos":[580,0,20],"rot":0},
+    {"id":"oak2","kind":"oak-tree-10820","pos":[340,0,20],"rot":2},
+    {"id":"rail0","kind":"loc-997","pos":[180,0,-100],"rot":6},
+    {"id":"rail1","kind":"loc-997","pos":[140,0,-100],"rot":6},
+    {"id":"railW","kind":"loc-997","pos":[60,0,-100],"rot":0}
+  ]
+}

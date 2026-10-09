@@ -181,4 +181,5 @@
 /* 0xA4 */ DEFINE_SCENE(storey_heights_in_game_178_scene, none, SCENE_STOREY_HEIGHTS_IN_GAME_178, SDC_DEFAULT, 0, 0) // hand-frozen storey_heights_in_game_178: #178 slice 3's staircase and warp test scene (sturdy-bassoon#178)
 /* 0xA5 */ DEFINE_SCENE(storey_classes_178_s2_scene, none, SCENE_STOREY_CLASSES_178_S2, SDC_DEFAULT, 0, 0) // project c0c0178c-0178-4000-8000-000000000052 name storey_classes_178_s2
 /* 0xA6 */ DEFINE_SCENE(storey_classes_178_s2_rays_scene, none, SCENE_STOREY_CLASSES_178_S2_RAYS, SDC_DEFAULT, 0, 0) // project c0c0178c-0178-4000-8000-000000000053 name storey_classes_178_s2_rays
+/* 0xA7 */ DEFINE_SCENE(scene_202_cutout_textures_scene, none, SCENE_SCENE_202_CUTOUT_TEXTURES, SDC_DEFAULT, 0, 0) // project ea177bb4-5d36-45a4-862d-2f0eda10ef0b name scene_202_cutout_textures
 // END GRID TOOL EXPORTS
