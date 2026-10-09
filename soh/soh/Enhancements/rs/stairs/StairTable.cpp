@@ -220,6 +220,8 @@ const RsStairGenOption kGenOwnStorey[] = { { 8107, 0, 0, "Stay here" } };
 const RsStairGenRow kGenThreeRows108[] = { { 8108, "gen", 0, 0, 1, 0, nullptr },
                                            { 8108, "gen", 1, 1, 1, 0, nullptr },
                                            { 8108, "gen", 2, 2, 1, 0, nullptr } };
+// Too long for its row: since decision 23 this falls back instead of refusing, so the table is ACCEPTED
+// (the expectation below changed with it; the words are checked in kWords).
 const RsStairGenOption kGenTooLong[] = {
     { 8108, 0, 2, "Climb all the way up the winding stair to the very top of the tall tower" }
 };
@@ -247,14 +249,62 @@ const RsStairBadGen kBadGen[] = {
     { kGenTwoRows107, ARRAY_COUNT(kGenTwoRows107), kGenOwnStorey, ARRAY_COUNT(kGenOwnStorey), RS_STAIR_PROBLEM_BAD_WORDS },
     /* 8 */
     { kGenThreeRows108, ARRAY_COUNT(kGenThreeRows108), kGenTooLong, ARRAY_COUNT(kGenTooLong),
-      RS_STAIR_PROBLEM_MENU_OVERFLOWS },
+      RS_STAIR_PROBLEM_NONE },
     /* 9 */ { kGenClash, ARRAY_COUNT(kGenClash), nullptr, 0, RS_STAIR_PROBLEM_ID_TAKEN },
     /* 10 */
     { kGenRepeatGood, ARRAY_COUNT(kGenRepeatGood), kGenRepeatGoodOptions, ARRAY_COUNT(kGenRepeatGoodOptions),
       RS_STAIR_PROBLEM_NONE },
 };
 
+// --- the words that fall back, for `stairs badcheck` (decision 23, #173 F3) ------------------------
+//
+// Each staircase registers - none of these is refused - and each must drop exactly `fallbacks` of its
+// words for not fitting. Widths are the renderer's pixel table: an option row is 184 px, and
+// "Down to " is 57 of them, so a destination name has 127 when another storey points DOWN at it. The
+// three balconies straddle that: 126, 127 (exactly at the limit) and 133 px. Ids 8120 and up, never
+// registered.
+const char kLongName[] = "the very top of the party room's great balcony";
+const char kLongOverride[] = "Climb all the way up to the balcony at the very top of the tower";
+const RsStairOverride kLongToStorey1[] = { { 1, kLongOverride } };
+const RsStairOverride kLongToStorey2[] = { { 2, kLongOverride } };
+
+const RsStairLanding kWordsTwoOverride[] = { { 0, 0, 0, nullptr, kLongToStorey1, 1 }, { 1, 0 } };
+const RsStairLanding kWordsTwoName[] = { { 0, 0 }, { 1, 0, 0, kLongName } };
+const RsStairLanding kWordsThreeName[] = { { 0, 0 }, { 1, 0 }, { 2, 0, 0, kLongName } };
+const RsStairLanding kWordsNearLimit[] = { { 0, 0 }, { 1, 0, 0, "the musicians balcony" }, { 2, 0 } };
+const RsStairLanding kWordsAtLimit[] = { { 0, 0 }, { 1, 0, 0, "the minstrels balcony" }, { 2, 0 } };
+const RsStairLanding kWordsOverLimit[] = { { 0, 0 }, { 1, 0, 0, "the bandstand balcony" }, { 2, 0 } };
+const RsStairLanding kWordsChain[] = { { 0, 0, 0, nullptr, kLongToStorey2, 1 }, { 1, 0 }, { 2, 0, 0, kLongName } };
+
+const RsStairDef kWordsDefs[] = {
+    { 8120, "words_two_override", 0, 40, kWordsTwoOverride, ARRAY_COUNT(kWordsTwoOverride) },
+    { 8121, "words_two_name", 0, 40, kWordsTwoName, ARRAY_COUNT(kWordsTwoName) },
+    { 8122, "words_three_name", 0, 40, kWordsThreeName, ARRAY_COUNT(kWordsThreeName) },
+    { 8123, "words_near_limit", 0, 40, kWordsNearLimit, ARRAY_COUNT(kWordsNearLimit) },
+    { 8124, "words_at_limit", 0, 40, kWordsAtLimit, ARRAY_COUNT(kWordsAtLimit) },
+    { 8125, "words_over_limit", 0, 40, kWordsOverLimit, ARRAY_COUNT(kWordsOverLimit) },
+    { 8126, "words_chain", 0, 40, kWordsChain, ARRAY_COUNT(kWordsChain) },
+};
+
+const RsStairWordsCase kWords[] = {
+    /* 0 */ { &kWordsDefs[0], 1 }, // the two-storey question, overridden too long: back to "Go up to ..."
+    /* 1 */ { &kWordsDefs[1], 1 }, // the two-storey question, named too long
+    /* 2 */ { &kWordsDefs[2], 2 }, // the roof named too long: rows 0 and 1 both point at it
+    /* 3 */ { &kWordsDefs[3], 0 }, // 126 px of name: fits under "Down to "
+    /* 4 */ { &kWordsDefs[4], 0 }, // 127 px: exactly the row
+    /* 5 */ { &kWordsDefs[5], 1 }, // 133 px: fits "Up to " from the ground, not "Down to " from the roof
+    /* 6 */ { &kWordsDefs[6], 3 }, // override AND name too long: the ground's option drops both, row 1 the name
+};
+
 } // namespace
+
+int32_t RsStairTable_WordsCount() {
+    return ARRAY_COUNT(kWords);
+}
+
+const RsStairWordsCase* RsStairTable_Words(int32_t index) {
+    return index >= 0 && index < RsStairTable_WordsCount() ? &kWords[index] : nullptr;
+}
 
 int32_t RsStairTable_BadGenCount() {
     return ARRAY_COUNT(kBadGen);

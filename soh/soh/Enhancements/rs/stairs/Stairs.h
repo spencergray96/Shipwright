@@ -131,26 +131,34 @@ int32_t RsStair_RowNearestPlayer(int32_t stairId);
 // when a menu opens, so a change needs no rebuild and no reload - the owner is testing them with
 // players. Neither is authored per staircase.
 //
-//   list  HIGHEST first (the default: a lift panel, the building's own order) or LOWEST first - the
-//         order within each direction's group;
+//   list  the order within each direction's group: NEAREST first (the default), HIGHEST first (a lift
+//         panel - the menu every staircase had before these settings) or LOWEST first;
 //   lead  from a middle storey, the UP group first (the default) or the DOWN group first.
 //
-// Both at their defaults is exactly the menu every staircase had before them. A two-storey staircase
-// has one destination, so neither changes it; a top or bottom storey has one group, so only `list`
-// does. Every staircase builds all four orders at registration (the screens never move while a box
-// is open), so the settings only pick one. CVars, beside the fade and walk-into settings: per install,
-// not per save - a player's preference for reading the menu, not a fact about the world, so it must
-// not change when they load another save (that is rsPrefs' floor convention).
+// The default is the owner's (2026-10-09, after playing the F3 test map): up before down, and the
+// nearest floor first either way - so going up the floors read ascending and going down descending.
+// On the ground floor of four: up to the first, second, third; on the first: up to the second, third,
+// then down to the ground; on the second: up to the third, down to the first, down to the ground; on
+// the top: down to the nearest first. `list highest` with `lead up` is the old menu, byte for byte.
+//
+// A two-storey staircase has one destination, so neither setting changes it; a top or bottom storey
+// has one group, so only `list` does. Every staircase builds all six orders at registration (the
+// screens never move while a box is open), so the settings only pick one. CVars, beside the fade and
+// walk-into settings: per install, not per save - a player's preference for reading the menu, not a
+// fact about the world, so it must not change when they load another save (that is rsPrefs' floor
+// convention).
 typedef enum RsStairMenuList {
-    RS_STAIR_LIST_HIGHEST_FIRST = 0,
-    RS_STAIR_LIST_LOWEST_FIRST = 1,
+    RS_STAIR_LIST_NEAREST_FIRST = 0,
+    RS_STAIR_LIST_HIGHEST_FIRST = 1,
+    RS_STAIR_LIST_LOWEST_FIRST = 2,
+    RS_STAIR_LIST_COUNT,
 } RsStairMenuList;
 typedef enum RsStairMenuLead {
     RS_STAIR_LEAD_UP = 0,
     RS_STAIR_LEAD_DOWN = 1,
 } RsStairMenuLead;
-// An ORDER is one (list, lead) pair, 0..3; 0 is both defaults.
-#define RS_STAIR_MENU_ORDERS 4
+// An ORDER is one (list, lead) pair, 0..5; 0 is both defaults.
+#define RS_STAIR_MENU_ORDERS (RS_STAIR_LIST_COUNT * 2)
 #define RS_STAIR_MENU_ORDER(list, lead) ((list)*2 + (lead))
 #define RS_STAIR_MENU_ORDER_LIST(order) ((order) / 2)
 #define RS_STAIR_MENU_ORDER_LEAD(order) ((order) % 2)
@@ -162,11 +170,15 @@ void RsStair_SetMenuLead(int32_t lead); // an RsStairMenuLead; anything else is 
 void RsStair_ClearMenuOrder(void);      // both back to the build default
 int32_t RsStair_MenuListOverridden(void);
 int32_t RsStair_MenuLeadOverridden(void);
-const char* RsStair_MenuListName(int32_t list); // "highest" / "lowest"
+const char* RsStair_MenuListName(int32_t list); // "nearest" / "highest" / "lowest"
 const char* RsStair_MenuLeadName(int32_t lead); // "up" / "down"
 
 // The order the settings say right now.
 int32_t RsStair_MenuOrder(void);
+// The rows a `count`-storey staircase's menu on `row` lists, in `order`, top to bottom (Cancel not
+// included); returns how many. What every menu is built from - `stairs ordercheck` asks it about
+// staircases of every height, which the test maps do not all have.
+int32_t RsStair_DestinationRows(int32_t count, int32_t row, int32_t order, int32_t* out);
 // The order a staircase box is opened in: the settings now, remembered as the open box's order, so
 // the choice it returns is read against the same screen it showed whatever the settings do in
 // between. The text hook calls it once per box; the actor reads the choice back with the latched one.
@@ -264,6 +276,7 @@ int32_t RsStair_BumpHoldOverridden(void);
 }
 
 #include <string>
+#include <vector>
 
 // C++ only, for the console.
 struct RsStairStatus {
@@ -287,6 +300,24 @@ RsStairStatus RsStair_GetStatus();
 
 // Every registered id, ascending.
 int32_t RsStair_ListIds(int32_t* out, int32_t max);
+
+// A destination name or override too long for its row, dropped for that one option (decision 23,
+// Stairs.cpp's "TOO LONG FALLS BACK"). `kind` is "override" or "name", `field` "label" (an option
+// row) or "question" (a two-storey staircase's body); `text` is the words that did not fit.
+struct RsStairWordsFallback {
+    int32_t row;
+    int32_t toRow;
+    const char* kind;
+    const char* field;
+    std::string text;
+};
+// What fell back for a registered staircase, and - silently, for `stairs badcheck`'s planted
+// definitions - for one that is not registered (empty if the definition would be refused).
+std::vector<RsStairWordsFallback> RsStair_Fallbacks(int32_t stairId);
+std::vector<RsStairWordsFallback> RsStair_FallbacksOf(const RsStairDef* def);
+// Whether a two-storey staircase's question fits its box beside "Go up"/"Go down" and Cancel - the
+// check the fallback makes, for `stairs limits` to measure the question's room with.
+bool RsStair_QuestionFits(const std::string& question, int32_t up);
 
 // The menu as the player would read it RIGHT NOW: the body and each option label expanded under
 // the live floor convention, in `order`. The console prints this, the textbox renders the same

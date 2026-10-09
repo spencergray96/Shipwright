@@ -19,6 +19,15 @@ typedef struct RsStairBadGen {
     int32_t optionCount;
     int32_t expect;
 } RsStairBadGen;
+// Staircases whose names or overrides do not all fit, each with how many words must fall back
+// (decision 23). They register cleanly; `stairs badcheck` counts what RsStair_FallbacksOf drops.
+typedef struct RsStairWordsCase {
+    const RsStairDef* def;
+    int32_t fallbacks;
+} RsStairWordsCase;
+int32_t RsStairTable_WordsCount();
+const RsStairWordsCase* RsStairTable_Words(int32_t index);
+
 int32_t RsStairTable_BadGenCount();
 const RsStairBadGen* RsStairTable_BadGen(int32_t index);
 
