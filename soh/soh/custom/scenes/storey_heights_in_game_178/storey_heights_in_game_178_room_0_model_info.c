@@ -1,4 +1,4 @@
-#include "../GridToolSceneData.h"
+#include "../grid_tool/GridToolSceneData.h"
 
 // Forward declarations for cross-file and same-file references
 extern Gfx storey_heights_in_game_178_room_0_shapeHeader_entry_0_opaque[];

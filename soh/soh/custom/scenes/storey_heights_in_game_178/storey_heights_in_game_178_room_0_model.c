@@ -1,4 +1,4 @@
-#include "../GridToolSceneData.h"
+#include "../grid_tool/GridToolSceneData.h"
 
 // Forward declarations for display lists referenced before their definitions
 extern Gfx storey_heights_in_game_178_room_0_dl_Floor_mesh_layer_Opaque[];

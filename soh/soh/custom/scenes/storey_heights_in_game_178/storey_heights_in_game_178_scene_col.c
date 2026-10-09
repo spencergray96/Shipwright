@@ -1,4 +1,4 @@
-#include "../GridToolSceneData.h"
+#include "../grid_tool/GridToolSceneData.h"
 // STEP WARP TILES SPLICED (sturdy-bassoon#154) by sturdy-bassoon tools/step-warps/splice_warps.py from
 // storey_heights_in_game_178.tiles.json. A re-export of this scene DROPS them: run the script again
 // afterwards. What each tile does is its row in rs/warps/WarpTable.cpp.
