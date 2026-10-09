@@ -44,4 +44,5 @@
     { SCENE_HANDS_CLIMB_179_BENCH_COPY, CustomHandsClimb179BenchCopyScene_TrySpawn, CustomHandsClimb179BenchCopyScene_InitRoom }, // project 1790a991-0000-4000-8000-0000000b0179 name hands_climb_179_bench_copy
     { SCENE_LUMBRIDGE_CASTLE_TRAVERSAL, CustomLumbridgeCastleTraversalScene_TrySpawn, CustomLumbridgeCastleTraversalScene_InitRoom }, // hand-frozen lumbridge_castle_traversal (sturdy-bassoon#173)
     { SCENE_STOREY_CLASSES_178, CustomStoreyClasses178Scene_TrySpawn, CustomStoreyClasses178Scene_InitRoom }, // project fc7008b5-fdbf-4201-9e4d-6675a06f5fe8 name storey_classes_178
+    { SCENE_STOREY_HEIGHTS_IN_GAME_178, CustomStoreyHeightsInGame178Scene_TrySpawn, CustomStoreyHeightsInGame178Scene_InitRoom }, // project cb944b55-ca57-487d-b461-11f6d3cb2f20 name storey_heights_in_game_178
 // END GRID TOOL EXPORTS

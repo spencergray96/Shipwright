@@ -43,4 +43,5 @@
 #include "../hands_climb_179_bench_copy/CustomHandsClimb179BenchCopyScene.h" // project 1790a991-0000-4000-8000-0000000b0179 name hands_climb_179_bench_copy
 #include "../../lumbridge_castle_traversal/CustomLumbridgeCastleTraversalScene.h" // hand-frozen lumbridge_castle_traversal (sturdy-bassoon#173)
 #include "../storey_classes_178/CustomStoreyClasses178Scene.h" // project fc7008b5-fdbf-4201-9e4d-6675a06f5fe8 name storey_classes_178
+#include "../storey_heights_in_game_178/CustomStoreyHeightsInGame178Scene.h" // project cb944b55-ca57-487d-b461-11f6d3cb2f20 name storey_heights_in_game_178
 // END GRID TOOL EXPORTS

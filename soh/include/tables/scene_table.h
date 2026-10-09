@@ -176,4 +176,5 @@
 /* 0x9F */ DEFINE_SCENE(hands_climb_179_bench_copy_scene, none, SCENE_HANDS_CLIMB_179_BENCH_COPY, SDC_DEFAULT, 0, 0) // project 1790a991-0000-4000-8000-0000000b0179 name hands_climb_179_bench_copy
 /* 0xA0 */ DEFINE_SCENE(lumbridge_castle_traversal_scene, none, SCENE_LUMBRIDGE_CASTLE_TRAVERSAL, SDC_DEFAULT, 0, 0) // hand-frozen lumbridge_castle_traversal: lumbridge_castle with its staircases (sturdy-bassoon#173)
 /* 0xA1 */ DEFINE_SCENE(storey_classes_178_scene, none, SCENE_STOREY_CLASSES_178, SDC_DEFAULT, 0, 0) // project fc7008b5-fdbf-4201-9e4d-6675a06f5fe8 name storey_classes_178
+/* 0xA2 */ DEFINE_SCENE(storey_heights_in_game_178_scene, none, SCENE_STOREY_HEIGHTS_IN_GAME_178, SDC_DEFAULT, 0, 0) // project cb944b55-ca57-487d-b461-11f6d3cb2f20 name storey_heights_in_game_178
 // END GRID TOOL EXPORTS

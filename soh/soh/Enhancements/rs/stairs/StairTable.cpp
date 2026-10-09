@@ -84,11 +84,57 @@ const RsStairDef kStairDebugUnplaced = {
     ARRAY_COUNT(kDebugUnplaced),
 };
 
+// --- debug: the storey-height fixtures (#178) ------------------------------------------------------
+//
+// storey_heights_in_game_178: a standard, a tall, a grand building and the Falador Party Room (tall
+// below, standard above), each with a 1x1 shaft at its east wall through the floor and the roof. One
+// placement per storey, facing grid west (+X, the export mirrors X), so Link lands on the next tile in.
+// The placements' heights come from `npm run tile:height` (sturdy-bassoon), never from "level x 80":
+// that is the whole point of the fixture. A test map, so the placements are a hand edit in the
+// generated scene .cpp (its banner says so) and a re-export drops them. One room.
+const RsStairLanding kStoreyThree[] = {
+    { 0, 0 },
+    { 1, 0 },
+    { 2, 0 },
+};
+const RsStairLanding kStoreyTwo[] = {
+    { 0, 0 },
+    { 1, 0 },
+};
+
+const RsStairDef kStairStoreyStandard = {
+    RS_STAIR_DEBUG_STOREY_STANDARD, "storey_standard", SCENE_STOREY_HEIGHTS_IN_GAME_178, 40, kStoreyThree,
+    ARRAY_COUNT(kStoreyThree),
+};
+const RsStairDef kStairStoreyTall = {
+    RS_STAIR_DEBUG_STOREY_TALL, "storey_tall", SCENE_STOREY_HEIGHTS_IN_GAME_178, 40, kStoreyThree,
+    ARRAY_COUNT(kStoreyThree),
+};
+const RsStairDef kStairStoreyGrand = {
+    RS_STAIR_DEBUG_STOREY_GRAND, "storey_grand", SCENE_STOREY_HEIGHTS_IN_GAME_178, 40, kStoreyThree,
+    ARRAY_COUNT(kStoreyThree),
+};
+const RsStairDef kStairStoreyParty = {
+    RS_STAIR_DEBUG_STOREY_PARTY, "storey_party_room", SCENE_STOREY_HEIGHTS_IN_GAME_178, 40, kStoreyThree,
+    ARRAY_COUNT(kStoreyThree),
+};
+// Its upper placement is deliberately wrong (StairIds.h): the move lands Link where it says, 50 under
+// the floor, and he drops to the ground.
+const RsStairDef kStairStoreyMistyped = {
+    RS_STAIR_DEBUG_STOREY_MISTYPED, "storey_mistyped", SCENE_STOREY_HEIGHTS_IN_GAME_178, 40, kStoreyTwo,
+    ARRAY_COUNT(kStoreyTwo),
+};
+
 void RegisterStairs() {
     RsStair_Register(&kStairCastleSouthTower);
     RsStair_Register(&kStairCastleNorthTower);
     RsStair_Register(&kStairDebugRooms);
     RsStair_Register(&kStairDebugUnplaced);
+    RsStair_Register(&kStairStoreyStandard);
+    RsStair_Register(&kStairStoreyTall);
+    RsStair_Register(&kStairStoreyGrand);
+    RsStair_Register(&kStairStoreyParty);
+    RsStair_Register(&kStairStoreyMistyped);
 }
 
 RegisterShipInitFunc stairTableInitFunc(RegisterStairs);
