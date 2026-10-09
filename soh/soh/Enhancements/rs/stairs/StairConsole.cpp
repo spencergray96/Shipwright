@@ -100,13 +100,31 @@ std::string OrderFields() {
            " lead=" + RsStair_MenuLeadName(RsStair_GetMenuLead());
 }
 
+// Where a staircase is: `scene=0x<id>` for a hand one (decision 18), `scene=by_map maps=<n,...>` for a
+// generated one, whose rows name their maps.
+std::string WhereFields(const RsStairDef& def) {
+    char buf[32];
+    if (def.sceneId != RS_STAIR_SCENE_BY_MAP) {
+        std::snprintf(buf, sizeof(buf), "scene=0x%X", def.sceneId);
+        return buf;
+    }
+    std::string maps;
+    for (int32_t row = 0; row < def.landingCount; row++) {
+        const std::string m = std::to_string(def.landings[row].map);
+        if (("," + maps + ",").find("," + m + ",") == std::string::npos) {
+            maps += (maps.empty() ? "" : ",") + m;
+        }
+    }
+    return "scene=by_map maps=" + maps;
+}
+
 int32_t List(std::vector<std::string>& lines) {
     std::vector<int32_t> ids(RS_STAIR_MAX); // 32 KB since #214: the heap, not the console's stack
     const int32_t count = RsStair_ListIds(ids.data(), RS_STAIR_MAX);
     Addf(lines, "op=list stairs=%d", count);
     for (int32_t i = 0; i < count; i++) {
         const RsStairDef* def = RsStair_GetDef(ids[i]);
-        Addf(lines, "stair[%d] name=%s scene=0x%X rows=%d storeys=%s tier=%s", def->id, def->name, def->sceneId,
+        Addf(lines, "stair[%d] name=%s %s rows=%d storeys=%s tier=%s", def->id, def->name, WhereFields(*def).c_str(),
              def->landingCount, StoreyList(*def).c_str(), RS_STAIR_ID_IS_DEBUG(def->id) ? "debug" : "prod");
     }
     return 0;
@@ -119,24 +137,34 @@ int32_t Dump(const std::vector<std::string>& args, std::vector<std::string>& lin
     }
     const RsStairDef* def = RsStair_GetDef(stairId);
     const int32_t convention = RsPrefs_GetFloorConvention();
-    Addf(lines, "op=dump stair=%d name=%s scene=0x%X here=%d rows=%d land_forward=%d convention=%s %s", def->id,
-         def->name, def->sceneId, InPlay() && gPlayState->sceneNum == def->sceneId ? 1 : 0, def->landingCount,
+    Addf(lines, "op=dump stair=%d name=%s %s here=%d rows=%d land_forward=%d convention=%s %s", def->id,
+         def->name, WhereFields(*def).c_str(), InPlay() && RsStair_InScene(def->id, gPlayState->sceneNum) ? 1 : 0,
+         def->landingCount,
          def->landForward, RsPrefs_FloorConventionName(convention), OrderFields().c_str());
     // Each storey's landing is computed from its placement, so it exists only while that placement
     // is loaded: `placed=0` is a storey in another room, or one nobody placed.
     for (int32_t row = 0; row < def->landingCount; row++) {
         const RsStairLanding& l = def->landings[row];
+        // A generated row's map, and its destination name (decision 19) - nothing for a hand row, so its
+        // lines are as they were.
+        std::string gen;
+        if (def->sceneId == RS_STAIR_SCENE_BY_MAP) {
+            gen = " map=" + std::to_string(l.map) + " overrides=" + std::to_string(l.overrideCount);
+            if (l.destName != nullptr) {
+                gen += " dest_name=\"" + RsFloorText_Compose(l.destName) + "\"";
+            }
+        }
         float x = 0.0f;
         float y = 0.0f;
         float z = 0.0f;
         int16_t yaw = 0;
         const int32_t placed = InPlay() ? RsStair_PlacedLanding(stairId, row, &x, &y, &z, &yaw) : 0;
         if (placed) {
-            Addf(lines, "row[%d] storey=%d room=%d placed=1 landing=%.1f,%.1f,%.1f yaw=%d label=\"%s\"", row, l.storey,
-                 l.room, x, y, z, yaw, RsFloorText_Label(convention, l.storey, false).c_str());
+            Addf(lines, "row[%d] storey=%d room=%d placed=1 landing=%.1f,%.1f,%.1f yaw=%d label=\"%s\"%s", row,
+                 l.storey, l.room, x, y, z, yaw, RsFloorText_Label(convention, l.storey, false).c_str(), gen.c_str());
         } else {
-            Addf(lines, "row[%d] storey=%d room=%d placed=0 label=\"%s\"", row, l.storey, l.room,
-                 RsFloorText_Label(convention, l.storey, false).c_str());
+            Addf(lines, "row[%d] storey=%d room=%d placed=0 label=\"%s\"%s", row, l.storey, l.room,
+                 RsFloorText_Label(convention, l.storey, false).c_str(), gen.c_str());
         }
     }
     for (int32_t row = 0; row < def->landingCount; row++) {
@@ -168,7 +196,7 @@ int32_t Where(std::vector<std::string>& lines) {
     const int32_t count = RsStair_ListIds(ids.data(), RS_STAIR_MAX);
     int32_t here = 0;
     for (int32_t i = 0; i < count; i++) {
-        here += RsStair_GetDef(ids[i])->sceneId == gPlayState->sceneNum ? 1 : 0;
+        here += RsStair_InScene(ids[i], gPlayState->sceneNum);
     }
     Addf(lines, "op=where scene=0x%X room=%d pos=%.1f,%.1f,%.1f yaw=%d floor_y=%.1f ground=%d stairs_here=%d",
          gPlayState->sceneNum, gPlayState->roomCtx.curRoom.num, player->actor.world.pos.x, player->actor.world.pos.y,
@@ -176,7 +204,7 @@ int32_t Where(std::vector<std::string>& lines) {
          (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) ? 1 : 0, here);
     for (int32_t i = 0; i < count; i++) {
         const RsStairDef* def = RsStair_GetDef(ids[i]);
-        if (def->sceneId != gPlayState->sceneNum) {
+        if (!RsStair_InScene(def->id, gPlayState->sceneNum)) {
             continue;
         }
         const int32_t row = RsStair_RowNearestPlayer(def->id);
@@ -369,7 +397,25 @@ int32_t BadCheck(std::vector<std::string>& lines) {
     }
     Addf(lines, "op=badcheck rows=%d refused=%d accepted=%d result=%s", count, count - accepted, accepted,
          accepted == 0 ? "ok" : "error");
-    return accepted == 0 ? 0 : 1;
+    // The GENERATED rows' merge (#173 F3): each planted table is rows as an export would write them, one
+    // mistake each, through the same merge RsStair_RegisterGenerated runs at boot. Last of them is a
+    // good table carrying a row twice, as a solo and a stitched scene both would: it must be accepted,
+    // so the merge is shown to tell a repeat from a disagreement.
+    const int32_t genCount = RsStairTable_BadGenCount();
+    int32_t genWrong = 0;
+    for (int32_t i = 0; i < genCount; i++) {
+        const RsStairBadGen* bad = RsStairTable_BadGen(i);
+        int32_t stairId = -1;
+        int32_t where = -1;
+        const int32_t problem =
+            RsStair_GeneratedProblem(bad->rows, bad->rowCount, bad->options, bad->optionCount, &stairId, &where);
+        const bool ok = problem == bad->expect;
+        genWrong += ok ? 0 : 1;
+        Addf(lines, "badgen[%d] problem=%s stair=%d row=%d want=%s %s", i, RsStair_ProblemName(problem), stairId, where,
+             RsStair_ProblemName(bad->expect), ok ? "ok" : "wrong");
+    }
+    Addf(lines, "op=badcheck_gen tables=%d wrong=%d result=%s", genCount, genWrong, genWrong == 0 ? "ok" : "error");
+    return (accepted == 0 && genWrong == 0) ? 0 : 1;
 }
 
 const char* kUsage =

@@ -65,8 +65,13 @@ typedef enum RsWarpEntry {
 #define RS_WARP_HERE (-1)
 
 typedef struct RsWarpDest {
-    int32_t tile;     // 1..RS_WARP_TILE_ID_MAX, in the destination scene
+    int32_t tile;     // 1..RS_WARP_TILE_ID_MAX, in the destination scene (or map)
     int32_t entrance; // RS_WARP_HERE, or an entrance id into ANOTHER scene
+    // A GENERATED destination (#173 F3) names a (map, local id) instead of an entrance: `map` is the
+    // destination tile's map number and `entrance` is RS_WARP_HERE. 0 in a hand row, which the two
+    // macros below leave it. A map in the scene Link is in is moved to in place; one in no map of it is
+    // slice F5's (a scene change through the scene picker), and the scan says `dest_elsewhere` until then.
+    int32_t map;
 } RsWarpDest;
 
 #define RS_WARP_TO(tile) { (tile), RS_WARP_HERE }
@@ -95,5 +100,38 @@ typedef struct RsWarpSceneDef {
     const RsWarpTileDef* tiles;
     int32_t tileCount;
 } RsWarpSceneDef;
+
+// --- GENERATED warp tiles (sturdy-bassoon#173 slice F3) -------------------------------------------
+//
+// A warp tile the grid tool authored is MAP-keyed: its local id is unique within its MAP, not its scene
+// (the slice F ADR's decision 3), because a stitched scene holds many maps and each numbers its own
+// tiles from 1. Each exported scene's `<slug>_warps.inc` carries its maps' rows (RS_GEN_WARP and
+// RS_GEN_WARP_DEST, the grid tool README's "The generated tables"); WarpTable.cpp reads them all and
+// RsWarp_RegisterGenerated (Warps.h) merges them into one RsWarpMapDef per map. A map's rows come from
+// every scene that holds it - its solo scene and a stitched one - so a row seen twice is taken once,
+// and rows for one tile that disagree are refused.
+//
+// The scan finds which map each warp polygon is in from the scene's map->scene rows (SceneMaps.h), then
+// that map's table: position -> map -> (map, local id) (decision 17). A scene is either map-keyed or
+// has a hand RsWarpSceneDef, never both (decision 18).
+typedef struct RsWarpMapDef {
+    int32_t map; // map number, from 1
+    const RsWarpTileDef* tiles;
+    int32_t tileCount;
+} RsWarpMapDef;
+
+typedef struct RsWarpGenRow {
+    int32_t map;
+    int32_t tile;
+    int32_t entry; // RsWarpEntry
+    int32_t room;  // always 0 today
+} RsWarpGenRow;
+
+typedef struct RsWarpGenDest {
+    int32_t map;
+    int32_t tile;
+    int32_t toMap;
+    int32_t toTile;
+} RsWarpGenDest;
 
 #endif // SOH_RS_WARP_DEF_H

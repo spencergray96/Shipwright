@@ -1,5 +1,6 @@
 #include "Stairs.h"
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <chrono>
@@ -16,9 +17,11 @@
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/rs/actors/RsActorParams.h"
 #include "soh/Enhancements/rs/actors/RsActors.h"
+#include "soh/Enhancements/rs/maps/SceneMaps.h"
 #include "soh/Enhancements/rs/music/ZoneDirector.h"
 #include "soh/Enhancements/rs/prefs/FloorText.h"
 #include "soh/Enhancements/rs/warps/WarpDef.h"
+#include "soh/Enhancements/rs/warps/Warps.h"
 #include "soh/ShipInit.hpp"
 #include "soh/cvar_prefixes.h"
 #include "soh/frame_interpolation.h"
@@ -398,6 +401,17 @@ struct Move {
 Move sMove;
 std::string sLast; // the last move's outcome, for `stairs status` - see ReportOutcome
 
+// A step warp's tile KEY as its markers name it (Warps.h, #173 F3): the tile id in a hand scene, so
+// those lines are unchanged, and `<map>:<id>` in a map-keyed one. Use as Tok(key).s in one expression.
+struct TileTok {
+    char s[24];
+};
+TileTok Tok(int32_t key) {
+    TileTok t;
+    RsWarp_TileToken(key, t.s, sizeof(t.s));
+    return t;
+}
+
 bool CrossScene() {
     return sMove.warp && sMove.entrance != RS_WARP_HERE;
 }
@@ -415,7 +429,7 @@ bool Arriving(int16_t sceneNum) {
 // did before warps existed.
 void Tag(char* out, size_t size) {
     if (sMove.warp) {
-        std::snprintf(out, size, "rs_warp tile=%d", sMove.fromTile);
+        std::snprintf(out, size, "rs_warp tile=%s", Tok(sMove.fromTile).s);
     } else {
         std::snprintf(out, size, "rs_stairs stair=%d", sMove.stairId);
     }
@@ -653,9 +667,9 @@ bool Land(PlayState* play, Player* player) {
         const Vec3f before = player->actor.world.pos;
         Teleport(play, player, sMove.warpPos, sMove.warpYaw);
         const Vec3f eye = Play_GetCamera(play, CAM_ID_MAIN)->eye;
-        Marker("rs_warp tile=%d event=moved to=%d from=%.1f,%.1f,%.1f pos=%.1f,%.1f,%.1f yaw=%d room=%d room_change=%d "
+        Marker("rs_warp tile=%s event=moved to=%s from=%.1f,%.1f,%.1f pos=%.1f,%.1f,%.1f yaw=%d room=%d room_change=%d "
                "black=%d eye=%.1f,%.1f,%.1f ticks=%d",
-               sMove.fromTile, sMove.toTile, before.x, before.y, before.z, player->actor.world.pos.x,
+               Tok(sMove.fromTile).s, Tok(sMove.toTile).s, before.x, before.y, before.z, player->actor.world.pos.x,
                player->actor.world.pos.y, player->actor.world.pos.z, player->actor.shape.rot.y,
                play->roomCtx.curRoom.num, sMove.roomTo != sMove.roomFrom ? 1 : 0,
                (play->envCtx.fillScreen && play->envCtx.screenFillColor[3] == 255) ? 1 : 0, eye.x, eye.y, eye.z,
@@ -838,9 +852,9 @@ void Finish(PlayState* play, Player* player) {
         // trap vanilla's grotto return falls into.
         const int n = std::snprintf(
             line, sizeof(line),
-            "rs_warp tile=%d event=landed to=%d pos=%.1f,%.1f,%.1f yaw=%d room=%d floor_y=%.1f ground=%d "
+            "rs_warp tile=%s event=landed to=%s pos=%.1f,%.1f,%.1f yaw=%d room=%d floor_y=%.1f ground=%d "
             "respawn=%.1f,%.1f,%.1f respawn_room=%d fade=%d ticks=%d source=%s scene=0x%X ms=%d",
-            sMove.fromTile, sMove.toTile, player->actor.world.pos.x, player->actor.world.pos.y,
+            Tok(sMove.fromTile).s, Tok(sMove.toTile).s, player->actor.world.pos.x, player->actor.world.pos.y,
             player->actor.world.pos.z, player->actor.shape.rot.y, play->roomCtx.curRoom.num, player->actor.floorHeight,
             (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) ? 1 : 0, respawn.pos.x, respawn.pos.y, respawn.pos.z,
             respawn.roomIndex, sMove.fade, sMove.ticks, sMove.source, play->sceneNum, MsSince(sMove.began));
@@ -1095,6 +1109,12 @@ extern "C" const char* RsStair_ProblemName(int32_t problem) {
             return "land_forward";
         case RS_STAIR_PROBLEM_BAD_WORDS:
             return "bad_words";
+        case RS_STAIR_PROBLEM_ROWS_DISAGREE:
+            return "rows_disagree";
+        case RS_STAIR_PROBLEM_ROW_MISSING:
+            return "row_missing";
+        case RS_STAIR_PROBLEM_OPTION_ORPHAN:
+            return "option_orphan";
         default:
             return "unknown";
     }
@@ -1184,6 +1204,201 @@ extern "C" int32_t RsStair_Register(const RsStairDef* def) {
     auto menus = std::make_unique<StairMenus>();
     BuildMenus(*def, *menus);
     sStairs[def->id] = std::move(menus);
+    return 0;
+}
+
+// --- generated staircases (#173 F3) --------------------------------------------------------------
+
+namespace {
+
+// One generated staircase, merged from its rows. Owned by the registry for the life of the game: the
+// RsStairDef points into `landings`, and each landing into its `overrides`, so none of it may move -
+// it lives behind a unique_ptr, and the vectors are complete before any pointer into them is taken.
+struct GenStair {
+    RsStairDef def = {};
+    RsStairLanding landings[RS_STAIR_MAX_ROWS] = {};
+    bool have[RS_STAIR_MAX_ROWS] = {};
+    std::vector<RsStairOverride> overrides[RS_STAIR_MAX_ROWS];
+    int32_t problem = RS_STAIR_PROBLEM_NONE;
+    int32_t where = -1;
+};
+
+std::vector<std::unique_ptr<GenStair>> sGenerated;
+bool sGeneratedDone = false;
+
+bool SameText(const char* a, const char* b) {
+    return (a == nullptr || b == nullptr) ? a == b : std::strcmp(a, b) == 0;
+}
+
+void Fail(GenStair& s, int32_t problem, int32_t where) {
+    if (s.problem == RS_STAIR_PROBLEM_NONE) {
+        s.problem = problem;
+        s.where = where;
+    }
+}
+
+GenStair& FindOrAdd(std::vector<std::unique_ptr<GenStair>>& out, int32_t id) {
+    for (auto& s : out) {
+        if (s->def.id == id) {
+            return *s;
+        }
+    }
+    out.push_back(std::make_unique<GenStair>());
+    out.back()->def.id = id;
+    return *out.back();
+}
+
+// Merges the rows by id into `out`, ascending by id, each with the first problem it met (or none).
+// A row seen twice is the same placement carried by two scenes' tables - its map's solo scene and a
+// stitched scene (decision 15) - and is taken once if it agrees in every field.
+void MergeGenerated(const RsStairGenRow* rows, int32_t rowCount, const RsStairGenOption* options, int32_t optionCount,
+                    std::vector<std::unique_ptr<GenStair>>& out) {
+    for (int32_t i = 0; i < rowCount; i++) {
+        const RsStairGenRow& r = rows[i];
+        GenStair& s = FindOrAdd(out, r.stair);
+        if (s.def.name == nullptr) {
+            s.def.name = r.name;
+        } else if (!SameText(s.def.name, r.name)) {
+            Fail(s, RS_STAIR_PROBLEM_ROWS_DISAGREE, r.row);
+        }
+        if (r.row < 0 || r.row >= RS_STAIR_MAX_ROWS) {
+            Fail(s, RS_STAIR_PROBLEM_ROW_COUNT, r.row);
+            continue;
+        }
+        RsStairLanding& l = s.landings[r.row];
+        if (s.have[r.row]) {
+            if (l.storey != r.storey || l.map != r.map || l.room != r.room || !SameText(l.destName, r.destName)) {
+                Fail(s, RS_STAIR_PROBLEM_ROWS_DISAGREE, r.row);
+            }
+            continue;
+        }
+        s.have[r.row] = true;
+        l.storey = r.storey;
+        l.room = r.room;
+        l.map = r.map;
+        l.destName = r.destName;
+    }
+    for (int32_t i = 0; i < optionCount; i++) {
+        const RsStairGenOption& o = options[i];
+        GenStair& s = FindOrAdd(out, o.stair);
+        if (o.row < 0 || o.row >= RS_STAIR_MAX_ROWS || !s.have[o.row]) {
+            Fail(s, RS_STAIR_PROBLEM_OPTION_ORPHAN, o.row);
+            continue;
+        }
+        bool seen = false;
+        for (const RsStairOverride& existing : s.overrides[o.row]) {
+            if (existing.storey == o.toStorey) {
+                seen = true;
+                if (!SameText(existing.text, o.text)) {
+                    Fail(s, RS_STAIR_PROBLEM_ROWS_DISAGREE, o.row);
+                }
+            }
+        }
+        if (!seen) {
+            s.overrides[o.row].push_back({ o.toStorey, o.text });
+        }
+    }
+    std::sort(out.begin(), out.end(), [](const auto& a, const auto& b) { return a->def.id < b->def.id; });
+    for (auto& sp : out) {
+        GenStair& s = *sp;
+        int32_t count = 0;
+        for (int32_t row = 0; row < RS_STAIR_MAX_ROWS; row++) {
+            count = s.have[row] ? row + 1 : count;
+        }
+        for (int32_t row = 0; row < count; row++) {
+            if (!s.have[row]) {
+                Fail(s, RS_STAIR_PROBLEM_ROW_MISSING, row);
+            }
+            s.landings[row].overrides = s.overrides[row].empty() ? nullptr : s.overrides[row].data();
+            s.landings[row].overrideCount = static_cast<int32_t>(s.overrides[row].size());
+        }
+        s.def.sceneId = RS_STAIR_SCENE_BY_MAP;
+        s.def.landForward = RS_STAIR_GEN_LAND_FORWARD;
+        s.def.landings = s.landings;
+        s.def.landingCount = count;
+        if (s.problem == RS_STAIR_PROBLEM_NONE) {
+            int32_t where = -1;
+            const int32_t problem = RsStair_DefProblem(&s.def, &where);
+            Fail(s, problem, where);
+        }
+    }
+}
+
+} // namespace
+
+extern "C" int32_t RsStair_GeneratedProblem(const RsStairGenRow* rows, int32_t rowCount,
+                                            const RsStairGenOption* options, int32_t optionCount, int32_t* stairId,
+                                            int32_t* where) {
+    std::vector<std::unique_ptr<GenStair>> merged;
+    MergeGenerated(rows, rowCount, options, optionCount, merged);
+    for (const auto& s : merged) {
+        if (s->problem != RS_STAIR_PROBLEM_NONE) {
+            if (stairId != nullptr) {
+                *stairId = s->def.id;
+            }
+            if (where != nullptr) {
+                *where = s->where;
+            }
+            return s->problem;
+        }
+    }
+    if (stairId != nullptr) {
+        *stairId = -1;
+    }
+    if (where != nullptr) {
+        *where = -1;
+    }
+    return RS_STAIR_PROBLEM_NONE;
+}
+
+extern "C" int32_t RsStair_RegisterGenerated(const RsStairGenRow* rows, int32_t rowCount,
+                                             const RsStairGenOption* options, int32_t optionCount) {
+    if (sGeneratedDone) {
+        return 0; // a ShipInit re-run: the rows are compiled in, and already registered
+    }
+    sGeneratedDone = true;
+    MergeGenerated(rows, rowCount, options, optionCount, sGenerated);
+    int32_t refused = 0;
+    for (const auto& s : sGenerated) {
+        if (s->problem == RS_STAIR_PROBLEM_NONE) {
+            RsStair_Register(&s->def);
+            continue;
+        }
+        // RsStair_Register's refusal, word for word - the merge found it before the def existed.
+        refused++;
+        char line[160];
+        std::snprintf(line, sizeof(line), "rs_stairs stair=%d event=refused problem=%s row=%d", s->def.id,
+                      RsStair_ProblemName(s->problem), s->where);
+        AgentTest_WriteMarker(line);
+        SPDLOG_ERROR("RsStairs: register generated stair {}: {} at row {}", s->def.id,
+                     RsStair_ProblemName(s->problem), s->where);
+        assert(false && "generated staircase rows failed validation");
+    }
+    return refused;
+}
+
+extern "C" int32_t RsStair_RowInScene(int32_t stairId, int32_t row, int32_t sceneId) {
+    const RsStairDef* def = RsStair_GetDef(stairId);
+    const RsStairLanding* landing = RsStair_GetLanding(stairId, row);
+    if (def == nullptr || landing == nullptr) {
+        return 0;
+    }
+    if (def->sceneId != RS_STAIR_SCENE_BY_MAP) {
+        return def->sceneId == sceneId ? 1 : 0;
+    }
+    return RsMaps_SlotOf(sceneId, landing->map) >= 0 ? 1 : 0;
+}
+
+extern "C" int32_t RsStair_InScene(int32_t stairId, int32_t sceneId) {
+    const RsStairDef* def = RsStair_GetDef(stairId);
+    if (def == nullptr) {
+        return 0;
+    }
+    for (int32_t row = 0; row < def->landingCount; row++) {
+        if (RsStair_RowInScene(stairId, row, sceneId)) {
+            return 1;
+        }
+    }
     return 0;
 }
 
@@ -1392,7 +1607,9 @@ extern "C" int32_t RsStair_BeginMove(int32_t stairId, int32_t fromRow, int32_t t
         result = RS_STAIR_ERR_BUSY;
     } else if (gPlayState == nullptr || GET_PLAYER(gPlayState) == nullptr) {
         result = RS_STAIR_ERR_NO_PLAY;
-    } else if (gPlayState->sceneNum != def->sceneId) {
+    } else if (!RsStair_RowInScene(stairId, toRow, gPlayState->sceneNum)) {
+        // A hand staircase: its scene. A generated one: is the destination row's map in this scene
+        // (decision 17)? Moving to a map in another scene is F5's staircase transfer, not this move.
         result = RS_STAIR_ERR_WRONG_SCENE;
     } else if (landing->room >= gPlayState->numRooms) {
         result = RS_STAIR_ERR_BAD_ROOM;
@@ -1453,9 +1670,9 @@ extern "C" int32_t RsStair_BeginWarpMove(const RsWarpMoveDest* dest, const char*
     }
     if (result != RS_STAIR_OK) {
         char line[200];
-        std::snprintf(line, sizeof(line), "rs_warp tile=%d event=move_refused result=%s to=%d source=%s",
-                      dest != nullptr ? dest->fromTile : -1, RsStair_ResultName(result),
-                      dest != nullptr ? dest->toTile : -1, source != nullptr ? source : "");
+        std::snprintf(line, sizeof(line), "rs_warp tile=%s event=move_refused result=%s to=%s source=%s",
+                      Tok(dest != nullptr ? dest->fromTile : -1).s, RsStair_ResultName(result),
+                      Tok(dest != nullptr ? dest->toTile : -1).s, source != nullptr ? source : "");
         if (result == RS_STAIR_ERR_BUSY) {
             AgentTest_WriteMarker(line); // must not overwrite the outcome of the move it bounced off
         } else {
@@ -1492,8 +1709,8 @@ extern "C" int32_t RsStair_BeginWarpMove(const RsWarpMoveDest* dest, const char*
                dest->fromTile, dest->toTile, sMove.roomFrom, sMove.roomTo, sMove.fade, sMove.source, sMove.entrance,
                sMove.targetScene);
     } else {
-        Marker("rs_warp tile=%d event=move_begin to=%d room_from=%d room_to=%d fade=%d source=%s", dest->fromTile,
-               dest->toTile, sMove.roomFrom, sMove.roomTo, sMove.fade, sMove.source);
+        Marker("rs_warp tile=%s event=move_begin to=%s room_from=%d room_to=%d fade=%d source=%s",
+               Tok(dest->fromTile).s, Tok(dest->toTile).s, sMove.roomFrom, sMove.roomTo, sMove.fade, sMove.source);
     }
     return RS_STAIR_OK;
 }

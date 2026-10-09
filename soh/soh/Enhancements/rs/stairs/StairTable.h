@@ -10,4 +10,16 @@
 int32_t RsStairTable_BadCount();
 const RsStairDef* RsStairTable_Bad(int32_t index);
 
+// The same for GENERATED rows (#173 F3): planted tables as an export would write them, each with the
+// problem the merge must find (RsStairProblem; RS_STAIR_PROBLEM_NONE for one it must accept).
+typedef struct RsStairBadGen {
+    const RsStairGenRow* rows;
+    int32_t rowCount;
+    const RsStairGenOption* options;
+    int32_t optionCount;
+    int32_t expect;
+} RsStairBadGen;
+int32_t RsStairTable_BadGenCount();
+const RsStairBadGen* RsStairTable_BadGen(int32_t index);
+
 #endif // SOH_RS_STAIR_TABLE_H

@@ -42,7 +42,8 @@ typedef enum RsStairResult {
     RS_STAIR_ERR_BAD_ROW = 2,     // not a row of that staircase
     RS_STAIR_ERR_BUSY = 3,        // a move is already in flight
     RS_STAIR_ERR_NO_PLAY = 4,     // no scene, or Link does not exist yet
-    RS_STAIR_ERR_WRONG_SCENE = 5, // the staircase's landings are in a different scene
+    RS_STAIR_ERR_WRONG_SCENE = 5, // the destination row is in a different scene: a hand staircase's
+                                  // scene is another, or a generated row's map is in no map of this one
     RS_STAIR_ERR_BAD_ROOM = 6,    // the landing names a room this scene does not have
     RS_STAIR_ERR_NO_PLACEMENT = 7, // the destination storey has no placement to land in front of.
                                    // Refused up front when that storey is in the loaded room; in
@@ -81,11 +82,34 @@ typedef enum RsStairProblem {
     RS_STAIR_PROBLEM_BAD_WORDS,       // a destination name or an override that is empty, or an override
                                       // for a storey that is not another row of this staircase, or two
                                       // for one storey (#173 F3) - the row is the placement carrying it
+    // Generated rows only (#173 F3), found while merging them by id - RsStair_RegisterGenerated:
+    RS_STAIR_PROBLEM_ROWS_DISAGREE, // two rows for one id disagree on name, or one row given twice
+                                    // with a different storey, map, room, name or option text
+    RS_STAIR_PROBLEM_ROW_MISSING,   // rows are not 0..n-1: one in the middle has no placement
+    RS_STAIR_PROBLEM_OPTION_ORPHAN, // an option override for a row with no placement row
     RS_STAIR_PROBLEM_COUNT,
 } RsStairProblem;
 
 int32_t RsStair_DefProblem(const RsStairDef* def, int32_t* where);
 const char* RsStair_ProblemName(int32_t problem); // "row_count", "storey_order", ...
+
+// GENERATED staircases (StairDef.h): merge every exported scene's rows by staircase id, then register
+// each one as an RsStairDef the registry owns, with sceneId RS_STAIR_SCENE_BY_MAP and landForward
+// RS_STAIR_GEN_LAND_FORWARD. A staircase whose rows cannot be merged, or whose merged definition
+// RsStair_DefProblem refuses, is refused as RsStair_Register refuses one - BUG class, loud - and the
+// rest still register. Called once at boot (a ShipInit re-run is a no-op). Returns how many it refused.
+int32_t RsStair_RegisterGenerated(const RsStairGenRow* rows, int32_t rowCount, const RsStairGenOption* options,
+                                  int32_t optionCount);
+// The same merge and checks, silent: the first refused staircase's problem (RS_STAIR_PROBLEM_NONE if
+// none is), its id in `stairId` and the row in `where`. For `stairs badcheck`'s planted tables.
+int32_t RsStair_GeneratedProblem(const RsStairGenRow* rows, int32_t rowCount, const RsStairGenOption* options,
+                                 int32_t optionCount, int32_t* stairId, int32_t* where);
+
+// Is (staircase, row) in `sceneId`? A hand row: its staircase's scene is. A generated one: its map is
+// one the scene holds (SceneMaps.h) - the slice F ADR's decision 17, and what `wrong_scene` asks.
+int32_t RsStair_RowInScene(int32_t stairId, int32_t row, int32_t sceneId);
+// ...and any row of it.
+int32_t RsStair_InScene(int32_t stairId, int32_t sceneId);
 
 // Lookups. Quiet: NULL / 0 / -1 for an id or row that does not exist, so a surface can ask about
 // anything a console was handed.

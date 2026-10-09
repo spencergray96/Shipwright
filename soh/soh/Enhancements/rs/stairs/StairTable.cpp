@@ -3,6 +3,8 @@
 
 #include "soh/ShipInit.hpp"
 
+#include <vector>
+
 extern "C" {
 #include <z64.h> // the SCENE_* ids a staircase's landings belong to
 #include "macros.h"
@@ -125,6 +127,22 @@ const RsStairDef kStairStoreyMistyped = {
     ARRAY_COUNT(kStoreyTwo),
 };
 
+// --- GENERATED staircases (#173 slice F3) ----------------------------------------------------------
+//
+// Every staircase the grid tool authored, from every exported scene's `<slug>_stairs.inc`, through the
+// one aggregate the export keeps (the grid tool README, "The generated tables"). These rows are
+// MAP-keyed - each names the map its placement is in - where the hand rows above are scene-keyed
+// (the slice F ADR's decision 18); no scene holds both. RsStair_RegisterGenerated merges them by id.
+// A function rather than an array initialiser, so an aggregate with no rows yet compiles.
+void CollectGenerated(std::vector<RsStairGenRow>& rows, std::vector<RsStairGenOption>& options) {
+#define RS_GEN_STAIR(stair, name, row, storey, map, room, destName) \
+    rows.push_back({ (stair), (name), (row), (storey), (map), (room), (destName) });
+#define RS_GEN_STAIR_OPTION(stair, row, toStorey, text) options.push_back({ (stair), (row), (toStorey), (text) });
+#include "soh/custom/scenes/grid_tool/generated/GridToolStairs.inc"
+#undef RS_GEN_STAIR
+#undef RS_GEN_STAIR_OPTION
+}
+
 void RegisterStairs() {
     RsStair_Register(&kStairCastleSouthTower);
     RsStair_Register(&kStairCastleNorthTower);
@@ -135,6 +153,13 @@ void RegisterStairs() {
     RsStair_Register(&kStairStoreyGrand);
     RsStair_Register(&kStairStoreyParty);
     RsStair_Register(&kStairStoreyMistyped);
+
+    // After the hand rows, so a generated id that clashes with one is the one refused (`id_taken`).
+    std::vector<RsStairGenRow> rows;
+    std::vector<RsStairGenOption> options;
+    CollectGenerated(rows, options);
+    RsStair_RegisterGenerated(rows.data(), static_cast<int32_t>(rows.size()), options.data(),
+                              static_cast<int32_t>(options.size()));
 }
 
 RegisterShipInitFunc stairTableInitFunc(RegisterStairs);
@@ -169,7 +194,78 @@ const RsStairDef kBadDefs[] = {
     /* 11 */ { 250, "lands_in_collider", 0, RS_STAIR_MIN_LAND_FORWARD - 1, kGood, ARRAY_COUNT(kGood) },
 };
 
+// --- the malformed GENERATED tables, for `stairs badcheck` (#173 F3) -------------------------------
+//
+// Rows as an export would write them, one mistake per table. APPEND ONLY, like kBadDefs. Ids 8100 and
+// up are in the debug band and never registered; the last-but-one table is about a clash with a
+// registered hand fixture, and the last is a GOOD table that must be accepted: a row and an option
+// carried twice, as a map's solo scene and a stitched scene that holds it both carry them.
+const RsStairGenRow kGenNameDiffers[] = { { 8100, "gen_a", 0, 0, 1, 0, nullptr }, { 8100, "gen_b", 1, 1, 1, 0, nullptr } };
+const RsStairGenRow kGenStoreyDiffers[] = { { 8101, "gen", 0, 0, 1, 0, nullptr },
+                                            { 8101, "gen", 1, 1, 1, 0, nullptr },
+                                            { 8101, "gen", 1, 2, 1, 0, nullptr } };
+const RsStairGenRow kGenMapDiffers[] = { { 8102, "gen", 0, 0, 1, 0, nullptr },
+                                         { 8102, "gen", 1, 1, 1, 0, nullptr },
+                                         { 8102, "gen", 1, 1, 2, 0, nullptr } };
+const RsStairGenRow kGenWordsDiffer[] = { { 8103, "gen", 0, 0, 1, 0, nullptr },
+                                          { 8103, "gen", 1, 1, 1, 0, "the attic" },
+                                          { 8103, "gen", 1, 1, 1, 0, "the loft" } };
+const RsStairGenRow kGenTwoRows[] = { { 8104, "gen", 0, 0, 1, 0, nullptr }, { 8104, "gen", 1, 1, 1, 0, nullptr } };
+const RsStairGenOption kGenOptionDiffers[] = { { 8104, 0, 1, "Climb up" }, { 8104, 0, 1, "Clamber up" } };
+const RsStairGenRow kGenGap[] = { { 8105, "gen", 0, 0, 1, 0, nullptr }, { 8105, "gen", 2, 2, 1, 0, nullptr } };
+const RsStairGenRow kGenTwoRows106[] = { { 8106, "gen", 0, 0, 1, 0, nullptr }, { 8106, "gen", 1, 1, 1, 0, nullptr } };
+const RsStairGenOption kGenOrphan[] = { { 8106, 3, 1, "Up" } };
+const RsStairGenRow kGenTwoRows107[] = { { 8107, "gen", 0, 0, 1, 0, nullptr }, { 8107, "gen", 1, 1, 1, 0, nullptr } };
+const RsStairGenOption kGenOwnStorey[] = { { 8107, 0, 0, "Stay here" } };
+const RsStairGenRow kGenThreeRows108[] = { { 8108, "gen", 0, 0, 1, 0, nullptr },
+                                           { 8108, "gen", 1, 1, 1, 0, nullptr },
+                                           { 8108, "gen", 2, 2, 1, 0, nullptr } };
+const RsStairGenOption kGenTooLong[] = {
+    { 8108, 0, 2, "Climb all the way up the winding stair to the very top of the tall tower" }
+};
+const RsStairGenRow kGenClash[] = { { RS_STAIR_DEBUG_STOREY_STANDARD, "gen", 0, 0, 1, 0, nullptr },
+                                    { RS_STAIR_DEBUG_STOREY_STANDARD, "gen", 1, 1, 1, 0, nullptr } };
+const RsStairGenRow kGenRepeatGood[] = { { 8109, "gen", 0, 0, 1, 0, nullptr },
+                                         { 8109, "gen", 1, 1, 1, 0, "the attic" },
+                                         { 8109, "gen", 0, 0, 1, 0, nullptr },
+                                         { 8109, "gen", 1, 1, 1, 0, "the attic" } };
+const RsStairGenOption kGenRepeatGoodOptions[] = { { 8109, 0, 1, "Climb to {floor:1}" },
+                                                   { 8109, 0, 1, "Climb to {floor:1}" } };
+
+const RsStairBadGen kBadGen[] = {
+    /* 0 */ { kGenNameDiffers, ARRAY_COUNT(kGenNameDiffers), nullptr, 0, RS_STAIR_PROBLEM_ROWS_DISAGREE },
+    /* 1 */ { kGenStoreyDiffers, ARRAY_COUNT(kGenStoreyDiffers), nullptr, 0, RS_STAIR_PROBLEM_ROWS_DISAGREE },
+    /* 2 */ { kGenMapDiffers, ARRAY_COUNT(kGenMapDiffers), nullptr, 0, RS_STAIR_PROBLEM_ROWS_DISAGREE },
+    /* 3 */ { kGenWordsDiffer, ARRAY_COUNT(kGenWordsDiffer), nullptr, 0, RS_STAIR_PROBLEM_ROWS_DISAGREE },
+    /* 4 */
+    { kGenTwoRows, ARRAY_COUNT(kGenTwoRows), kGenOptionDiffers, ARRAY_COUNT(kGenOptionDiffers),
+      RS_STAIR_PROBLEM_ROWS_DISAGREE },
+    /* 5 */ { kGenGap, ARRAY_COUNT(kGenGap), nullptr, 0, RS_STAIR_PROBLEM_ROW_MISSING },
+    /* 6 */
+    { kGenTwoRows106, ARRAY_COUNT(kGenTwoRows106), kGenOrphan, ARRAY_COUNT(kGenOrphan), RS_STAIR_PROBLEM_OPTION_ORPHAN },
+    /* 7 */
+    { kGenTwoRows107, ARRAY_COUNT(kGenTwoRows107), kGenOwnStorey, ARRAY_COUNT(kGenOwnStorey), RS_STAIR_PROBLEM_BAD_WORDS },
+    /* 8 */
+    { kGenThreeRows108, ARRAY_COUNT(kGenThreeRows108), kGenTooLong, ARRAY_COUNT(kGenTooLong),
+      RS_STAIR_PROBLEM_MENU_OVERFLOWS },
+    /* 9 */ { kGenClash, ARRAY_COUNT(kGenClash), nullptr, 0, RS_STAIR_PROBLEM_ID_TAKEN },
+    /* 10 */
+    { kGenRepeatGood, ARRAY_COUNT(kGenRepeatGood), kGenRepeatGoodOptions, ARRAY_COUNT(kGenRepeatGoodOptions),
+      RS_STAIR_PROBLEM_NONE },
+};
+
 } // namespace
+
+int32_t RsStairTable_BadGenCount() {
+    return ARRAY_COUNT(kBadGen);
+}
+
+const RsStairBadGen* RsStairTable_BadGen(int32_t index) {
+    if (index < 0 || index >= RsStairTable_BadGenCount()) {
+        return nullptr;
+    }
+    return &kBadGen[index];
+}
 
 int32_t RsStairTable_BadCount() {
     return ARRAY_COUNT(kBadDefs);
