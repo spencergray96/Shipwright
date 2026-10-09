@@ -43,4 +43,6 @@
 #include "../hands_climb_179_bench_copy/CustomHandsClimb179BenchCopyScene.h" // project 1790a991-0000-4000-8000-0000000b0179 name hands_climb_179_bench_copy
 #include "../../lumbridge_castle_traversal/CustomLumbridgeCastleTraversalScene.h" // hand-frozen lumbridge_castle_traversal (sturdy-bassoon#173)
 #include "../storey_classes_178/CustomStoreyClasses178Scene.h" // project fc7008b5-fdbf-4201-9e4d-6675a06f5fe8 name storey_classes_178
+#include "../world_export_173/CustomWorldExport173Scene.h" // world world_export_173 name world_export_173
+#include "../f2p_overworld/CustomF2pOverworldScene.h" // world f2p name f2p_overworld
 // END GRID TOOL EXPORTS
