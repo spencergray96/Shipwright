@@ -250,10 +250,11 @@ typedef struct RsMusicZone {
  *
  * rsOriginX / rsOriginY are the RS tile the scene's OoT world origin (0, 0) sits on. They are
  * per-scene because emit-scene.ts recentres each bake on its own bounding box, so the same terrain
- * tile has a different world position in a different bake. Deriving them belongs to the world
- * manifest (#92); until that exists they are computed by hand and their derivation is written down
- * in zones.json and in the anchor ADR. Meaningless, and zero, when RS_SCENE_FLAG_NO_SURFACE_ANCHOR
- * is set.
+ * tile has a different world position in a different bake. A stitched scene's row is never derived
+ * by hand: MusicZoneTable.cpp reads it from the `<slug>_world.inc` the grid tool's world export
+ * writes beside the scene (sturdy-bassoon#173). The terrain scenes' rows still are, with their
+ * derivation written down in zones.json and in the anchor ADR. Meaningless, and zero, when
+ * RS_SCENE_FLAG_NO_SURFACE_ANCHOR is set.
  */
 typedef struct RsMusicScene {
     int16_t sceneId;
