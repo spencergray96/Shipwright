@@ -1,0 +1,18 @@
+{
+  "format": 2,
+  "scene": "storey_classes_178_s2_rays",
+  "list": "objects/rs_props/storey_classes_178_s2_rays/props",
+  "kinds": {
+    "loc-577": "rs_577",
+    "shield-840": "rs_wall_shield_840"
+  },
+  "props": [
+    {"id":"p385juk","kind":"loc-577","pos":[280,4,-24],"rot":2},
+    {"id":"p3lvsxc","kind":"shield-840","pos":[-120,43,-136],"rot":6},
+    {"id":"p7a0171","kind":"shield-840","pos":[80,44,-136],"rot":6},
+    {"id":"pl5e4jv","kind":"shield-840","pos":[280,43,-136],"rot":6},
+    {"id":"pl8k6ur","kind":"loc-577","pos":[80,5,-24],"rot":2},
+    {"id":"pxgc1ap","kind":"loc-577","pos":[-120,4,-24],"rot":2},
+    {"id":"psv3f5t","kind":"shield-840","pos":[-320,143,-136],"rot":6}
+  ]
+}

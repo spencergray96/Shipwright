@@ -46,4 +46,6 @@
 #include "../world_export_173/CustomWorldExport173Scene.h" // world world_export_173 name world_export_173
 #include "../f2p_overworld/CustomF2pOverworldScene.h" // world f2p name f2p_overworld
 #include "../../storey_heights_in_game_178/CustomStoreyHeightsInGame178Scene.h" // hand-frozen storey_heights_in_game_178 (sturdy-bassoon#178)
+#include "../storey_classes_178_s2/CustomStoreyClasses178S2Scene.h" // project c0c0178c-0178-4000-8000-000000000052 name storey_classes_178_s2
+#include "../storey_classes_178_s2_rays/CustomStoreyClasses178S2RaysScene.h" // project c0c0178c-0178-4000-8000-000000000053 name storey_classes_178_s2_rays
 // END GRID TOOL EXPORTS
