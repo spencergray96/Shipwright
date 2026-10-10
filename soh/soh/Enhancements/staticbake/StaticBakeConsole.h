@@ -57,9 +57,11 @@
 //             sinks: for comparing the two orders, and the way back if content depends on list order
 //   props     the status line, then `op=props result=ok lists=<n>` and one line per archive prop list the group
 //             holds (sturdy-bassoon#171): `op=props list=<path> scene=0x<id> room=<n> state=<s> key=<p>
-//             draws=<n> tris=<n> reason=<rest of line>`. state= is missing (in no mounted archive),
-//             not_displaylist, empty (offered to nothing), or the bake's own: unbaked, baked,
-//             rejected, unregistered. draws= and tris= are the baked entry's, 0 otherwise; reason= is
+//             draws=<n> tris=<n> scrolls=<n> reason=<rest of line>`. state= is missing (in no mounted
+//             archive), not_displaylist, empty (offered to nothing), or the bake's own: unbaked, baked,
+//             rejected, unregistered. draws= and tris= are the baked entry's, 0 otherwise; scrolls= is
+//             how many textures the list's scroll file registered when it loaded (sturdy-bassoon#187 A2,
+//             0 with none or with a file that does not read); reason= is
 //             why the recorder refused it, `none` otherwise. Then `op=props result=ok scroll_lists=<n>`
 //             and one line per baked list with a scrolling draw (sturdy-bassoon#187 A1), archive or
 //             not: `op=props scroll_key=<p> draws=<n> tris=<n> scroll_draws=<n> scroll_tris=<n>`,
