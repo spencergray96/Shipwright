@@ -16,6 +16,7 @@
 // neither side knows the other was meant.
 //
 //   storey index   UK label         US label
+//   -1             basement         basement      (sturdy-bassoon#173 slice F5: a map joined below)
 //   0              ground floor     first floor
 //   1              first floor      second floor
 //   2              second floor     third floor
@@ -31,8 +32,8 @@
 // so one syntax works in both.
 //
 // `{floor:N}` gives the lowercase label, `{Floor:N}` the capitalised one for the start of a
-// sentence. N is EXACTLY ONE DIGIT, 0..9: nothing in this mod is a ten-storey building, and an
-// unbounded ordinal table is a spelling exercise with no user.
+// sentence. N is EXACTLY ONE DIGIT, 0..9, or -1 for a basement (#173 F5): nothing in this mod is a
+// ten-storey building, and an unbounded ordinal table is a spelling exercise with no user.
 //
 // THERE IS NO ESCAPE FOR A LITERAL '{' OR '}', which is the same bargain QuestJournal.h strikes
 // over '#': it makes a stray brace unambiguously an error instead of a guess, and a mistyped token
@@ -49,7 +50,7 @@ enum RsFloorTokenError {
     RS_FLOOR_TOKEN_STRAY_CLOSE = 2,   // a '}' that closes nothing. The stray-brace case.
     RS_FLOOR_TOKEN_MISSING_COLON = 3, // `{floor}` - no ':' in the token
     RS_FLOOR_TOKEN_UNKNOWN = 4,       // `{storey:1}`, and also `{FLOOR:1}` / `{ floor:1}` (exact match)
-    RS_FLOOR_TOKEN_BAD_INDEX = 5,     // `{floor:}`, `{floor:x}`, `{floor:12}` - not exactly one digit
+    RS_FLOOR_TOKEN_BAD_INDEX = 5,     // `{floor:}`, `{floor:x}`, `{floor:12}`, `{floor:-2}` - not one digit or -1
     RS_FLOOR_TOKEN_NULL_TEXT = 6,     // a NULL where prose was required
     // Not a fault in the PROSE - a fault in the CALL: a scan started somewhere other than a '{', or
     // a convention outside the enum. It has its own kind so a diagnostic can never lie about which
@@ -69,7 +70,7 @@ struct RsFloorTokenResult {
 
 // One well-formed token, as scanned.
 struct RsFloorToken {
-    int32_t storey;  // 0..9
+    int32_t storey;  // -1..9
     bool capitalised; // `{Floor:N}` rather than `{floor:N}`
     size_t length;    // bytes from the '{' through the '}', so a scanner can step over it
 };

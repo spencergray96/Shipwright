@@ -19,6 +19,7 @@
 #include "soh/Enhancements/rs/actors/RsActorParams.h"
 #include "soh/Enhancements/rs/actors/RsActors.h"
 #include "soh/Enhancements/rs/maps/SceneMaps.h"
+#include "soh/Enhancements/rs/maps/WorldContext.h"
 #include "soh/Enhancements/rs/music/ZoneDirector.h"
 #include "soh/Enhancements/rs/prefs/FloorText.h"
 #include "soh/Enhancements/rs/warps/WarpDef.h"
@@ -72,8 +73,10 @@ const char* const kGoUp = "Go up";
 const char* const kGoDown = "Go down";
 const char* const kCancel = "Cancel";
 
-// Storey indices 0..9: `{floor:N}` takes exactly one digit.
+// Storey indices -1..9: `{floor:N}` takes exactly one digit, or -1 - a basement, a map joined below the
+// staircase's owner (#173 slice F5, the slice F ADR's decision 10).
 constexpr int32_t kStoreyCount = 10;
+constexpr int32_t kStoreyMin = -1;
 
 // `from`'s override for the option that goes to storey `toStorey`, or null.
 const char* OverrideFor(const RsStairLanding& from, int32_t toStorey) {
@@ -204,7 +207,9 @@ void BuildMenus(const RsStairDef& def, StairMenus& out) {
             out.bodies[row] = ComposeWords(def, row, other, out);
             out.labels[row][other] = other > row ? kGoUp : kGoDown;
         } else {
-            out.bodies[row] = "You are on the {floor:" + std::to_string(here.storey) + "}.";
+            // A basement is one Link is IN (decision 10's "basement").
+            out.bodies[row] = std::string(here.storey < 0 ? "You are in the {floor:" : "You are on the {floor:") +
+                              std::to_string(here.storey) + "}.";
             for (int32_t other = 0; other < def.landingCount; other++) {
                 if (other != row) {
                     out.labels[row][other] = ComposeWords(def, row, other, out);
@@ -434,6 +439,20 @@ struct Move {
     int16_t targetScene = -1;
     int16_t fromScene = -1;
     bool transitionAsked = false;
+    // ACROSS MAPS (#173 slice F5): a step warp's destination tile's map number, or 0 for a hand tile -
+    // the scene that loads finds the tile by (map, local id). The tokens the cross-scene lines name the
+    // two tiles by, fixed at the start: the warp scan's own (RsWarp_TileToken) reads the scene it is in,
+    // which is the other one by the time the arrival line is written. And which of the scene picker's
+    // rules chose the scene (SceneMaps.h), for both kinds of move.
+    int32_t toMap = 0;
+    // A Staircase transfer whose destination placement was not in the room's ActorEntry list at the new
+    // scene's OnSceneInit: Link is stood on the spawn, and the first update lands him in front of the live
+    // placement instead, as a move into another room does (ArriveFromScene, then Arrive).
+    bool landLive = false;
+    char fromTok[24] = "";
+    char toTok[24] = "";
+    const char* pickRank = "";
+    int32_t worldContext = RS_WORLD_CONTEXT_UNSET;
     // Wall clock, for the markers: a scene load is not in ticks - nothing ticks while it runs.
     Clock::time_point began;
     Clock::time_point loadAskedAt; // the transition was asked for
@@ -458,8 +477,10 @@ TileTok Tok(int32_t key) {
     return t;
 }
 
+// Another scene: a step warp's route to one (#148) or to a map in no map of this scene (#173 F5), or a
+// STAIRCASE TRANSFER (#173 F5): a staircase's move to a storey whose map is not in this scene.
 bool CrossScene() {
-    return sMove.warp && sMove.entrance != RS_WARP_HERE;
+    return sMove.entrance != RS_WARP_HERE;
 }
 
 // Whether this move is bringing Link into `sceneNum`. Asked from OnSceneInit hooks - this file's and
@@ -821,9 +842,15 @@ bool AskForSceneLoad(PlayState* play, Player* player) {
     sMove.transitionAsked = true;
     sMove.loadAskedAt = Clock::now();
     sMove.phaseTick = 0;
-    Marker("rs_warp tile=%d event=scene_warp to=%d entrance=0x%X scene_to=0x%X room_to=%d ticks=%d ms=%d",
-           sMove.fromTile, sMove.toTile, sMove.entrance, sMove.targetScene, sMove.roomTo, sMove.ticks,
-           MsSince(sMove.began));
+    if (sMove.warp) {
+        Marker("rs_warp tile=%s event=scene_warp to=%s entrance=0x%X scene_to=0x%X room_to=%d ticks=%d ms=%d",
+               sMove.fromTok, sMove.toTok, sMove.entrance, sMove.targetScene, sMove.roomTo, sMove.ticks,
+               MsSince(sMove.began));
+    } else {
+        Marker("rs_stairs stair=%d event=scene_warp to_row=%d entrance=0x%X scene_to=0x%X room_to=%d ticks=%d ms=%d",
+               sMove.stairId, sMove.toRow, sMove.entrance, sMove.targetScene, sMove.roomTo, sMove.ticks,
+               MsSince(sMove.began));
+    }
     return true;
 }
 
@@ -838,9 +865,15 @@ void CancelSceneLoad(PlayState* play) {
         gSaveContext.nextTransitionType = TRANS_NEXT_TYPE_DEFAULT;
     }
     char line[200];
-    std::snprintf(line, sizeof(line),
-                  "rs_warp tile=%d event=abort reason=no_transition asked=%d to=%d entrance=0x%X ticks=%d",
-                  sMove.fromTile, asked, sMove.toTile, sMove.entrance, sMove.ticks);
+    if (sMove.warp) {
+        std::snprintf(line, sizeof(line),
+                      "rs_warp tile=%s event=abort reason=no_transition asked=%d to=%s entrance=0x%X ticks=%d",
+                      sMove.fromTok, asked, sMove.toTok, sMove.entrance, sMove.ticks);
+    } else {
+        std::snprintf(line, sizeof(line),
+                      "rs_stairs stair=%d event=abort reason=no_transition asked=%d to_row=%d entrance=0x%X ticks=%d",
+                      sMove.stairId, asked, sMove.toRow, sMove.entrance, sMove.ticks);
+    }
     ReportOutcome(line);
     ClearFill(play);
     ReleasePlayer(play);
@@ -872,12 +905,32 @@ void ArriveFromScene(PlayState* play, Player* player) {
     // `at=` is what the warp scan stood him on: `landing` is the tile's, `spawn` the scene's own (the
     // tile is broken here - `arrival_failed` says why), `none` if the scan never answered.
     const char* at = sMove.placed == 1 ? "landing" : (sMove.placed == 0 ? "spawn" : "none");
-    Marker("rs_warp tile=%d event=arrived to=%d scene=0x%X from_scene=0x%X entrance=0x%X at=%s pos=%.1f,%.1f,%.1f "
-           "yaw=%d room=%d black=%d eye=%.1f,%.1f,%.1f load_ms=%d ticks=%d",
-           sMove.fromTile, sMove.toTile, play->sceneNum, sMove.fromScene, sMove.entrance, at,
-           player->actor.world.pos.x, player->actor.world.pos.y, player->actor.world.pos.z, yaw,
-           play->roomCtx.curRoom.num, black, eye.x, eye.y, eye.z, sMove.loadMs, sMove.ticks);
+    if (sMove.landLive) {
+        at = "placement"; // a transfer, landing in front of the live placement next (Arrive)
+    }
+    if (sMove.warp) {
+        Marker("rs_warp tile=%s event=arrived to=%s scene=0x%X from_scene=0x%X entrance=0x%X at=%s pos=%.1f,%.1f,%.1f "
+               "yaw=%d room=%d black=%d eye=%.1f,%.1f,%.1f load_ms=%d ticks=%d",
+               sMove.fromTok, sMove.toTok, play->sceneNum, sMove.fromScene, sMove.entrance, at,
+               player->actor.world.pos.x, player->actor.world.pos.y, player->actor.world.pos.z, yaw,
+               play->roomCtx.curRoom.num, black, eye.x, eye.y, eye.z, sMove.loadMs, sMove.ticks);
+    } else {
+        // A staircase transfer's: `at=landing` is in front of the destination placement.
+        Marker("rs_stairs stair=%d event=arrived to_row=%d scene=0x%X from_scene=0x%X entrance=0x%X at=%s "
+               "pos=%.1f,%.1f,%.1f yaw=%d room=%d black=%d eye=%.1f,%.1f,%.1f load_ms=%d ticks=%d",
+               sMove.stairId, sMove.toRow, play->sceneNum, sMove.fromScene, sMove.entrance, at,
+               player->actor.world.pos.x, player->actor.world.pos.y, player->actor.world.pos.z, yaw,
+               play->roomCtx.curRoom.num, black, eye.x, eye.y, eye.z, sMove.loadMs, sMove.ticks);
+    }
     sMove.phaseTick = 0;
+    if (sMove.landLive) {
+        // A transfer still to land: the room is in, so its placement is a live actor now (or on the next
+        // tick or two). Arrive puts him down in front of it, as after a room change, under the same black.
+        sMove.roomFrom = play->roomCtx.curRoom.num;
+        sMove.roomTo = play->roomCtx.curRoom.num;
+        sMove.phase = Phase::Arrive;
+        return;
+    }
     if (sMove.placed != -1 && sMove.roomTo != play->roomCtx.curRoom.num) {
         sMove.roomFrom = play->roomCtx.curRoom.num;
         sMove.phase = Phase::WaitRoom;
@@ -900,8 +953,9 @@ void Finish(PlayState* play, Player* player) {
             line, sizeof(line),
             "rs_warp tile=%s event=landed to=%s pos=%.1f,%.1f,%.1f yaw=%d room=%d floor_y=%.1f ground=%d "
             "respawn=%.1f,%.1f,%.1f respawn_room=%d fade=%d ticks=%d source=%s scene=0x%X ms=%d",
-            Tok(sMove.fromTile).s, Tok(sMove.toTile).s, player->actor.world.pos.x, player->actor.world.pos.y,
-            player->actor.world.pos.z, player->actor.shape.rot.y, play->roomCtx.curRoom.num, player->actor.floorHeight,
+            CrossScene() ? sMove.fromTok : Tok(sMove.fromTile).s, CrossScene() ? sMove.toTok : Tok(sMove.toTile).s,
+            player->actor.world.pos.x, player->actor.world.pos.y, player->actor.world.pos.z, player->actor.shape.rot.y,
+            play->roomCtx.curRoom.num, player->actor.floorHeight,
             (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) ? 1 : 0, respawn.pos.x, respawn.pos.y, respawn.pos.z,
             respawn.roomIndex, sMove.fade, sMove.ticks, sMove.source, play->sceneNum, MsSince(sMove.began));
         if (CrossScene() && n > 0 && static_cast<size_t>(n) < sizeof(line)) {
@@ -918,14 +972,23 @@ void Finish(PlayState* play, Player* player) {
     // THE assertion line. pos= and room= are where Link is; floor_y= and ground= prove he is
     // standing on something rather than falling past it; respawn= and respawn_room= are where a
     // void-out would put him, which is the other half of "landed on the right storey".
-    std::snprintf(line, sizeof(line),
-                  "rs_stairs stair=%d event=landed from_row=%d to_row=%d storey=%d pos=%.1f,%.1f,%.1f yaw=%d room=%d "
-                  "floor_y=%.1f ground=%d respawn=%.1f,%.1f,%.1f respawn_room=%d fade=%d ticks=%d source=%s",
-                  sMove.stairId, sMove.fromRow, sMove.toRow, landing != nullptr ? landing->storey : -1,
-                  player->actor.world.pos.x, player->actor.world.pos.y, player->actor.world.pos.z,
-                  player->actor.shape.rot.y, play->roomCtx.curRoom.num, player->actor.floorHeight,
-                  (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) ? 1 : 0, respawn.pos.x, respawn.pos.y,
-                  respawn.pos.z, respawn.roomIndex, sMove.fade, sMove.ticks, sMove.source);
+    const int n = std::snprintf(
+        line, sizeof(line),
+        "rs_stairs stair=%d event=landed from_row=%d to_row=%d storey=%d pos=%.1f,%.1f,%.1f yaw=%d room=%d "
+        "floor_y=%.1f ground=%d respawn=%.1f,%.1f,%.1f respawn_room=%d fade=%d ticks=%d source=%s",
+        sMove.stairId, sMove.fromRow, sMove.toRow, landing != nullptr ? landing->storey : -1, player->actor.world.pos.x,
+        player->actor.world.pos.y, player->actor.world.pos.z, player->actor.shape.rot.y, play->roomCtx.curRoom.num,
+        player->actor.floorHeight, (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) ? 1 : 0, respawn.pos.x,
+        respawn.pos.y, respawn.pos.z, respawn.roomIndex, sMove.fade, sMove.ticks, sMove.source);
+    // A STAIRCASE TRANSFER (#173 F5): the scene he is in and where he came from, as a step warp's - and
+    // the scene picker's rule and the world context it read, the two things that decided which scene.
+    if (CrossScene() && n > 0 && static_cast<size_t>(n) < sizeof(line)) {
+        std::snprintf(line + n, sizeof(line) - n,
+                      " scene=0x%X from_scene=0x%X entrance=0x%X load_ms=%d settle_ms=%d respawn_entrance=0x%X "
+                      "rank=%s ctx=%s",
+                      play->sceneNum, sMove.fromScene, sMove.entrance, sMove.loadMs, sMove.settleMs,
+                      respawn.entranceIndex, sMove.pickRank, RsWorld_Name(sMove.worldContext));
+    }
     ReportOutcome(line);
     ClearFill(play);
     ReleasePlayer(play);
@@ -1001,6 +1064,18 @@ void OnPlayerUpdateStairs() {
             if (++sMove.phaseTick < kArriveTicks) {
                 return;
             }
+            // From another scene (a Staircase transfer, #173 F5) there is no room of his own to go back to:
+            // he stays on the scene's spawn, where Player_Init stood him, as a step warp's broken tile does.
+            if (CrossScene()) {
+                SPDLOG_ERROR("RsStairs: transfer of stair {} into scene 0x{:X} at row {}: no placement; the spawn",
+                             sMove.stairId, play->sceneNum, sMove.toRow);
+                Marker("rs_stairs stair=%d event=arrival_failed to_row=%d scene=0x%X reason=no_placement",
+                       sMove.stairId, sMove.toRow, play->sceneNum);
+                sMove.landLive = false;
+                sMove.phase = Phase::Settle;
+                sMove.phaseTick = 0;
+                return;
+            }
             // The room is in and the storey has no placement - an authoring mistake, and one only a
             // room load could reveal. Link has not moved, so load his own room back and give him back
             // where he stood, rather than leave him standing in a room that is not drawn.
@@ -1072,6 +1147,45 @@ void OnPlayerUpdateStairs() {
 //
 // Except the scene a step warp's own transition asked for (#148): then the move carries on in it.
 // Black from here, before anything draws - Environment_Init has already run in the scene's init.
+// A STAIRCASE TRANSFER arriving (#173 slice F5): where Player_Init stands Link - in front of the
+// destination placement, read from the room's ActorEntry list when the scene has handed it over by now.
+// A grid-tool scene hands it over as its room loads, which can be after OnSceneInit (#173 F5's run found
+// none there), so a placement not in the list is not yet a failure: Link is stood on the scene's spawn,
+// under black, and the first update lands him in front of the live placement (`landLive`). Only a
+// placement missing there too is `arrival_failed`.
+void PlaceStairArrival(PlayState* play) {
+    const RsStairDef* def = RsStair_GetDef(sMove.stairId);
+    const RsStairLanding* landing = RsStair_GetLanding(sMove.stairId, sMove.toRow);
+    const ActorEntry* entry = nullptr;
+    for (int32_t i = 0; play->setupActorList != nullptr && i < play->numSetupActors && entry == nullptr; i++) {
+        const ActorEntry& e = play->setupActorList[i];
+        if (e.id == ACTOR_RS_STAIRS && RS_STAIR_PARAMS_GET_ID(e.params) == sMove.stairId &&
+            RS_STAIR_PARAMS_GET_ROW(e.params) == sMove.toRow) {
+            entry = &e;
+        }
+    }
+    if (def != nullptr && landing != nullptr && entry != nullptr) {
+        const s16 facing = entry->rot.y;
+        const f32 forward = static_cast<f32>(def->landForward);
+        RsStair_PlaceSceneArrival(entry->pos.x + forward * Math_SinS(facing), entry->pos.y,
+                                  entry->pos.z + forward * Math_CosS(facing), facing, landing->room, 1);
+        return;
+    }
+    if (def == nullptr || landing == nullptr) {
+        SPDLOG_ERROR("RsStairs: transfer of stair {} into scene 0x{:X} at row {}: bad_row; using the spawn",
+                     sMove.stairId, play->sceneNum, sMove.toRow);
+        Marker("rs_stairs stair=%d event=arrival_failed to_row=%d scene=0x%X reason=bad_row", sMove.stairId,
+               sMove.toRow, play->sceneNum);
+    } else {
+        sMove.landLive = true;
+    }
+    if (play->linkActorEntry != nullptr) {
+        const ActorEntry* spawn = play->linkActorEntry;
+        const int32_t room = play->setupEntranceList != nullptr ? play->setupEntranceList[play->curSpawn].room : 0;
+        RsStair_PlaceSceneArrival(spawn->pos.x, spawn->pos.y, spawn->pos.z, spawn->rot.y, room, 0);
+    }
+}
+
 void OnSceneInitStairs(int16_t sceneNum) {
     if (sMove.phase == Phase::SceneLoad) {
         if (sceneNum == sMove.targetScene && gPlayState != nullptr) {
@@ -1079,6 +1193,9 @@ void OnSceneInitStairs(int16_t sceneNum) {
             sMove.phase = Phase::SceneArrive;
             sMove.phaseTick = 0;
             SetFill(gPlayState, 255);
+            if (!sMove.warp) {
+                PlaceStairArrival(gPlayState); // a step warp's scan places it (Warps.cpp)
+            }
             return;
         }
         // Some other load won after this move had asked for its own. Do not stand Link at this move's
@@ -1192,7 +1309,7 @@ extern "C" int32_t RsStair_DefProblem(const RsStairDef* def, int32_t* where) {
     for (int32_t row = 0; row < def->landingCount; row++) {
         const RsStairLanding& landing = def->landings[row];
         *at = row;
-        if (landing.storey < 0 || landing.storey >= kStoreyCount) {
+        if (landing.storey < kStoreyMin || landing.storey >= kStoreyCount) {
             return RS_STAIR_PROBLEM_BAD_STOREY;
         }
         if (row > 0 && landing.storey <= def->landings[row - 1].storey) {
@@ -1689,6 +1806,8 @@ extern "C" int32_t RsStair_IsMoving(void) {
 
 extern "C" int32_t RsStair_BeginMove(int32_t stairId, int32_t fromRow, int32_t toRow, const char* source) {
     int32_t result = RS_STAIR_OK;
+    int32_t transferScene = -1; // a staircase transfer's scene (#173 F5), or -1 for a move in place
+    int32_t transferRank = RS_MAPS_PICK_NONE;
     const RsStairDef* def = RsStair_GetDef(stairId);
     const RsStairLanding* landing = RsStair_GetLanding(stairId, toRow);
 
@@ -1701,9 +1820,17 @@ extern "C" int32_t RsStair_BeginMove(int32_t stairId, int32_t fromRow, int32_t t
     } else if (gPlayState == nullptr || GET_PLAYER(gPlayState) == nullptr) {
         result = RS_STAIR_ERR_NO_PLAY;
     } else if (!RsStair_RowInScene(stairId, toRow, gPlayState->sceneNum)) {
-        // A hand staircase: its scene. A generated one: is the destination row's map in this scene
-        // (decision 17)? Moving to a map in another scene is F5's staircase transfer, not this move.
-        result = RS_STAIR_ERR_WRONG_SCENE;
+        // A hand staircase: its scene, or refused. A generated one whose destination row's map is in
+        // no map of this scene (decision 17) is a STAIRCASE TRANSFER (#173 F5, decision 11): the scene
+        // picker chooses a scene holding that map. Refused only when none does.
+        if (def->sceneId != RS_STAIR_SCENE_BY_MAP) {
+            result = RS_STAIR_ERR_WRONG_SCENE;
+        } else {
+            transferScene = RsMaps_PickScene(landing->map, gPlayState->sceneNum, RsWorld_Get(), &transferRank);
+            if (transferScene < 0 || RsMaps_SceneEntrance(transferScene) < 0) {
+                result = RS_STAIR_ERR_WRONG_SCENE;
+            }
+        }
     } else if (landing->room >= gPlayState->numRooms) {
         result = RS_STAIR_ERR_BAD_ROOM;
     } else if (landing->room == gPlayState->roomCtx.curRoom.num &&
@@ -1734,6 +1861,17 @@ extern "C" int32_t RsStair_BeginMove(int32_t stairId, int32_t fromRow, int32_t t
     sMove.source = source != nullptr ? source : "";
     sMove.roomFrom = gPlayState->roomCtx.curRoom.num;
     sMove.roomTo = landing->room;
+    sMove.began = Clock::now();
+    sMove.fromScene = gPlayState->sceneNum;
+    if (transferScene >= 0) {
+        // A STAIRCASE TRANSFER: the step warp's road from here - the fade, the transition at the
+        // scene's own entrance, Player_Init standing him on the landing (PlaceStairArrival) - inside one
+        // fade, as #148 lands a step warp.
+        sMove.entrance = RsMaps_SceneEntrance(transferScene);
+        sMove.targetScene = static_cast<int16_t>(transferScene);
+        sMove.pickRank = RsMaps_PickRankName(transferRank);
+        sMove.worldContext = RsWorld_Get();
+    }
 
     // Freeze him, with NO cutscene actor: CsAction 1 turns Link to face its csActor every frame
     // (func_80851314), which would overwrite the landing's facing. From a conversation this is
@@ -1741,8 +1879,16 @@ extern "C" int32_t RsStair_BeginMove(int32_t stairId, int32_t fromRow, int32_t t
     Player_SetCsAction(gPlayState, nullptr, 1);
 
     const RsStairLanding* from = RsStair_GetLanding(stairId, fromRow);
-    Marker("rs_stairs stair=%d event=move_begin from_row=%d to_row=%d from_storey=%d to_storey=%d fade=%d source=%s",
-           stairId, fromRow, toRow, from != nullptr ? from->storey : -1, landing->storey, sMove.fade, sMove.source);
+    if (transferScene >= 0) {
+        Marker("rs_stairs stair=%d event=move_begin from_row=%d to_row=%d from_storey=%d to_storey=%d fade=%d "
+               "source=%s entrance=0x%X scene_to=0x%X to_map=%d rank=%s ctx=%s",
+               stairId, fromRow, toRow, from != nullptr ? from->storey : -1, landing->storey, sMove.fade, sMove.source,
+               sMove.entrance, sMove.targetScene, landing->map, sMove.pickRank, RsWorld_Name(sMove.worldContext));
+    } else {
+        Marker("rs_stairs stair=%d event=move_begin from_row=%d to_row=%d from_storey=%d to_storey=%d fade=%d "
+               "source=%s",
+               stairId, fromRow, toRow, from != nullptr ? from->storey : -1, landing->storey, sMove.fade, sMove.source);
+    }
     return RS_STAIR_OK;
 }
 
@@ -1789,17 +1935,27 @@ extern "C" int32_t RsStair_BeginWarpMove(const RsWarpMoveDest* dest, const char*
     sMove.began = Clock::now();
     sMove.fromScene = gPlayState->sceneNum;
     sMove.entrance = dest->entrance;
+    sMove.toMap = dest->toMap;
     if (crossScene) {
         sMove.targetScene = gEntranceTable[dest->entrance].scene;
+        sMove.worldContext = RsWorld_Get();
+        // The tiles as the cross-scene lines name them: this scene's token for the one he leaves, and
+        // `<map>:<id>` for a generated destination - a hand one's bare id, so #148's lines are unchanged.
+        std::snprintf(sMove.fromTok, sizeof(sMove.fromTok), "%s", Tok(dest->fromTile).s);
+        if (dest->toMap > 0) {
+            std::snprintf(sMove.toTok, sizeof(sMove.toTok), "%d:%d", dest->toMap, dest->toTile);
+        } else {
+            std::snprintf(sMove.toTok, sizeof(sMove.toTok), "%d", dest->toTile);
+        }
     }
 
     // Frozen the same way, for the same reason - see RsStair_BeginMove.
     Player_SetCsAction(gPlayState, nullptr, 1);
 
     if (crossScene) {
-        Marker("rs_warp tile=%d event=move_begin to=%d room_from=%d room_to=%d fade=%d source=%s entrance=0x%X "
+        Marker("rs_warp tile=%s event=move_begin to=%s room_from=%d room_to=%d fade=%d source=%s entrance=0x%X "
                "scene_to=0x%X",
-               dest->fromTile, dest->toTile, sMove.roomFrom, sMove.roomTo, sMove.fade, sMove.source, sMove.entrance,
+               sMove.fromTok, sMove.toTok, sMove.roomFrom, sMove.roomTo, sMove.fade, sMove.source, sMove.entrance,
                sMove.targetScene);
     } else {
         Marker("rs_warp tile=%s event=move_begin to=%s room_from=%d room_to=%d fade=%d source=%s",
@@ -1808,9 +1964,12 @@ extern "C" int32_t RsStair_BeginWarpMove(const RsWarpMoveDest* dest, const char*
     return RS_STAIR_OK;
 }
 
-extern "C" int32_t RsStair_SceneArrival(int16_t sceneNum, int32_t* toTile, int32_t* fromTile) {
-    if (!Arriving(sceneNum)) {
+extern "C" int32_t RsStair_SceneArrival(int16_t sceneNum, int32_t* toTile, int32_t* fromTile, int32_t* toMap) {
+    if (!sMove.warp || !Arriving(sceneNum)) {
         return 0;
+    }
+    if (toMap != nullptr) {
+        *toMap = sMove.toMap;
     }
     if (toTile != nullptr) {
         *toTile = sMove.toTile;
@@ -1819,6 +1978,14 @@ extern "C" int32_t RsStair_SceneArrival(int16_t sceneNum, int32_t* toTile, int32
         *fromTile = sMove.fromTile;
     }
     return 1;
+}
+
+extern "C" const char* RsStair_ArrivalFromToken(void) {
+    return sMove.fromTok;
+}
+
+extern "C" const char* RsStair_ArrivalToToken(void) {
+    return sMove.toTok;
 }
 
 extern "C" void RsStair_PlaceSceneArrival(float x, float y, float z, int16_t yaw, int32_t room, int32_t onLanding) {

@@ -11,6 +11,11 @@ const char* const kOrdinals[] = { "first", "second", "third",   "fourth", "fifth
                                   "sixth", "seventh", "eighth", "ninth",  "tenth" };
 
 constexpr int32_t kMaxStorey = 9;
+// Storey -1, a BASEMENT (sturdy-bassoon#173 slice F5, the slice F ADR's decision 10): a map joined
+// below a staircase's owner. One word under both conventions - the owner's "fine for now" - so it
+// needs no column of its own.
+constexpr int32_t kMinStorey = -1;
+const char kBasement[] = "basement";
 
 const char kLowerName[] = "floor";
 const char kUpperName[] = "Floor";
@@ -104,13 +109,15 @@ RsFloorTokenResult RsFloorText_ScanToken(const char* text, size_t pos, RsFloorTo
         // quietly became literal prose would be the exact failure this grammar exists to prevent.
         return Fail(RS_FLOOR_TOKEN_UNKNOWN, pos + 1);
     }
-    // EXACTLY one digit. `{floor:}` and `{floor:12}` are both BAD_INDEX, reported at the byte after
-    // the colon so the offset points at where the index should have started.
-    if (close - (colon + 1) != 1 || !IsDigit(text[colon + 1])) {
+    // EXACTLY one digit, or `-1` (a basement, #173 F5). `{floor:}`, `{floor:12}` and `{floor:-2}` are
+    // all BAD_INDEX, reported at the byte after the colon so the offset points at where the index
+    // should have started.
+    const bool basement = close - (colon + 1) == 2 && text[colon + 1] == '-' && text[colon + 2] == '1';
+    if (!basement && (close - (colon + 1) != 1 || !IsDigit(text[colon + 1]))) {
         return Fail(RS_FLOOR_TOKEN_BAD_INDEX, colon + 1);
     }
     if (out != nullptr) {
-        out->storey = text[colon + 1] - '0';
+        out->storey = basement ? kMinStorey : text[colon + 1] - '0';
         out->capitalised = capitalised;
         out->length = close - pos + 1;
     }
@@ -125,10 +132,21 @@ RsFloorTokenResult RsFloorText_Validate(const char* text) {
 }
 
 std::string RsFloorText_Label(int32_t convention, int32_t storey, bool capitalised) {
-    if (storey < 0 || storey > kMaxStorey) {
+    if (storey < kMinStorey || storey > kMaxStorey) {
         return "";
     }
     std::string label;
+    if (convention != RS_FLOOR_CONVENTION_UK && convention != RS_FLOOR_CONVENTION_US) {
+        return "";
+    }
+    if (storey == kMinStorey) {
+        // "basement", not "basement floor", under both conventions.
+        label = kBasement;
+        if (capitalised) {
+            label[0] = static_cast<char>(label[0] - 'a' + 'A');
+        }
+        return label;
+    }
     if (convention == RS_FLOOR_CONVENTION_UK) {
         // The whole of the difference, in one branch: UK counts the storey at ground level as the
         // GROUND floor and starts its ordinals one storey up.

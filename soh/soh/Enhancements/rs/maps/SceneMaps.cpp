@@ -40,6 +40,15 @@ bool Contains(const RsSceneMap& m, float x, float z) {
            z < static_cast<float>(m.maxZ);
 }
 
+bool Holds(const SceneEntry& entry, int32_t map) {
+    for (const RsSceneMap& m : entry.maps) {
+        if (m.map == map) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool Overlap(const RsSceneMap& a, const RsSceneMap& b) {
     return a.minX < b.maxX && b.minX < a.maxX && a.minZ < b.maxZ && b.minZ < a.maxZ;
 }
@@ -227,6 +236,76 @@ extern "C" int32_t RsMaps_SceneEntrance(int32_t sceneId) {
 extern "C" int32_t RsMaps_SceneWorld(int32_t sceneId) {
     const SceneEntry* entry = Find(sceneId);
     return entry != nullptr ? entry->world : 0;
+}
+
+extern "C" int32_t RsMaps_IsStitched(int32_t sceneId) {
+    const SceneEntry* entry = Find(sceneId);
+    return entry != nullptr && entry->world == entry->scene ? 1 : 0;
+}
+
+extern "C" int32_t RsMaps_ScenesHolding(int32_t map, int32_t* out, int32_t max) {
+    int32_t count = 0;
+    for (const SceneEntry& entry : sScenes) {
+        if (Holds(entry, map)) {
+            if (out != nullptr && count < max) {
+                out[count] = entry.scene;
+            }
+            count++;
+        }
+    }
+    return count;
+}
+
+extern "C" int32_t RsMaps_PickScene(int32_t map, int32_t currentScene, int32_t worldContext, int32_t* rank) {
+    int32_t unused = RS_MAPS_PICK_NONE;
+    int32_t* why = rank != nullptr ? rank : &unused;
+    *why = RS_MAPS_PICK_NONE;
+    if (RsMaps_SlotOf(currentScene, map) >= 0) {
+        *why = RS_MAPS_PICK_HERE;
+        return currentScene;
+    }
+    // The rest in rank order: the first rank with a scene wins, ties to table order (SceneMaps.h).
+    int32_t best = -1;
+    int32_t bestRank = RS_MAPS_PICK_NONE;
+    for (const SceneEntry& entry : sScenes) {
+        if (!Holds(entry, map)) {
+            continue;
+        }
+        // The world context is a stitched scene's id or RS_GEN_WORLD_SOLO: a scene "of" it is one whose
+        // world is that value. A stitched scene's world is its own id, so the two read the same way.
+        const bool ofContext = (worldContext == RS_GEN_WORLD_SOLO || worldContext >= 0) && entry.world == worldContext;
+        int32_t r = RS_MAPS_PICK_NEUTRAL;
+        if (ofContext) {
+            r = RS_MAPS_PICK_WORLD;
+        } else if (entry.world >= 0) {
+            r = RS_MAPS_PICK_STITCHED;
+        } else if (entry.world == RS_GEN_WORLD_SOLO) {
+            r = RS_MAPS_PICK_SOLO;
+        }
+        if (best < 0 || r < bestRank) {
+            best = entry.scene;
+            bestRank = r;
+        }
+    }
+    *why = bestRank;
+    return best;
+}
+
+extern "C" const char* RsMaps_PickRankName(int32_t rank) {
+    switch (rank) {
+        case RS_MAPS_PICK_HERE:
+            return "here";
+        case RS_MAPS_PICK_WORLD:
+            return "world";
+        case RS_MAPS_PICK_STITCHED:
+            return "stitched";
+        case RS_MAPS_PICK_SOLO:
+            return "solo";
+        case RS_MAPS_PICK_NEUTRAL:
+            return "neutral";
+        default:
+            return "none";
+    }
 }
 
 extern "C" const char* RsMaps_WorldName(int32_t world) {

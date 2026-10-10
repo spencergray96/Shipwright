@@ -15,6 +15,7 @@
 #include "soh/Enhancements/agenttest/AgentTest.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/rs/maps/SceneMaps.h"
+#include "soh/Enhancements/rs/maps/WorldContext.h"
 #include "soh/Enhancements/rs/stairs/Stairs.h"
 #include "soh/ShipInit.hpp"
 #include <spdlog/spdlog.h>
@@ -199,8 +200,8 @@ std::string Token(int32_t key) {
 
 // Where an IN-PLACE destination of the tile in `fromSlot` is, as a key: a hand scene's RS_WARP_TO, or a
 // generated destination whose map this scene holds. kKeyElsewhere for a generated one whose map is in no
-// map of this scene (slice F5's, until then inert as `dest_elsewhere`), kKeyOtherScene for a hand
-// RS_WARP_TO_SCENE.
+// map of this scene - a trip to another scene, through the scene picker (#173 slice F5) -
+// kKeyOtherScene for a hand RS_WARP_TO_SCENE.
 constexpr int32_t kKeyElsewhere = -2;
 constexpr int32_t kKeyOtherScene = -1;
 int32_t DestKey(const RsWarpDest& dest) {
@@ -209,6 +210,28 @@ int32_t DestKey(const RsWarpDest& dest) {
     }
     const int32_t slot = RsMaps_SlotOf(sState.sceneNum, dest.map);
     return slot < 0 ? kKeyElsewhere : slot * RS_WARP_KEYS_PER_SLOT + dest.tile;
+}
+
+// A generated destination's row in its map's table - global, so knowable from any scene - or null.
+const RsWarpTileDef* ElsewhereRow(const RsWarpDest& dest) {
+    const RsWarpMapDef* map = RsWarp_GetMapDef(dest.map);
+    for (int32_t i = 0; map != nullptr && i < map->tileCount; i++) {
+        if (map->tiles[i].id == dest.tile) {
+            return &map->tiles[i];
+        }
+    }
+    return nullptr;
+}
+
+// A generated destination in a map no map of this scene is (#173 slice F5): a trip to another scene,
+// through the scene picker (SceneMaps.h). Null when it can be made - some scene holds the map, and that
+// map's table routes the tile - else why not. Whether the tile is in that scene's COLLISION is only
+// knowable there: `arrival_failed`, as #148's.
+const char* ElsewhereProblem(const RsWarpDest& dest) {
+    if (RsMaps_ScenesHolding(dest.map, nullptr, 0) == 0) {
+        return "dest_unplaced";
+    }
+    return ElsewhereRow(dest) != nullptr ? nullptr : "dest_unrouted";
 }
 
 // The slot a polygon is in: its centroid's map. 0 in a hand scene; -1 for a polygon in no map.
@@ -448,7 +471,8 @@ void Scan(PlayState* play) {
     // A tile that sends Link to ANOTHER scene (#148) needs that scene's table to have the tile - else
     // there is no room to load him into and no way back. Whether its collision has the tile too is
     // only knowable there, once it loads: `arrival_failed`, and the scene's spawn instead. A generated
-    // destination in a map this scene does not hold is slice F5's scene picker, not built yet.
+    // destination in a map this scene does not hold (#173 F5) needs a scene that holds the map
+    // (`dest_unplaced`) and that map's table to route the tile (`dest_unrouted`).
     for (int32_t key = 1; key < keys; key++) {
         TileState& t = T(key);
         if (!IsKey(key) || t.bad != nullptr || t.def == nullptr) {
@@ -457,8 +481,12 @@ void Scan(PlayState* play) {
         for (int32_t k = 0; k < t.def->destCount; k++) {
             const int32_t to = DestKey(t.def->dests[k]);
             if (to == kKeyElsewhere) {
-                t.bad = "dest_elsewhere";
-                break;
+                const char* why = ElsewhereProblem(t.def->dests[k]);
+                if (why != nullptr) {
+                    t.bad = why;
+                    break;
+                }
+                continue;
             }
             if (to == kKeyOtherScene && OtherSceneRow(t.def->dests[k]) == nullptr) {
                 t.bad = "dest_unrouted";
@@ -620,25 +648,52 @@ void Fire(Player* player, int32_t id) {
     }
     const RsWarpDest& to = t.def->dests[pick];
     // In place, the destination's key: the scan made sure it is a live tile of this scene. To another
-    // scene (#148, hand tables only), the tile's id there.
-    const int32_t toKey = DestKey(to) >= 0 ? DestKey(to) : to.tile;
+    // scene, the tile's id there: a hand table's (#148), or a generated map's (#173 F5).
+    const int32_t key = DestKey(to);
+    const bool inPlace = key >= 0;
+    const bool elsewhere = key == kKeyElsewhere;
+    const int32_t toKey = inPlace ? key : to.tile;
+    // A generated destination in another scene: the scene picker chooses which scene holding its map
+    // (decision 12), now - the world context only changes when a scene is entered. The scan made sure one
+    // holds it; were that to change under it, the tile goes inert rather than send Link nowhere.
+    int32_t entrance = to.entrance;
+    int32_t rank = RS_MAPS_PICK_NONE;
+    if (elsewhere) {
+        const int32_t scene = RsMaps_PickScene(to.map, sState.sceneNum, RsWorld_Get(), &rank);
+        entrance = scene >= 0 ? RsMaps_SceneEntrance(scene) : -1;
+        if (entrance < 0) {
+            t.bad = "dest_unplaced";
+            return;
+        }
+    }
 
     // To another scene, the line says where: an in-place line is unchanged.
-    char sceneFields[64] = "";
-    if (!IsHere(to)) {
+    char sceneFields[96] = "";
+    if (elsewhere) {
+        std::snprintf(sceneFields, sizeof(sceneFields), " entrance=0x%X scene_to=0x%X rank=%s ctx=%s", entrance,
+                      EntranceScene(entrance), RsMaps_PickRankName(rank), RsWorld_Name(RsWorld_Get()));
+    } else if (!inPlace) {
         std::snprintf(sceneFields, sizeof(sceneFields), " entrance=0x%X scene_to=0x%X", to.entrance,
                       EntranceScene(to.entrance));
     }
+    char toTok[24];
+    if (inPlace) {
+        std::snprintf(toTok, sizeof(toTok), "%s", Token(toKey).c_str());
+    } else if (elsewhere) {
+        std::snprintf(toTok, sizeof(toTok), "%d:%d", to.map, to.tile);
+    } else {
+        std::snprintf(toTok, sizeof(toTok), "%d", to.tile);
+    }
     Event("rs_warp tile=%s event=fired to=%s pick=%d choices=%d entry=%s pos=%.1f,%.1f,%.1f floor_y=%.1f "
           "move_yaw=%d aim=%d speed=%.1f%s",
-          Token(id).c_str(), IsHere(to) ? Token(toKey).c_str() : std::to_string(to.tile).c_str(), pick, choices, RsWarp_EntryName(t.def->entry), player->actor.world.pos.x,
+          Token(id).c_str(), toTok, pick, choices, RsWarp_EntryName(t.def->entry), player->actor.world.pos.x,
           player->actor.world.pos.y, player->actor.world.pos.z, player->actor.floorHeight, player->actor.world.rot.y,
           Degrees(AimOff(t, player)), player->linearVelocity, sceneFields);
 
     RsWarpMoveDest dest = {};
     dest.fromTile = id;
     dest.toTile = toKey;
-    if (IsHere(to)) {
+    if (inPlace) {
         const TileState& d = T(toKey);
         dest.x = d.landing.x;
         dest.y = d.landing.y;
@@ -649,9 +704,10 @@ void Fire(Player* player, int32_t id) {
     } else {
         // The landing is in the other scene's collision; its scan works it out when it loads. The
         // room is its table's - the scan made sure the row is there (`dest_unrouted`).
-        const RsWarpTileDef* row = OtherSceneRow(to);
+        const RsWarpTileDef* row = elsewhere ? ElsewhereRow(to) : OtherSceneRow(to);
         dest.room = row != nullptr ? row->room : 0;
-        dest.entrance = to.entrance;
+        dest.entrance = entrance;
+        dest.toMap = elsewhere ? to.map : 0;
     }
     // Disarmed until he steps off it, whatever the controller says: after a move he is frozen on it
     // for the fade, and after a refused one (`move_refused`) he is still standing on it - which must
@@ -662,7 +718,7 @@ void Fire(Player* player, int32_t id) {
         t.picks[pick]++;
         // In place, the latch is owed here. To another scene this state is gone by the time he lands;
         // the arrival there owes it instead (OnSceneInitWarps).
-        if (IsHere(to)) {
+        if (inPlace) {
             sState.pendingLatch = toKey;
         }
     }
@@ -774,22 +830,29 @@ void OnSceneInitWarps(int16_t sceneNum) {
     PlayState* play = gPlayState;
     int32_t tile = 0;
     int32_t fromTile = 0;
-    if (play == nullptr || !RsStair_SceneArrival(sceneNum, &tile, &fromTile)) {
+    int32_t map = 0;
+    if (play == nullptr || !RsStair_SceneArrival(sceneNum, &tile, &fromTile, &map)) {
         return;
     }
     Scan(play);
-    const TileState* t = IsKey(tile) ? &T(tile) : nullptr;
+    // A generated destination (#173 F5) is (map, local id): its key here is its map's slot's. A map
+    // this scene does not hold - the picker's table and this scene's disagree - is no tile.
+    const int32_t slot = map > 0 && sState.mapKeyed ? RsMaps_SlotOf(sceneNum, map) : 0;
+    const int32_t key = slot >= 0 ? slot * RS_WARP_KEYS_PER_SLOT + tile : -1;
+    const TileState* t = IsKey(key) ? &T(key) : nullptr;
     if (t != nullptr && t->present && t->bad == nullptr) {
         // A tile that is not bad has a row, and the scan checked its room against this scene's.
         RsStair_PlaceSceneArrival(t->landing.x, t->landing.y, t->landing.z, t->yaw, t->def->room, 1);
-        sState.pendingLatch = tile;
+        sState.pendingLatch = key;
         return;
     }
     // Routed there but broken in this scene's collision - an authoring mistake that only the load
     // could show. Loud, and the scene's own spawn rather than wherever the slot pointed.
-    const char* why = t == nullptr ? "bad_id" : (t->bad != nullptr ? t->bad : "missing");
-    SPDLOG_ERROR("RsWarps: arriving in scene 0x{:X} at tile {}: {}; using the spawn", sceneNum, tile, why);
-    Marker("rs_warp tile=%d event=arrival_failed to=%d scene=0x%X reason=%s", fromTile, tile, sceneNum, why);
+    const char* why = slot < 0 ? "map_not_here" : t == nullptr ? "bad_id" : (t->bad != nullptr ? t->bad : "missing");
+    SPDLOG_ERROR("RsWarps: arriving in scene 0x{:X} at tile {}: {}; using the spawn", sceneNum,
+                 RsStair_ArrivalToToken(), why);
+    Marker("rs_warp tile=%s event=arrival_failed to=%s scene=0x%X reason=%s", RsStair_ArrivalFromToken(),
+           RsStair_ArrivalToToken(), sceneNum, why);
     if (play->linkActorEntry != nullptr) {
         const ActorEntry* spawn = play->linkActorEntry;
         const int32_t room = play->setupEntranceList != nullptr ? play->setupEntranceList[play->curSpawn].room : 0;

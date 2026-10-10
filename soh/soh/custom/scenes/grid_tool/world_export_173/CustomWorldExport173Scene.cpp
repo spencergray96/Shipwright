@@ -60,8 +60,8 @@ static ActorEntry sWorldExport173PlayerSpawn = {
 
 // 4 staircase placements (sturdy-bassoon#173), one per storey a staircase serves.
 static ActorEntry sWorldExport173Actors[4] = {
-    { ACTOR_RS_STAIRS, { 3420, 0, 3860 }, { 0, 0x4000, 0 }, RS_STAIR_PARAMS(7948, 0) }, // staircase "West stair" row 0: level 0 at (21, 31) facing E
-    { ACTOR_RS_STAIRS, { 3420, 84, 3860 }, { 0, 0x4000, 0 }, RS_STAIR_PARAMS(7948, 1) }, // staircase "West stair" row 1: level 1 at (21, 31) facing E
+    { ACTOR_RS_STAIRS, { 3420, 0, 3860 }, { 0, 0x4000, 0 }, RS_STAIR_PARAMS(7948, 1) }, // staircase "West stair" row 1: level 0 at (21, 31) facing E
+    { ACTOR_RS_STAIRS, { 3420, 84, 3860 }, { 0, 0x4000, 0 }, RS_STAIR_PARAMS(7948, 2) }, // staircase "West stair" row 2: level 1 at (21, 31) facing E
     { ACTOR_RS_STAIRS, { 6780, 0, 3860 }, { 0, -0x8000, 0 }, RS_STAIR_PARAMS(7949, 0) }, // staircase "East stair" row 0: level 0 at (41, 31) facing N
     { ACTOR_RS_STAIRS, { 6780, 84, 3860 }, { 0, -0x8000, 0 }, RS_STAIR_PARAMS(7949, 1) }, // staircase "East stair" row 1: level 1 at (41, 31) facing N
 };

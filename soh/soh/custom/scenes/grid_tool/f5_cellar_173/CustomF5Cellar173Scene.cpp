@@ -1,4 +1,4 @@
-#include "CustomWorldExportWest173SyntheticScene.h"
+#include "CustomF5Cellar173Scene.h"
 #include "global.h"
 #include "z64scene.h"
 #include "macros.h"
@@ -16,8 +16,8 @@
 extern "C" ActorDBEntry* ActorDB_Retrieve(const int id);
 
 extern "C" {
-    extern CollisionHeader world_export_west_173_synthetic_scene_collisionHeader;
-    extern RoomShapeNormal world_export_west_173_synthetic_room_0_shapeHeader;
+    extern CollisionHeader f5_cellar_173_scene_collisionHeader;
+    extern RoomShapeNormal f5_cellar_173_room_0_shapeHeader;
 
     extern s16   gLinkObjectIds[];
     s32  Object_Spawn(ObjectContext* objectCtx, s16 objectId);
@@ -34,7 +34,7 @@ extern "C" {
 
 // Default 4-entry (dawn/day/dusk/night) lighting - flat/generic for v1, no per-scene lighting
 // authoring in the grid tool yet.
-static EnvLightSettings sWorldExportWest173SyntheticLightSettings[4] = {
+static EnvLightSettings sF5Cellar173LightSettings[4] = {
     {{ 70, 45, 57 }, { 73, -73, 73 }, { 180, 154, 138 }, { -73, 73, -73 }, { 20, 20, 60 },
      { 140, 120, 100 }, (s16)(993 | (1 << 10)), 12800 },
     {{ 105, 90, 90 }, { 73, -73, 73 }, { 255, 255, 240 }, { -73, 73, -73 }, { 50, 50, 90 },
@@ -46,7 +46,7 @@ static EnvLightSettings sWorldExportWest173SyntheticLightSettings[4] = {
 };
 
 // v1 scope has no multi-entrance/exit support - a single spawn index 0.
-static EntranceEntry sWorldExportWest173SyntheticEntrances[] = {
+static EntranceEntry sF5Cellar173Entrances[] = {
     { 0, 0 },
 };
 
@@ -54,24 +54,23 @@ static EntranceEntry sWorldExportWest173SyntheticEntrances[] = {
 // params: bits 8-11 = PLAYER_START_MODE_IDLE (0xD - see PLAYER_GET_START_MODE in z64player.h;
 // mode 0 is PLAYER_START_MODE_NOTHING, which leaves Player's update/draw entirely inert), low
 // byte 0xFF = "no start bg-camera override" (we don't author per-scene camera data).
-static ActorEntry sWorldExportWest173SyntheticPlayerSpawn = {
-    ACTOR_PLAYER, { -20, 0, 20 }, { 0, 0, 0 }, 0xDFF
+static ActorEntry sF5Cellar173PlayerSpawn = {
+    ACTOR_PLAYER, { -20, 0, -20 }, { 0, 0, 0 }, 0xDFF
 };
 
-// 2 staircase placements (sturdy-bassoon#173), one per storey a staircase serves.
-static ActorEntry sWorldExportWest173SyntheticActors[2] = {
-    { ACTOR_RS_STAIRS, { 420, 0, -20 }, { 0, -0x4000, 0 }, RS_STAIR_PARAMS(7948, 1) }, // staircase "West stair" row 1: level 0 at (21, 31) facing E
-    { ACTOR_RS_STAIRS, { 420, 84, -20 }, { 0, -0x4000, 0 }, RS_STAIR_PARAMS(7948, 2) }, // staircase "West stair" row 2: level 1 at (21, 31) facing E
+// 1 staircase placement (sturdy-bassoon#173), one per storey a staircase serves.
+static ActorEntry sF5Cellar173Actors[1] = {
+    { ACTOR_RS_STAIRS, { -60, 0, 60 }, { 0, 0x4000, 0 }, RS_STAIR_PARAMS(7948, 0) }, // staircase "West stair" row 0: level 0 at (6, 6) facing W
 };
 
-static RomFile sWorldExportWest173SyntheticRoomList[] = {
-    { (uintptr_t)&world_export_west_173_synthetic_room_0_shapeHeader,
-      (uintptr_t)&world_export_west_173_synthetic_room_0_shapeHeader + 256,
+static RomFile sF5Cellar173RoomList[] = {
+    { (uintptr_t)&f5_cellar_173_room_0_shapeHeader,
+      (uintptr_t)&f5_cellar_173_room_0_shapeHeader + 256,
       nullptr },
 };
 
-extern "C" int CustomWorldExportWest173SyntheticScene_IsCustomScene(s32 sceneId) {
-    return sceneId == SCENE_WORLD_EXPORT_WEST_173_SYNTHETIC;
+extern "C" int CustomF5Cellar173Scene_IsCustomScene(s32 sceneId) {
+    return sceneId == SCENE_F5_CELLAR_173;
 }
 
 static void InitScene(PlayState* play, s32 spawn) {
@@ -91,13 +90,13 @@ static void InitScene(PlayState* play, s32 spawn) {
     YREG(15) = 0;
     gSaveContext.worldMapArea = 0;
 
-    BgCheck_Allocate(&play->colCtx, play, &world_export_west_173_synthetic_scene_collisionHeader);
+    BgCheck_Allocate(&play->colCtx, play, &f5_cellar_173_scene_collisionHeader);
 
     play->numRooms = 1;
-    play->roomList = sWorldExportWest173SyntheticRoomList;
+    play->roomList = sF5Cellar173RoomList;
 
-    play->setupEntranceList = sWorldExportWest173SyntheticEntrances;
-    play->linkActorEntry    = &sWorldExportWest173SyntheticPlayerSpawn;
+    play->setupEntranceList = sF5Cellar173Entrances;
+    play->linkActorEntry    = &sF5Cellar173PlayerSpawn;
     play->linkAgeOnLoad     = gSaveContext.linkAge;
 
     s16 linkObjectId = gLinkObjectIds[gSaveContext.linkAge];
@@ -127,7 +126,7 @@ static void InitScene(PlayState* play, s32 spawn) {
     Audio_QueueSeqCmd(0xF0000000);
 
     play->envCtx.numLightSettings  = 4;
-    play->envCtx.lightSettingsList = sWorldExportWest173SyntheticLightSettings;
+    play->envCtx.lightSettingsList = sF5Cellar173LightSettings;
 
     Play_InitEnvironment(play, play->skyboxId);
     GameInteractor_ExecuteAfterSceneCommands(play->sceneNum);
@@ -135,11 +134,11 @@ static void InitScene(PlayState* play, s32 spawn) {
 
 // The archive prop lists this room draws (sturdy-bassoon#171): plain archive paths, resolved at
 // load and baked. Always emitted, so a map's first prop needs no build - only its archive.
-static const char* const sWorldExportWest173SyntheticPropLists[] = { "objects/rs_props/world_export_west_173_synthetic/props" };
+static const char* const sF5Cellar173PropLists[] = { "objects/rs_props/f5_cellar_173/props" };
 
-extern "C" void CustomWorldExportWest173SyntheticScene_InitRoom(PlayState* play, RoomContext* roomCtx) {
+extern "C" void CustomF5Cellar173Scene_InitRoom(PlayState* play, RoomContext* roomCtx) {
     roomCtx->curRoom.echo       = 0;
-    roomCtx->curRoom.meshHeader = (MeshHeader*)&world_export_west_173_synthetic_room_0_shapeHeader;
+    roomCtx->curRoom.meshHeader = (MeshHeader*)&f5_cellar_173_room_0_shapeHeader;
 
     // Normal scenes get these from SCENE_CMD_ROOM_BEHAVIOR; this hand-rolled init bypasses the
     // scene command list, and nothing on the load path clears them - func_80096FD4 resets only
@@ -150,20 +149,20 @@ extern "C" void CustomWorldExportWest173SyntheticScene_InitRoom(PlayState* play,
     roomCtx->curRoom.behaviorType2 = ROOM_BEHAVIOR_TYPE2_0;
     roomCtx->curRoom.lensMode      = LENS_MODE_HIDE_ACTORS;
 
-    // 2 entries; play->numSetupActors is an s16 (sturdy-bassoon#45), so this is
+    // 1 entries; play->numSetupActors is an s16 (sturdy-bassoon#45), so this is
     // the authored count and not a truncation of it.
-    play->numSetupActors = 2;
-    play->setupActorList = sWorldExportWest173SyntheticActors;
+    play->numSetupActors = 1;
+    play->setupActorList = sF5Cellar173Actors;
 
-    ArchiveProps_DeclareRoom(play, roomCtx, sWorldExportWest173SyntheticPropLists, ARRAY_COUNT(sWorldExportWest173SyntheticPropLists));
+    ArchiveProps_DeclareRoom(play, roomCtx, sF5Cellar173PropLists, ARRAY_COUNT(sF5Cellar173PropLists));
 
     Player_SetBootData(play, GET_PLAYER(play));
     Actor_SpawnTransitionActors(play, &play->actorCtx);
     GameInteractor_ExecuteAfterSceneCommands(play->sceneNum);
 }
 
-extern "C" int CustomWorldExportWest173SyntheticScene_TrySpawn(PlayState* play, s32 sceneId, s32 spawn) {
-    if (sceneId != SCENE_WORLD_EXPORT_WEST_173_SYNTHETIC) {
+extern "C" int CustomF5Cellar173Scene_TrySpawn(PlayState* play, s32 sceneId, s32 spawn) {
+    if (sceneId != SCENE_F5_CELLAR_173) {
         return 0;
     }
 
@@ -178,6 +177,6 @@ extern "C" int CustomWorldExportWest173SyntheticScene_TrySpawn(PlayState* play, 
     func_80096FE8(play, &play->roomCtx);
     GameInteractor_ExecuteOnSceneInit(play->sceneNum);
 
-    SPDLOG_INFO("CustomWorldExportWest173SyntheticScene: spawned scene {} spawn {}", sceneId, spawn);
+    SPDLOG_INFO("CustomF5Cellar173Scene: spawned scene {} spawn {}", sceneId, spawn);
     return 1;
 }
