@@ -27,6 +27,13 @@
 //   - otherwise it is resolved once, held, offered to the static bake keyed by its instructions'
 //     address, and submitted by the room draw. A path missing INSIDE the list refuses that list's
 //     recording (libultraship's OTR handlers), and the list is interpreted instead.
+//   - its textures that scroll (sturdy-bassoon#187 A2) are registered when it is resolved, BEFORE it is
+//     offered to the bake, so before its first draw: a baked draw keeps the rate it was recorded under.
+//     They come from `<path>.scroll`, a text resource the generator writes beside the list only when a
+//     texture scrolls (generate_props.py, "SCROLLS"): a comment line, then one `<image path> <du> <dv>`
+//     line per texture, in texture widths a second. A list with no such file registers nothing. A file
+//     with a line that does not read registers nothing either, with one warning: half a list scrolling
+//     is no better than none, and silence would hide it.
 // Only a ROOM_SHAPE_TYPE_NORMAL room draws them (func_80095AB4); any other shape's declaration is
 // ignored. Every grid-tool room is that shape.
 
@@ -59,7 +66,8 @@ uint32_t OfferRoom(s32 sceneNum, s32 roomNum);
 // The bake group was reset: drop every held list. They are resolved again when a room offers them.
 void ReleaseHeld();
 
-// `staticbake props`: one line per held list, after the caller's status line.
+// `staticbake props`: one line per held list, after the caller's status line; `scrolls=` is how many
+// textures its scroll file registered.
 void Describe(std::vector<std::string>& lines);
 
 } // namespace ArchiveProps

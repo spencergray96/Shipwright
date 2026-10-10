@@ -18,14 +18,17 @@
 #include "ArchivePropLists.h"
 
 #include <algorithm>
+#include <cmath>
 #include <map>
 #include <memory>
+#include <sstream>
 #include <utility>
 
 #include <fast/StaticMeshCache.h>
 #include <fast/TextureMips.h>
 #include <fast/resource/type/DisplayList.h>
 #include <ship/Context.h>
+#include <ship/resource/File.h>
 #include <ship/resource/ResourceManager.h>
 #include <ship/resource/archive/ArchiveManager.h>
 #include <spdlog/spdlog.h>
@@ -54,11 +57,67 @@ struct Held {
     std::shared_ptr<Fast::DisplayList> resource;
     Gfx* key = nullptr;
     RoomKey room = { -1, -1 }; // the last room that offered it, for `staticbake props`
+    uint32_t scrolls = 0;      // textures its scroll file registered (sturdy-bassoon#187 A2)
 };
 std::map<std::string, Held> sHeld;
 
 // The lists each room draws, rebuilt every time the room is offered.
 std::map<RoomKey, std::vector<Gfx*>> sDrawn;
+
+// The scroll file's lines, or false when one does not read: `<path> <du> <dv>`, '#' lines skipped.
+struct ScrollLine {
+    std::string path;
+    float du = 0.0f;
+    float dv = 0.0f;
+};
+bool ParseScrollFile(const std::vector<char>& bytes, size_t offset, std::vector<ScrollLine>& out) {
+    std::istringstream in(std::string(bytes.begin() + (std::ptrdiff_t)std::min(offset, bytes.size()), bytes.end()));
+    std::string line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        if (line.empty() || line[0] == '#') {
+            continue;
+        }
+        std::istringstream fields(line);
+        ScrollLine s;
+        std::string rest;
+        if (!(fields >> s.path >> s.du >> s.dv) || (fields >> rest) || !std::isfinite(s.du) || !std::isfinite(s.dv)) {
+            return false;
+        }
+        out.push_back(std::move(s));
+    }
+    return true;
+}
+
+// Registers the textures `<path>.scroll` names, before the list is first offered to the bake: a rate is
+// read when a draw is recorded (libultraship's "Texture scroll"), so it must be in the registry before
+// the list's first draw. Idempotent, as StaticBakeSetTextureScroll is, so a list resolved again (a new
+// bake group) registers the same rates again and changes nothing. Returns how many lines registered.
+uint32_t RegisterScrolls(const char* path) {
+    auto archives = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
+    const std::string scrollPath = std::string(path) + ".scroll";
+    if (!archives->HasFile(scrollPath)) {
+        return 0;
+    }
+    std::shared_ptr<Ship::File> file = archives->LoadFile(scrollPath);
+    std::vector<ScrollLine> lines;
+    if (file == nullptr || file->Buffer == nullptr || !ParseScrollFile(*file->Buffer, file->BufferOffset, lines)) {
+        SPDLOG_WARN("[staticbake] archive prop list {}: its scroll file {} does not read, so none of its textures "
+                    "scroll (sturdy-bassoon#187 A2)",
+                    path, scrollPath);
+        return 0;
+    }
+    uint32_t changed = 0;
+    for (const ScrollLine& s : lines) {
+        changed += Fast::StaticBakeSetTextureScroll(s.path.c_str(), s.du, s.dv) ? 1 : 0;
+    }
+    SPDLOG_INFO("[staticbake] archive prop list {}: {} scrolling texture(s) registered before its first draw, {} "
+                "changed (sturdy-bassoon#187 A2)",
+                path, lines.size(), changed);
+    return (uint32_t)lines.size();
+}
 
 bool IsEmptyList(const Fast::DisplayList& dl) {
     return dl.Instructions.empty() || (uint8_t)(dl.Instructions[0].words.w0 >> 24) == (uint8_t)G_ENDDL;
@@ -89,6 +148,8 @@ Held Resolve(const char* path) {
     }
     h.state = Resolved::Listed;
     h.key = (Gfx*)h.resource->Instructions.data();
+    // Before OfferRoom hands the list to the bake (StaticBakeRegister), so before its first draw.
+    h.scrolls = RegisterScrolls(path);
     return h;
 }
 
@@ -195,9 +256,11 @@ void Describe(std::vector<std::string>& lines) {
             h.state == Resolved::Listed ? Fast::StaticBakeGetEntry(h.key) : Fast::StaticBakeEntryInfo{};
         const char* state = StateName(h, entry);
         // reason= last: it is free text, the rest of the line.
-        ConsoleSink::Addf(lines, "op=props list=%s scene=0x%X room=%d state=%s key=%p draws=%u tris=%u reason=%s",
+        ConsoleSink::Addf(lines,
+                          "op=props list=%s scene=0x%X room=%d state=%s key=%p draws=%u tris=%u scrolls=%u reason=%s",
                           kv.first.c_str(), (unsigned)h.room.first, (int)h.room.second, state, (void*)h.key,
-                          entry.draws, entry.tris, entry.rejectReason != nullptr ? entry.rejectReason : "none");
+                          entry.draws, entry.tris, h.scrolls,
+                          entry.rejectReason != nullptr ? entry.rejectReason : "none");
     }
 }
 
