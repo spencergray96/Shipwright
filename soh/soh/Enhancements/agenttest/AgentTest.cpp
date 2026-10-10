@@ -523,6 +523,12 @@
  *                                          `npc dump`/`npc resolve` print the COMPOSED body, `region
  *                                          set us` followed by one of those asserts what a player
  *                                          would actually read
+ *   agenttest worldctx get|set <unset|solo|0xNN>|pick <map>|scenes <map>
+ *                                          the save's WORLD CONTEXT (sturdy-bassoon#173 F5): which
+ *                                          scene a staircase or warp tile into a map held by several
+ *                                          scenes loads. `pick` says what a trip to a map would load
+ *                                          from here; the context's own `rs_worldctx event=scene|set`
+ *                                          markers say when a scene set or left it. WorldConsole.h
  *   agenttest stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|
  *                    bump [on|off|default|hold <ticks|default>]|actors|badcheck
  *                                          staircases (sturdy-bassoon#147): the menu-driven storey
@@ -618,6 +624,7 @@
 #include "soh/Enhancements/rs/quest/QuestConsole.h"
 #include "soh/Enhancements/rs/dialogue/NpcConsole.h"
 #include "soh/Enhancements/rs/prefs/RegionConsole.h"
+#include "soh/Enhancements/rs/maps/WorldConsole.h"
 #include "soh/Enhancements/rs/stairs/StairConsole.h"
 #include "soh/Enhancements/rs/interactions/InteractionConsole.h"
 #include "soh/Enhancements/rs/warps/WarpConsole.h"
@@ -2872,6 +2879,12 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(RsRegionConsole_Run, sub, "rs_region ", output, WriteMarker);
     }
+    // The world context and the scene picker (sturdy-bassoon#173 F5). The same prefix as the context's
+    // own event markers: `rs_worldctx op=...` answers a question, `rs_worldctx event=...` is a change.
+    if (args.size() >= 3 && args[1] == "worldctx") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(RsWorldConsole_Run, sub, "rs_worldctx ", output, WriteMarker);
+    }
     // Staircases (sturdy-bassoon#147). Same prefix as the move's own event markers, which is
     // deliberate: `rs_stairs op=…` is an answer to a question, `rs_stairs stair=<n> event=…` is the
     // move reporting itself, and a run greps the one it is waiting for.
@@ -2955,6 +2968,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
+              "worldctx get|set <unset|solo|0xNN>|pick <map>|scenes <map> | "
               "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|"
               "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
               "warps list|dump|where|status|badcheck | "
@@ -3003,6 +3017,7 @@ void RegisterAgentTest() {
               "force <id>|reset <id>|debugwipe | "
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
+              "worldctx get|set <unset|solo|0xNN>|pick <map>|scenes <map> | "
               "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|"
               "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
               "warps list|dump|where|status|badcheck | "

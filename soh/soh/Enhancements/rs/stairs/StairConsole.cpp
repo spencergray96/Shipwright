@@ -469,7 +469,7 @@ int32_t Limits(std::vector<std::string>& lines) {
     for (int32_t convention = 0; convention < RS_FLOOR_CONVENTION_COUNT; convention++) {
         int32_t widest = 0;
         int32_t widestStorey = 0;
-        for (int32_t storey = 0; storey <= 9; storey++) {
+        for (int32_t storey = -1; storey <= 9; storey++) {
             const int32_t w =
                 PixelWidth(RsFloorText_ExpandUnder("the {floor:" + std::to_string(storey) + "}", convention));
             if (w > widest) {

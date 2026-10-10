@@ -70,7 +70,7 @@ typedef enum RsStairProblem {
     RS_STAIR_PROBLEM_BAD_NAME,        // NULL, empty, or carries whitespace, '%', '#' or '"'
     RS_STAIR_PROBLEM_ROW_COUNT,       // fewer than 2 rows (nothing to move between) or more than 4
     RS_STAIR_PROBLEM_NULL_LANDINGS,   // a nonzero count over a NULL array
-    RS_STAIR_PROBLEM_BAD_STOREY,      // outside 0..9 - `{floor:N}` takes one digit
+    RS_STAIR_PROBLEM_BAD_STOREY,      // outside -1..9 - `{floor:N}` takes one digit, or -1 (a basement, #173 F5)
     RS_STAIR_PROBLEM_STOREY_ORDER,    // not strictly ascending (a repeat is the same storey twice)
     RS_STAIR_PROBLEM_BAD_ROOM,        // negative or past 255 - a room index is a u8 in the engine
     RS_STAIR_PROBLEM_MENU_OVERFLOWS,  // the built menu would not render: a label wider than its row,
@@ -228,12 +228,21 @@ typedef struct RsWarpMoveDest {
     int16_t yaw;      // the way he faces on it (in place only)
     int32_t room;     // the room the landing is in
     int32_t entrance; // RS_WARP_HERE (-1) for in place; otherwise the entrance into the other scene
+    // To another scene: the destination tile's MAP NUMBER when it is a generated (map-keyed) tile
+    // (#173 F5) - the scene that loads finds the tile by (map, local id) - or 0 for a hand table's tile.
+    int32_t toMap;
 } RsWarpMoveDest;
 int32_t RsStair_BeginWarpMove(const RsWarpMoveDest* dest, const char* source);
 
 // For the warp scan, at a scene's OnSceneInit: whether a step warp's move is bringing Link into
-// `sceneNum`, and from and to which tile. 1 and the tiles when it is; 0 otherwise.
-int32_t RsStair_SceneArrival(int16_t sceneNum, int32_t* toTile, int32_t* fromTile);
+// `sceneNum`, and from and to which tile - its local id, and its map number or 0 (RsWarpMoveDest's
+// `toMap`). 1 and the tiles when it is; 0 otherwise, and for a staircase's transfer, which places Link
+// itself.
+int32_t RsStair_SceneArrival(int16_t sceneNum, int32_t* toTile, int32_t* fromTile, int32_t* toMap);
+// The two tiles as that move's lines name them (its `move_begin`): the one he left, in the scene he left,
+// and the destination - `<map>:<id>` for a generated tile. Empty strings when no move is arriving.
+const char* RsStair_ArrivalFromToken(void);
+const char* RsStair_ArrivalToToken(void);
 // ...and where Player_Init is to stand him, and in which room: the destination tile's landing
 // (`onLanding` 1), or the scene's spawn when that tile is broken here (0). Only while such a move is
 // arriving.

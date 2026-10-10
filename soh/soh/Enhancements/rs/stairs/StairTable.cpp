@@ -178,6 +178,8 @@ const RsStairLanding kBadOrder[] = { { 1, 0 }, { 0, 0 } };
 const RsStairLanding kBadRepeat[] = { { 0, 0 }, { 0, 0 } };
 const RsStairLanding kBadRoom[] = { { 0, 0 }, { 1, -1 } };
 const RsStairLanding kGood[] = { { 0, 0 }, { 1, 0 } };
+// Below the basement (#173 F5): -1 is a storey since then, -2 is not.
+const RsStairLanding kBadBelowBasement[] = { { -2, 0 }, { 0, 0 } };
 
 const RsStairDef kBadDefs[] = {
     /* 0 */ { RS_STAIR_MAX, "bad_id", 0, 40, kGood, ARRAY_COUNT(kGood) },
@@ -192,6 +194,7 @@ const RsStairDef kBadDefs[] = {
     /* 9 */ { 250, "negative_room", 0, 40, kBadRoom, ARRAY_COUNT(kBadRoom) },
     /* 10 */ { RS_STAIR_CASTLE_SOUTH_TOWER, "id_taken", 0, 40, kGood, ARRAY_COUNT(kGood) },
     /* 11 */ { 250, "lands_in_collider", 0, RS_STAIR_MIN_LAND_FORWARD - 1, kGood, ARRAY_COUNT(kGood) },
+    /* 12 */ { 250, "below_basement", 0, 40, kBadBelowBasement, ARRAY_COUNT(kBadBelowBasement) },
 };
 
 // --- the malformed GENERATED tables, for `stairs badcheck` (#173 F3) -------------------------------
@@ -233,6 +236,14 @@ const RsStairGenRow kGenRepeatGood[] = { { 8109, "gen", 0, 0, 1, 0, nullptr },
                                          { 8109, "gen", 1, 1, 1, 0, "the attic" } };
 const RsStairGenOption kGenRepeatGoodOptions[] = { { 8109, 0, 1, "Climb to {floor:1}" },
                                                    { 8109, 0, 1, "Climb to {floor:1}" } };
+// ACROSS MAPS (#173 F5): a staircase whose rows are in two maps - a basement (map 7, storey -1, as two
+// scenes' tables would carry it, once each) under a building (map 1) - with an option for storey -1.
+// GOOD: it must be accepted. Then the same with a row at -2, which is no storey.
+const RsStairGenRow kGenAcrossMaps[] = { { 8110, "gen", 0, -1, 7, 0, nullptr },
+                                         { 8110, "gen", 1, 0, 1, 0, nullptr },
+                                         { 8110, "gen", 2, 1, 1, 0, "the roof" } };
+const RsStairGenOption kGenAcrossMapsOptions[] = { { 8110, 1, -1, "Down to the {floor:-1}" } };
+const RsStairGenRow kGenBelowBasement[] = { { 8111, "gen", 0, -2, 7, 0, nullptr }, { 8111, "gen", 1, 0, 1, 0, nullptr } };
 
 const RsStairBadGen kBadGen[] = {
     /* 0 */ { kGenNameDiffers, ARRAY_COUNT(kGenNameDiffers), nullptr, 0, RS_STAIR_PROBLEM_ROWS_DISAGREE },
@@ -254,6 +265,10 @@ const RsStairBadGen kBadGen[] = {
     /* 10 */
     { kGenRepeatGood, ARRAY_COUNT(kGenRepeatGood), kGenRepeatGoodOptions, ARRAY_COUNT(kGenRepeatGoodOptions),
       RS_STAIR_PROBLEM_NONE },
+    /* 11 */
+    { kGenAcrossMaps, ARRAY_COUNT(kGenAcrossMaps), kGenAcrossMapsOptions, ARRAY_COUNT(kGenAcrossMapsOptions),
+      RS_STAIR_PROBLEM_NONE },
+    /* 12 */ { kGenBelowBasement, ARRAY_COUNT(kGenBelowBasement), nullptr, 0, RS_STAIR_PROBLEM_BAD_STOREY },
 };
 
 // --- the words that fall back, for `stairs badcheck` (decision 23, #173 F3) ------------------------

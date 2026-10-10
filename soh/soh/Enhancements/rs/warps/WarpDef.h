@@ -69,8 +69,8 @@ typedef struct RsWarpDest {
     int32_t entrance; // RS_WARP_HERE, or an entrance id into ANOTHER scene
     // A GENERATED destination (#173 F3) names a (map, local id) instead of an entrance: `map` is the
     // destination tile's map number and `entrance` is RS_WARP_HERE. 0 in a hand row, which the two
-    // macros below leave it. A map in the scene Link is in is moved to in place; one in no map of it is
-    // slice F5's (a scene change through the scene picker), and the scan says `dest_elsewhere` until then.
+    // macros below leave it. A map in the scene Link is in is moved to in place; one in no map of it is a
+    // scene change through the scene picker (#173 F5, SceneMaps.h), at the scene the picker chooses.
     int32_t map;
 } RsWarpDest;
 

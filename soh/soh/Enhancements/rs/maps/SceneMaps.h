@@ -82,6 +82,37 @@ int32_t RsMaps_SceneEntrance(int32_t sceneId);               // its ENTR_*_0, or
 int32_t RsMaps_SceneWorld(int32_t sceneId);                  // RS_GEN_WORLD_*, a scene id, or 0 if not map-keyed
 const char* RsMaps_WorldName(int32_t world);                 // "neutral", "solo", or "0x<scene>"
 
+// --- the scene picker (sturdy-bassoon#173 slice F5, the slice F ADR's decision 12) ---------------
+//
+// A map can be in several scenes: a chunk map is in its solo scene and in a stitched one. A staircase
+// row or a warp destination names a MAP (decision 9), so a trip to it has to choose a scene, and this
+// is the one place that does - for a Staircase transfer and a step warp alike (decision 11):
+//
+//   1. the scene Link is in holds the map: stay (`here`) - an in-place move, no load;
+//   2. a scene of the WORLD CONTEXT holds it (`world`): the stitched scene the save is playing in, or
+//      a solo scene when it is playing solo chunks (WorldContext.h);
+//   3. otherwise a stitched scene (`stitched`), then a solo one (`solo`), then any other (`neutral`).
+//
+// Ties go to table order, which is the aggregate's: deterministic, and the same in every session.
+typedef enum RsMapsPickRank {
+    RS_MAPS_PICK_NONE = 0, // no scene holds the map
+    RS_MAPS_PICK_HERE,
+    RS_MAPS_PICK_WORLD,
+    RS_MAPS_PICK_STITCHED,
+    RS_MAPS_PICK_SOLO,
+    RS_MAPS_PICK_NEUTRAL,
+} RsMapsPickRank;
+
+// The scene a trip to `map` loads, from `currentScene` with the world context `worldContext`
+// (WorldContext.h's values: RS_WORLD_CONTEXT_UNSET, RS_GEN_WORLD_SOLO or a stitched scene's id), or -1
+// when no scene holds it. `rank`, if given, says which rule chose it.
+int32_t RsMaps_PickScene(int32_t map, int32_t currentScene, int32_t worldContext, int32_t* rank);
+const char* RsMaps_PickRankName(int32_t rank);
+// Every scene holding `map`, in table order, up to `max`; the count of them all.
+int32_t RsMaps_ScenesHolding(int32_t map, int32_t* out, int32_t max);
+// Whether `sceneId` is a stitched scene: map-keyed, its world its own id.
+int32_t RsMaps_IsStitched(int32_t sceneId);
+
 #ifdef __cplusplus
 }
 #endif
