@@ -118,7 +118,7 @@ extern "C" int32_t RsWorld_Set(int32_t context, const char* cause) {
     char from[16];
     std::snprintf(from, sizeof(from), "%s", RsWorld_Name(sContext));
     sContext = context;
-    sSource = (cause != nullptr && std::strcmp(cause, "console") == 0) ? "console" : "scene";
+    sSource = cause != nullptr ? cause : "scene"; // a string literal from every caller: `scene`, `console`
     Marker("rs_worldctx event=set from=%s to=%s cause=%s", from, RsWorld_Name(context), cause != nullptr ? cause : "");
     return 0;
 }

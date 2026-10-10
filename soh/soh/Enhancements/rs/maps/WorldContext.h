@@ -41,7 +41,8 @@ int32_t RsWorld_Get(void);
 // is refused by Set and repaired on load.
 int32_t RsWorld_IsValid(int32_t context);
 // Sets it and writes `rs_worldctx event=set from= to= cause=`. 0, or 1 (and nothing changed) for a
-// value RsWorld_IsValid refuses. `cause` is a word: scene, console, ...
+// value RsWorld_IsValid refuses. `cause` is a string literal - `scene` or `console` - and becomes
+// RsWorld_Source's answer.
 int32_t RsWorld_Set(int32_t context, const char* cause);
 // "unset", "solo", or "0x<scene>". A static buffer: use it before the next call.
 const char* RsWorld_Name(int32_t context);

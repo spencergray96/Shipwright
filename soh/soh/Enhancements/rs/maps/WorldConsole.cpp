@@ -105,10 +105,11 @@ int32_t RsWorldConsole_Run(const std::vector<std::string>& args, std::vector<std
             return 1;
         }
         int32_t scenes[16];
-        const int32_t count = RsMaps_ScenesHolding(map, scenes, 16);
+        const int32_t count = RsMaps_ScenesHolding(map, scenes, ARRAY_COUNT(scenes));
         Addf(lines, "op=scenes map=%d count=%d", map, count);
-        for (int32_t i = 0; i < count && i < 16; i++) {
-            Addf(lines, "scene[%d]=0x%X world=%s entrance=0x%X", i, scenes[i], RsMaps_WorldName(RsMaps_SceneWorld(scenes[i])),
+        for (int32_t i = 0; i < count && i < static_cast<int32_t>(ARRAY_COUNT(scenes)); i++) {
+            const int32_t world = RsMaps_SceneWorld(scenes[i]);
+            Addf(lines, "scene[%d]=0x%X world=%s entrance=0x%X", i, scenes[i], RsMaps_WorldName(world),
                  RsMaps_SceneEntrance(scenes[i]));
         }
         return 0;

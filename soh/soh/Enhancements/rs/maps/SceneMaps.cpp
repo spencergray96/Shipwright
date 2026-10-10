@@ -40,6 +40,15 @@ bool Contains(const RsSceneMap& m, float x, float z) {
            z < static_cast<float>(m.maxZ);
 }
 
+bool Holds(const SceneEntry& entry, int32_t map) {
+    for (const RsSceneMap& m : entry.maps) {
+        if (m.map == map) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool Overlap(const RsSceneMap& a, const RsSceneMap& b) {
     return a.minX < b.maxX && b.minX < a.maxX && a.minZ < b.maxZ && b.minZ < a.maxZ;
 }
@@ -237,14 +246,11 @@ extern "C" int32_t RsMaps_IsStitched(int32_t sceneId) {
 extern "C" int32_t RsMaps_ScenesHolding(int32_t map, int32_t* out, int32_t max) {
     int32_t count = 0;
     for (const SceneEntry& entry : sScenes) {
-        for (const RsSceneMap& m : entry.maps) {
-            if (m.map == map) {
-                if (out != nullptr && count < max) {
-                    out[count] = entry.scene;
-                }
-                count++;
-                break;
+        if (Holds(entry, map)) {
+            if (out != nullptr && count < max) {
+                out[count] = entry.scene;
             }
+            count++;
         }
     }
     return count;
@@ -262,20 +268,20 @@ extern "C" int32_t RsMaps_PickScene(int32_t map, int32_t currentScene, int32_t w
     int32_t best = -1;
     int32_t bestRank = RS_MAPS_PICK_NONE;
     for (const SceneEntry& entry : sScenes) {
-        bool holds = false;
-        for (const RsSceneMap& m : entry.maps) {
-            holds = holds || m.map == map;
-        }
-        if (!holds) {
+        if (!Holds(entry, map)) {
             continue;
         }
         // The world context is a stitched scene's id or RS_GEN_WORLD_SOLO: a scene "of" it is one whose
         // world is that value. A stitched scene's world is its own id, so the two read the same way.
         const bool ofContext = (worldContext == RS_GEN_WORLD_SOLO || worldContext >= 0) && entry.world == worldContext;
-        const int32_t r = ofContext                           ? RS_MAPS_PICK_WORLD
-                          : entry.world >= 0                  ? RS_MAPS_PICK_STITCHED
-                          : entry.world == RS_GEN_WORLD_SOLO  ? RS_MAPS_PICK_SOLO
-                                                              : RS_MAPS_PICK_NEUTRAL;
+        int32_t r = RS_MAPS_PICK_NEUTRAL;
+        if (ofContext) {
+            r = RS_MAPS_PICK_WORLD;
+        } else if (entry.world >= 0) {
+            r = RS_MAPS_PICK_STITCHED;
+        } else if (entry.world == RS_GEN_WORLD_SOLO) {
+            r = RS_MAPS_PICK_SOLO;
+        }
         if (best < 0 || r < bestRank) {
             best = entry.scene;
             bestRank = r;

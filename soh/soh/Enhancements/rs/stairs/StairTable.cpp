@@ -243,7 +243,8 @@ const RsStairGenRow kGenAcrossMaps[] = { { 8110, "gen", 0, -1, 7, 0, nullptr },
                                          { 8110, "gen", 1, 0, 1, 0, nullptr },
                                          { 8110, "gen", 2, 1, 1, 0, "the roof" } };
 const RsStairGenOption kGenAcrossMapsOptions[] = { { 8110, 1, -1, "Down to the {floor:-1}" } };
-const RsStairGenRow kGenBelowBasement[] = { { 8111, "gen", 0, -2, 7, 0, nullptr }, { 8111, "gen", 1, 0, 1, 0, nullptr } };
+const RsStairGenRow kGenBelowBasement[] = { { 8111, "gen", 0, -2, 7, 0, nullptr },
+                                            { 8111, "gen", 1, 0, 1, 0, nullptr } };
 
 const RsStairBadGen kBadGen[] = {
     /* 0 */ { kGenNameDiffers, ARRAY_COUNT(kGenNameDiffers), nullptr, 0, RS_STAIR_PROBLEM_ROWS_DISAGREE },

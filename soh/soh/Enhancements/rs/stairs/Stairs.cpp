@@ -938,8 +938,9 @@ void Finish(PlayState* play, Player* player) {
             line, sizeof(line),
             "rs_warp tile=%s event=landed to=%s pos=%.1f,%.1f,%.1f yaw=%d room=%d floor_y=%.1f ground=%d "
             "respawn=%.1f,%.1f,%.1f respawn_room=%d fade=%d ticks=%d source=%s scene=0x%X ms=%d",
-            Tok(sMove.fromTile).s, Tok(sMove.toTile).s, player->actor.world.pos.x, player->actor.world.pos.y,
-            player->actor.world.pos.z, player->actor.shape.rot.y, play->roomCtx.curRoom.num, player->actor.floorHeight,
+            CrossScene() ? sMove.fromTok : Tok(sMove.fromTile).s, CrossScene() ? sMove.toTok : Tok(sMove.toTile).s,
+            player->actor.world.pos.x, player->actor.world.pos.y, player->actor.world.pos.z, player->actor.shape.rot.y,
+            play->roomCtx.curRoom.num, player->actor.floorHeight,
             (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) ? 1 : 0, respawn.pos.x, respawn.pos.y, respawn.pos.z,
             respawn.roomIndex, sMove.fade, sMove.ticks, sMove.source, play->sceneNum, MsSince(sMove.began));
         if (CrossScene() && n > 0 && static_cast<size_t>(n) < sizeof(line)) {
@@ -969,7 +970,7 @@ void Finish(PlayState* play, Player* player) {
     if (CrossScene() && n > 0 && static_cast<size_t>(n) < sizeof(line)) {
         std::snprintf(line + n, sizeof(line) - n,
                       " scene=0x%X from_scene=0x%X entrance=0x%X load_ms=%d settle_ms=%d respawn_entrance=0x%X "
-                      "pick=%s ctx=%s",
+                      "rank=%s ctx=%s",
                       play->sceneNum, sMove.fromScene, sMove.entrance, sMove.loadMs, sMove.settleMs,
                       respawn.entranceIndex, sMove.pickRank, RsWorld_Name(sMove.worldContext));
     }
@@ -1848,12 +1849,13 @@ extern "C" int32_t RsStair_BeginMove(int32_t stairId, int32_t fromRow, int32_t t
 
     const RsStairLanding* from = RsStair_GetLanding(stairId, fromRow);
     if (transferScene >= 0) {
-        Marker("rs_stairs stair=%d event=move_begin from_row=%d to_row=%d from_storey=%d to_storey=%d fade=%d source=%s "
-               "entrance=0x%X scene_to=0x%X to_map=%d pick=%s ctx=%s",
+        Marker("rs_stairs stair=%d event=move_begin from_row=%d to_row=%d from_storey=%d to_storey=%d fade=%d "
+               "source=%s entrance=0x%X scene_to=0x%X to_map=%d rank=%s ctx=%s",
                stairId, fromRow, toRow, from != nullptr ? from->storey : -1, landing->storey, sMove.fade, sMove.source,
                sMove.entrance, sMove.targetScene, landing->map, sMove.pickRank, RsWorld_Name(sMove.worldContext));
     } else {
-        Marker("rs_stairs stair=%d event=move_begin from_row=%d to_row=%d from_storey=%d to_storey=%d fade=%d source=%s",
+        Marker("rs_stairs stair=%d event=move_begin from_row=%d to_row=%d from_storey=%d to_storey=%d fade=%d "
+               "source=%s",
                stairId, fromRow, toRow, from != nullptr ? from->storey : -1, landing->storey, sMove.fade, sMove.source);
     }
     return RS_STAIR_OK;

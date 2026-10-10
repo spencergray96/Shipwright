@@ -212,24 +212,7 @@ int32_t DestKey(const RsWarpDest& dest) {
     return slot < 0 ? kKeyElsewhere : slot * RS_WARP_KEYS_PER_SLOT + dest.tile;
 }
 
-// A generated destination in a map no map of this scene is (#173 slice F5): a trip to another scene,
-// through the scene picker (SceneMaps.h). Null when it can be made - some scene holds the map, and that
-// map's table routes the tile (tables are global, so this is knowable from anywhere) - else why not.
-// Whether the tile is in that scene's COLLISION is only knowable there: `arrival_failed`, as #148's.
-const char* ElsewhereProblem(const RsWarpDest& dest) {
-    if (RsMaps_ScenesHolding(dest.map, nullptr, 0) == 0) {
-        return "dest_unplaced";
-    }
-    const RsWarpMapDef* map = RsWarp_GetMapDef(dest.map);
-    for (int32_t i = 0; map != nullptr && i < map->tileCount; i++) {
-        if (map->tiles[i].id == dest.tile) {
-            return nullptr;
-        }
-    }
-    return "dest_unrouted";
-}
-
-// That destination's row in its map's table. Only once ElsewhereProblem has said null.
+// A generated destination's row in its map's table - global, so knowable from any scene - or null.
 const RsWarpTileDef* ElsewhereRow(const RsWarpDest& dest) {
     const RsWarpMapDef* map = RsWarp_GetMapDef(dest.map);
     for (int32_t i = 0; map != nullptr && i < map->tileCount; i++) {
@@ -238,6 +221,17 @@ const RsWarpTileDef* ElsewhereRow(const RsWarpDest& dest) {
         }
     }
     return nullptr;
+}
+
+// A generated destination in a map no map of this scene is (#173 slice F5): a trip to another scene,
+// through the scene picker (SceneMaps.h). Null when it can be made - some scene holds the map, and that
+// map's table routes the tile - else why not. Whether the tile is in that scene's COLLISION is only
+// knowable there: `arrival_failed`, as #148's.
+const char* ElsewhereProblem(const RsWarpDest& dest) {
+    if (RsMaps_ScenesHolding(dest.map, nullptr, 0) == 0) {
+        return "dest_unplaced";
+    }
+    return ElsewhereRow(dest) != nullptr ? nullptr : "dest_unrouted";
 }
 
 // The slot a polygon is in: its centroid's map. 0 in a hand scene; -1 for a polygon in no map.
@@ -676,7 +670,7 @@ void Fire(Player* player, int32_t id) {
     // To another scene, the line says where: an in-place line is unchanged.
     char sceneFields[96] = "";
     if (elsewhere) {
-        std::snprintf(sceneFields, sizeof(sceneFields), " entrance=0x%X scene_to=0x%X pick=%s ctx=%s", entrance,
+        std::snprintf(sceneFields, sizeof(sceneFields), " entrance=0x%X scene_to=0x%X rank=%s ctx=%s", entrance,
                       EntranceScene(entrance), RsMaps_PickRankName(rank), RsWorld_Name(RsWorld_Get()));
     } else if (!inPlace) {
         std::snprintf(sceneFields, sizeof(sceneFields), " entrance=0x%X scene_to=0x%X", to.entrance,
