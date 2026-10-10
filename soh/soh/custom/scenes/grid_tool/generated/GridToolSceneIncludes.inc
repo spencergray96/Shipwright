@@ -49,4 +49,5 @@
 #include "../storey_classes_178_s2/CustomStoreyClasses178S2Scene.h" // project c0c0178c-0178-4000-8000-000000000052 name storey_classes_178_s2
 #include "../storey_classes_178_s2_rays/CustomStoreyClasses178S2RaysScene.h" // project c0c0178c-0178-4000-8000-000000000053 name storey_classes_178_s2_rays
 #include "../stairs_warps_f3_173/CustomStairsWarpsF3173Scene.h" // project f1730000-0000-4000-8000-0000000000f3 name stairs_warps_f3_173
+#include "../world_export_west_173_synthetic/CustomWorldExportWest173SyntheticScene.h" // project e1730000-0000-4000-8000-0000000000e1 name world_export_west_173_synthetic
 // END GRID TOOL EXPORTS
