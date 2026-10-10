@@ -183,4 +183,5 @@
 /* 0xA6 */ DEFINE_SCENE(storey_classes_178_s2_rays_scene, none, SCENE_STOREY_CLASSES_178_S2_RAYS, SDC_DEFAULT, 0, 0) // project c0c0178c-0178-4000-8000-000000000053 name storey_classes_178_s2_rays
 /* 0xA7 */ DEFINE_SCENE(stairs_warps_f3_173_scene, none, SCENE_STAIRS_WARPS_F3_173, SDC_DEFAULT, 0, 0) // project f1730000-0000-4000-8000-0000000000f3 name stairs_warps_f3_173
 /* 0xA8 */ DEFINE_SCENE(world_export_west_173_synthetic_scene, none, SCENE_WORLD_EXPORT_WEST_173_SYNTHETIC, SDC_DEFAULT, 0, 0) // project e1730000-0000-4000-8000-0000000000e1 name world_export_west_173_synthetic
+/* 0xA9 */ DEFINE_SCENE(f5_cellar_173_scene, none, SCENE_F5_CELLAR_173, SDC_DEFAULT, 0, 0) // project f1730000-0000-4000-8000-0000000000f5 name f5_cellar_173
 // END GRID TOOL EXPORTS

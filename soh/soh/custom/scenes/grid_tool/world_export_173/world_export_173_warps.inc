@@ -11,6 +11,8 @@ RS_GEN_WARP(3, 1, RS_WARP_ENTRY_STEP, 0) // "F4 1", level 0 at (10, 40), landing
 RS_GEN_WARP_DEST(3, 1, 3, 2)
 RS_GEN_WARP(3, 2, RS_WARP_ENTRY_STEP, 0) // "F4 2", level 0 at (14, 40), landing W
 RS_GEN_WARP_DEST(3, 2, 3, 1)
+RS_GEN_WARP(3, 3, RS_WARP_ENTRY_STEP, 0) // "Trapdoor down", level 0 at (25, 31), landing E
+RS_GEN_WARP_DEST(3, 3, 5, 1) // to "F5 Cellar (#173)"
 RS_GEN_WARP(4, 1, RS_WARP_ENTRY_STEP, 0) // "F4 1", level 0 at (20, 45), landing E
 RS_GEN_WARP_DEST(4, 1, 4, 2)
 RS_GEN_WARP(4, 2, RS_WARP_ENTRY_STEP, 0) // "F4 2", level 0 at (20, 50), landing S

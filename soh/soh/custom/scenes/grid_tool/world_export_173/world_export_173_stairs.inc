@@ -7,7 +7,7 @@
 //   RS_GEN_STAIR(stair, name, row, storey, map, room, destName)
 //   RS_GEN_STAIR_OPTION(stair, row, toStorey, text)
 
-RS_GEN_STAIR(7948, "west_stair", 0, 0, 3, 0, NULL) // "West stair", level 0 at (21, 31) facing E
-RS_GEN_STAIR(7948, "west_stair", 1, 1, 3, 0, NULL) // "West stair", level 1 at (21, 31) facing E
+RS_GEN_STAIR(7948, "west_stair", 1, 0, 3, 0, NULL) // "West stair", level 0 at (21, 31) facing E
+RS_GEN_STAIR(7948, "west_stair", 2, 1, 3, 0, NULL) // "West stair", level 1 at (21, 31) facing E
 RS_GEN_STAIR(7949, "east_stair", 0, 0, 4, 0, NULL) // "East stair", level 0 at (41, 31) facing N
 RS_GEN_STAIR(7949, "east_stair", 1, 1, 4, 0, NULL) // "East stair", level 1 at (41, 31) facing N
