@@ -445,6 +445,10 @@ struct Move {
     // which is the other one by the time the arrival line is written. And which of the scene picker's
     // rules chose the scene (SceneMaps.h), for both kinds of move.
     int32_t toMap = 0;
+    // A Staircase transfer whose destination placement was not in the room's ActorEntry list at the new
+    // scene's OnSceneInit: Link is stood on the spawn, and the first update lands him in front of the live
+    // placement instead, as a move into another room does (ArriveFromScene, then Arrive).
+    bool landLive = false;
     char fromTok[24] = "";
     char toTok[24] = "";
     const char* pickRank = "";
@@ -901,6 +905,9 @@ void ArriveFromScene(PlayState* play, Player* player) {
     // `at=` is what the warp scan stood him on: `landing` is the tile's, `spawn` the scene's own (the
     // tile is broken here - `arrival_failed` says why), `none` if the scan never answered.
     const char* at = sMove.placed == 1 ? "landing" : (sMove.placed == 0 ? "spawn" : "none");
+    if (sMove.landLive) {
+        at = "placement"; // a transfer, landing in front of the live placement next (Arrive)
+    }
     if (sMove.warp) {
         Marker("rs_warp tile=%s event=arrived to=%s scene=0x%X from_scene=0x%X entrance=0x%X at=%s pos=%.1f,%.1f,%.1f "
                "yaw=%d room=%d black=%d eye=%.1f,%.1f,%.1f load_ms=%d ticks=%d",
@@ -916,6 +923,14 @@ void ArriveFromScene(PlayState* play, Player* player) {
                play->roomCtx.curRoom.num, black, eye.x, eye.y, eye.z, sMove.loadMs, sMove.ticks);
     }
     sMove.phaseTick = 0;
+    if (sMove.landLive) {
+        // A transfer still to land: the room is in, so its placement is a live actor now (or on the next
+        // tick or two). Arrive puts him down in front of it, as after a room change, under the same black.
+        sMove.roomFrom = play->roomCtx.curRoom.num;
+        sMove.roomTo = play->roomCtx.curRoom.num;
+        sMove.phase = Phase::Arrive;
+        return;
+    }
     if (sMove.placed != -1 && sMove.roomTo != play->roomCtx.curRoom.num) {
         sMove.roomFrom = play->roomCtx.curRoom.num;
         sMove.phase = Phase::WaitRoom;
@@ -1049,6 +1064,18 @@ void OnPlayerUpdateStairs() {
             if (++sMove.phaseTick < kArriveTicks) {
                 return;
             }
+            // From another scene (a Staircase transfer, #173 F5) there is no room of his own to go back to:
+            // he stays on the scene's spawn, where Player_Init stood him, as a step warp's broken tile does.
+            if (CrossScene()) {
+                SPDLOG_ERROR("RsStairs: transfer of stair {} into scene 0x{:X} at row {}: no placement; the spawn",
+                             sMove.stairId, play->sceneNum, sMove.toRow);
+                Marker("rs_stairs stair=%d event=arrival_failed to_row=%d scene=0x%X reason=no_placement",
+                       sMove.stairId, sMove.toRow, play->sceneNum);
+                sMove.landLive = false;
+                sMove.phase = Phase::Settle;
+                sMove.phaseTick = 0;
+                return;
+            }
             // The room is in and the storey has no placement - an authoring mistake, and one only a
             // room load could reveal. Link has not moved, so load his own room back and give him back
             // where he stood, rather than leave him standing in a room that is not drawn.
@@ -1121,10 +1148,11 @@ void OnPlayerUpdateStairs() {
 // Except the scene a step warp's own transition asked for (#148): then the move carries on in it.
 // Black from here, before anything draws - Environment_Init has already run in the scene's init.
 // A STAIRCASE TRANSFER arriving (#173 slice F5): where Player_Init stands Link - in front of the
-// destination placement, as in place, but read from the room's ActorEntry list rather than a live actor:
-// at OnSceneInit the room is loaded and its actors are not spawned yet (as a step warp's scan reads the
-// collision here). Not there - the destination scene's export lost the placement - is the scene's spawn,
-// loud, as a step warp's broken tile is.
+// destination placement, read from the room's ActorEntry list when the scene has handed it over by now.
+// A grid-tool scene hands it over as its room loads, which can be after OnSceneInit (#173 F5's run found
+// none there), so a placement not in the list is not yet a failure: Link is stood on the scene's spawn,
+// under black, and the first update lands him in front of the live placement (`landLive`). Only a
+// placement missing there too is `arrival_failed`.
 void PlaceStairArrival(PlayState* play) {
     const RsStairDef* def = RsStair_GetDef(sMove.stairId);
     const RsStairLanding* landing = RsStair_GetLanding(sMove.stairId, sMove.toRow);
@@ -1143,11 +1171,14 @@ void PlaceStairArrival(PlayState* play) {
                                   entry->pos.z + forward * Math_CosS(facing), facing, landing->room, 1);
         return;
     }
-    const char* why = def == nullptr || landing == nullptr ? "bad_row" : "no_placement";
-    SPDLOG_ERROR("RsStairs: transfer of stair {} into scene 0x{:X} at row {}: {}; using the spawn", sMove.stairId,
-                 play->sceneNum, sMove.toRow, why);
-    Marker("rs_stairs stair=%d event=arrival_failed to_row=%d scene=0x%X reason=%s", sMove.stairId, sMove.toRow,
-           play->sceneNum, why);
+    if (def == nullptr || landing == nullptr) {
+        SPDLOG_ERROR("RsStairs: transfer of stair {} into scene 0x{:X} at row {}: bad_row; using the spawn",
+                     sMove.stairId, play->sceneNum, sMove.toRow);
+        Marker("rs_stairs stair=%d event=arrival_failed to_row=%d scene=0x%X reason=bad_row", sMove.stairId,
+               sMove.toRow, play->sceneNum);
+    } else {
+        sMove.landLive = true;
+    }
     if (play->linkActorEntry != nullptr) {
         const ActorEntry* spawn = play->linkActorEntry;
         const int32_t room = play->setupEntranceList != nullptr ? play->setupEntranceList[play->curSpawn].room : 0;
