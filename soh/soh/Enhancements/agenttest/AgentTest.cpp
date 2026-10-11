@@ -427,7 +427,7 @@
  *                                          The entrance's table group must actually have that many rows or the
  *                                          load lands in a neighbouring scene - Temple of Time (0x53) has 11
  *                                          and is the safe default target
- *   agenttest fog <near> <far> [r g b] | status | off
+ *   agenttest fog <near> <far> [r g b] [max=<m>] | status | off
  *                                          the human `fog` command's renderer (distancefog/DistanceFogConsole.h,
  *                                          sturdy-bassoon#144): override the scene's fog band and far clip plane,
  *                                          optionally pinning the colour, or hand them back. near is fog-space
@@ -2959,7 +2959,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             "press <BUTTONS> [frames] | hold [<BUTTONS>|none] | ocarina <NOTES> [hold] [gap] | song <name> | stats | "
               "rooms | time <dawn|day|dusk|night|value> | sunssong | display | "
             "trace <ticks> | octrace <ticks> | ocstall <ms> <tick>|off | "
-            "cutscene <index>|off | fog <near> <far> [r g b]|status|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
+            "cutscene <index>|off | fog <near> <far> [r g b] [max=<m>]|status|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
             "roomdist [hysteresis]|off | uncull | kill <actor> | sceneflag <sceneId> [value] | "
             "worldflag count|<n> [0|1] | "
             "queststore count|<id> [status mask] | questpred <kind> <a> <b> <negate> | "
@@ -3008,7 +3008,7 @@ void RegisterAgentTest() {
               "press <BUTTONS> [frames] | hold [<BUTTONS>|none] | ocarina <NOTES> [hold] [gap] | song <name> | stats | "
               "rooms | time <dawn|day|dusk|night|value> | sunssong | display | "
               "trace <ticks> | octrace <ticks> | ocstall <ms> <tick>|off | "
-              "cutscene <index>|off | fog <near> <far> [r g b]|status|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
+              "cutscene <index>|off | fog <near> <far> [r g b] [max=<m>]|status|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
               "roomdist [hysteresis]|off | uncull | kill <actor> | sceneflag <sceneId> [value] | "
               "worldflag count|<n> [0|1] | "
               "queststore count|<id> [status mask] | questpred <kind> <a> <b> <negate> | "

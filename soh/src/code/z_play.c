@@ -192,10 +192,17 @@ void func_800BC88C(PlayState* play) {
     play->transitionCtx.transitionType = -1;
 }
 
+// #region SOH [Fork] (sturdy-bassoon#169): the fog-space value where fog reaches 100%. Vanilla always
+// passes 1000, so fog only completes at the far clip; a max below 1000 completes it before the clip.
+// Only the `fog` console override (distancefog/DistanceFogConsole.cpp) writes it, at OnPlayDrawBegin,
+// and it writes 1000 back every frame the override is off, so a scene without it emits what it always did.
+s32 gPlayFogMax = 1000;
+
 Gfx* Play_SetFog(PlayState* play, Gfx* gfx) {
     return Gfx_SetFog2(gfx, play->lightCtx.fogColor[0], play->lightCtx.fogColor[1], play->lightCtx.fogColor[2], 0,
-                       play->lightCtx.fogNear, 1000);
+                       play->lightCtx.fogNear, gPlayFogMax); // was 1000
 }
+// #endregion
 
 void Play_Destroy(GameState* thisx) {
     PlayState* play = (PlayState*)thisx;
