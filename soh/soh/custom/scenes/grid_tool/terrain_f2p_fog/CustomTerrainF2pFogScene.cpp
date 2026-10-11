@@ -45,7 +45,7 @@ static EnvLightSettings sTerrainF2pFogLightSettings[4] = {
 };
 
 // Boundary fog (sturdy-bassoon#169): the playable area as world-unit rectangles {x0, z0, x1, z1}, and the ramp
-// past it - clear out to 640 units outside, fully fogged at 2560. Drawn only under world-unit fog (#167).
+// past it - clear out to 0 units outside, fully fogged at 1280. Drawn only under world-unit fog (#167).
 static const WorldFogRect sTerrainF2pFogFogBoundary[1] = {
     { -7680, -7680, 7680, 7680 },
 };
@@ -127,7 +127,7 @@ static void InitScene(PlayState* play, s32 spawn) {
 
     play->envCtx.numLightSettings  = 4;
     play->envCtx.lightSettingsList = sTerrainF2pFogLightSettings;
-    WorldFog_SetBoundary(sTerrainF2pFogFogBoundary, 1, 640, 2560);
+    WorldFog_SetBoundary(sTerrainF2pFogFogBoundary, 1, 0, 1280);
 
     Play_InitEnvironment(play, play->skyboxId);
     GameInteractor_ExecuteAfterSceneCommands(play->sceneNum);
