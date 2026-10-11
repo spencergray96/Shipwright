@@ -7,6 +7,7 @@
 #include "soh/Enhancements/console/ConsoleSink.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/ShipInit.hpp"
+#include "WorldFog.h"
 
 extern "C" {
 #include <z64.h>
@@ -32,15 +33,22 @@ constexpr int32_t kFarMax = 12800;
 // than 4 fog-space units overflows it (sturdy-bassoon#169). 1000 is vanilla's max: fog completes at the clip.
 constexpr int32_t kMaxWidthMin = 4;
 constexpr int32_t kVanillaMax = 1000;
+// World-unit fog (sturdy-bassoon#167): start and end are view depths in world units, carried as u16 by
+// gSPFogWorld and as s16 by the side table, so they stay under 32768.
+constexpr int32_t kWorldMax = 32767;
 
 const char* const kSettingNames[4] = { "dawn", "day", "dusk", "night" };
 
 struct Override {
     bool active = false;
     bool pinColor = false;
+    bool world = false;     // `fog world ...` (sturdy-bassoon#167): a world-unit band, not near/far/max
+    bool clipGiven = false; // world only: clip= was typed; otherwise the clip is the scene's, live
     s16 near = 0;
     s16 far = 0;
     s16 max = kVanillaMax;
+    s16 start = 0;
+    s16 end = 0;
     u8 color[3] = { 0, 0, 0 };
 };
 
@@ -49,10 +57,16 @@ Override sOverride;
 // The band the scene's own light settings give this frame, weather and lightning included - what
 // Environment_Update writes into lightCtx (z_kankyo.c, "Adjust fog near and far"). Read from envCtx rather
 // than lightCtx, which holds the override's values while the game is paused and Environment_Update idles.
+//
+// With world-unit rows (sturdy-bassoon#167) the band is world: start/end from gWorldFogScene, which
+// Environment_Update blends, and far its clip. near is still the scene's, which keeps driving the sky filter.
 struct Band {
+    bool world;
     s16 near;
     s16 far;
     s16 max;
+    s16 start; // world only
+    s16 end;   // world only
     u8 color[3];
 };
 
@@ -68,6 +82,12 @@ Band SceneBand(const PlayState* play) {
     band.near = static_cast<s16>(MIN(near, kSceneNearMax));
     band.far = static_cast<s16>(MIN(far, kFarMax));
     band.max = kVanillaMax;
+    band.world = WorldFog_HasScene() != 0;
+    band.start = gWorldFogScene.start;
+    band.end = gWorldFogScene.end;
+    if (band.world) {
+        band.far = static_cast<s16>(CLAMP(gWorldFogScene.clip, kFarMin, kFarMax));
+    }
     return band;
 }
 
@@ -85,9 +105,19 @@ Band LiveBand(const PlayState* play) {
         return SceneBand(play);
     }
     Band band = SceneBand(play);
-    band.near = sOverride.near;
-    band.far = sOverride.far;
-    band.max = sOverride.max;
+    band.world = sOverride.world;
+    if (sOverride.world) {
+        band.start = sOverride.start;
+        band.end = sOverride.end;
+        band.max = kVanillaMax;
+        if (sOverride.clipGiven) {
+            band.far = sOverride.far;
+        }
+    } else {
+        band.near = sOverride.near;
+        band.far = sOverride.far;
+        band.max = sOverride.max;
+    }
     if (sOverride.pinColor) {
         for (int i = 0; i < 3; i++) {
             band.color[i] = sOverride.color[i];
@@ -123,9 +153,50 @@ const char* SkyFilter(int32_t near) {
     return near > 950 ? "tinted" : "replaced";
 }
 
+// World-unit fog's factor at view depth d (sturdy-bassoon#167): linear from start to end, as GfxSpVertex.
+// The blend truncates start and end separately, so it can bring them together; the renderer's G_FOG_WORLD
+// handler then uses end = start + 1, and so does this.
+float WorldFactor(const Band& band, float d) {
+    const float t = (d - band.start) / static_cast<float>(MAX(band.end - band.start, 1));
+    return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+}
+
+// What the scene's own fog is, on every line: scene_kind=, and for world rows their band right now.
+std::string SceneKindText(const Band& scene) {
+    char text[64];
+    if (scene.world) {
+        std::snprintf(text, sizeof(text), "scene_kind=world scene_start=%d scene_end=%d", scene.start, scene.end);
+    } else {
+        std::snprintf(text, sizeof(text), "scene_kind=vanilla");
+    }
+    return text;
+}
+
+// The line for a world-unit band (sturdy-bassoon#167). The vanilla line's fields keep their meanings: start=
+// and end= where the fog begins and completes, far= the clip, near= the fog-space value still driving the sky
+// filter. at_far= is the factor at the clip itself - 1 means nothing the clip cuts can show - and c= the band
+// as a scene's WorldFogSetting row, {start,end,clip}.
+void DescribeWorld(const char* op, const PlayState* play, const Band& live, const Band& scene,
+                   std::vector<std::string>& lines) {
+    const u32 minutes = static_cast<u32>(gSaveContext.dayTime) * 24 * 60 / 0x10000;
+    Addf(lines,
+         "op=%s result=ok mode=%s kind=world near=%d far=%d max=%d color=%u,%u,%u color_src=%s start=%d end=%d "
+         "at_far=%.3f sky=%s time=%02u:%02u rain=%u scene_near=%d scene_far=%d scene_color=%u,%u,%u %s "
+         "c={%d,%d,%d}",
+         op, sOverride.active ? "override" : "scene", live.near, live.far, live.max, live.color[0], live.color[1],
+         live.color[2], sOverride.active && sOverride.pinColor ? "pinned" : "scene", live.start, live.end,
+         WorldFactor(live, static_cast<float>(live.far)), SkyFilter(live.near), minutes / 60, minutes % 60,
+         play->envCtx.unk_F2[0], scene.near, scene.far, scene.color[0], scene.color[1], scene.color[2],
+         SceneKindText(scene).c_str(), live.start, live.end, live.far);
+}
+
 void Describe(const char* op, const PlayState* play, std::vector<std::string>& lines) {
     const Band live = LiveBand(play);
     const Band scene = SceneBand(play);
+    if (live.world) {
+        DescribeWorld(op, play, live, scene, lines);
+        return;
+    }
     const float start = StartDistance(play->view.zNear, live.near, live.far);
     const u32 minutes = static_cast<u32>(gSaveContext.dayTime) * 24 * 60 / 0x10000;
     char startText[16];
@@ -143,14 +214,14 @@ void Describe(const char* op, const PlayState* play, std::vector<std::string>& l
     // rain= is envCtx.unk_F2[0], the rain's intensity (the Song of Storms raises it to 20); c= clamps near to
     // what a scene can hold, since Environment_Update would clamp a pasted 997+ anyway.
     Addf(lines,
-         "op=%s result=ok mode=%s near=%d far=%d max=%d color=%u,%u,%u color_src=%s start=%s%s sky=%s "
+         "op=%s result=ok mode=%s kind=vanilla near=%d far=%d max=%d color=%u,%u,%u color_src=%s start=%s%s sky=%s "
          "time=%02u:%02u rain=%u "
-         "scene_near=%d scene_far=%d scene_color=%u,%u,%u c={%u,%u,%u},(s16)(%d|(%d<<10)),%d",
+         "scene_near=%d scene_far=%d scene_color=%u,%u,%u %s c={%u,%u,%u},(s16)(%d|(%d<<10)),%d",
          op, sOverride.active ? "override" : "scene", live.near, live.far, live.max, live.color[0], live.color[1],
          live.color[2], sOverride.active && sOverride.pinColor ? "pinned" : "scene", startText, endText,
          SkyFilter(live.near), minutes / 60, minutes % 60, play->envCtx.unk_F2[0], scene.near, scene.far,
-         scene.color[0], scene.color[1], scene.color[2], live.color[0], live.color[1], live.color[2],
-         MIN(live.near, kSceneNearMax), SceneBlendRate(play), live.far);
+         scene.color[0], scene.color[1], scene.color[2], SceneKindText(scene).c_str(), live.color[0], live.color[1],
+         live.color[2], MIN(live.near, kSceneNearMax), SceneBlendRate(play), live.far);
 }
 
 // One line per light setting, ending in the three initializer fields a scene's EnvLightSettings entry
@@ -178,18 +249,61 @@ bool LooksNumeric(const std::string& text) {
 }
 
 constexpr const char* kSetUsage = "usage=<near(0..1000)>_<far(100..12800)>_[r_g_b(0..255)]_[max=<near+4..1000>]";
+constexpr const char* kWorldUsage =
+    "usage=world_<start(0..32766)>_<end(start+1..32767)>_[r_g_b(0..255)]_[clip=<100..12800>]";
+
+// `fog world <start> <end> [r g b] [clip=<c>]` (sturdy-bassoon#167): a world-unit band in any scene, vanilla
+// ones included. Without clip= the clip stays the scene's own, live; max= is vanilla's and is refused.
+int32_t RunWorld(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    std::vector<std::string> positional(args.begin() + 1, args.end());
+    bool clipGiven = false;
+    int32_t clip = 0;
+    bool ok = true;
+    while (ok && !positional.empty() && positional.back().find('=') != std::string::npos) {
+        const std::string word = positional.back();
+        positional.pop_back();
+        ok = !clipGiven && word.rfind("clip=", 0) == 0 && ParseInt(word.substr(5), kFarMin, kFarMax, &clip);
+        clipGiven = true;
+    }
+    int32_t start = 0;
+    int32_t end = 0;
+    int32_t rgb[3] = { 0, 0, 0 };
+    const bool pin = positional.size() >= 5;
+    ok = ok && (positional.size() == 2 || positional.size() == 5) && ParseInt(positional[0], 0, kWorldMax - 1, &start) &&
+         ParseInt(positional[1], start + 1, kWorldMax, &end);
+    for (size_t i = 0; ok && pin && i < 3; i++) {
+        ok = ParseInt(positional[2 + i], 0, 255, &rgb[i]);
+    }
+    if (!ok) {
+        Addf(lines, "op=set result=error error=bad_argument %s", kWorldUsage);
+        return 1;
+    }
+    sOverride.active = true;
+    sOverride.world = true;
+    sOverride.pinColor = pin;
+    sOverride.clipGiven = clipGiven;
+    sOverride.start = static_cast<s16>(start);
+    sOverride.end = static_cast<s16>(end);
+    sOverride.far = static_cast<s16>(clip);
+    sOverride.max = kVanillaMax;
+    for (int i = 0; i < 3; i++) {
+        sOverride.color[i] = static_cast<u8>(rgb[i]);
+    }
+    Describe("set", gPlayState, lines);
+    return 0;
+}
 
 } // namespace
 
 int32_t DistanceFogConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines) {
     const std::string sub = args.empty() ? "status" : args[0];
     const bool isSet = LooksNumeric(sub);
-    const char* op = isSet ? "set" : sub.c_str();
+    const char* op = isSet || sub == "world" ? "set" : sub.c_str();
 
-    if (!isSet && sub != "status" && sub != "off") {
+    if (!isSet && sub != "status" && sub != "off" && sub != "world") {
         // The typed word is not echoed: it is free text, and this line is parsed field by field.
-        lines.push_back(
-            "op=unknown result=error error=unknown_subcommand usage=status|off|<near>_<far>_[r_g_b]_[max=<m>]");
+        lines.push_back("op=unknown result=error error=unknown_subcommand "
+                        "usage=status|off|<near>_<far>_[r_g_b]_[max=<m>]|world_<start>_<end>_[r_g_b]_[clip=<c>]");
         return 1;
     }
     if (gPlayState == nullptr) {
@@ -208,12 +322,26 @@ int32_t DistanceFogConsole_Run(const std::vector<std::string>& args, std::vector
                 DescribeSetting(&env->lightSettingsList[i], i, "storm", lines);
             }
         }
+        // The scene's world-unit rows (sturdy-bassoon#167), laid out like the light settings above: config 0
+        // (0-3) and the storm (8-11), each c= pasteable as a WorldFogSetting row.
+        if (WorldFog_HasScene()) {
+            for (u8 i = 0; i < WORLD_FOG_SETTINGS; i = (i == 3 ? 8 : i + 1)) {
+                const WorldFogSetting* row = WorldFog_SceneSetting(i);
+                Addf(lines, "op=status world_setting=%u group=%s name=%s start=%d end=%d clip=%d c={%d,%d,%d}", i,
+                     i < 4 ? "scene" : "storm", kSettingNames[i % 4], row->start, row->end, row->clip, row->start,
+                     row->end, row->clip);
+            }
+        }
         return 0;
     }
     if (sub == "off") {
         sOverride.active = false;
         Describe("off", gPlayState, lines);
         return 0;
+    }
+
+    if (sub == "world") {
+        return RunWorld(args, lines);
     }
 
     // An optional trailing max=<m> (sturdy-bassoon#169): the fog-space value where fog reaches 100%, passed to
@@ -246,6 +374,8 @@ int32_t DistanceFogConsole_Run(const std::vector<std::string>& args, std::vector
     }
     sOverride.active = true;
     sOverride.pinColor = pin;
+    sOverride.world = false;
+    sOverride.clipGiven = false;
     sOverride.near = static_cast<s16>(near);
     sOverride.far = static_cast<s16>(far);
     sOverride.max = static_cast<s16>(max);
@@ -266,12 +396,21 @@ namespace {
 void ApplyOverride() {
     // Play_SetFog's max is written every frame, so it never outlives the override: off, a scene load or an
     // inactive override all draw with vanilla's 1000 from the next frame on (sturdy-bassoon#169).
-    gPlayFogMax = sOverride.active ? sOverride.max : kVanillaMax;
+    gPlayFogMax = sOverride.active && !sOverride.world ? sOverride.max : kVanillaMax;
+    // Which kind of fog Play_SetFog emits this frame (sturdy-bassoon#167). The scene's own resolves in
+    // WorldFog.cpp - its blended rows if it has them, else vanilla - and the override layers on top: a world
+    // band in any scene, or vanilla fog even in a scene with rows. Written every frame, like the max.
     if (!sOverride.active || gPlayState == nullptr) {
+        WorldFog_UseScene();
         return;
     }
     const Band band = LiveBand(gPlayState);
-    gPlayState->lightCtx.fogNear = band.near;
+    if (band.world) {
+        WorldFog_UseBand(band.start, band.end);
+    } else {
+        WorldFog_UseVanilla();
+        gPlayState->lightCtx.fogNear = band.near;
+    }
     gPlayState->lightCtx.fogFar = band.far;
     for (int i = 0; i < 3; i++) {
         gPlayState->lightCtx.fogColor[i] = band.color[i];
@@ -291,19 +430,23 @@ RegisterShipInitFunc initFunc(RegisterDistanceFog, {});
 
 const ConsoleSink::Command distanceFogCommand(
     "fog", DistanceFogConsole_Run,
-    "Tune the scene's distance fog live (sturdy-bassoon#144): <near> <far> [r g b] [max=<m>] | status | off. "
+    "Tune the scene's distance fog live (sturdy-bassoon#144): <near> <far> [r g b] [max=<m>] | "
+    "world <start> <end> [r g b] [clip=<c>] | status | off. "
     "near is fog-space 0..1000 (nonlinear: 996, the most a scene can have, starts ~2,000 units out at far 12800; 1000 "
     "is no fog), far is world units 100..12800 and also the far clip. Without r g b the colour keeps following "
     "time of day and weather; lights are never touched. max is the fog-space value where fog reaches 100% "
     "(sturdy-bassoon#169): 1000, the default, completes it at the clip; lower completes it sooner, down to "
-    "near+4. Below near 980 the sky fades to the fog colour. status "
+    "near+4. Below near 980 the sky fades to the fog colour. world (sturdy-bassoon#167) draws fog linear in "
+    "view depth instead, clear to start and complete at end, both world units, in any scene; clip is the far "
+    "clip (100..12800, default the scene's). status "
     "prints the live band, where it starts, and each light setting's fog as C to paste into a scene. A scene "
     "load hands fog back; nothing is saved.",
-    { { "near|status|off", Ship::ArgumentType::TEXT, true },
-      { "far", Ship::ArgumentType::TEXT, true },
-      { "r", Ship::ArgumentType::TEXT, true },
-      { "g", Ship::ArgumentType::TEXT, true },
-      { "b", Ship::ArgumentType::TEXT, true },
-      { "max=<m>", Ship::ArgumentType::TEXT, true } });
+    { { "near|world|status|off", Ship::ArgumentType::TEXT, true },
+      { "far|start", Ship::ArgumentType::TEXT, true },
+      { "r|end", Ship::ArgumentType::TEXT, true },
+      { "g|r", Ship::ArgumentType::TEXT, true },
+      { "b|g", Ship::ArgumentType::TEXT, true },
+      { "max=<m>|b", Ship::ArgumentType::TEXT, true },
+      { "clip=<c>", Ship::ArgumentType::TEXT, true } });
 
 } // namespace

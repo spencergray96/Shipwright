@@ -871,6 +871,15 @@ Gfx* Gfx_SetFog(Gfx* gfx, s32 r, s32 g, s32 b, s32 a, s32 near, s32 far) {
     return gfx;
 }
 
+// SOH [Fork] (sturdy-bassoon#167): world-unit fog, clear out to `start` and complete at `end` (view depth in
+// world units, start < end). In force until the next vanilla fog command (gSPFogWorld, libultraship gbi.h).
+Gfx* Gfx_SetFogWorld(Gfx* gfx, s32 r, s32 g, s32 b, s32 a, s32 start, s32 end) {
+    gDPSetFogColor(gfx++, r, g, b, a);
+    gSPFogWorld(gfx++, start, end);
+
+    return gfx;
+}
+
 Gfx* Gfx_SetFogWithSync(Gfx* gfx, s32 r, s32 g, s32 b, s32 a, s32 near, s32 far) {
     if (far == near) {
         far++;
