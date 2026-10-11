@@ -33,13 +33,15 @@ void Describe(const char* op, std::vector<std::string>& lines) {
     } else {
         std::snprintf(groupText, sizeof(groupText), "0x%X", group);
     }
-    // scrolls= (#187 A1) after those, then wind_amp= (#209 W1): the frame's amplitude, 0 when nothing bends.
+    // scrolls= (#187 A1) after those, then wind_amp= (#209 W1): the frame's amplitude, 0 when nothing bends;
+    // then wobble_strength= (#216 W), 0 when nothing fades.
     Addf(lines,
          "op=%s result=ok active=%d setting=%d registered=%u baked=%u rejected=%u supported=%d sort=%d group=%s "
-         "scenes=%d links=%d scrolls=%u wind_amp=%g",
+         "scenes=%d links=%d scrolls=%u wind_amp=%g wobble_strength=%g",
          op, StaticBake_IsActive(), StaticBake_Setting(), registered, baked, rejected, StaticBake_BackendSupported(),
          Fast::StaticBakeSortsByMaterial() ? 1 : 0, groupText, StaticBake_HeldScenes(), StaticBake_Links(),
-         (unsigned)Fast::StaticBakeGetTextureScrolls().size(), Fast::StaticBakeGetWind().amplitude);
+         (unsigned)Fast::StaticBakeGetTextureScrolls().size(), Fast::StaticBakeGetWind().amplitude,
+         Fast::StaticBakeGetWobble().strength);
 }
 
 // A scene id as typed: 0x96 or 150. False for anything else, or past an s16 sceneNum.
@@ -148,6 +150,17 @@ void DescribeWindLists(std::vector<std::string>& lines) {
     }
 }
 
+// And its fourth (#216 W): every baked list that recorded a wobble vertex, keyed the same way. A list
+// with no line here has nothing that fades.
+void DescribeWobbleLists(std::vector<std::string>& lines) {
+    const std::vector<Fast::StaticBakeKeyedEntry> entries = Fast::StaticBakeGetWobbleEntries();
+    Addf(lines, "op=props result=ok wobble_lists=%u", (unsigned)entries.size());
+    for (const Fast::StaticBakeKeyedEntry& e : entries) {
+        Addf(lines, "op=props wobble_key=%p draws=%u tris=%u wobble_vertices=%u wobble_tris=%u", e.key,
+             e.info.draws, e.info.tris, e.info.wobbleVertices, e.info.wobbleTris);
+    }
+}
+
 // `wind` (#209 W1): the frame's wind and what it did in the last frame drawn. saved=1 when what bends
 // now is the saved wind (not a session-only or scripted one).
 void DescribeWind(std::vector<std::string>& lines) {
@@ -232,6 +245,84 @@ int32_t RunWind(const std::vector<std::string>& args, std::vector<std::string>& 
     return 0;
 }
 
+// `wobble` (#216 W): the frame's wobble and what it did in the last frame drawn. saved=1 when what fades
+// now is the saved wobble.
+void DescribeWobble(std::vector<std::string>& lines) {
+    const Fast::StaticBakeWobble w = Fast::StaticBakeGetWobble();
+    const Fast::StaticBakeWobbleStats st = Fast::StaticBakeGetWobbleStats();
+    Addf(lines, "op=wobble result=ok strength=%g speed=%g on=%d saved=%d replay_entries=%u interp_vertices=%u",
+         w.strength, w.speed, w.strength != 0.0f ? 1 : 0, w == StaticBake_WobbleSettings() ? 1 : 0, st.replayEntries,
+         st.interpVertices);
+}
+
+// The keys `wobble` sets, as kWindKeys.
+struct WobbleKey {
+    const char* name;
+    float Fast::StaticBakeWobble::* field;
+    double lo;
+    double hi;
+};
+constexpr WobbleKey kWobbleKeys[] = {
+    { "strength", &Fast::StaticBakeWobble::strength, 0.0, 1.0 },
+    { "speed", &Fast::StaticBakeWobble::speed, 0.0, 20.0 },
+};
+
+// args[1..] as <key> <value> pairs onto w, as ParseWindPairs.
+bool ParseWobblePairs(const std::vector<std::string>& args, Fast::StaticBakeWobble& w) {
+    if (args.size() < 3 || (args.size() - 1) % 2 != 0) {
+        return false;
+    }
+    bool seen[std::size(kWobbleKeys)] = {};
+    for (size_t i = 1; i + 1 < args.size(); i += 2) {
+        size_t k = 0;
+        while (k < std::size(kWobbleKeys) && args[i] != kWobbleKeys[k].name) {
+            k++;
+        }
+        double v = 0.0;
+        if (k == std::size(kWobbleKeys) || seen[k] ||
+            !ParseNumber(args[i + 1], kWobbleKeys[k].lo, kWobbleKeys[k].hi, v)) {
+            return false;
+        }
+        seen[k] = true;
+        w.*kWobbleKeys[k].field = (float)v;
+    }
+    return true;
+}
+
+// `wobble`: wind's four forms for the wobble's two values. `save` (the human sink) also saves a set, and
+// clears the saved values on a reset.
+int32_t RunWobble(const std::vector<std::string>& args, std::vector<std::string>& lines, bool save) {
+    const bool report = args.size() <= 1 || (args.size() == 2 && args[1] == "list");
+    if (args.size() == 2 && args[1] == "reset") {
+        Fast::StaticBakeSetWobble(Fast::StaticBakeWobble{});
+        if (save) {
+            StaticBake_ClearWobbleSettings();
+        }
+    } else if (args.size() == 2 && args[1] == "saved") {
+        StaticBake_ApplyWobbleSettings();
+    } else if (!report) {
+        Fast::StaticBakeWobble w = Fast::StaticBakeGetWobble();
+        if (!ParseWobblePairs(args, w) || !Fast::StaticBakeSetWobble(w)) {
+            std::string usage = "op=wobble result=error error=bad_argument "
+                                "usage=wobble(list)|wobble(reset)|wobble(saved)|wobble(<key>,<value>...):";
+            for (const WobbleKey& k : kWobbleKeys) {
+                char range[64];
+                std::snprintf(range, sizeof(range), "%s%s[%g,%g]", &k == kWobbleKeys ? "" : ",", k.name, k.lo,
+                              k.hi);
+                usage += range;
+            }
+            lines.push_back(usage);
+            return 1;
+        }
+        if (save) {
+            StaticBake_SaveWobbleSettings(w);
+        }
+    }
+    Describe("wobble", lines);
+    DescribeWobble(lines);
+    return 0;
+}
+
 // Both sinks' renderer. `save` is the one difference between them: the human command saves the
 // setting, the agent loop's switch is for its session only.
 int32_t Run(const std::vector<std::string>& args, std::vector<std::string>& lines, bool save) {
@@ -290,12 +381,17 @@ int32_t Run(const std::vector<std::string>& args, std::vector<std::string>& line
         ArchiveProps::Describe(lines);
         DescribeScrollingLists(lines);
         DescribeWindLists(lines);
+        DescribeWobbleLists(lines);
         return 0;
     }
     // Wind in the replay (#209 W1). From the human command a set or a reset is also saved; from the
     // agent loop it is this session's only, like on/off.
     if (sub == "wind") {
         return RunWind(args, lines, save);
+    }
+    // Wobble in the replay (#216 W), the same way.
+    if (sub == "wobble") {
+        return RunWobble(args, lines, save);
     }
     // Texture scroll (#187 A1). Session only from both sinks: the registry is never saved.
     if (sub == "scroll") {
@@ -314,7 +410,7 @@ int32_t Run(const std::vector<std::string>& args, std::vector<std::string>& line
     lines.push_back("op=unknown result=error error=unknown_subcommand "
                     "usage=status|on|off|rebake|reset|link(<scene>,<scene>)|sort(on|off)|props|"
                     "scroll(list|clear|<path>,<du>,<dv>)|clock(<seconds>|run)|texclear|"
-                    "wind(list|reset|saved|<key>,<value>...)");
+                    "wind(list|reset|saved|<key>,<value>...)|wobble(list|reset|saved|<key>,<value>...)");
     return 1;
 }
 
@@ -338,7 +434,8 @@ const ConsoleSink::Command staticBakeCommand(
     "staticbake", StaticBakeConsole_Run,
     "The static geometry bake's runtime switch (sturdy-bassoon#142, #153): status | on | off | "
     "rebake | reset | link <scene> <scene> | sort on|off | props | scroll [list|clear|<path> <du> "
-    "<dv>] | clock [<seconds>|run] | texclear | wind [list|reset|saved|<key> <value>...]. On by default. on/off here "
+    "<dv>] | clock [<seconds>|run] | texclear | wind [list|reset|saved|<key> <value>...] | wobble "
+    "[list|reset|saved|<key> <value>...]. On by default. on/off here "
     "also save the setting (Settings > Graphics), so the choice survives a restart; `agenttest "
     "staticbake on|off` does not. Off interprets every room and "
     "keeps the bakes, so on replays them again without a re-record - flip it to compare baked and "
@@ -357,8 +454,10 @@ const ConsoleSink::Command staticBakeCommand(
     "that sways archive props marked for it: amp (units of swing at the hem; 0 stills them), freq "
     "(Hz), wavelength, yaw (where it blows to) and ripple, as <key> <value> pairs; reset puts the "
     "owner's defaults back and saved the saved wind. Here a set or reset is saved; from agenttest it "
-    "is not. No rebake needed: the wind is read every frame.",
-    { { "status|on|off|rebake|reset|link|sort|props|scroll|clock|texclear|wind", Ship::ArgumentType::TEXT, true },
+    "is not. No rebake needed: the wind is read every frame. wobble (#216) does the same for the wobble that "
+    "fades archive props' flames: strength (0-1, how far their alpha falls; 0 stills them) and speed (Hz).",
+    { { "status|on|off|rebake|reset|link|sort|props|scroll|clock|texclear|wind|wobble", Ship::ArgumentType::TEXT,
+        true },
       { "on|off|scene|list|clear|path|seconds|run|reset|saved|key", Ship::ArgumentType::TEXT, true },
       { "scene|du|value", Ship::ArgumentType::TEXT, true },
       { "dv|key", Ship::ArgumentType::TEXT, true },

@@ -26,8 +26,9 @@
 // `sort=` whether recordings are ordered by material (sturdy-bassoon#158), `group=` the bake group the registry holds
 // (0x<smallest scene id in it>, or `none`), `scenes=` how many of its scenes have registered rooms
 // since the last reset and `links=` how many `link`s this session added (sturdy-bassoon#157),
-// `scrolls=` how many textures are registered to scroll (sturdy-bassoon#187 A1), and `wind_amp=` the
-// frame's wind amplitude, 0 when nothing bends (sturdy-bassoon#209 W1).
+// `scrolls=` how many textures are registered to scroll (sturdy-bassoon#187 A1), `wind_amp=` the
+// frame's wind amplitude, 0 when nothing bends (sturdy-bassoon#209 W1), and `wobble_strength=` the frame's
+// wobble strength, 0 when nothing fades (sturdy-bassoon#216 W).
 // registered/baked/rejected count the WHOLE group: a return to a scene visited earlier in the group
 // finds its entries still baked. baked + rejected <
 // registered means some have not been drawn since they were registered or invalidated - or, in a
@@ -70,7 +71,10 @@
 //             and one line per baked list that recorded a weighted vertex (sturdy-bassoon#209 W1):
 //             `op=props wind_key=<p> draws=<n> tris=<n> wind_vertices=<n> wind_tris=<n>`, keyed the
 //             same way. wind_vertices counts the weighted vertices its recording loaded, wind_tris the
-//             triangles with a weighted corner. Read-only, the same from both sinks
+//             triangles with a weighted corner. Then `op=props result=ok wobble_lists=<n>` and one line
+//             per baked list that recorded a wobble vertex (sturdy-bassoon#216 W): `op=props
+//             wobble_key=<p> draws=<n> tris=<n> wobble_vertices=<n> wobble_tris=<n>`, keyed the same way.
+//             Read-only, the same from both sinks
 //
 // Texture scroll (sturdy-bassoon#187 A1): libultraship's registry (fast/StaticMeshCache.h, "Texture
 // scroll"), which belongs to the process - a scene change, `reset`, `rebake` and a texture-cache clear
@@ -110,6 +114,19 @@
 //             command also clears the saved values
 //   wind saved  go back to the saved wind - after a session-only set, or a scripted one
 //
+// Wobble in the replay (sturdy-bassoon#216 W): the frame's wobble (libultraship's StaticBakeWobble), which
+// fades the alpha of the archive vertices an import marked for it. Read every frame with the clock above,
+// so nothing needs a rebake. Every form prints the status line, then
+//   `op=wobble result=ok strength=<f> speed=<f> on=<0|1> saved=<0|1> replay_entries=<n> interp_vertices=<n>`
+// saved=1 when the wobble now is the saved one (CVAR_STATIC_BAKE_WOBBLE_*). The last two are the last frame
+// drawn: baked lists replayed with the wobble on, and wobble vertices the interpreter faded.
+//   wobble [list]  report
+//   wobble <key> <value> [<key> <value>...]  set strength (0-1: how far alpha falls at the bottom of the
+//             cycle; 0 stills every flame) and speed (Hz, 0-20), each key once. All or nothing; saved
+//             from the human command, session only from the agent loop
+//   wobble reset  the owner's defaults; the human command also clears the saved values
+//   wobble saved  go back to the saved wobble
+//
 // `sort` without on or off prints `op=sort result=error error=bad_argument usage=sort(on|off)`; `link`
 // without two scene ids, `op=link result=error error=bad_argument usage=link(<scene>,<scene>)`; a
 // `scroll` that is not list, clear or a path with two finite rates (-1000 to 1000),
@@ -118,10 +135,12 @@
 // `op=clock result=error error=bad_argument usage=clock|clock(<seconds>)|clock(run)`; a `wind` that is
 // not list, reset, saved or whole key-value pairs in range, `op=wind result=error error=bad_argument
 // usage=wind(list)|wind(reset)|wind(saved)|wind(<key>,<value>...):amp[0,100],freq[0,20],
-// wavelength[0,100000],yaw[-360,360],ripple[-20,20]` (one line). No error line echoes what was typed.
+// wavelength[0,100000],yaw[-360,360],ripple[-20,20]` (one line); a `wobble` likewise, `op=wobble
+// result=error error=bad_argument usage=wobble(list)|wobble(reset)|wobble(saved)|wobble(<key>,<value>...):
+// strength[0,1],speed[0,20]` (one line). No error line echoes what was typed.
 //
-// Returns 0 for all twelve, 1 for an unknown subcommand or a bad sort, link, scroll, clock or wind
-// argument - so `rc=` on the agent loop's cmd marker is the pass/fail bit.
+// Returns 0 for all thirteen, 1 for an unknown subcommand or a bad sort, link, scroll, clock, wind or
+// wobble argument - so `rc=` on the agent loop's cmd marker is the pass/fail bit.
 int32_t StaticBakeConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines);
 int32_t StaticBakeConsole_RunSession(const std::vector<std::string>& args, std::vector<std::string>& lines);
 
