@@ -22,6 +22,13 @@
 #define CVAR_STATIC_BAKE_WIND_YAW CVAR_STATIC_BAKE_WIND("Yaw")
 #define CVAR_STATIC_BAKE_WIND_RIPPLE CVAR_STATIC_BAKE_WIND("Ripple")
 
+// The saved wobble (sturdy-bassoon#216 W; libultraship's fast/StaticMeshCache.h, "Wobble in the
+// replay"): strength (0-1, how far a wobbling face's alpha falls) and speed (Hz). Each one unset is the
+// owner's default, libultraship's StaticBakeWobble. Named apart from StaticBake for the wind's reason.
+#define CVAR_STATIC_BAKE_WOBBLE(name) CVAR_SETTING("StaticBakeWobble." name)
+#define CVAR_STATIC_BAKE_WOBBLE_STRENGTH CVAR_STATIC_BAKE_WOBBLE("Strength")
+#define CVAR_STATIC_BAKE_WOBBLE_SPEED CVAR_STATIC_BAKE_WOBBLE("Speed")
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -84,6 +91,10 @@ int StaticBake_BackendSupported(void);
 // Fast::StaticBakeSetWind; calling this goes back to the saved one.
 void StaticBake_ApplyWindSettings(void);
 
+// The wobble (sturdy-bassoon#216 W), the same way: apply the saved wobble (CVAR_STATIC_BAKE_WOBBLE_*).
+// Code may change it at any time through Fast::StaticBakeSetWobble; calling this goes back to the saved one.
+void StaticBake_ApplyWobbleSettings(void);
+
 #ifdef __cplusplus
 }
 
@@ -94,6 +105,11 @@ void StaticBake_ApplyWindSettings(void);
 Fast::StaticBakeWind StaticBake_WindSettings();
 void StaticBake_SaveWindSettings(const Fast::StaticBakeWind& wind);
 void StaticBake_ClearWindSettings();
+
+// The same three for the saved wobble (#216 W), for `staticbake wobble`.
+Fast::StaticBakeWobble StaticBake_WobbleSettings();
+void StaticBake_SaveWobbleSettings(const Fast::StaticBakeWobble& wobble);
+void StaticBake_ClearWobbleSettings();
 #endif
 
 #endif // SOH_STATIC_BAKE_REGISTRY_H
