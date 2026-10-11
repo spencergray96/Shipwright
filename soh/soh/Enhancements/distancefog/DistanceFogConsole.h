@@ -28,8 +28,14 @@
 //                       1000. 1000 completes the fog at the far clip; lower completes it sooner. m runs
 //                       near+4..999, or 1000 at any near: gSPFogPosition's multiplier 128000 / (m - near)
 //                       is a signed 16-bit field. Without max= the band is exactly what it always was
+//   world <start> <end> [r g b] [clip=<c>]
+//                       world-unit fog (sturdy-bassoon#167; WorldFog.h): linear in view depth, clear out to
+//                       start and complete at end, both world units (0..32767, start < end), in any scene,
+//                       vanilla ones included. clip= sets the far clip (100..12800); without it the clip stays
+//                       the scene's own. max= is vanilla's and is refused here
 //   status              read what is live and what the scene would give
-//   off                 hand fog and far clip back to the scene's light settings
+//   off                 hand fog and far clip back to the scene: its world-unit rows if it has them, else its
+//                       light settings. A <near> <far> band is vanilla fog even in a scene with rows
 //
 // Every successful line starts `op=<sub> result=ok` (op=set for a band) and carries these fields:
 // `mode=` override|scene, `near=` `far=` `max=` `color=r,g,b` the band being drawn (max is 1000 unless the
@@ -42,6 +48,14 @@
 // band as the last three initializer fields of an EnvLightSettings entry, ready to paste over one in a
 // scene's table. `status` adds one `op=status setting` line per light setting of config 0 (dawn, day,
 // dusk, night) and one per storm setting (8-11) when the scene has them, each ending in its own `c=`.
+//
+// World-unit fog (sturdy-bassoon#167) adds `kind=` vanilla|world after `mode=`, and `scene_kind=` vanilla|world
+// (with `scene_start=` `scene_end=` for world) before `c=`, on every line. A `kind=world` line keeps the fields'
+// meanings - `start=` `end=` where the fog begins and completes in world units, `far=` the clip, `near=` the
+// fog-space value that still drives the sky filter - adds `at_far=`, the fog factor at the clip (1.000: nothing
+// the clip cuts can show), and its `c={start,end,clip}` pastes as a WorldFogSetting row. `status` in a scene with
+// world-unit rows adds one `op=status world_setting=<i> group=scene|storm name=... start= end= clip= c=` line per
+// row, 0-3 and 8-11.
 //
 // Refusals, rc=1, never echoing the typed words:
 //   op=set result=error error=bad_argument usage=...      a band, colour or max out of range or not a number
