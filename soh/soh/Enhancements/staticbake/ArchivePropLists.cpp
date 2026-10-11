@@ -27,6 +27,7 @@
 #include <fast/StaticMeshCache.h>
 #include <fast/TextureMips.h>
 #include <fast/resource/type/DisplayList.h>
+#include <libultraship/bridge/consolevariablebridge.h>
 #include <ship/Context.h>
 #include <ship/resource/File.h>
 #include <ship/resource/ResourceManager.h>
@@ -50,19 +51,30 @@ enum class Resolved {
     Listed,         // a display list with something in it: drawn and offered to the bake
 };
 
-// One list the registry holds, for as long as the bake group does (ReleaseHeld). A missing or empty
-// list is held too, so its log line is written once per group rather than once per room load.
-struct Held {
+// One resolved archive display list: a declared path's own, or its `.xlu`.
+struct ArchiveList {
     Resolved state = Resolved::Missing;
     std::shared_ptr<Fast::DisplayList> resource;
     Gfx* key = nullptr;
-    RoomKey room = { -1, -1 }; // the last room that offered it, for `staticbake props`
-    uint32_t scrolls = 0;      // textures its scroll file registered (sturdy-bassoon#187 A2)
+};
+
+// What the registry holds of one declared path, for as long as the bake group does (ReleaseHeld): the
+// list itself, drawn in the room's opaque pass, and `<path>.xlu`, its translucent pairs, drawn in the
+// translucent pass (sturdy-bassoon#216 T2). A missing or empty list is held too, so its log line is
+// written once per group rather than once per room load.
+struct Held {
+    ArchiveList lists[ARCHIVE_PROPS_PASSES]; // ARCHIVE_PROPS_PASS_OPA, ARCHIVE_PROPS_PASS_XLU
+    RoomKey room = { -1, -1 };               // the last room that offered it, for `staticbake props`
+    uint32_t scrolls = 0;                    // textures its scroll file registered (sturdy-bassoon#187 A2)
 };
 std::map<std::string, Held> sHeld;
 
-// The lists each room draws, rebuilt every time the room is offered.
-std::map<RoomKey, std::vector<Gfx*>> sDrawn;
+// The lists each room draws, one vector per pass, rebuilt every time the room is offered.
+std::map<RoomKey, std::vector<Gfx*>> sDrawn[ARCHIVE_PROPS_PASSES];
+
+// `<path>.xlu`: where the generator writes a list's translucent pairs (generate_props.py, "THE
+// TRANSLUCENT LIST"). Found by this convention so a scene's C declares one path per list, as before.
+constexpr const char* XLU_SUFFIX = ".xlu";
 
 // The scroll file's lines, or false when one does not read: `<path> <du> <dv>`, '#' lines skipped.
 struct ScrollLine {
@@ -123,38 +135,55 @@ bool IsEmptyList(const Fast::DisplayList& dl) {
     return dl.Instructions.empty() || (uint8_t)(dl.Instructions[0].words.w0 >> 24) == (uint8_t)G_ENDDL;
 }
 
-Held Resolve(const char* path) {
-    Held h;
+// One list. `optional`: a list that is in no mounted archive is no list at all, silently - the
+// translucent one, which only a map with translucent props has, and which an archive generated before
+// sturdy-bassoon#216 T2 never has. Most chunks of a stitched scene have none, so no line per chunk.
+ArchiveList ResolveList(const std::string& path, bool optional) {
+    ArchiveList l;
     auto resources = Ship::Context::GetRawInstance()->GetResourceManager();
     auto archives = resources->GetArchiveManager();
     if (!archives->HasFile(path)) {
-        SPDLOG_INFO("[staticbake] archive prop list {} is in no mounted archive: the room draws without it", path);
-        return h;
+        if (!optional) {
+            SPDLOG_INFO("[staticbake] archive prop list {} is in no mounted archive: the room draws without it", path);
+        }
+        return l;
     }
-    if (archives->HasFile(std::string("alt/") + path)) {
+    if (archives->HasFile("alt/" + path)) {
         SPDLOG_WARN("[staticbake] archive prop list {} has an alt/ twin, which is ignored: the list is held as "
                     "loaded from its own path (sturdy-bassoon#171)",
                     path);
     }
-    h.resource = std::dynamic_pointer_cast<Fast::DisplayList>(resources->LoadResource(path, true));
-    if (h.resource == nullptr) {
-        h.state = Resolved::NotDisplayList;
+    l.resource = std::dynamic_pointer_cast<Fast::DisplayList>(resources->LoadResource(path, true));
+    if (l.resource == nullptr) {
+        l.state = Resolved::NotDisplayList;
         SPDLOG_WARN("[staticbake] archive prop list {} is not a display list: the room draws without it", path);
-        return h;
+        return l;
     }
-    if (IsEmptyList(*h.resource)) {
-        h.state = Resolved::Empty;
-        return h;
+    if (IsEmptyList(*l.resource)) {
+        l.state = Resolved::Empty;
+        return l;
     }
-    h.state = Resolved::Listed;
-    h.key = (Gfx*)h.resource->Instructions.data();
-    // Before OfferRoom hands the list to the bake (StaticBakeRegister), so before its first draw.
-    h.scrolls = RegisterScrolls(path);
+    l.state = Resolved::Listed;
+    l.key = (Gfx*)l.resource->Instructions.data();
+    return l;
+}
+
+// A declared path: the list and its translucent twin.
+Held Resolve(const char* path) {
+    Held h;
+    h.lists[ARCHIVE_PROPS_PASS_OPA] = ResolveList(path, false);
+    h.lists[ARCHIVE_PROPS_PASS_XLU] = ResolveList(std::string(path) + XLU_SUFFIX, true);
+    // Before OfferRoom hands either list to the bake (StaticBakeRegister), so before its first draw. One
+    // scroll file for the two: the registry binds a rate to an image path, whichever list draws it.
+    if (h.lists[ARCHIVE_PROPS_PASS_OPA].state == Resolved::Listed ||
+        h.lists[ARCHIVE_PROPS_PASS_XLU].state == Resolved::Listed) {
+        h.scrolls = RegisterScrolls(path);
+    }
     return h;
 }
 
-const char* StateName(const Held& h, const Fast::StaticBakeEntryInfo& entry) {
-    switch (h.state) {
+const char* StateName(const ArchiveList& list, const Fast::StaticBakeEntryInfo& entry) {
+    switch (list.state) {
         case Resolved::Missing:
             return "missing";
         case Resolved::NotDisplayList:
@@ -192,13 +221,19 @@ extern "C" void ArchiveProps_DeclareRoom(PlayState* play, RoomContext* roomCtx, 
     }
 }
 
-extern "C" Gfx* const* ArchiveProps_RoomLists(PlayState* play, s32 roomNum, s32* count) {
+extern "C" Gfx* const* ArchiveProps_RoomLists(PlayState* play, s32 roomNum, s32 pass, s32* count) {
     *count = 0;
-    if (play == nullptr || sDrawn.empty()) {
+    if (play == nullptr || pass < 0 || pass >= ARCHIVE_PROPS_PASSES || sDrawn[pass].empty()) {
         return nullptr;
     }
-    auto it = sDrawn.find({ play->sceneNum, roomNum });
-    if (it == sDrawn.end() || it->second.empty()) {
+    // The comparison switch (sturdy-bassoon#216 T2, `staticbake xlu`): read at every draw, so it takes
+    // effect on the next frame with no rebake. Off draws a map as it drew before T2, less its translucent
+    // pairs - the opaque list never held them.
+    if (pass == ARCHIVE_PROPS_PASS_XLU && !ArchiveProps::XluSubmitted()) {
+        return nullptr;
+    }
+    auto it = sDrawn[pass].find({ play->sceneNum, roomNum });
+    if (it == sDrawn[pass].end() || it->second.empty()) {
         return nullptr;
     }
     *count = (s32)it->second.size();
@@ -211,11 +246,14 @@ uint32_t OfferRoom(s32 sceneNum, s32 roomNum) {
     const RoomKey room = { sceneNum, roomNum };
     auto declared = sDeclared.find(room);
     if (declared == sDeclared.end()) {
-        sDrawn.erase(room);
+        for (auto& drawn : sDrawn) {
+            drawn.erase(room);
+        }
         return 0;
     }
-    std::vector<Gfx*>& drawn = sDrawn[room];
-    drawn.clear();
+    for (auto& drawn : sDrawn) {
+        drawn[room].clear();
+    }
     uint32_t offered = 0;
     for (const char* path : declared->second) {
         auto held = sHeld.find(path);
@@ -223,16 +261,21 @@ uint32_t OfferRoom(s32 sceneNum, s32 roomNum) {
             held = sHeld.emplace(path, Resolve(path)).first;
         }
         held->second.room = room;
-        if (held->second.state != Resolved::Listed ||
-            std::find(drawn.begin(), drawn.end(), held->second.key) != drawn.end()) {
-            continue;
+        for (s32 pass = 0; pass < ARCHIVE_PROPS_PASSES; pass++) {
+            const ArchiveList& list = held->second.lists[pass];
+            std::vector<Gfx*>& drawn = sDrawn[pass][room];
+            if (list.state != Resolved::Listed || std::find(drawn.begin(), drawn.end(), list.key) != drawn.end()) {
+                continue;
+            }
+            // Keyed like any list: the bake replays a key wherever it is submitted, so the translucent
+            // list bakes as the opaque one does, and its batches keep their order (AfterOpaque).
+            Fast::StaticBakeRegister(list.key);
+            // Its textures are the mod's own, mipmapped like the room's (#146): named here, withdrawn in
+            // ReleaseHeld, so a list is in scope exactly while its resource is held.
+            Fast::TextureMipsRegisterDisplayList(list.key);
+            drawn.push_back(list.key);
+            offered++;
         }
-        Fast::StaticBakeRegister(held->second.key);
-        // Its textures are the mod's own, mipmapped like the room's (#146): named here, withdrawn in
-        // ReleaseHeld, so a list is in scope exactly while its resource is held.
-        Fast::TextureMipsRegisterDisplayList(held->second.key);
-        drawn.push_back(held->second.key);
-        offered++;
     }
     return offered;
 }
@@ -240,27 +283,77 @@ uint32_t OfferRoom(s32 sceneNum, s32 roomNum) {
 void ReleaseHeld() {
     // Before the resources go: a list later allocated at a freed key's address must not be in scope.
     for (const auto& kv : sHeld) {
-        if (kv.second.key != nullptr) {
-            Fast::TextureMipsUnregisterDisplayList(kv.second.key);
+        for (const ArchiveList& list : kv.second.lists) {
+            if (list.key != nullptr) {
+                Fast::TextureMipsUnregisterDisplayList(list.key);
+            }
         }
     }
-    sDrawn.clear();
+    for (auto& drawn : sDrawn) {
+        drawn.clear();
+    }
     sHeld.clear();
 }
 
-void Describe(std::vector<std::string>& lines) {
-    ConsoleSink::Addf(lines, "op=props result=ok lists=%u", (unsigned)sHeld.size());
+namespace {
+// The agent loop's switch, this session only (-1: none, the saved setting decides), as
+// StaticBake_SetActive is to StaticBake_SetSetting: it never reaches the CVar store, so no later save
+// can carry an agent's `xlu off` into the owner's config.
+int32_t sXluSession = -1;
+} // namespace
+
+bool XluSubmitted() {
+    if (sXluSession >= 0) {
+        return sXluSession != 0;
+    }
+    return CVarGetInteger(CVAR_STATIC_BAKE_PROPS_XLU, ARCHIVE_PROPS_XLU_DEFAULT) != 0;
+}
+
+void SetXluSubmitted(bool on, bool save) {
+    if (save) {
+        CVarSetInteger(CVAR_STATIC_BAKE_PROPS_XLU, on ? 1 : 0);
+        CVarSave();
+        sXluSession = -1;
+    } else {
+        sXluSession = on ? 1 : 0;
+    }
+}
+
+uint32_t XluLists() {
+    uint32_t n = 0;
     for (const auto& kv : sHeld) {
-        const Held& h = kv.second;
+        n += kv.second.lists[ARCHIVE_PROPS_PASS_XLU].state == Resolved::Listed ? 1 : 0;
+    }
+    return n;
+}
+
+void Describe(std::vector<std::string>& lines) {
+    // One line per list held: a declared path's own, and its `.xlu` when the archive has one. A missing
+    // `.xlu` is no list (Resolve), so a map generated before T2 prints what it always did.
+    std::vector<std::pair<const std::pair<const std::string, Held>*, s32>> shown;
+    for (const auto& kv : sHeld) {
+        shown.emplace_back(&kv, ARCHIVE_PROPS_PASS_OPA);
+        if (kv.second.lists[ARCHIVE_PROPS_PASS_XLU].state != Resolved::Missing) {
+            shown.emplace_back(&kv, ARCHIVE_PROPS_PASS_XLU);
+        }
+    }
+    ConsoleSink::Addf(lines, "op=props result=ok lists=%u", (unsigned)shown.size());
+    for (const auto& [kv, pass] : shown) {
+        const std::string& path = kv->first;
+        const Held& h = kv->second;
+        const ArchiveList& list = h.lists[pass];
         const Fast::StaticBakeEntryInfo entry =
-            h.state == Resolved::Listed ? Fast::StaticBakeGetEntry(h.key) : Fast::StaticBakeEntryInfo{};
-        const char* state = StateName(h, entry);
-        // reason= last: it is free text, the rest of the line.
-        ConsoleSink::Addf(lines,
-                          "op=props list=%s scene=0x%X room=%d state=%s key=%p draws=%u tris=%u scrolls=%u reason=%s",
-                          kv.first.c_str(), (unsigned)h.room.first, (int)h.room.second, state, (void*)h.key,
-                          entry.draws, entry.tris, h.scrolls,
-                          entry.rejectReason != nullptr ? entry.rejectReason : "none");
+            list.state == Resolved::Listed ? Fast::StaticBakeGetEntry(list.key) : Fast::StaticBakeEntryInfo{};
+        const char* state = StateName(list, entry);
+        const bool xlu = pass == ARCHIVE_PROPS_PASS_XLU;
+        // pass= (#216 T2) after the fields older run scripts parse; reason= last: it is free text, the
+        // rest of the line. A path's scroll file is counted on its opaque line.
+        ConsoleSink::Addf(
+            lines,
+            "op=props list=%s%s scene=0x%X room=%d state=%s key=%p draws=%u tris=%u scrolls=%u pass=%s reason=%s",
+            path.c_str(), xlu ? XLU_SUFFIX : "", (unsigned)h.room.first, (int)h.room.second, state, (void*)list.key,
+            entry.draws, entry.tris, xlu ? 0u : h.scrolls, xlu ? "xlu" : "opa",
+            entry.rejectReason != nullptr ? entry.rejectReason : "none");
     }
 }
 
