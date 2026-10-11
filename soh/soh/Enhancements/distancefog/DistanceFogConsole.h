@@ -23,22 +23,28 @@
 //                       Song of Storms' gloomy sky, lightning). near is fog-space 0..1000 (a scene
 //                       can have at most 996; 1000 is no fog), far world units 100..12800
 //   <near> <far> <r> <g> <b>  the same, and pin the colour (0..255 each)
+//   ... max=<m>         either form with a trailing max (sturdy-bassoon#169): the fog-space value where
+//                       fog reaches 100%, which Play_SetFog passes to Gfx_SetFog in place of vanilla's
+//                       1000. 1000 completes the fog at the far clip; lower completes it sooner. m runs
+//                       near+4..999, or 1000 at any near: gSPFogPosition's multiplier 128000 / (m - near)
+//                       is a signed 16-bit field. Without max= the band is exactly what it always was
 //   status              read what is live and what the scene would give
 //   off                 hand fog and far clip back to the scene's light settings
 //
-// Every successful line starts `op=<sub> result=ok` (op=set for a band) and carries the same fields:
-// `mode=` override|scene, `near=` `far=` `color=r,g,b` the band being drawn, `color_src=` scene|pinned,
-// `start=` roughly where the fog begins, in world units (near inverted through the perspective; the
-// formula is at StartDistance in the .cpp), `sky=` what the skybox filter does at this near (clear at
-// 980 and above, tinted 951..979, replaced at 950 and below), `time=` `rain=` the clock and the rain's
-// intensity, `scene_near=` `scene_far=` `scene_color=` the band the scene's own light settings give
-// right now (weather and lightning included), and last `c=` - the live band as the last three
-// initializer fields of an EnvLightSettings entry, ready to paste over one in a scene's table.
-// `status` adds one `op=status setting` line per light setting of config 0 (dawn, day, dusk, night) and
-// one per storm setting (8-11) when the scene has them, each ending in its own `c=`.
+// Every successful line starts `op=<sub> result=ok` (op=set for a band) and carries these fields:
+// `mode=` override|scene, `near=` `far=` `max=` `color=r,g,b` the band being drawn (max is 1000 unless the
+// override set one), `color_src=` scene|pinned, `start=` roughly where the fog begins, in world units
+// (near inverted through the perspective; the formula is at DepthAt in the .cpp), then `end=` where it
+// reaches 100% - only when max is below 1000, since at 1000 that is the far clip - `sky=` what the skybox
+// filter does at this near (clear at 980 and above, tinted 951..979, replaced at 950 and below), `time=`
+// `rain=` the clock and the rain's intensity, `scene_near=` `scene_far=` `scene_color=` the band the
+// scene's own light settings give right now (weather and lightning included), and last `c=` - the live
+// band as the last three initializer fields of an EnvLightSettings entry, ready to paste over one in a
+// scene's table. `status` adds one `op=status setting` line per light setting of config 0 (dawn, day,
+// dusk, night) and one per storm setting (8-11) when the scene has them, each ending in its own `c=`.
 //
 // Refusals, rc=1, never echoing the typed words:
-//   op=set result=error error=bad_argument usage=...      a band or colour out of range or not a number
+//   op=set result=error error=bad_argument usage=...      a band, colour or max out of range or not a number
 //   op=<sub> result=error error=no_scene                  no scene loaded
 //   op=unknown result=error error=unknown_subcommand usage=...
 int32_t DistanceFogConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines);
