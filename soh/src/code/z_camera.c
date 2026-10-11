@@ -714,8 +714,15 @@ s16 Camera_XZAngle(Vec3f* to, Vec3f* from) {
  * or one behind a railing lower than his head, keeps the vanilla look-down; a drop behind a wall
  * taller than him is not a ledge he is standing at.
  *
- * Everything from the feet to head height is untouched: steps, crates and low ledges keep the
- * vanilla reaction.
+ * From the feet to head height: on vanilla scenes, or with CamRiseWall off, untouched, so steps,
+ * crates and low ledges keep the vanilla reaction. On grid-tool scenes kept only if the same line
+ * from the feet meets no WALL, front faces only (sturdy-bassoon#223). A prop's collision is a stack
+ * of boxes narrowing upwards (the fountain: tops 20, 53, 68, 90, 110), so the probe line stops on
+ * the side of a tier taller than its origin and reads the top of the wider tier under it: a
+ * 53-unit rise about 40 ahead, and the eye goes into the floor behind Link. A parapet's top reads
+ * level by the same test, before Camera_SoftenLedge's parapet rule sees it. Walls only, because BgCheck
+ * files a ramp, a terrain hump or a slope steeper at the top as floor (anything under ~60 degrees,
+ * normal.y > 0.5), so those never stop the line and a hill still reads as a hill.
  */
 static f32 Camera_FloorAheadIfReachable(Camera* camera, Vec3f* probePos, f32 floorY) {
     f32 groundY = camera->playerGroundY;
@@ -725,11 +732,17 @@ static f32 Camera_FloorAheadIfReachable(Camera* camera, Vec3f* probePos, f32 flo
     Vec3f hit;
     CollisionPoly* poly;
     s32 bgId;
+    s32 riseUnderHead;
 
     if (!CVarGetInteger(CVAR_CAM_FLOOR_AHEAD_ON, CAM_FLOOR_AHEAD_ON_DEFAULT)) {
         return floorY; // #152 bisect switch: vanilla's reading, unfiltered
     }
-    if (floorY == BGCHECK_Y_MIN || (floorY >= groundY - 1.0f && floorY <= groundY + height)) {
+    if (floorY == BGCHECK_Y_MIN || (floorY >= groundY - 1.0f && floorY <= groundY + 1.0f)) {
+        return floorY;
+    }
+    riseUnderHead = floorY > groundY + 1.0f && floorY <= groundY + height;
+    if (riseUnderHead && (!CVarGetInteger(CVAR_CAM_RISE_WALL, CAM_RISE_WALL_DEFAULT) ||
+                          !GridToolSceneRegistry_IsCustomScene(camera->play->sceneNum))) {
         return floorY;
     }
     from.x = camera->playerPosRot.pos.x;
@@ -742,8 +755,10 @@ static f32 Camera_FloorAheadIfReachable(Camera* camera, Vec3f* probePos, f32 flo
     } else {
         from.y = to.y = groundY + height;
     }
-    // Front faces only: the wall, slab edge or slab underside in the way faces the player.
-    if (BgCheck_CameraLineTest1(&camera->play->colCtx, &from, &to, &hit, &poly, 1, 1, 1, 1, &bgId)) {
+    // Front faces only: the wall, slab edge or slab underside in the way faces the player. Under
+    // head height walls only (#223): the riser or tier side in the way, never the slope itself.
+    if (BgCheck_CameraLineTest1(&camera->play->colCtx, &from, &to, &hit, &poly, 1, !riseUnderHead, !riseUnderHead, 1,
+                                &bgId)) {
         return BGCHECK_Y_MIN;
     }
     return floorY;

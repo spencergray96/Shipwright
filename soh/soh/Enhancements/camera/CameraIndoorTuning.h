@@ -215,6 +215,26 @@ extern "C" {
 #define CAM_LEDGE_RAIL_DEFAULT 1
 
 /*
+ * A rise behind a wall (sturdy-bassoon#223). Grid-tool scenes only; the rule is in
+ * Camera_FloorAheadIfReachable.
+ */
+// 1 = a rise the slope probe reads between Link's feet and his head counts only if a line from his
+// feet to it meets no wall. 0 = the rise counts whatever is in the way (vanilla, and #103's "feet to
+// head height is left alone").
+//
+// Found on the fountain prop: its stacked collision boxes (tops 20, 53, 68, 90, 110) read as a
+// 53-unit rise ahead from anywhere within 30 of its centre line, and the eye went into the floor
+// behind Link. Measured at the shipped height 56, eye.y - at.y: -37.7..-42.6 off, +19.4..+21.2 on,
+// +21.8 on open ground. Three traced terrain walks read the same rises (up to 37.3) either way: BgCheck
+// files a slope under ~60 degrees as floor, so a hill keeps its look-up. Cost: a crate, bench or
+// barrel in front of Link no longer tips the camera up at it. Rejected: a rise cap like
+// CamLedgeDropCap (bounds the dip but keeps it, and bounds a real hill too), and testing floors as
+// well as walls (the line clips a terrain hump or a ramp's crest). docs/test-runs/
+// 2026-10-11-issue-223-fountain-camera/ in sturdy-bassoon.
+#define CVAR_CAM_RISE_WALL CVAR_ENHANCEMENT("CamRiseWall")
+#define CAM_RISE_WALL_DEFAULT 1
+
+/*
  * Young Link's framing on adult Link (sturdy-bassoon#136). The camera reads a camera-only player
  * height, lerp(68, 44, t) for adult Link on grid-tool scenes, everywhere z_camera.c derived its
  * framing from Player_GetHeight. Player_GetHeight itself is untouched, and so is everything else
