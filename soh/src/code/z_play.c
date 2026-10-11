@@ -9,6 +9,7 @@
 #include "soh/custom/scenes/test_level/CustomTestLevel.h"
 #include "soh/custom/scenes/grid_tool/GridToolSceneRegistry.h"
 #include "soh/custom/scenes/CustomSceneLighting.h"
+#include "soh/Enhancements/distancefog/WorldFog.h"
 #include <overlays/misc/ovl_kaleido_scope/z_kaleido_scope.h>
 #include "soh/Enhancements/enhancementTypes.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
@@ -199,6 +200,15 @@ void func_800BC88C(PlayState* play) {
 s32 gPlayFogMax = 1000;
 
 Gfx* Play_SetFog(PlayState* play, Gfx* gfx) {
+    // SOH [Fork] (sturdy-bassoon#167): world-unit fog when this frame has a band - the scene's own rows or the
+    // `fog world` console override (distancefog/WorldFog.h). It replaces the vanilla band outright, and the
+    // next vanilla fog command in the list hands back to vanilla.
+    s16 worldStart;
+    s16 worldEnd;
+    if (WorldFog_Live(&worldStart, &worldEnd)) {
+        return Gfx_SetFogWorld(gfx, play->lightCtx.fogColor[0], play->lightCtx.fogColor[1],
+                               play->lightCtx.fogColor[2], 0, worldStart, worldEnd);
+    }
     return Gfx_SetFog2(gfx, play->lightCtx.fogColor[0], play->lightCtx.fogColor[1], play->lightCtx.fogColor[2], 0,
                        play->lightCtx.fogNear, gPlayFogMax); // was 1000
 }
@@ -1891,6 +1901,10 @@ void Play_SpawnScene(PlayState* play, s32 sceneId, s32 spawn) {
         CVarClear(CVAR_GENERAL("BetterDebugWarpScreenMQMode"));
         CVarClear(CVAR_GENERAL("BetterDebugWarpScreenMQModeScene"));
     }
+
+    // SOH [Fork] (sturdy-bassoon#167): only a scene whose InitScene hands over world-unit fog rows has them, so
+    // a vanilla scene, or a custom scene exported before them, keeps vanilla fog.
+    WorldFog_ClearScene();
 
     // SoH [General] (sturdy-bassoon#164): a custom scene carries only its own four light settings, so it
     // is given the weather's, the Song of Storms' among them, as it spawns.

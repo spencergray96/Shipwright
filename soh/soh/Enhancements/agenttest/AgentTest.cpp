@@ -37,7 +37,8 @@
  *        mem_mb=<n> actors=<n> act_near=<n> act_mid=<n> act_far=<n> nodes=<used>/<max> cell_max=<n>
  *        cell_p95=<n> cells=<occupied>/<total> heap_kb=<free>/<total> colchk_at=<peak>/<max>
  *        colchk_ac=<peak>/<max> colchk_oc=<peak>/<max> colchk_rej=<at>/<ac>/<oc>
- *        dynapoly=<peak>/<max> dynapoly_rej=<n> fog=<near>/<far> cap=<n> scene=0x<hex> frame=<n>
+ *        dynapoly=<peak>/<max> dynapoly_rej=<n> fog=<near>/<far> wfog=<start>/<end>|off cap=<n>
+ *        scene=0x<hex> frame=<n>
  *                                        every PerfInterval ticks (0 disables). fps/ms = ImGui render
  *                                        framerate (capped by the FPS setting); sub_ms = mean wall time
  *                                        one rendered frame spent inside the Fast3D interpreter, and
@@ -63,7 +64,9 @@
  *                                        draws but has no dynapoly collision (sturdy-bassoon#55);
  *                                        fog = lightCtx fogNear
  *                                        (fog-space 0..1000) / fogFar (world units - also the view's
- *                                        far clip plane); cap = the fps target the render loop is
+ *                                        far clip plane); wfog = the world-unit fog band drawn this
+ *                                        frame (start/end, world units; sturdy-bassoon#167), off when
+ *                                        the fog is vanilla; cap = the fps target the render loop is
  *                                        actually holding to (InterpolationFPS after the vsync and
  *                                        MatchRefreshRate clamps), so an "uncapped" line proves itself
  *   room_changed from=<n> to=<n> frame=<n> pos=<x>,<y>,<z>
@@ -441,6 +444,11 @@
  *                                          it. Replaces only the fog - the lights keep following "agenttest time"
  *                                          and the weather. A scene load hands fog back, so re-apply after each
  *                                          entrance - which is also the safety net against leaking into a later run
+ *   agenttest fog world <start> <end> [r g b] [clip=<c>]
+ *                                          world-unit fog (sturdy-bassoon#167): linear in view depth, clear to start
+ *                                          and complete at end (world units), in any scene; clip= the far clip,
+ *                                          else the scene's. "fog off" hands back to the scene's own rows if it has
+ *                                          them, else to vanilla
  *   agenttest keepinput [on|off]           ONE-SHOT: the walk/press in flight at the NEXT scene load is not cancelled
  *                                          by it but carries on in the new scene - a stick held through a load, as
  *                                          a player holds one through a step warp to another scene (sturdy-bassoon
@@ -639,6 +647,7 @@
 #include "ImGuiProbeConsole.h"
 #include "soh/Enhancements/texturemips/TextureMipsConsole.h"
 #include "soh/Enhancements/distancefog/DistanceFogConsole.h"
+#include "soh/Enhancements/distancefog/WorldFog.h"
 #include "soh/Enhancements/camera/CameraIndoorTuning.h"
 #include "AgentTest.h"
 #include "soh/ActorDB.h"
@@ -1127,13 +1136,22 @@ void EmitPerf() {
     DynaPolyDiagWindow dynaPoly{};
     DynaPoly_DiagTakeWindow(&gPlayState->colCtx, &dynaPoly);
 
+    // wfog= the world-unit fog band this frame draws (sturdy-bassoon#167), start/end in world units, or off
+    // for vanilla fog - the scene's own rows or "agenttest fog world"; fog= keeps the vanilla fields.
+    char worldFog[24] = "off";
+    int16_t worldStart = 0;
+    int16_t worldEnd = 0;
+    if (WorldFog_Live(&worldStart, &worldEnd)) {
+        std::snprintf(worldFog, sizeof(worldFog), "%d/%d", worldStart, worldEnd);
+    }
+
     char buf[832];
     std::snprintf(buf, sizeof(buf),
                   "perf fps=%.1f ms=%.2f sub_ms=%.2f draws=%llu tris=%llu flushes=%llu draws_baked=%llu "
                   "tris_baked=%llu tick_ms=%.2f "
                   "tick_max_ms=%.2f mem_mb=%.0f actors=%u act_near=%u act_mid=%u act_far=%u nodes=%u/%u "
                   "cell_max=%u cell_p95=%u cells=%u/%u heap_kb=%u/%u colchk_at=%d/%d colchk_ac=%d/%d "
-                  "colchk_oc=%d/%d colchk_rej=%u/%u/%u dynapoly=%d/%d dynapoly_rej=%u fog=%d/%d cap=%u bld=%s "
+                  "colchk_oc=%d/%d colchk_rej=%u/%u/%u dynapoly=%d/%d dynapoly_rej=%u fog=%d/%d wfog=%s cap=%u bld=%s "
                   "scene=%s frame=%u texcache=%llu/%llu tex_evict=%llu tex_upload=%llu tex_used=%llu",
                   fps, ms, subMs, (unsigned long long)render.lastDraws, (unsigned long long)render.lastTris,
                   (unsigned long long)render.lastFlushes, (unsigned long long)render.lastDrawsBaked,
@@ -1143,7 +1161,7 @@ void EmitPerf() {
                   (heapFree + heapAlloc) / 1024, colChk.peakAT, COLLISION_CHECK_AT_MAX, colChk.peakAC,
                   COLLISION_CHECK_AC_MAX, colChk.peakOC, COLLISION_CHECK_OC_MAX, colChk.rejectedAT,
                   colChk.rejectedAC, colChk.rejectedOC, dynaPoly.peak, BG_ACTOR_MAX, dynaPoly.rejected,
-                  gPlayState->lightCtx.fogNear, gPlayState->lightCtx.fogFar,
+                  gPlayState->lightCtx.fogNear, gPlayState->lightCtx.fogFar, worldFog,
                   OTRGlobals::Instance->GetInterpolationFPS(), buildTier, Hex(gPlayState->sceneNum).c_str(),
                   gPlayState->state.frames, (unsigned long long)render.texCacheSize,
                   (unsigned long long)render.texCacheMax, (unsigned long long)texEvictions,
@@ -2963,7 +2981,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             "press <BUTTONS> [frames] | hold [<BUTTONS>|none] | ocarina <NOTES> [hold] [gap] | song <name> | stats | "
               "rooms | time <dawn|day|dusk|night|value> | sunssong | display | "
             "trace <ticks> | octrace <ticks> | ocstall <ms> <tick>|off | "
-            "cutscene <index>|off | fog <near> <far> [r g b] [max=<m>]|status|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
+            "cutscene <index>|off | fog <near> <far> [r g b] [max=<m>]|world <start> <end> [r g b] [clip=<c>]|status|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
             "roomdist [hysteresis]|off | uncull | kill <actor> | sceneflag <sceneId> [value] | "
             "worldflag count|<n> [0|1] | "
             "queststore count|<id> [status mask] | questpred <kind> <a> <b> <negate> | "
@@ -3012,7 +3030,7 @@ void RegisterAgentTest() {
               "press <BUTTONS> [frames] | hold [<BUTTONS>|none] | ocarina <NOTES> [hold] [gap] | song <name> | stats | "
               "rooms | time <dawn|day|dusk|night|value> | sunssong | display | "
               "trace <ticks> | octrace <ticks> | ocstall <ms> <tick>|off | "
-              "cutscene <index>|off | fog <near> <far> [r g b] [max=<m>]|status|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
+              "cutscene <index>|off | fog <near> <far> [r g b] [max=<m>]|world <start> <end> [r g b] [clip=<c>]|status|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
               "roomdist [hysteresis]|off | uncull | kill <actor> | sceneflag <sceneId> [value] | "
               "worldflag count|<n> [0|1] | "
               "queststore count|<id> [status mask] | questpred <kind> <a> <b> <negate> | "

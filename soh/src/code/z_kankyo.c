@@ -8,6 +8,7 @@
 #include "soh/ResourceManagerHelpers.h"
 #include "soh/Enhancements/savestate_serialize.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
+#include "soh/Enhancements/distancefog/WorldFog.h"
 
 typedef enum {
     /* 0 */ LENS_FLARE_CIRCLE0,
@@ -919,6 +920,31 @@ u8 Environment_UsableLightConfig(EnvironmentContext* envCtx, u8 config) {
 #define TIME_ENTRY_1F (D_8011FB48[Environment_UsableLightConfig(envCtx, envCtx->unk_1F)][i])
 #define TIME_ENTRY_20 (D_8011FB48[Environment_UsableLightConfig(envCtx, envCtx->unk_20)][i])
 
+// SOH [Fork] (sturdy-bassoon#167): the scene's world-unit fog band, blended from its side table
+// (distancefog/WorldFog.h) exactly as fogNear and fogFar are blended from the light settings: a0 -> a1 and
+// b0 -> b1 by `t`, then the first pair into the second by `blend`, each step an s16 LERP16.
+static s16 Environment_BlendWorldFogField(s16 a0, s16 a1, s16 b0, s16 b1, f32 t, f32 blend) {
+    s16 fromA = LERP16(a0, a1, t);
+    s16 fromB = LERP16(b0, b1, t);
+
+    return LERP16(fromA, fromB, blend);
+}
+
+static void Environment_BlendWorldFog(u8 a0, u8 a1, u8 b0, u8 b1, f32 t, f32 blend) {
+    const WorldFogSetting* rowA0 = WorldFog_SceneSetting(a0);
+    const WorldFogSetting* rowA1 = WorldFog_SceneSetting(a1);
+    const WorldFogSetting* rowB0 = WorldFog_SceneSetting(b0);
+    const WorldFogSetting* rowB1 = WorldFog_SceneSetting(b1);
+
+    if (rowA0 == NULL) {
+        return;
+    }
+    gWorldFogScene.start =
+        Environment_BlendWorldFogField(rowA0->start, rowA1->start, rowB0->start, rowB1->start, t, blend);
+    gWorldFogScene.end = Environment_BlendWorldFogField(rowA0->end, rowA1->end, rowB0->end, rowB1->end, t, blend);
+    gWorldFogScene.clip = Environment_BlendWorldFogField(rowA0->clip, rowA1->clip, rowB0->clip, rowB1->clip, t, blend);
+}
+
 void func_80075B44(PlayState* play);
 void func_800766C4(PlayState* play);
 
@@ -1100,6 +1126,10 @@ void Environment_Update(PlayState* play, EnvironmentContext* envCtx, LightContex
 
                         envCtx->lightSettings.fogFar = LERP16(blend16[0], blend16[1], sp88);
 
+                        // SOH [Fork] (sturdy-bassoon#167): the scene's world-unit fog, the same blend
+                        Environment_BlendWorldFog(TIME_ENTRY_1F.unk_04, TIME_ENTRY_1F.unk_05, TIME_ENTRY_20.unk_04,
+                                                  TIME_ENTRY_20.unk_05, sp8C, sp88);
+
                         if (TIME_ENTRY_20.unk_05 >= envCtx->numLightSettings) {
                             // "The color palette setting seems to be wrong!"
                             osSyncPrintf(VT_COL(RED, WHITE) "\nカラーパレットの設定がおかしいようです！" VT_RST);
@@ -1124,6 +1154,9 @@ void Environment_Update(PlayState* play, EnvironmentContext* envCtx, LightContex
 
                     envCtx->lightSettings.fogNear = lightSettingsList[envCtx->unk_BD].fogNear & 0x3FF;
                     envCtx->lightSettings.fogFar = lightSettingsList[envCtx->unk_BD].fogFar;
+                    // SOH [Fork] (sturdy-bassoon#167): the scene's world-unit fog, from the same setting
+                    Environment_BlendWorldFog(envCtx->unk_BD, envCtx->unk_BD, envCtx->unk_BD, envCtx->unk_BD, 0.0f,
+                                              0.0f);
                     envCtx->unk_D8 = 1.0f;
                 } else {
                     u8 blendRate = (lightSettingsList[envCtx->unk_BD].fogNear >> 0xA) * 4;
@@ -1169,6 +1202,9 @@ void Environment_Update(PlayState* play, EnvironmentContext* envCtx, LightContex
                                lightSettingsList[envCtx->unk_BD].fogNear & 0x3FF, envCtx->unk_D8);
                     envCtx->lightSettings.fogFar = LERP16(lightSettingsList[envCtx->unk_BE].fogFar,
                                                           lightSettingsList[envCtx->unk_BD].fogFar, envCtx->unk_D8);
+                    // SOH [Fork] (sturdy-bassoon#167): the scene's world-unit fog, the same blend
+                    Environment_BlendWorldFog(envCtx->unk_BE, envCtx->unk_BE, envCtx->unk_BD, envCtx->unk_BD, 0.0f,
+                                              envCtx->unk_D8);
                 }
 
                 if (envCtx->unk_BD >= envCtx->numLightSettings) {
@@ -1245,6 +1281,14 @@ void Environment_Update(PlayState* play, EnvironmentContext* envCtx, LightContex
             lightCtx->fogFar = adjustment;
         } else {
             lightCtx->fogFar = 12800;
+        }
+
+        // SOH [Fork] (sturdy-bassoon#167): a scene with world-unit fog rows takes its far clip from them, under
+        // the same 12800 clamp. adjFogNear and adjFogFar are fog-space nudges (game over, Door_Warp1, Magic_Dark,
+        // weather tags, fishing) with no world-unit meaning, so world-unit fog does not apply them; the colour
+        // adjustment above still applies (ENGINE_BUDGETS.md, the distance fog section).
+        if (WorldFog_HasScene()) {
+            lightCtx->fogFar = CLAMP(gWorldFogScene.clip, 100, 12800);
         }
 
         // When environment debug is enabled, various environment related variables can be configured via the reg editor
