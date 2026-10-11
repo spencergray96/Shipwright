@@ -5,6 +5,7 @@
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/OTRGlobals.h"
 #include "soh/ActorDB.h"
+#include "soh/Enhancements/distancefog/WorldFog.h"
 #include <spdlog/spdlog.h>
 #include "../GridToolSceneData.h"
 #include "soh/Enhancements/staticbake/ArchivePropLists.h"
@@ -42,6 +43,20 @@ static EnvLightSettings sF2pOverworldLightSettings[4] = {
      { 120, 70, 50 }, (s16)(995 | (1 << 10)), 12800 },
     {{ 40, 70, 100 }, { 73, -73, 73 }, { 20, 20, 35 }, { -73, 73, -73 }, { 50, 50, 100 },
      { 0, 0, 30 }, (s16)(992 | (1 << 10)), 12800 },
+};
+
+// World-unit distance fog (sturdy-bassoon#167): per light setting, view depths in world units where the
+// fog begins and completes, and the far clip. Dawn, day, dusk, night, then the Song of Storms' four. The
+// light settings above keep their vanilla fog fields; while these rows are live they set the band and clip.
+static const WorldFogSetting sF2pOverworldWorldFog[8] = {
+    { 6000, 11500, 12800 }, // dawn
+    { 6000, 11500, 12800 }, // day
+    { 6000, 11500, 12800 }, // dusk
+    { 6000, 11500, 12800 }, // night
+    { 6000, 11500, 12800 }, // storm dawn
+    { 6000, 11500, 12800 }, // storm day
+    { 6000, 11500, 12800 }, // storm dusk
+    { 6000, 11500, 12800 }, // storm night
 };
 
 // v1 scope has no multi-entrance/exit support - a single spawn index 0.
@@ -121,6 +136,7 @@ static void InitScene(PlayState* play, s32 spawn) {
 
     play->envCtx.numLightSettings  = 4;
     play->envCtx.lightSettingsList = sF2pOverworldLightSettings;
+    WorldFog_SetScene(sF2pOverworldWorldFog, ARRAY_COUNT(sF2pOverworldWorldFog));
 
     Play_InitEnvironment(play, play->skyboxId);
     GameInteractor_ExecuteAfterSceneCommands(play->sceneNum);
