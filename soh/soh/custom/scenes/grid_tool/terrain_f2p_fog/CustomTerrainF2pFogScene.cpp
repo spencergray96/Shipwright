@@ -5,6 +5,7 @@
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/OTRGlobals.h"
 #include "soh/ActorDB.h"
+#include "soh/Enhancements/distancefog/WorldFog.h"
 #include <spdlog/spdlog.h>
 #include "../GridToolSceneData.h"
 
@@ -41,6 +42,26 @@ static EnvLightSettings sTerrainF2pFogLightSettings[4] = {
      { 120, 70, 50 }, (s16)(995 | (1 << 10)), 12800 },
     {{ 40, 70, 100 }, { 73, -73, 73 }, { 20, 20, 35 }, { -73, 73, -73 }, { 50, 50, 100 },
      { 0, 0, 30 }, (s16)(992 | (1 << 10)), 12800 },
+};
+
+// World-unit distance fog (sturdy-bassoon#167): per light setting, view depths in world units where the
+// fog begins and completes, and the far clip. Dawn, day, dusk, night, then the Song of Storms' four. The
+// light settings above keep their vanilla fog fields; while these rows are live they set the band and clip.
+static const WorldFogSetting sTerrainF2pFogWorldFog[8] = {
+    { 6000, 11500, 12800 }, // dawn
+    { 6000, 11500, 12800 }, // day
+    { 6000, 11500, 12800 }, // dusk
+    { 6000, 11500, 12800 }, // night
+    { 6000, 11500, 12800 }, // storm dawn
+    { 6000, 11500, 12800 }, // storm day
+    { 6000, 11500, 12800 }, // storm dusk
+    { 6000, 11500, 12800 }, // storm night
+};
+
+// Boundary fog (sturdy-bassoon#169): the playable area as world-unit rectangles {x0, z0, x1, z1}, and the ramp
+// past it - clear out to 0 units outside, fully fogged at 1280. Drawn only under world-unit fog (#167).
+static const WorldFogRect sTerrainF2pFogFogBoundary[1] = {
+    { -7680, -7680, 7680, 7680 },
 };
 
 // v1 scope has no multi-entrance/exit support - a single spawn index 0.
@@ -120,6 +141,8 @@ static void InitScene(PlayState* play, s32 spawn) {
 
     play->envCtx.numLightSettings  = 4;
     play->envCtx.lightSettingsList = sTerrainF2pFogLightSettings;
+    WorldFog_SetScene(sTerrainF2pFogWorldFog, ARRAY_COUNT(sTerrainF2pFogWorldFog));
+    WorldFog_SetBoundary(sTerrainF2pFogFogBoundary, 1, 0, 1280);
 
     Play_InitEnvironment(play, play->skyboxId);
     GameInteractor_ExecuteAfterSceneCommands(play->sceneNum);

@@ -33,6 +33,27 @@
 //                       start and complete at end, both world units (0..32767, start < end), in any scene,
 //                       vanilla ones included. clip= sets the far clip (100..12800); without it the clip stays
 //                       the scene's own. max= is vanilla's and is refused here
+//   edge ...            boundary fog (sturdy-bassoon#169; WorldFog.h): under world-unit fog only, geometry also
+//                       fogs by how far its world position lies past the playable area, ramping from b0 world
+//                       units outside it to full at b1. Its own override, beside the band's:
+//     edge [status]               read it
+//     edge <b0> <b1>              the ramp (0 <= b0 < b1 <= 32767); the rectangles stay the scene's or the hand one
+//     edge rect <x0> <z0> <x1> <z1> [<b0> <b1>]
+//                                 one rectangle by hand in place of the scene's, in any scene (x0 < x1, z0 < z1);
+//                                 without a ramp it keeps the live one, and with none at all it is refused
+//     edge off                    no boundary term, even in a scene with one
+//     edge scene                  hand the boundary back to the scene's
+//                       Each prints `op=edge result=ok action=status|ramp|rect|off|scene edge=on|off|none
+//                       kind=world|vanilla active=0|1 rects=<n> rect<i>=x0,z0,x1,z1 ... rect_src=scene|hand
+//                       b0= b1= ramp_src=scene|override link=x,z past=<d> b=<0..1> c={{x0,z0,x1,z1},...},b0,b1`:
+//                       edge=none when there are no rectangles anywhere, active=1 when the term draws this frame,
+//                       past= Link's distance past the boundary, b= the ramp there, c= the boundary as a scene's
+//                       C (its WorldFogRect rows, then the ramp). With no ramp anywhere b0= and b1= read none,
+//                       with no rectangles past= and b= read none, and with no player all three of link= past= b=.
+//                       `status` adds the same line as op=status. `fog off` hands back the band only; a scene
+//                       load hands back both.
+//                       Refusals: error=bad_argument, error=no_ramp for a rect with no ramp anywhere, and
+//                       error=unknown_subcommand for a word that is none of the above
 //   status              read what is live and what the scene would give
 //   off                 hand fog and far clip back to the scene: its world-unit rows if it has them, else its
 //                       light settings. A <near> <far> band is vanilla fog even in a scene with rows

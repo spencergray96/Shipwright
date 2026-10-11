@@ -54,6 +54,51 @@ struct Override {
 
 Override sOverride;
 
+// `fog edge ...` (sturdy-bassoon#169): boundary fog's override, layered on the scene's boundary. Separate from the
+// band's, so `fog off` hands back the band and `fog edge scene` the boundary; a scene load hands back both.
+struct EdgeOverride {
+    bool off = false;     // `fog edge off`: no boundary term, even in a scene with one
+    bool hasRamp = false; // `fog edge <b0> <b1>`, or a ramp given with `rect`
+    bool hasRect = false; // `fog edge rect ...`: one hand rectangle in place of the scene's
+    s16 b0 = 0;
+    s16 b1 = 1;
+    WorldFogRect rect = { 0, 0, 1, 1 };
+};
+
+EdgeOverride sEdge;
+
+// The boundary to draw this frame: the scene's, with the override's rectangle and ramp over it.
+struct Edge {
+    bool off;
+    const WorldFogRect* rects; // NULL with none
+    u8 count;
+    bool hasRamp; // false only when there are no rectangles either
+    s16 b0;
+    s16 b1;
+    // Whether the term has anything to draw: rectangles, a ramp, and not switched off.
+    bool Draws() const {
+        return !off && count != 0 && hasRamp;
+    }
+};
+
+Edge LiveEdge() {
+    Edge edge;
+    const u8 sceneCount = WorldFog_SceneBoundary(&edge.rects, &edge.b0, &edge.b1);
+    edge.count = sceneCount;
+    edge.hasRamp = sceneCount != 0;
+    edge.off = sEdge.off;
+    if (sEdge.hasRect) {
+        edge.rects = &sEdge.rect;
+        edge.count = 1;
+    }
+    if (sEdge.hasRamp) {
+        edge.hasRamp = true;
+        edge.b0 = sEdge.b0;
+        edge.b1 = sEdge.b1;
+    }
+    return edge;
+}
+
 // The band the scene's own light settings give this frame, weather and lightning included - what
 // Environment_Update writes into lightCtx (z_kankyo.c, "Adjust fog near and far"). Read from envCtx rather
 // than lightCtx, which holds the override's values while the game is paused and Environment_Update idles.
@@ -293,6 +338,126 @@ int32_t RunWorld(const std::vector<std::string>& args, std::vector<std::string>&
     return 0;
 }
 
+// The boundary-fog line (sturdy-bassoon#169), for `fog edge ...` and `fog status`. edge= on|off|none (none: no
+// rectangles anywhere), active= whether the term draws this frame (world-unit fog, a boundary, not off), past=
+// Link's distance past the boundary and b= the ramp there, 0..1. c= is the boundary as a scene's C: its
+// WorldFogRect rows, then b0 and b1.
+void DescribeEdge(const char* op, const char* action, const PlayState* play, std::vector<std::string>& lines) {
+    const Edge edge = LiveEdge();
+    s16 start = 0;
+    s16 end = 0;
+    const bool world = WorldFog_Live(&start, &end) != 0;
+    const bool on = edge.Draws();
+    std::string rects;
+    std::string rows;
+    for (u8 i = 0; i < edge.count; i++) {
+        const WorldFogRect& r = edge.rects[i];
+        char text[96];
+        std::snprintf(text, sizeof(text), " rect%u=%d,%d,%d,%d", i, r.x0, r.z0, r.x1, r.z1);
+        rects += text;
+        std::snprintf(text, sizeof(text), "%s{%d,%d,%d,%d}", i == 0 ? "" : ",", r.x0, r.z0, r.x1, r.z1);
+        rows += text;
+    }
+    // Link's distance past the rectangles the line names, by the renderer's own function (the renderer's copy is
+    // cleared while the edge is off, so it is measured from these rather than read back).
+    char pastText[64] = "link=none past=none b=none";
+    const Player* player = GET_PLAYER(play);
+    if (player != nullptr) {
+        const float x = player->actor.world.pos.x;
+        const float z = player->actor.world.pos.z;
+        if (edge.count != 0) {
+            const float best = WorldFog_DistancePast(edge.rects, edge.count, x, z);
+            const float t = (best - edge.b0) / static_cast<float>(MAX(edge.b1 - edge.b0, 1));
+            std::snprintf(pastText, sizeof(pastText), "link=%.0f,%.0f past=%.0f b=%.3f", x, z, best,
+                          edge.hasRamp ? CLAMP(t, 0.0f, 1.0f) : 0.0f);
+        } else {
+            std::snprintf(pastText, sizeof(pastText), "link=%.0f,%.0f past=none b=none", x, z);
+        }
+    }
+    char ramp[48] = "b0=none b1=none";
+    if (edge.hasRamp) {
+        std::snprintf(ramp, sizeof(ramp), "b0=%d b1=%d", edge.b0, edge.b1);
+    }
+    Addf(lines,
+         "op=%s result=ok action=%s edge=%s kind=%s active=%d rects=%u%s rect_src=%s %s ramp_src=%s %s "
+         "c={%s},%d,%d",
+         op, action, edge.off ? "off" : (on ? "on" : "none"), world ? "world" : "vanilla", world && on ? 1 : 0,
+         edge.count, rects.c_str(), sEdge.hasRect ? "hand" : "scene", ramp, sEdge.hasRamp ? "override" : "scene",
+         pastText, rows.c_str(), edge.b0, edge.b1);
+}
+
+constexpr const char* kEdgeUsage =
+    "usage=edge_[status]|edge_off|edge_scene|edge_<b0(0..32766)>_<b1(b0+1..32767)>|"
+    "edge_rect_<x0>_<z0>_<x1>_<z1>_[<b0>_<b1>]";
+
+void SetEdgeRamp(int32_t b0, int32_t b1) {
+    sEdge.off = false;
+    sEdge.hasRamp = true;
+    sEdge.b0 = static_cast<s16>(b0);
+    sEdge.b1 = static_cast<s16>(b1);
+}
+
+// `fog edge ...` (sturdy-bassoon#169): tune boundary fog live. The rectangle and ramp are world units.
+int32_t RunEdge(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    const std::string action = args.size() < 2 ? "status" : args[1];
+    if (action == "status" && args.size() <= 2) {
+        DescribeEdge("edge", "status", gPlayState, lines);
+        return 0;
+    }
+    if (action == "off" && args.size() == 2) {
+        sEdge.off = true;
+        DescribeEdge("edge", "off", gPlayState, lines);
+        return 0;
+    }
+    if (action == "scene" && args.size() == 2) {
+        sEdge = EdgeOverride();
+        DescribeEdge("edge", "scene", gPlayState, lines);
+        return 0;
+    }
+    if (action == "rect") {
+        int32_t v[4] = { 0, 0, 0, 0 };
+        int32_t ramp[2] = { 0, 0 };
+        const bool withRamp = args.size() == 8;
+        bool ok = (args.size() == 6 || withRamp) && ParseInt(args[2], INT16_MIN, INT16_MAX - 1, &v[0]) &&
+                  ParseInt(args[3], INT16_MIN, INT16_MAX - 1, &v[1]) && ParseInt(args[4], v[0] + 1, INT16_MAX, &v[2]) &&
+                  ParseInt(args[5], v[1] + 1, INT16_MAX, &v[3]);
+        if (ok && withRamp) {
+            ok = ParseInt(args[6], 0, kWorldMax - 1, &ramp[0]) && ParseInt(args[7], ramp[0] + 1, kWorldMax, &ramp[1]);
+        }
+        if (!ok) {
+            Addf(lines, "op=edge result=error error=bad_argument %s", kEdgeUsage);
+            return 1;
+        }
+        if (!withRamp && !LiveEdge().hasRamp) {
+            // No scene boundary and no ramp typed yet: nothing says how far past the rectangle the fog ramps.
+            Addf(lines, "op=edge result=error error=no_ramp %s", kEdgeUsage);
+            return 1;
+        }
+        sEdge.off = false;
+        sEdge.hasRect = true;
+        sEdge.rect = { static_cast<s16>(v[0]), static_cast<s16>(v[1]), static_cast<s16>(v[2]), static_cast<s16>(v[3]) };
+        if (withRamp) {
+            SetEdgeRamp(ramp[0], ramp[1]);
+        }
+        DescribeEdge("edge", "rect", gPlayState, lines);
+        return 0;
+    }
+    if (!LooksNumeric(action)) {
+        // Not one of the words and not a number: the typed word is not echoed.
+        Addf(lines, "op=edge result=error error=unknown_subcommand %s", kEdgeUsage);
+        return 1;
+    }
+    int32_t b0 = 0;
+    int32_t b1 = 0;
+    if (args.size() != 3 || !ParseInt(args[1], 0, kWorldMax - 1, &b0) || !ParseInt(args[2], b0 + 1, kWorldMax, &b1)) {
+        Addf(lines, "op=edge result=error error=bad_argument %s", kEdgeUsage);
+        return 1;
+    }
+    SetEdgeRamp(b0, b1);
+    DescribeEdge("edge", "ramp", gPlayState, lines);
+    return 0;
+}
+
 } // namespace
 
 int32_t DistanceFogConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines) {
@@ -300,10 +465,11 @@ int32_t DistanceFogConsole_Run(const std::vector<std::string>& args, std::vector
     const bool isSet = LooksNumeric(sub);
     const char* op = isSet || sub == "world" ? "set" : sub.c_str();
 
-    if (!isSet && sub != "status" && sub != "off" && sub != "world") {
+    if (!isSet && sub != "status" && sub != "off" && sub != "world" && sub != "edge") {
         // The typed word is not echoed: it is free text, and this line is parsed field by field.
         lines.push_back("op=unknown result=error error=unknown_subcommand "
-                        "usage=status|off|<near>_<far>_[r_g_b]_[max=<m>]|world_<start>_<end>_[r_g_b]_[clip=<c>]");
+                        "usage=status|off|<near>_<far>_[r_g_b]_[max=<m>]|world_<start>_<end>_[r_g_b]_[clip=<c>]|"
+                        "edge_...");
         return 1;
     }
     if (gPlayState == nullptr) {
@@ -332,6 +498,8 @@ int32_t DistanceFogConsole_Run(const std::vector<std::string>& args, std::vector
                      row->end, row->clip);
             }
         }
+        // Boundary fog (sturdy-bassoon#169): the edge's own line, as `fog edge status` prints it.
+        DescribeEdge("status", "status", gPlayState, lines);
         return 0;
     }
     if (sub == "off") {
@@ -342,6 +510,9 @@ int32_t DistanceFogConsole_Run(const std::vector<std::string>& args, std::vector
 
     if (sub == "world") {
         return RunWorld(args, lines);
+    }
+    if (sub == "edge") {
+        return RunEdge(args, lines);
     }
 
     // An optional trailing max=<m> (sturdy-bassoon#169): the fog-space value where fog reaches 100%, passed to
@@ -397,6 +568,16 @@ void ApplyOverride() {
     // Play_SetFog's max is written every frame, so it never outlives the override: off, a scene load or an
     // inactive override all draw with vanilla's 1000 from the next frame on (sturdy-bassoon#169).
     gPlayFogMax = sOverride.active && !sOverride.world ? sOverride.max : kVanillaMax;
+    // Boundary fog (sturdy-bassoon#169): the scene's boundary unless `fog edge` overrides it, handed to the
+    // renderer every frame like the band. It draws only under world-unit fog, which the renderer checks itself.
+    const Edge edge = LiveEdge();
+    if (!edge.Draws()) {
+        WorldFog_UseNoBoundary();
+    } else if (!sEdge.hasRect && !sEdge.hasRamp) {
+        WorldFog_UseSceneBoundary();
+    } else {
+        WorldFog_UseBoundary(edge.rects, edge.count, edge.b0, edge.b1);
+    }
     // Which kind of fog Play_SetFog emits this frame (sturdy-bassoon#167). The scene's own resolves in
     // WorldFog.cpp - its blended rows if it has them, else vanilla - and the override layers on top: a world
     // band in any scene, or vanilla fog even in a scene with rows. Written every frame, like the max.
@@ -421,7 +602,10 @@ void RegisterDistanceFog() {
     COND_HOOK(OnPlayDrawBegin, true, ApplyOverride);
     // A scene load hands fog back, as the reg-editor override this replaced did (Environment_Init): a band
     // tuned for one map is not assumed for the next.
-    COND_HOOK(OnSceneInit, true, [](int16_t) { sOverride.active = false; });
+    COND_HOOK(OnSceneInit, true, [](int16_t) {
+        sOverride.active = false;
+        sEdge = EdgeOverride();
+    });
 }
 
 RegisterShipInitFunc initFunc(RegisterDistanceFog, {});
@@ -431,22 +615,26 @@ RegisterShipInitFunc initFunc(RegisterDistanceFog, {});
 const ConsoleSink::Command distanceFogCommand(
     "fog", DistanceFogConsole_Run,
     "Tune the scene's distance fog live (sturdy-bassoon#144): <near> <far> [r g b] [max=<m>] | "
-    "world <start> <end> [r g b] [clip=<c>] | status | off. "
+    "world <start> <end> [r g b] [clip=<c>] | edge ... | status | off. "
     "near is fog-space 0..1000 (nonlinear: 996, the most a scene can have, starts ~2,000 units out at far 12800; 1000 "
     "is no fog), far is world units 100..12800 and also the far clip. Without r g b the colour keeps following "
     "time of day and weather; lights are never touched. max is the fog-space value where fog reaches 100% "
     "(sturdy-bassoon#169): 1000, the default, completes it at the clip; lower completes it sooner, down to "
     "near+4. Below near 980 the sky fades to the fog colour. world (sturdy-bassoon#167) draws fog linear in "
     "view depth instead, clear to start and complete at end, both world units, in any scene; clip is the far "
-    "clip (100..12800, default the scene's). status "
+    "clip (100..12800, default the scene's). edge (sturdy-bassoon#169) tunes boundary fog, which under world fog "
+    "also fogs geometry by how far it lies past the playable area: edge <b0> <b1> ramps it from b0 units past the "
+    "edge to full at b1; edge rect <x0> <z0> <x1> <z1> [b0 b1] sets one rectangle by hand, in any scene; edge off "
+    "turns it off, edge scene hands it back, edge status reads it. status "
     "prints the live band, where it starts, and each light setting's fog as C to paste into a scene. A scene "
     "load hands fog back; nothing is saved.",
-    { { "near|world|status|off", Ship::ArgumentType::TEXT, true },
+    { { "near|world|edge|status|off", Ship::ArgumentType::TEXT, true },
       { "far|start", Ship::ArgumentType::TEXT, true },
       { "r|end", Ship::ArgumentType::TEXT, true },
       { "g|r", Ship::ArgumentType::TEXT, true },
       { "b|g", Ship::ArgumentType::TEXT, true },
       { "max=<m>|b", Ship::ArgumentType::TEXT, true },
-      { "clip=<c>", Ship::ArgumentType::TEXT, true } });
+      { "clip=<c>|b0", Ship::ArgumentType::TEXT, true },
+      { "b1", Ship::ArgumentType::TEXT, true } });
 
 } // namespace
