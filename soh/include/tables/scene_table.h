@@ -185,4 +185,5 @@
 /* 0xA8 */ DEFINE_SCENE(world_export_west_173_synthetic_scene, none, SCENE_WORLD_EXPORT_WEST_173_SYNTHETIC, SDC_DEFAULT, 0, 0) // project e1730000-0000-4000-8000-0000000000e1 name world_export_west_173_synthetic
 /* 0xA9 */ DEFINE_SCENE(f5_cellar_173_scene, none, SCENE_F5_CELLAR_173, SDC_DEFAULT, 0, 0) // project f1730000-0000-4000-8000-0000000000f5 name f5_cellar_173
 /* 0xAA */ DEFINE_SCENE(terrain_f2p_fog_scene, none, SCENE_TERRAIN_F2P_FOG, SDC_DEFAULT, 0, 0) // terrain-bake terrain_f2p_fog
+/* 0xAB */ DEFINE_SCENE(scene_217_e1a_part_2_wind_scene, none, SCENE_SCENE_217_E1A_PART_2_WIND, SDC_DEFAULT, 0, 0) // project 6ec43f93-9392-4438-85ea-d7192b832ef4 name scene_217_e1a_part_2_wind
 // END GRID TOOL EXPORTS
