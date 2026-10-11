@@ -189,12 +189,13 @@
  *                                        flip - OTRGlobals applies the CVar at the end of the next frame
  *   staticbake <line>                    one line of StaticBakeConsole_Run output per marker, from
  *                                        `agenttest staticbake [status|on|off|rebake|reset|link <a> <b>|
- *                                        sort on|off|props|scroll ...|clock ...|texclear|wind ...]`: `op=<sub>
- *                                        result=ok active=<0|1> setting=<0|1> registered=<n> baked=<n>
+ *                                        sort on|off|props|scroll ...|clock ...|texclear|wind ...|xlu on|off]`:
+ *                                        `op=<sub> result=ok active=<0|1> setting=<0|1> registered=<n> baked=<n>
  *                                        rejected=<n> supported=<0|1> sort=<0|1> group=<0x..|none>
- *                                        scenes=<n> links=<n> scrolls=<n> wind_amp=<f>` (group, scenes, links:
- *                                        the bake group held, #157; scrolls: textures registered to scroll,
- *                                        #187; wind: the frame's wind amplitude, #209).
+ *                                        scenes=<n> links=<n> scrolls=<n> wind_amp=<f> props_xlu=<0|1>` (group,
+ *                                        scenes, links: the bake group held, #157; scrolls: textures registered
+ *                                        to scroll, #187; wind: the frame's wind amplitude, #209; props_xlu:
+ *                                        whether archive prop lists' translucent halves are drawn, #216).
  *                                        Same renderer as the human `staticbake` command
  *                                        (sturdy-bassoon#142), except that on/off here switch for the
  *                                        session only; the human command also saves setting= (#153).
@@ -2980,7 +2981,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
             "keepinput [on|off] | kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|reset|link <a> <b>|sort on|off|props|"
               "scroll [list|clear|<path> <du> <dv>]|clock [<s>|run]|texclear|"
-              "wind [list|reset|saved|<key> <value>...]] | "
+              "wind [list|reset|saved|<key> <value>...]|xlu [on|off]] | "
               "colview [status|climb on|off] | "
               "imgui status|dump [kind]|click [kind:]<label>|clickat <x> <y>|key <name> | "
             "mipmaps [status|archive|on|off|lod <mode>|bias <n>] | save <fileNum> | loadsave <fileNum> | mark <text>";
@@ -3029,7 +3030,7 @@ void RegisterAgentTest() {
               "fadein <s>|baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
               "keepinput [on|off] | kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|reset|link <a> <b>|sort on|off|props|"
               "scroll [list|clear|<path> <du> <dv>]|clock [<s>|run]|texclear|"
-              "wind [list|reset|saved|<key> <value>...]] | "
+              "wind [list|reset|saved|<key> <value>...]|xlu [on|off]] | "
               "colview [status|climb on|off] | "
               "imgui status|dump [kind]|click [kind:]<label>|clickat <x> <y>|key <name> | "
               "mipmaps [status|archive|on|off|lod <mode>|bias <n>] | save <fileNum> | loadsave <fileNum> | mark <text>. "

@@ -17,7 +17,7 @@
 // inside one session keeps the camera, the time and everything else still, and turning it back on
 // replays the existing bakes rather than re-recording them.
 //
-// Every successful line is `op=<sub> result=ok` and the same eleven fields: `active=` whether the bake
+// Every successful line is `op=<sub> result=ok` and the same twelve fields: `active=` whether the bake
 // runs (StaticBake_IsActive: the switch, and 0 on a backend that cannot bake), `setting=` the saved
 // setting (sturdy-bassoon#153; it differs from active= when SOH_STATIC_BAKE decided the session, after
 // an agent-loop switch, or on a backend that cannot bake), `registered=` display lists offered by the
@@ -26,8 +26,9 @@
 // `sort=` whether recordings are ordered by material (sturdy-bassoon#158), `group=` the bake group the registry holds
 // (0x<smallest scene id in it>, or `none`), `scenes=` how many of its scenes have registered rooms
 // since the last reset and `links=` how many `link`s this session added (sturdy-bassoon#157),
-// `scrolls=` how many textures are registered to scroll (sturdy-bassoon#187 A1), and `wind_amp=` the
-// frame's wind amplitude, 0 when nothing bends (sturdy-bassoon#209 W1).
+// `scrolls=` how many textures are registered to scroll (sturdy-bassoon#187 A1), `wind_amp=` the
+// frame's wind amplitude, 0 when nothing bends (sturdy-bassoon#209 W1), and `props_xlu=` whether the room
+// draw submits archive prop lists' translucent halves (sturdy-bassoon#216 T2, `xlu` below).
 // registered/baked/rejected count the WHOLE group: a return to a scene visited earlier in the group
 // finds its entries still baked. baked + rejected <
 // registered means some have not been drawn since they were registered or invalidated - or, in a
@@ -57,11 +58,13 @@
 //             sinks: for comparing the two orders, and the way back if content depends on list order
 //   props     the status line, then `op=props result=ok lists=<n>` and one line per archive prop list the group
 //             holds (sturdy-bassoon#171): `op=props list=<path> scene=0x<id> room=<n> state=<s> key=<p>
-//             draws=<n> tris=<n> scrolls=<n> reason=<rest of line>`. state= is missing (in no mounted
+//             draws=<n> tris=<n> scrolls=<n> pass=<opa|xlu> reason=<rest of line>`: a declared path's own
+//             list (pass=opa), then its `<path>.xlu` (pass=xlu, sturdy-bassoon#216 T2) when the archive has
+//             one - a missing `.xlu` is no list, and prints no line. state= is missing (in no mounted
 //             archive), not_displaylist, empty (offered to nothing), or the bake's own: unbaked, baked,
 //             rejected, unregistered. draws= and tris= are the baked entry's, 0 otherwise; scrolls= is
 //             how many textures the list's scroll file registered when it loaded (sturdy-bassoon#187 A2,
-//             0 with none or with a file that does not read); reason= is
+//             0 with none or with a file that does not read, and always 0 on an xlu line); reason= is
 //             why the recorder refused it, `none` otherwise. Then `op=props result=ok scroll_lists=<n>`
 //             and one line per baked list with a scrolling draw (sturdy-bassoon#187 A1), archive or
 //             not: `op=props scroll_key=<p> draws=<n> tris=<n> scroll_draws=<n> scroll_tris=<n>`,
@@ -110,6 +113,15 @@
 //             command also clears the saved values
 //   wind saved  go back to the saved wind - after a session-only set, or a scripted one
 //
+// Translucent prop lists (sturdy-bassoon#216 T2; ArchivePropLists.h, "THE TRANSLUCENT LIST"):
+//   xlu [on|off]  report, or switch whether the room draw submits archive prop lists' translucent halves
+//             (`<list>.xlu`) in the room's translucent pass - CVAR_STATIC_BAKE_PROPS_XLU, on by default,
+//             read at every draw, so no rebake. Off draws every map as if it had no translucent props: for
+//             comparing a map with and without them, and a scene with none (vanilla included) on and off,
+//             inside one session. From the human command it is also saved; from the agent loop it is
+//             for the session only and never reaches the CVar store. The status line (its props_xlu= is
+//             the switch), then `op=xlu result=ok xlu_lists=<n>`, how many translucent lists the group holds
+//
 // `sort` without on or off prints `op=sort result=error error=bad_argument usage=sort(on|off)`; `link`
 // without two scene ids, `op=link result=error error=bad_argument usage=link(<scene>,<scene>)`; a
 // `scroll` that is not list, clear or a path with two finite rates (-1000 to 1000),
@@ -118,9 +130,10 @@
 // `op=clock result=error error=bad_argument usage=clock|clock(<seconds>)|clock(run)`; a `wind` that is
 // not list, reset, saved or whole key-value pairs in range, `op=wind result=error error=bad_argument
 // usage=wind(list)|wind(reset)|wind(saved)|wind(<key>,<value>...):amp[0,100],freq[0,20],
-// wavelength[0,100000],yaw[-360,360],ripple[-20,20]` (one line). No error line echoes what was typed.
+// wavelength[0,100000],yaw[-360,360],ripple[-20,20]` (one line); an `xlu` that is not bare, on or off,
+// `op=xlu result=error error=bad_argument usage=xlu|xlu(on|off)`. No error line echoes what was typed.
 //
-// Returns 0 for all twelve, 1 for an unknown subcommand or a bad sort, link, scroll, clock or wind
+// Returns 0 for all thirteen, 1 for an unknown subcommand or a bad sort, link, scroll, clock, wind or xlu
 // argument - so `rc=` on the agent loop's cmd marker is the pass/fail bit.
 int32_t StaticBakeConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines);
 int32_t StaticBakeConsole_RunSession(const std::vector<std::string>& args, std::vector<std::string>& lines);

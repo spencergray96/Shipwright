@@ -33,13 +33,29 @@ void Describe(const char* op, std::vector<std::string>& lines) {
     } else {
         std::snprintf(groupText, sizeof(groupText), "0x%X", group);
     }
-    // scrolls= (#187 A1) after those, then wind_amp= (#209 W1): the frame's amplitude, 0 when nothing bends.
+    // scrolls= (#187 A1) after those, then wind_amp= (#209 W1): the frame's amplitude, 0 when nothing bends;
+    // then props_xlu= (#216 T2): whether archive prop lists' translucent halves are submitted.
     Addf(lines,
          "op=%s result=ok active=%d setting=%d registered=%u baked=%u rejected=%u supported=%d sort=%d group=%s "
-         "scenes=%d links=%d scrolls=%u wind_amp=%g",
+         "scenes=%d links=%d scrolls=%u wind_amp=%g props_xlu=%d",
          op, StaticBake_IsActive(), StaticBake_Setting(), registered, baked, rejected, StaticBake_BackendSupported(),
          Fast::StaticBakeSortsByMaterial() ? 1 : 0, groupText, StaticBake_HeldScenes(), StaticBake_Links(),
-         (unsigned)Fast::StaticBakeGetTextureScrolls().size(), Fast::StaticBakeGetWind().amplitude);
+         (unsigned)Fast::StaticBakeGetTextureScrolls().size(), Fast::StaticBakeGetWind().amplitude,
+         ArchiveProps::XluSubmitted() ? 1 : 0);
+}
+
+// `xlu` (#216 T2): report, or switch the room draw's submission of archive prop lists' translucent halves.
+// `save` (the human sink) also saves it, as on/off do; from the agent loop it is this session's only.
+int32_t RunXlu(const std::vector<std::string>& args, std::vector<std::string>& lines, bool save) {
+    if (args.size() == 2 && (args[1] == "on" || args[1] == "off")) {
+        ArchiveProps::SetXluSubmitted(args[1] == "on", save);
+    } else if (args.size() != 1) {
+        lines.push_back("op=xlu result=error error=bad_argument usage=xlu|xlu(on|off)");
+        return 1;
+    }
+    Describe("xlu", lines);
+    Addf(lines, "op=xlu result=ok xlu_lists=%u", (unsigned)ArchiveProps::XluLists());
+    return 0;
 }
 
 // A scene id as typed: 0x96 or 150. False for anything else, or past an s16 sceneNum.
@@ -309,12 +325,17 @@ int32_t Run(const std::vector<std::string>& args, std::vector<std::string>& line
         Describe("texclear", lines);
         return 0;
     }
+    // Translucent prop lists (#216 T2). From the human command a switch is also saved; from the agent loop
+    // it is this session's only, like on/off.
+    if (sub == "xlu") {
+        return RunXlu(args, lines, save);
+    }
     // The typed word is not echoed: it is free text, and this line is parsed field by field - so no
     // spaces inside the usage value either: `sort on|off` is written sort(on|off).
     lines.push_back("op=unknown result=error error=unknown_subcommand "
                     "usage=status|on|off|rebake|reset|link(<scene>,<scene>)|sort(on|off)|props|"
                     "scroll(list|clear|<path>,<du>,<dv>)|clock(<seconds>|run)|texclear|"
-                    "wind(list|reset|saved|<key>,<value>...)");
+                    "wind(list|reset|saved|<key>,<value>...)|xlu(on|off)");
     return 1;
 }
 
@@ -338,7 +359,8 @@ const ConsoleSink::Command staticBakeCommand(
     "staticbake", StaticBakeConsole_Run,
     "The static geometry bake's runtime switch (sturdy-bassoon#142, #153): status | on | off | "
     "rebake | reset | link <scene> <scene> | sort on|off | props | scroll [list|clear|<path> <du> "
-    "<dv>] | clock [<seconds>|run] | texclear | wind [list|reset|saved|<key> <value>...]. On by default. on/off here "
+    "<dv>] | clock [<seconds>|run] | texclear | wind [list|reset|saved|<key> <value>...] | xlu [on|off]. "
+    "On by default. on/off here "
     "also save the setting (Settings > Graphics), so the choice survives a restart; `agenttest "
     "staticbake on|off` does not. Off interprets every room and "
     "keeps the bakes, so on replays them again without a re-record - flip it to compare baked and "
@@ -357,8 +379,10 @@ const ConsoleSink::Command staticBakeCommand(
     "that sways archive props marked for it: amp (units of swing at the hem; 0 stills them), freq "
     "(Hz), wavelength, yaw (where it blows to) and ripple, as <key> <value> pairs; reset puts the "
     "owner's defaults back and saved the saved wind. Here a set or reset is saved; from agenttest it "
-    "is not. No rebake needed: the wind is read every frame.",
-    { { "status|on|off|rebake|reset|link|sort|props|scroll|clock|texclear|wind", Ship::ArgumentType::TEXT, true },
+    "is not. No rebake needed: the wind is read every frame. xlu on|off (#216) draws archive prop lists' "
+    "translucent halves in the room's translucent pass, or not, to compare a map with and without them in one "
+    "session; on by default, saved here, this session only from agenttest. No rebake needed.",
+    { { "status|on|off|rebake|reset|link|sort|props|scroll|clock|texclear|wind|xlu", Ship::ArgumentType::TEXT, true },
       { "on|off|scene|list|clear|path|seconds|run|reset|saved|key", Ship::ArgumentType::TEXT, true },
       { "scene|du|value", Ship::ArgumentType::TEXT, true },
       { "dv|key", Ship::ArgumentType::TEXT, true },

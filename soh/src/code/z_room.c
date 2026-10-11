@@ -65,7 +65,7 @@ void func_80095AB4(PlayState* play, Room* room, u32 flags) {
 
         // The room's archive prop lists (sturdy-bassoon#171), in world space under the same state as
         // its own opaque lists. None in a vanilla scene: only a compiled-in room declares them.
-        props = ArchiveProps_RoomLists(play, room->num, &propCount);
+        props = ArchiveProps_RoomLists(play, room->num, ARCHIVE_PROPS_PASS_OPA, &propCount);
         for (i = 0; i < propCount; i++) {
             gSPDisplayList(POLY_OPA_DISP++, props[i]);
         }
@@ -76,6 +76,14 @@ void func_80095AB4(PlayState* play, Room* room, u32 flags) {
         gSPSegment(POLY_XLU_DISP++, 0x03, room->segment);
         Gfx_SetupDL_25Xlu(play->state.gfxCtx);
         gSPMatrix(POLY_XLU_DISP++, &gMtxClear, G_MTX_MODELVIEW | G_MTX_LOAD);
+
+        // Their translucent halves (`<list>.xlu`, sturdy-bassoon#216 T2), in the translucent pass: it draws
+        // after every opaque draw of the frame, so the room's geometry and the actors drawn after the room
+        // cannot erase a face that writes no depth. None in a vanilla scene, nor with `staticbake xlu off`.
+        props = ArchiveProps_RoomLists(play, room->num, ARCHIVE_PROPS_PASS_XLU, &propCount);
+        for (i = 0; i < propCount; i++) {
+            gSPDisplayList(POLY_XLU_DISP++, props[i]);
+        }
     }
 
     polygon0 = &room->meshHeader->polygon0;
