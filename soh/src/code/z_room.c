@@ -47,6 +47,8 @@ void (*sRoomDrawHandlers[])(PlayState* play, Room* room, u32 flags) = {
 void func_80095AA0(PlayState* play, Room* room, Input* arg2, UNK_TYPE arg3) {
 }
 
+Gfx* PropBench_RoomList(s32 pass); // THROWAWAY sturdy-bassoon#205
+
 // Room Draw Polygon Type 0
 void func_80095AB4(PlayState* play, Room* room, u32 flags) {
     s32 i;
@@ -69,6 +71,10 @@ void func_80095AB4(PlayState* play, Room* room, u32 flags) {
         for (i = 0; i < propCount; i++) {
             gSPDisplayList(POLY_OPA_DISP++, props[i]);
         }
+        // THROWAWAY sturdy-bassoon#205: the prop bench's list in the opaque pass, where a map's go.
+        if (PropBench_RoomList(0) != NULL) {
+            gSPDisplayList(POLY_OPA_DISP++, PropBench_RoomList(0));
+        }
     }
 
     if (flags & 2) {
@@ -76,6 +82,10 @@ void func_80095AB4(PlayState* play, Room* room, u32 flags) {
         gSPSegment(POLY_XLU_DISP++, 0x03, room->segment);
         Gfx_SetupDL_25Xlu(play->state.gfxCtx);
         gSPMatrix(POLY_XLU_DISP++, &gMtxClear, G_MTX_MODELVIEW | G_MTX_LOAD);
+        // THROWAWAY sturdy-bassoon#205: the prop bench's list in the translucent pass.
+        if (PropBench_RoomList(1) != NULL) {
+            gSPDisplayList(POLY_XLU_DISP++, PropBench_RoomList(1));
+        }
     }
 
     polygon0 = &room->meshHeader->polygon0;
