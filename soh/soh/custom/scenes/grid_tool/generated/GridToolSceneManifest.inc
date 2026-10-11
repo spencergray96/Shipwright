@@ -52,4 +52,5 @@
     { SCENE_STAIRS_WARPS_F3_173, CustomStairsWarpsF3173Scene_TrySpawn, CustomStairsWarpsF3173Scene_InitRoom }, // project f1730000-0000-4000-8000-0000000000f3 name stairs_warps_f3_173
     { SCENE_WORLD_EXPORT_WEST_173_SYNTHETIC, CustomWorldExportWest173SyntheticScene_TrySpawn, CustomWorldExportWest173SyntheticScene_InitRoom }, // project e1730000-0000-4000-8000-0000000000e1 name world_export_west_173_synthetic
     { SCENE_F5_CELLAR_173, CustomF5Cellar173Scene_TrySpawn, CustomF5Cellar173Scene_InitRoom }, // project f1730000-0000-4000-8000-0000000000f5 name f5_cellar_173
+    { SCENE_SCENE_216_T2_TRANSLUCENT_PASS, CustomScene216T2TranslucentPassScene_TrySpawn, CustomScene216T2TranslucentPassScene_InitRoom }, // project 5bf81f07-0dad-44a2-a12f-90b6110efea9 name scene_216_t2_translucent_pass
 // END GRID TOOL EXPORTS
