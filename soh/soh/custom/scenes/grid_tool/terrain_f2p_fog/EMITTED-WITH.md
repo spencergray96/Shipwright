@@ -12,7 +12,7 @@ field digest below still matches.
 | | |
 |---|---|
 | field | `baked/fog_ring.json` |
-| field sha256 (first 16) | `bcabbc544df129f6` |
+| field sha256 (first 16) | `1835f5fbe33e272d` |
 | field name / grid | f2p-fog, 128x128 cells, step 4, 40 units/tile |
 | merge | **off** |
 | T-junction stitching (#95) | on |
