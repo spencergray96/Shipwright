@@ -395,3 +395,42 @@ static RegisterShipInitFunc sStaticBakeWindInit(StaticBake_ApplyWindSettings,
                                                 { CVAR_STATIC_BAKE_WIND_AMPLITUDE, CVAR_STATIC_BAKE_WIND_FREQUENCY,
                                                   CVAR_STATIC_BAKE_WIND_WAVELENGTH, CVAR_STATIC_BAKE_WIND_YAW,
                                                   CVAR_STATIC_BAKE_WIND_RIPPLE });
+
+// WOBBLE IN THE REPLAY (sturdy-bassoon#216 W), the wind's arrangement: libultraship holds the frame's
+// wobble, this applies the saved one at boot and whenever ShipInit says one of its settings may have moved.
+// A wobble set by code holds until that code - or `staticbake wobble saved` - puts the saved one back.
+Fast::StaticBakeWobble StaticBake_WobbleSettings() {
+    const Fast::StaticBakeWobble d;
+    Fast::StaticBakeWobble w;
+    w.strength = CVarGetFloat(CVAR_STATIC_BAKE_WOBBLE_STRENGTH, d.strength);
+    w.speed = CVarGetFloat(CVAR_STATIC_BAKE_WOBBLE_SPEED, d.speed);
+    return w;
+}
+
+void StaticBake_SaveWobbleSettings(const Fast::StaticBakeWobble& wobble) {
+    CVarSetFloat(CVAR_STATIC_BAKE_WOBBLE_STRENGTH, wobble.strength);
+    CVarSetFloat(CVAR_STATIC_BAKE_WOBBLE_SPEED, wobble.speed);
+    CVarSave();
+}
+
+void StaticBake_ClearWobbleSettings() {
+    CVarClear(CVAR_STATIC_BAKE_WOBBLE_STRENGTH);
+    CVarClear(CVAR_STATIC_BAKE_WOBBLE_SPEED);
+    CVarSave();
+}
+
+extern "C" void StaticBake_ApplyWobbleSettings(void) {
+    const Fast::StaticBakeWobble w = StaticBake_WobbleSettings();
+    if (!Fast::StaticBakeSetWobble(w)) {
+        // A hand-edited config: keep what libultraship holds rather than fade by something unreadable.
+        const Fast::StaticBakeWobble kept = Fast::StaticBakeGetWobble();
+        SPDLOG_WARN("[staticbake] the saved wobble is not usable (a value is not finite, the strength is outside "
+                    "0-1 or the speed is negative); keeping strength={} speed={}",
+                    kept.strength, kept.speed);
+        return;
+    }
+    SPDLOG_INFO("[staticbake] wobble strength={} speed={}", w.strength, w.speed);
+}
+
+static RegisterShipInitFunc sStaticBakeWobbleInit(StaticBake_ApplyWobbleSettings,
+                                                  { CVAR_STATIC_BAKE_WOBBLE_STRENGTH, CVAR_STATIC_BAKE_WOBBLE_SPEED });
