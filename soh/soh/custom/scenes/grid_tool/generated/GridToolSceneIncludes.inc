@@ -52,4 +52,5 @@
 #include "../world_export_west_173_synthetic/CustomWorldExportWest173SyntheticScene.h" // project e1730000-0000-4000-8000-0000000000e1 name world_export_west_173_synthetic
 #include "../f5_cellar_173/CustomF5Cellar173Scene.h" // project f1730000-0000-4000-8000-0000000000f5 name f5_cellar_173
 #include "../terrain_f2p_fog/CustomTerrainF2pFogScene.h" // terrain-bake terrain_f2p_fog
+#include "../scene_217_e2_remove_faces/CustomScene217E2RemoveFacesScene.h" // project 797fb55a-4c87-4bfe-8533-4ec2dcccadc2 name scene_217_e2_remove_faces
 // END GRID TOOL EXPORTS
