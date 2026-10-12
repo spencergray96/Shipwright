@@ -87,6 +87,27 @@ void WorldFog_UseNoBoundary(void);
 // least over the rectangles of each axis's gap outside, hypot-ed; 0 inside, and 0 with none.
 float WorldFog_DistancePast(const WorldFogRect* rects, uint8_t count, float x, float z);
 
+// Sky-colour fog (sturdy-bassoon#226, an experiment): fogged pixels blend toward the sky behind them - a copy of the
+// frame taken just before the rooms draw - instead of toward the fog colour, so fully fogged geometry is the sky,
+// clouds and all. Only the colour changes; the fog factor (vanilla or world-unit, the boundary term, shade alpha) is
+// untouched. DX11 only (libultraship interpreter.h, Fast::SkyFogSet). A console setting (`fog sky`), off at launch and
+// kept across scene loads; nothing is saved.
+//   mirror: the copy as it is, so fogged ground below the horizon takes the skybox's mirrored sky
+//   clamp:  a pixel below the horizon takes the sky just above the horizon, in its own column
+#define WORLD_FOG_SKY_OFF 0
+#define WORLD_FOG_SKY_MIRROR 1
+#define WORLD_FOG_SKY_CLAMP 2
+void WorldFog_SetSky(uint8_t mode);
+uint8_t WorldFog_Sky(void);
+// `fog sky hold` (a measurement aid): keep fogging toward the copy already taken instead of a fresh one each frame,
+// so two captures a moment apart see the same sky in their fog (Fast::SkyFogHold).
+void WorldFog_SetSkyHold(uint8_t hold);
+// Play_Draw's copy point, after the lightning flash and before the rooms (z_play.c): while sky fog is on, emits the
+// copy of the frame into gSkyFogFrameBuffer - a bare gDPCopyFB, which changes no RDP state the rooms inherit. With it
+// off it emits nothing, so the display list is exactly today's.
+union Gfx;
+void WorldFog_SkyCopy(union Gfx** gfx);
+
 #ifdef __cplusplus
 }
 #endif
