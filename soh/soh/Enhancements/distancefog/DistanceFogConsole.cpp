@@ -471,7 +471,8 @@ const char* SkyName(uint8_t mode) {
 
 // The sky line, for `fog sky ...` and `fog status`. armed= whether the last rendered frame took the copy, size= and
 // origin= the copy and where it came from in the render target, horizon_row= the horizon's row in the copy at its
-// centre column (clamp's), horizon= the line over render-target pixels, dumps= the `fog sky dump`s written.
+// centre column (clamp's), horizon= the line over render-target pixels at float precision (a check rebuilds clamp's
+// sample rows from it, and 6 digits put a row off by one), dumps= the `fog sky dump`s written.
 void DescribeSky(const char* op, const char* action, std::vector<std::string>& lines) {
     const Fast::SkyFogStatus& now = Fast::SkyFogNow();
     const Fast::SkyFogParams& p = now.last;
@@ -482,7 +483,7 @@ void DescribeSky(const char* op, const char* action, std::vector<std::string>& l
     }
     Addf(lines,
          "op=%s result=ok action=%s sky=%s method=%s fb=%d copies=%llu armed=%d size=%dx%d origin=%d,%d msaa=%u "
-         "horizon_row=%s horizon=%.6g,%.6g,%.6g dumps=%llu dump_ok=%d dump_pending=%d hold=%d",
+         "horizon_row=%s horizon=%.9g,%.9g,%.9g dumps=%llu dump_ok=%d dump_pending=%d hold=%d",
          op, action, SkyName(WorldFog_Sky()), SkyName(sSkyMethod), now.fb, (unsigned long long)now.copies,
          now.copies != 0 && now.lastCopyRun == now.runs ? 1 : 0, p.size[0], p.size[1], p.origin[0], p.origin[1],
          now.msaa, row, p.horizon[0], p.horizon[1], p.horizon[2], (unsigned long long)now.dumps,
