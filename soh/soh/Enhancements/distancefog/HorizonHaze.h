@@ -10,8 +10,9 @@
 // colour instead of a painted sky of another, and the clip removing them as the camera turns shows nothing.
 //
 // The ring is its own mesh, centred on the eye the way the skybox is (so frame interpolation treats it the same)
-// but fixed in the world's directions - the skybox's mesh rotates. Opaque from the nadir up to `height` degrees
-// above the eye's horizontal plane, fading to clear over a further `fade` degrees. Drawn into POLY_OPA right after
+// but fixed in the world's directions - the skybox's mesh rotates - and min(4000, zFar / 2) units out (why that,
+// and not inside the skybox's cube: HorizonHaze.cpp). Opaque from the nadir up to `height` degrees above the eye's
+// horizontal plane, fading to clear over a further `fade` degrees. Drawn into POLY_OPA right after
 // the skybox (z_play.c, Play_Draw): before the sun and moon, so a low sun stays visible over it, and before the
 // lightning flash, so it flashes with the sky. No Z test and no Z write, as the sky; everything the world draws
 // paints over it. Its colour is lightCtx.fogColor every tick, so it follows the time of day and the storm.

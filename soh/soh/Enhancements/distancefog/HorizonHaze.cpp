@@ -1,5 +1,6 @@
 #include "HorizonHaze.h"
 
+#include <algorithm>
 #include <cmath>
 
 #include "soh/frame_interpolation.h"
@@ -16,13 +17,19 @@ namespace {
 // The ring: 64 segments around, fixed in the world's directions (column k at azimuth k * 360/64 from +X), and
 // four rows - the nadir, the horizon, the height, and the top of the fade. Three strips between them: the nadir
 // fan and horizon-to-height are opaque, height-to-top fades out. Vtx positions are s16, so the mesh is built at
-// radius 4096 (rounding under 0.007 degrees) and the matrix scales it to 48 world units: inside the normal
-// skybox cube, whose faces stand at +/-64 (z_vr_box.c), and well outside zNear 10.
+// radius 4096 (rounding under 0.007 degrees) and the matrix scales it to the world radius below.
+//
+// The world radius is min(4000, half the view's zFar). Drawn with no Z, the radius changes nothing on screen while the
+// ring is centred on the eye; what it decides is how much an off-centre ring shows. Entering first person, the
+// ring's centre lands about one tick's eye travel (20-30 units) off the eye that renders it for a tick or two (cause
+// not pinned: docs/test-runs/2026-10-11-issue-168-horizon-haze). At 48 units, inside the skybox cube, that stood the
+// band at 1.7-2.7x its height, sometimes over the whole sky; at 4000 it is a fraction of a degree. Half the clip
+// keeps every point of the ring inside the far plane, so a low `fog world ... clip=` cannot cut it away.
 constexpr int kSegments = 64;
 constexpr int kColumns = kSegments + 1; // the last column repeats the first, so every strip closes on itself
 constexpr int kRows = 4;
 constexpr float kMeshRadius = 4096.0f;
-constexpr float kWorldRadius = 48.0f;
+constexpr float kWorldRadiusMax = 4000.0f;
 // Segments per vertex load: 17 columns from each of a strip's two rows, 34 vertices; the interpreter holds 64.
 constexpr int kChunk = 16;
 constexpr float kPi = 3.14159265358979f;
@@ -112,9 +119,10 @@ void HorizonHaze_Draw(PlayState* play) {
     FrameInterpolation_RecordOpenChild(&sInterpolationKey, FrameInterpolation_GetCameraEpoch());
 
     // Camera-centred like the skybox, but with no rotation: the ring's directions are the world's.
+    const float scale = std::min(kWorldRadiusMax, 0.5f * play->view.zFar) / kMeshRadius;
     Mtx* mtx = static_cast<Mtx*>(Graph_Alloc(gfxCtx, sizeof(Mtx)));
     Matrix_Translate(play->view.eye.x, play->view.eye.y, play->view.eye.z, MTXMODE_NEW);
-    Matrix_Scale(kWorldRadius / kMeshRadius, kWorldRadius / kMeshRadius, kWorldRadius / kMeshRadius, MTXMODE_APPLY);
+    Matrix_Scale(scale, scale, scale, MTXMODE_APPLY);
     Matrix_ToMtx(mtx, const_cast<char*>(__FILE__), __LINE__);
 
     // Colour from prim (the live fog colour), alpha from the vertices; blended over the sky with no Z compare and
