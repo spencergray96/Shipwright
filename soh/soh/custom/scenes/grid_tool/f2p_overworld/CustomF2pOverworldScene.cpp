@@ -59,6 +59,12 @@ static const WorldFogSetting sF2pOverworldWorldFog[8] = {
     { 6000, 11500, 12800 }, // storm night
 };
 
+// Boundary fog (sturdy-bassoon#169): the playable area as world-unit rectangles {x0, z0, x1, z1}, and the ramp
+// past it - clear out to 0 units outside, fully fogged at 1280. Drawn only under world-unit fog (#167).
+static const WorldFogRect sF2pOverworldFogBoundary[1] = {
+    { -7680, -7680, 7680, 7680 },
+};
+
 // v1 scope has no multi-entrance/exit support - a single spawn index 0.
 static EntranceEntry sF2pOverworldEntrances[] = {
     { 0, 0 },
@@ -137,6 +143,10 @@ static void InitScene(PlayState* play, s32 spawn) {
     play->envCtx.numLightSettings  = 4;
     play->envCtx.lightSettingsList = sF2pOverworldLightSettings;
     WorldFog_SetScene(sF2pOverworldWorldFog, ARRAY_COUNT(sF2pOverworldWorldFog));
+    WorldFog_SetBoundary(sF2pOverworldFogBoundary, 1, 0, 1280);
+    // The horizon haze band (sturdy-bassoon#168): opaque up to this many degrees above the horizon, then fading
+    // out over the next, under world-unit fog.
+    WorldFog_SetHaze(4.0f, 3.0f);
 
     Play_InitEnvironment(play, play->skyboxId);
     GameInteractor_ExecuteAfterSceneCommands(play->sceneNum);

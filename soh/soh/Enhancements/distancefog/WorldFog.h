@@ -92,7 +92,7 @@ float WorldFog_DistancePast(const WorldFogRect* rects, uint8_t count, float x, f
 // degrees above the eye's horizontal plane and fading out over a further `fade`. One pair per scene, from its
 // InitScene after WorldFog_SetScene. WorldFog_ClearScene sets the defaults, so a scene exported before the haze
 // existed - world rows, no haze call - gets them. The defaults and the max mirror sceneTemplate.ts's HORIZON_HAZE
-// and HORIZON_HAZE_MAX; change both.
+// and HORIZON_HAZE_MAX; change both. 4 and 3 are the owner's pick (2026-10-11).
 #define WORLD_FOG_HAZE_DEFAULT_HEIGHT 4.0f
 #define WORLD_FOG_HAZE_DEFAULT_FADE 3.0f
 // Each of height and fade runs 0..this many degrees.
