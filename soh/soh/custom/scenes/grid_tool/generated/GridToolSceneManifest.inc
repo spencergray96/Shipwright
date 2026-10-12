@@ -53,4 +53,5 @@
     { SCENE_WORLD_EXPORT_WEST_173_SYNTHETIC, CustomWorldExportWest173SyntheticScene_TrySpawn, CustomWorldExportWest173SyntheticScene_InitRoom }, // project e1730000-0000-4000-8000-0000000000e1 name world_export_west_173_synthetic
     { SCENE_F5_CELLAR_173, CustomF5Cellar173Scene_TrySpawn, CustomF5Cellar173Scene_InitRoom }, // project f1730000-0000-4000-8000-0000000000f5 name f5_cellar_173
     { SCENE_TERRAIN_F2P_FOG, CustomTerrainF2pFogScene_TrySpawn, CustomTerrainF2pFogScene_InitRoom }, // terrain-bake terrain_f2p_fog
+    { SCENE_SCENE_224_FOUNTAIN_COLLISION_BENCH, CustomScene224FountainCollisionBenchScene_TrySpawn, CustomScene224FountainCollisionBenchScene_InitRoom }, // project 41a69016-b94c-4f25-bd01-d70e6b68cb4e name scene_224_fountain_collision_bench
 // END GRID TOOL EXPORTS

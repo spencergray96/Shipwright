@@ -185,4 +185,5 @@
 /* 0xA8 */ DEFINE_SCENE(world_export_west_173_synthetic_scene, none, SCENE_WORLD_EXPORT_WEST_173_SYNTHETIC, SDC_DEFAULT, 0, 0) // project e1730000-0000-4000-8000-0000000000e1 name world_export_west_173_synthetic
 /* 0xA9 */ DEFINE_SCENE(f5_cellar_173_scene, none, SCENE_F5_CELLAR_173, SDC_DEFAULT, 0, 0) // project f1730000-0000-4000-8000-0000000000f5 name f5_cellar_173
 /* 0xAA */ DEFINE_SCENE(terrain_f2p_fog_scene, none, SCENE_TERRAIN_F2P_FOG, SDC_DEFAULT, 0, 0) // terrain-bake terrain_f2p_fog
+/* 0xAB */ DEFINE_SCENE(scene_224_fountain_collision_bench_scene, none, SCENE_SCENE_224_FOUNTAIN_COLLISION_BENCH, SDC_DEFAULT, 0, 0) // project 41a69016-b94c-4f25-bd01-d70e6b68cb4e name scene_224_fountain_collision_bench
 // END GRID TOOL EXPORTS

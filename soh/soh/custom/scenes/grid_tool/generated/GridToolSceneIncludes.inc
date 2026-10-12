@@ -52,4 +52,5 @@
 #include "../world_export_west_173_synthetic/CustomWorldExportWest173SyntheticScene.h" // project e1730000-0000-4000-8000-0000000000e1 name world_export_west_173_synthetic
 #include "../f5_cellar_173/CustomF5Cellar173Scene.h" // project f1730000-0000-4000-8000-0000000000f5 name f5_cellar_173
 #include "../terrain_f2p_fog/CustomTerrainF2pFogScene.h" // terrain-bake terrain_f2p_fog
+#include "../scene_224_fountain_collision_bench/CustomScene224FountainCollisionBenchScene.h" // project 41a69016-b94c-4f25-bd01-d70e6b68cb4e name scene_224_fountain_collision_bench
 // END GRID TOOL EXPORTS
