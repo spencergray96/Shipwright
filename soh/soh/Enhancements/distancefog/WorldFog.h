@@ -37,7 +37,8 @@ typedef struct WorldFogSetting {
 // then the storm's four). Any other count, or a NULL table, leaves the scene on vanilla fog.
 void WorldFog_SetScene(const WorldFogSetting* rows, uint8_t count);
 // Every scene spawn starts here (Play_SpawnScene), so only a scene that sets rows has them - and the same for a
-// boundary (sturdy-bassoon#169, below), which this clears in the renderer too.
+// boundary (sturdy-bassoon#169, below), which this clears in the renderer too. The horizon haze
+// (sturdy-bassoon#168, below) goes back to its defaults.
 void WorldFog_ClearScene(void);
 // 1 when the loaded scene has rows.
 uint8_t WorldFog_HasScene(void);
@@ -86,6 +87,27 @@ void WorldFog_UseNoBoundary(void);
 // The distance past `rects` at world (x, z), by the renderer's own function (Fast::FogBoundaryDistance): the
 // least over the rectangles of each axis's gap outside, hypot-ed; 0 inside, and 0 with none.
 float WorldFog_DistancePast(const WorldFogRect* rects, uint8_t count, float x, float z);
+
+// The horizon haze band (sturdy-bassoon#168; HorizonHaze.h): drawn under world-unit fog, opaque up to `height`
+// degrees above the eye's horizontal plane and fading out over a further `fade`. One pair per scene, from its
+// InitScene after WorldFog_SetScene. WorldFog_ClearScene sets the defaults, so a scene exported before the haze
+// existed - world rows, no haze call - gets them. The defaults and the max mirror sceneTemplate.ts's HORIZON_HAZE
+// and HORIZON_HAZE_MAX; change both.
+#define WORLD_FOG_HAZE_DEFAULT_HEIGHT 4.0f
+#define WORLD_FOG_HAZE_DEFAULT_FADE 3.0f
+// Each of height and fade runs 0..this many degrees.
+#define WORLD_FOG_HAZE_MAX 45.0f
+
+typedef struct WorldFogHaze {
+    float height; // degrees above the eye's horizontal plane, opaque up to here
+    float fade;   // degrees above that over which it fades to clear
+} WorldFogHaze;
+
+// A value outside 0..WORLD_FOG_HAZE_MAX is held to it, with an error in the log: compiled-in scene data, so an
+// exporter bug.
+void WorldFog_SetHaze(float height, float fade);
+// The scene's height and fade (the defaults when it set none).
+WorldFogHaze WorldFog_SceneHaze(void);
 
 #ifdef __cplusplus
 }
