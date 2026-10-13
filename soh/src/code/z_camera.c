@@ -53,6 +53,24 @@ void Camera_GetFrameDiag(CameraFrameDiag* out) {
     *out = sCamDiag;
 }
 
+// A collision poly as the trace prints it: its index in the static scene's list, -1 for none, -2 for
+// a dynapoly (#223).
+static s16 Camera_DiagPolyIndex(Camera* camera, CollisionPoly* poly, s32 bgId) {
+    if (poly == NULL) {
+        return -1;
+    }
+    if (bgId != BGCHECK_SCENE) {
+        return -2;
+    }
+    return (s16)(poly - camera->play->colCtx.colHeader->polyList);
+}
+
+// Camera_FloorAheadIfReachable's verdict on the probe it last ran, for the trace (#223).
+static s16 sProbeVerdict;
+static s16 sProbeReachPoly;
+static f32 sProbeReachY;
+static s32 sProbeLineHit; // the even frame's Camera_BGCheckInfo stopped on geometry
+
 /**
  * The #136 knob, clamped to 0..1: how far adult Link's camera height is moved toward Young Link's.
  */
@@ -734,15 +752,23 @@ static f32 Camera_FloorAheadIfReachable(Camera* camera, Vec3f* probePos, f32 flo
     s32 bgId;
     s32 riseUnderHead;
 
+    sProbeReachPoly = -1;
+    sProbeReachY = 0.0f;
     if (!CVarGetInteger(CVAR_CAM_FLOOR_AHEAD_ON, CAM_FLOOR_AHEAD_ON_DEFAULT)) {
+        sProbeVerdict = 3;
         return floorY; // #152 bisect switch: vanilla's reading, unfiltered
     }
     if (floorY == BGCHECK_Y_MIN || (floorY >= groundY - 1.0f && floorY <= groundY + 1.0f)) {
+        sProbeVerdict = 2;
         return floorY;
     }
     riseUnderHead = floorY > groundY + 1.0f && floorY <= groundY + height;
-    if (riseUnderHead && (!CVarGetInteger(CVAR_CAM_RISE_WALL, CAM_RISE_WALL_DEFAULT) ||
-                          !GridToolSceneRegistry_IsCustomScene(camera->play->sceneNum))) {
+    if (riseUnderHead && !CVarGetInteger(CVAR_CAM_RISE_WALL, CAM_RISE_WALL_DEFAULT)) {
+        sProbeVerdict = 4;
+        return floorY;
+    }
+    if (riseUnderHead && !GridToolSceneRegistry_IsCustomScene(camera->play->sceneNum)) {
+        sProbeVerdict = 5;
         return floorY;
     }
     from.x = camera->playerPosRot.pos.x;
@@ -759,9 +785,34 @@ static f32 Camera_FloorAheadIfReachable(Camera* camera, Vec3f* probePos, f32 flo
     // head height walls only (#223): the riser or tier side in the way, never the slope itself.
     if (BgCheck_CameraLineTest1(&camera->play->colCtx, &from, &to, &hit, &poly, 1, !riseUnderHead, !riseUnderHead, 1,
                                 &bgId)) {
+        sProbeVerdict = 1;
+        sProbeReachPoly = Camera_DiagPolyIndex(camera, poly, bgId);
+        sProbeReachY = hit.y;
         return BGCHECK_Y_MIN;
     }
+    sProbeVerdict = 0;
     return floorY;
+}
+
+// The trace's copy of one probe point's reading (#223): where, the floor under it before the
+// reachability rule, and that rule's verdict on it.
+static void Camera_DiagProbe(Camera* camera, s32 i, Vec3f* pos, f32 floorY) {
+    CollisionPoly* floorPoly = NULL;
+    s32 floorBgId = BGCHECK_SCENE;
+    Vec3f above = *pos;
+
+    // Read-only: the same floor again from just above it, for its poly.
+    if (floorY != BGCHECK_Y_MIN) {
+        above.y = floorY + 1.0f;
+        BgCheck_CameraRaycastFloor2(&camera->play->colCtx, &floorPoly, &floorBgId, &above);
+    }
+    sCamDiag.probeX[i] = pos->x;
+    sCamDiag.probeZ[i] = pos->z;
+    sCamDiag.probeFloorRaw[i] = floorY == BGCHECK_Y_MIN ? -9999.0f : floorY - camera->playerGroundY;
+    sCamDiag.probeFloorPoly[i] = Camera_DiagPolyIndex(camera, floorPoly, floorBgId);
+    sCamDiag.probeVerdict[i] = sProbeVerdict;
+    sCamDiag.probeReachPoly[i] = sProbeReachPoly;
+    sCamDiag.probeReachY[i] = sProbeReachY;
 }
 
 static f32 D_8015CE50;
@@ -782,6 +833,7 @@ s16 func_80044ADC(Camera* camera, s16 yaw, s16 arg2) {
     f32 sp2C;
     f32 phi_f16;
     f32 playerHeight;
+    f32 floorRaw;
 
     sinYaw = Math_SinS(yaw);
     cosYaw = Math_CosS(yaw);
@@ -814,7 +866,7 @@ s16 func_80044ADC(Camera* camera, s16 yaw, s16 arg2) {
         D_8015CE58.pos.x = playerPos.x + (sp2C * sinYaw);
         D_8015CE58.pos.y = playerPos.y;
         D_8015CE58.pos.z = playerPos.z + (sp2C * cosYaw);
-        Camera_BGCheckInfo(camera, &playerPos, &D_8015CE58);
+        sProbeLineHit = Camera_BGCheckInfo(camera, &playerPos, &D_8015CE58);
         if (arg2) {
             D_8015CE50 = D_8015CE54 = camera->playerGroundY;
         }
@@ -823,15 +875,23 @@ s16 func_80044ADC(Camera* camera, s16 yaw, s16 arg2) {
         D_8015CE58.pos.x += D_8015CE58.norm.x * 5.0f;
         D_8015CE58.pos.y += D_8015CE58.norm.y * 5.0f;
         D_8015CE58.pos.z += D_8015CE58.norm.z * 5.0f;
+        sCamDiag.probeYaw = yaw;
+        sCamDiag.probeOriginY = playerPos.y;
+        sCamDiag.probeLineDist = sp2C;
+        sCamDiag.probeLinePoly = sProbeLineHit ? Camera_DiagPolyIndex(camera, D_8015CE58.poly, D_8015CE58.bgId) : -1;
         if (sp2C < sp30) {
             sp30 = sp2C;
-            D_8015CE50 = D_8015CE54 = Camera_FloorAheadIfReachable(
-                camera, &D_8015CE58.pos, Camera_GetFloorYLayer(camera, &floorNorm, &D_8015CE58.pos, &bgId));
+            floorRaw = Camera_GetFloorYLayer(camera, &floorNorm, &D_8015CE58.pos, &bgId);
+            D_8015CE50 = D_8015CE54 = Camera_FloorAheadIfReachable(camera, &D_8015CE58.pos, floorRaw);
+            Camera_DiagProbe(camera, 0, &D_8015CE58.pos, floorRaw);
+            Camera_DiagProbe(camera, 1, &D_8015CE58.pos, floorRaw);
         } else {
-            D_8015CE50 = Camera_FloorAheadIfReachable(camera, &rotatedPos,
-                                                      Camera_GetFloorYLayer(camera, &floorNorm, &rotatedPos, &bgId));
-            D_8015CE54 = Camera_FloorAheadIfReachable(
-                camera, &D_8015CE58.pos, Camera_GetFloorYLayer(camera, &floorNorm, &D_8015CE58.pos, &bgId));
+            floorRaw = Camera_GetFloorYLayer(camera, &floorNorm, &rotatedPos, &bgId);
+            D_8015CE50 = Camera_FloorAheadIfReachable(camera, &rotatedPos, floorRaw);
+            Camera_DiagProbe(camera, 0, &rotatedPos, floorRaw);
+            floorRaw = Camera_GetFloorYLayer(camera, &floorNorm, &D_8015CE58.pos, &bgId);
+            D_8015CE54 = Camera_FloorAheadIfReachable(camera, &D_8015CE58.pos, floorRaw);
+            Camera_DiagProbe(camera, 1, &D_8015CE58.pos, floorRaw);
         }
 
         if (D_8015CE50 == BGCHECK_Y_MIN) {

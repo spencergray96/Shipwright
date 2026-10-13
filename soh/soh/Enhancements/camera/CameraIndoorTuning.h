@@ -330,6 +330,22 @@ typedef struct {
     f32 dropFar;     // last read them (before the #155 knobs; they hold between odd frames)
     f32 height;      // the camera's player height this frame (#136)
     f32 eyeHeld;     // how far the eye release held the eye back this frame, 0 when it did not (#174)
+    // The slope probe's last odd-frame reading, as func_80044ADC took it (#223). Poly indices are the
+    // static scene's (-1 none, -2 a dynapoly).
+    s16 probeYaw;       // the yaw it probed along
+    s16 probeLinePoly;  // what the probe line from the origin hit (Camera_BGCheckInfo), -1 nothing
+    f32 probeOriginY;   // the probe line's height
+    f32 probeLineDist;  // XZ distance from Link to the probe line's stop point
+    f32 probeX[2];      // near and far probe points (they are the same point when the line stopped short)
+    f32 probeZ[2];
+    f32 probeFloorRaw[2]; // the floor under each, relative to Link's ground, before reachability
+    s16 probeFloorPoly[2];
+    s16 probeVerdict[2];  // Camera_FloorAheadIfReachable: 0 kept (line clear), 1 rejected by the
+                          // line, 2 kept untested (level or no floor), 3 floorahead off, 4 a rise
+                          // under head height kept because risewall is off, 5 ... because the scene
+                          // is not a grid-tool scene
+    s16 probeReachPoly[2]; // the poly the reachability line stopped on, -1 none
+    f32 probeReachY[2];    // and the height it stopped at
 } CameraFrameDiag;
 
 void Camera_GetFrameDiag(CameraFrameDiag* out);
