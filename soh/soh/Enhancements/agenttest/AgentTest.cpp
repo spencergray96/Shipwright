@@ -1874,6 +1874,40 @@ int32_t Water206_Run(const std::vector<std::string>& args, std::vector<std::stri
         lines.push_back(buf);
         return 0;
     }
+    if (sub == "bottle") {
+        // An empty bottle in bottle slot 1, on C-left (the harness presses CLEFT to swing it).
+        gSaveContext.inventory.items[SLOT_BOTTLE_1] = ITEM_BOTTLE;
+        gSaveContext.equips.buttonItems[1] = ITEM_BOTTLE;
+        gSaveContext.equips.cButtonSlots[0] = SLOT_BOTTLE_1;
+        Interface_LoadItemIcon1(gPlayState, 1);
+        lines.push_back("op=bottle result=ok slot=bottle1 button=CLEFT");
+        return 0;
+    }
+    if (sub == "inv") {
+        std::snprintf(buf, sizeof(buf), "op=inv bottle1=0x%02X cleft=0x%02X fish_item=0x%02X",
+                      gSaveContext.inventory.items[SLOT_BOTTLE_1], gSaveContext.equips.buttonItems[1], ITEM_FISH);
+        lines.push_back(buf);
+        return 0;
+    }
+    if (sub == "fish") {
+        int n = 0;
+        for (Actor* a = gPlayState->actorCtx.actorLists[ACTORCAT_ITEMACTION].head; a != nullptr; a = a->next) {
+            if (a->id != ACTOR_EN_FISH) {
+                continue;
+            }
+            n++;
+            std::snprintf(buf, sizeof(buf),
+                          "op=fish pos=%.1f,%.1f,%.1f params=%d bg=0x%X in_water=%d ydw=%.1f xz_to_link=%.1f "
+                          "y_to_link=%.1f",
+                          a->world.pos.x, a->world.pos.y, a->world.pos.z, a->params,
+                          static_cast<unsigned>(a->bgCheckFlags), (a->bgCheckFlags & 0x20) ? 1 : 0, a->yDistToWater,
+                          a->xzDistToPlayer, a->yDistToPlayer);
+            lines.push_back(buf);
+        }
+        std::snprintf(buf, sizeof(buf), "op=fish n=%d", n);
+        lines.push_back(buf);
+        return 0;
+    }
     lines.push_back("op=" + sub + " result=error why=unknown_subcommand");
     return 1;
 }
