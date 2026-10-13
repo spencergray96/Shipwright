@@ -11,6 +11,8 @@
 #include "HorizonHaze.h"
 #include "WorldFog.h"
 
+#include <fast/interpreter.h>
+
 extern "C" {
 #include <z64.h>
 #include "macros.h"
@@ -470,6 +472,91 @@ int32_t RunEdge(const std::vector<std::string>& args, std::vector<std::string>& 
     return 0;
 }
 
+// Sky-colour fog (sturdy-bassoon#226; WorldFog.h). The method `on` switches to; `mirror` and `clamp` set it.
+uint8_t sSkyMethod = WORLD_FOG_SKY_MIRROR;
+uint32_t sSkyDumpCount = 0;
+
+const char* SkyName(uint8_t mode) {
+    return mode == WORLD_FOG_SKY_MIRROR ? "mirror" : (mode == WORLD_FOG_SKY_CLAMP ? "clamp" : "off");
+}
+
+// The sky line, for `fog sky ...` and `fog status`. armed= whether the last rendered frame took the copy, size= and
+// origin= the copy and where it came from in the render target, horizon_row= the horizon's row in the copy at its
+// centre column (clamp's), horizon= the line over render-target pixels at float precision (a check rebuilds clamp's
+// sample rows from it, and 6 digits put a row off by one), dumps= the `fog sky dump`s written.
+void DescribeSky(const char* op, const char* action, std::vector<std::string>& lines) {
+    const Fast::SkyFogStatus& now = Fast::SkyFogNow();
+    const Fast::SkyFogParams& p = now.last;
+    char row[32] = "none";
+    if (now.copies != 0 && std::abs(p.horizon[1]) > Fast::SKY_FOG_HORIZON_EPSILON) {
+        const float cx = p.origin[0] + p.size[0] * 0.5f;
+        std::snprintf(row, sizeof(row), "%.1f", -(p.horizon[0] * cx + p.horizon[2]) / p.horizon[1] - p.origin[1]);
+    }
+    Addf(lines,
+         "op=%s result=ok action=%s sky=%s method=%s fb=%d copies=%llu armed=%d size=%dx%d origin=%d,%d msaa=%u "
+         "horizon_row=%s horizon=%.9g,%.9g,%.9g dumps=%llu dump_ok=%d dump_pending=%d hold=%d",
+         op, action, SkyName(WorldFog_Sky()), SkyName(sSkyMethod), now.fb, (unsigned long long)now.copies,
+         now.copies != 0 && now.lastCopyRun == now.runs ? 1 : 0, p.size[0], p.size[1], p.origin[0], p.origin[1],
+         now.msaa, row, p.horizon[0], p.horizon[1], p.horizon[2], (unsigned long long)now.dumps,
+         now.lastDumpOk ? 1 : 0, now.dumpPending ? 1 : 0, now.hold ? 1 : 0);
+}
+
+constexpr const char* kSkyUsage =
+    "usage=sky_[status]|sky_on|sky_off|sky_mirror|sky_clamp|sky_dump_[<path-prefix>]|sky_hold_on|sky_hold_off";
+
+// `fog sky ...` (sturdy-bassoon#226): switch sky-colour fog live.
+int32_t RunSky(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    const std::string action = args.size() < 2 ? "status" : args[1];
+    if (action == "dump" && args.size() <= 3) {
+        if (WorldFog_Sky() == WORLD_FOG_SKY_OFF) {
+            // The dump is taken from a frame that copied the sky; with it off none does.
+            Addf(lines, "op=sky result=error error=sky_off %s", kSkyUsage);
+            return 1;
+        }
+        std::string prefix;
+        if (args.size() == 3) {
+            prefix = args[2];
+        } else {
+            const char* temp = std::getenv("TEMP");
+            prefix = std::string(temp != nullptr ? temp : ".") + "/skyfog-" + std::to_string(++sSkyDumpCount);
+        }
+        Fast::SkyFogRequestDump(prefix);
+        DescribeSky("sky", "dump", lines);
+        return 0;
+    }
+    if (action == "hold") {
+        if (args.size() != 3 || (args[2] != "on" && args[2] != "off")) {
+            Addf(lines, "op=sky result=error error=bad_argument %s", kSkyUsage);
+            return 1;
+        }
+        WorldFog_SetSkyHold(args[2] == "on" ? 1 : 0);
+        DescribeSky("sky", "hold", lines);
+        return 0;
+    }
+    if (args.size() > 2) {
+        Addf(lines, "op=sky result=error error=bad_argument %s", kSkyUsage);
+        return 1;
+    }
+    if (action == "status") {
+        DescribeSky("sky", "status", lines);
+        return 0;
+    }
+    if (action == "on") {
+        WorldFog_SetSky(sSkyMethod);
+    } else if (action == "off") {
+        WorldFog_SetSky(WORLD_FOG_SKY_OFF);
+    } else if (action == "mirror" || action == "clamp") {
+        sSkyMethod = action == "mirror" ? WORLD_FOG_SKY_MIRROR : WORLD_FOG_SKY_CLAMP;
+        WorldFog_SetSky(sSkyMethod);
+    } else {
+        // The typed word is not echoed.
+        Addf(lines, "op=sky result=error error=unknown_subcommand %s", kSkyUsage);
+        return 1;
+    }
+    DescribeSky("sky", action.c_str(), lines);
+    return 0;
+}
+
 // A degree value as a C float literal, as sceneTemplate.ts writes it: 4.0f, 2.25f.
 std::string FloatLiteral(float value) {
     char text[32];
@@ -570,11 +657,12 @@ int32_t DistanceFogConsole_Run(const std::vector<std::string>& args, std::vector
     const bool isSet = LooksNumeric(sub);
     const char* op = isSet || sub == "world" ? "set" : sub.c_str();
 
-    if (!isSet && sub != "status" && sub != "off" && sub != "world" && sub != "edge" && sub != "haze") {
+    if (!isSet && sub != "status" && sub != "off" && sub != "world" && sub != "edge" && sub != "haze" &&
+        sub != "sky") {
         // The typed word is not echoed: it is free text, and this line is parsed field by field.
         lines.push_back("op=unknown result=error error=unknown_subcommand "
                         "usage=status|off|<near>_<far>_[r_g_b]_[max=<m>]|world_<start>_<end>_[r_g_b]_[clip=<c>]|"
-                        "edge_...|haze_...");
+                        "edge_...|haze_...|sky_...");
         return 1;
     }
     if (gPlayState == nullptr) {
@@ -607,6 +695,8 @@ int32_t DistanceFogConsole_Run(const std::vector<std::string>& args, std::vector
         DescribeEdge("status", "status", gPlayState, lines);
         // The horizon haze (sturdy-bassoon#168): its own line, as `fog haze status` prints it.
         DescribeHaze("status", "status", gPlayState, lines);
+        // Sky-colour fog (sturdy-bassoon#226): the sky's own line, as `fog sky status` prints it.
+        DescribeSky("status", "status", lines);
         return 0;
     }
     if (sub == "off") {
@@ -623,6 +713,9 @@ int32_t DistanceFogConsole_Run(const std::vector<std::string>& args, std::vector
     }
     if (sub == "haze") {
         return RunHaze(args, lines);
+    }
+    if (sub == "sky") {
+        return RunSky(args, lines);
     }
 
     // An optional trailing max=<m> (sturdy-bassoon#169): the fog-space value where fog reaches 100%, passed to
@@ -741,12 +834,16 @@ const ConsoleSink::Command distanceFogCommand(
     "edge to full at b1; edge rect <x0> <z0> <x1> <z1> [b0 b1] sets one rectangle by hand, in any scene; edge off "
     "turns it off, edge scene hands it back, edge status reads it. haze (sturdy-bassoon#168) tunes the horizon haze "
     "band, which under world fog lays the fog colour over the sky's lowest part, under the world: haze <H> <F> makes "
-    "it opaque up to H degrees above the horizon and fades it out over F more; haze off / on / scene / status. status "
-    "prints the live band, where it starts, and each light setting's fog as C to paste into a scene. A scene "
-    "load hands fog back; nothing is saved.",
-    { { "near|world|edge|haze|status|off", Ship::ArgumentType::TEXT, true },
-      { "far|start|H", Ship::ArgumentType::TEXT, true },
-      { "r|end|F", Ship::ArgumentType::TEXT, true },
+    "it opaque up to H degrees above the horizon and fades it out over F more; haze off / on / scene / status. sky "
+    "(sturdy-bassoon#226, an experiment, DX11) makes fogged pixels blend toward the sky behind them instead of the "
+    "fog colour: sky on|off, sky mirror (fogged ground takes the skybox's mirrored sky) or sky clamp (the sky just "
+    "above the horizon), sky status, sky dump [path-prefix] (writes the sky copy and the frame as PPMs, by default "
+    "in the TEMP folder), sky hold on|off (keep fogging toward the copy already taken, for captures a moment "
+    "apart); it is kept across scene loads. status prints the live band, where it starts, and each light "
+    "setting's fog as C to paste into a scene. A scene load hands fog back (not sky); nothing is saved.",
+    { { "near|world|edge|haze|sky|status|off", Ship::ArgumentType::TEXT, true },
+      { "far|start|H|on|off|mirror|clamp|dump", Ship::ArgumentType::TEXT, true },
+      { "r|end|F|path-prefix", Ship::ArgumentType::TEXT, true },
       { "g|r", Ship::ArgumentType::TEXT, true },
       { "b|g", Ship::ArgumentType::TEXT, true },
       { "max=<m>|b", Ship::ArgumentType::TEXT, true },

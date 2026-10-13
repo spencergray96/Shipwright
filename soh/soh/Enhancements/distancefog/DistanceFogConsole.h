@@ -71,6 +71,29 @@
 //                       the scene's InitScene call. drawn= and color= are the last frame's. `status` adds the same
 //                       line as op=status. `fog off` leaves the haze alone; a scene load hands it back.
 //                       Refusals: error=bad_argument and error=unknown_subcommand
+//   sky ...             sky-colour fog (sturdy-bassoon#226; WorldFog.h, an experiment, DX11 only): fogged pixels blend
+//                       toward the sky behind them, a copy of the frame taken before the rooms draw, instead of the fog
+//                       colour. Only the colour changes. Its own setting, kept across scene loads (unlike the band
+//                       and the edge), off at launch:
+//     sky [status]                read it
+//     sky on | sky off            switch it, on with the last method (mirror at launch)
+//     sky mirror | sky clamp      choose the method and switch it on: mirror reads the copy as it is, so fogged ground
+//                                 below the horizon takes the skybox's mirrored sky; clamp gives it the sky just above
+//                                 the horizon in its column
+//     sky dump [<path-prefix>]    at the end of the next frame that copied the sky, write <prefix>-copy.ppm and
+//                                 <prefix>-frame.ppm: the copy and the finished frame (before ImGui), same frame, 8-bit
+//                                 RGB, pixel for pixel. Default prefix <TEMP>/skyfog-<n>. Refused with sky off
+//     sky hold on|off             a measurement aid: keep fogging toward the copy already taken instead of a fresh one
+//                                 each frame, so captures a moment apart see the same sky in their fog (the sky itself
+//                                 still drifts). For a camera that does not move: the horizon is the held copy's
+//                       Each prints `op=sky result=ok action=... sky=off|mirror|clamp method=mirror|clamp fb=<n>
+//                       copies=<n> armed=0|1 size=<w>x<h> origin=<x>,<y> msaa=<n> horizon_row=<row|none>
+//                       horizon=<a>,<b>,<c> dumps=<n> dump_ok=0|1 dump_pending=0|1 hold=0|1`: armed=1 when the last
+//                       rendered frame armed sky fog (with hold=1, from the held copy), size= the copy (the internal
+//                       resolution), origin= where it came from in the render target, horizon_row= clamp's horizon
+//                       in the copy at its centre column, horizon= the line a x + b y + c over render-target pixels
+//                       (above it > 0). `status` adds it as op=status.
+//                       Refusals: error=sky_off (a dump with it off), error=bad_argument, error=unknown_subcommand
 //   status              read what is live and what the scene would give
 //   off                 hand fog and far clip back to the scene: its world-unit rows if it has them, else its
 //                       light settings. A <near> <far> band is vanilla fog even in a scene with rows

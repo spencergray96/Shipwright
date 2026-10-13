@@ -3,9 +3,16 @@
 #include <algorithm>
 #include <cmath>
 
+// libultra's gbi.h before the renderer's lus_gbi.h, which undoes the macros they share (OTRGlobals.cpp's order).
+extern "C" {
+#include "soh/framebuffer_effects.h"
+}
+
 #include <fast/interpreter.h>
 #include <spdlog/spdlog.h>
 
+static_assert(WORLD_FOG_SKY_MIRROR == Fast::SKY_FOG_MIRROR && WORLD_FOG_SKY_CLAMP == Fast::SKY_FOG_CLAMP,
+              "WorldFog.h's sky modes are the renderer's (sturdy-bassoon#226)");
 static_assert(WORLD_FOG_BOUNDARY_MAX_RECTS == Fast::FOG_BOUNDARY_MAX_RECTS,
               "WorldFog.h's rectangle cap is the renderer's (and sceneTemplate.ts's FOG_BOUNDARY_MAX_RECTS)");
 
@@ -72,6 +79,10 @@ void PushBoundary(const WorldFogRect* rects, uint8_t count, int16_t b0, int16_t 
     count = ToFloats(rects, count, out);
     Fast::FogBoundarySet(out, count, b0, b1);
 }
+
+// Sky-colour fog (sturdy-bassoon#226): the console's mode. The renderer is told the framebuffer and mode on every
+// change; the copy Play_Draw emits is what arms it, frame by frame.
+uint8_t sSky = WORLD_FOG_SKY_OFF;
 
 } // namespace
 
@@ -214,4 +225,25 @@ float WorldFog_DistancePast(const WorldFogRect* rects, uint8_t count, float x, f
     return Fast::FogBoundaryDistance(boundary, x, z);
 }
 
+void WorldFog_SetSky(uint8_t mode) {
+    sSky = mode <= WORLD_FOG_SKY_CLAMP ? mode : WORLD_FOG_SKY_OFF;
+    Fast::SkyFogSet(gSkyFogFrameBuffer, sSky);
+}
+
+uint8_t WorldFog_Sky(void) {
+    return sSky;
+}
+
+void WorldFog_SetSkyHold(uint8_t hold) {
+    Fast::SkyFogHold(hold != 0);
+}
+
+void WorldFog_SkyCopy(Gfx** gfx) {
+    if (sSky == WORLD_FOG_SKY_OFF || gSkyFogFrameBuffer < 0) {
+        return;
+    }
+    gDPCopyFB((*gfx)++, gSkyFogFrameBuffer, 0, false, NULL);
+}
+
 } // extern "C"
+

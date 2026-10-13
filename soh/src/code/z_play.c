@@ -1572,6 +1572,11 @@ void Play_Draw(PlayState* play) {
             Environment_DrawLightning(play, 0);
         }
 
+        // Sky-colour fog (sturdy-bassoon#226): the sky is complete here - skybox, sun and moon, filters, the lightning
+        // flash - and no room has drawn, so a copy of the frame now is what fogged geometry blends toward. Emits
+        // nothing while sky fog is off.
+        WorldFog_SkyCopy(&POLY_OPA_DISP);
+
         if ((HREG(80) != 10) || (HREG(90) & 8)) {
             sp228 = LightContext_NewLights(&play->lightCtx, gfxCtx);
             Lights_BindAll(sp228, play->lightCtx.listHead, NULL);
