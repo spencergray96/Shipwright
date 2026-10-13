@@ -109,18 +109,24 @@ void WorldFog_SetHaze(float height, float fade);
 // The scene's height and fade (the defaults when it set none).
 WorldFogHaze WorldFog_SceneHaze(void);
 
-// Sky-colour fog (sturdy-bassoon#226, an experiment): fogged pixels blend toward the sky behind them - a copy of the
-// frame taken just before the rooms draw - instead of toward the fog colour, so fully fogged geometry is the sky,
-// clouds and all. Only the colour changes; the fog factor (vanilla or world-unit, the boundary term, shade alpha) is
-// untouched. DX11 only (libultraship interpreter.h, Fast::SkyFogSet). A console setting (`fog sky`), off at launch and
-// kept across scene loads; nothing is saved.
+// Sky-colour fog (sturdy-bassoon#226): fogged pixels blend toward the sky behind them - a copy of the frame taken just
+// before the rooms draw - instead of toward the fog colour, so fully fogged geometry is the sky, clouds and all. Only
+// the colour changes; the fog factor (vanilla or world-unit, the boundary term, shade alpha) is untouched. DX11 only
+// (libultraship interpreter.h, Fast::SkyFogSet). Nothing is saved.
 //   mirror: the copy as it is, so fogged ground below the horizon takes the skybox's mirrored sky
 //   clamp:  a pixel below the horizon takes the sky just above the horizon, in its own column
 #define WORLD_FOG_SKY_OFF 0
 #define WORLD_FOG_SKY_MIRROR 1
 #define WORLD_FOG_SKY_CLAMP 2
-void WorldFog_SetSky(uint8_t mode);
+// Which fog takes the sky (sturdy-bassoon#230): all of it (#226 as merged), or the edge layer - only the boundary
+// term's share (#169), so the beyond ring dissolves into the live sky while depth fog keeps its colour. The console
+// (DistanceFogConsole.cpp) resolves the mode and scope every frame: by default the edge layer wherever world-unit fog
+// draws with a boundary, off elsewhere.
+#define WORLD_FOG_SKY_SCOPE_ALL 0
+#define WORLD_FOG_SKY_SCOPE_EDGE 1
+void WorldFog_SetSky(uint8_t mode, uint8_t scope);
 uint8_t WorldFog_Sky(void);
+uint8_t WorldFog_SkyScope(void);
 // `fog sky hold` (a measurement aid): keep fogging toward the copy already taken instead of a fresh one each frame,
 // so two captures a moment apart see the same sky in their fog (Fast::SkyFogHold).
 void WorldFog_SetSkyHold(uint8_t hold);

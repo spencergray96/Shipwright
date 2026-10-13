@@ -472,18 +472,74 @@ int32_t RunEdge(const std::vector<std::string>& args, std::vector<std::string>& 
     return 0;
 }
 
-// Sky-colour fog (sturdy-bassoon#226; WorldFog.h). The method `on` switches to; `mirror` and `clamp` set it.
+// Sky-colour fog (sturdy-bassoon#226; WorldFog.h) and its edge layer (sturdy-bassoon#230). The console chooses the
+// scope - auto (the default), edge, all or off - and the method, which `mirror` and `clamp` set. ApplySky resolves
+// them every frame. The choice is kept across scene loads, as #226's was; nothing is saved.
+enum class SkyChoice : uint8_t { Auto, Edge, All, Off };
+SkyChoice sSkyChoice = SkyChoice::Auto;
 uint8_t sSkyMethod = WORLD_FOG_SKY_MIRROR;
 uint32_t sSkyDumpCount = 0;
+// Why the live mode is what it is, for status: console (a choice other than auto), or auto's reason -
+// world_and_boundary (the edge layer draws), no_world_fog or no_boundary (it is off).
+const char* sSkyWhy = "no_world_fog";
 
 const char* SkyName(uint8_t mode) {
     return mode == WORLD_FOG_SKY_MIRROR ? "mirror" : (mode == WORLD_FOG_SKY_CLAMP ? "clamp" : "off");
 }
 
-// The sky line, for `fog sky ...` and `fog status`. armed= whether the last rendered frame took the copy, size= and
-// origin= the copy and where it came from in the render target, horizon_row= the horizon's row in the copy at its
-// centre column (clamp's), horizon= the line over render-target pixels at float precision (a check rebuilds clamp's
-// sample rows from it, and 6 digits put a row off by one), dumps= the `fog sky dump`s written.
+const char* SkyChoiceName(SkyChoice choice) {
+    switch (choice) {
+        case SkyChoice::Edge:
+            return "edge";
+        case SkyChoice::All:
+            return "all";
+        case SkyChoice::Off:
+            return "off";
+        case SkyChoice::Auto:
+            break;
+    }
+    return "auto";
+}
+
+// The live mode and scope for this frame, from the choice. Auto is the edge layer wherever world-unit fog draws
+// with a boundary - the beyond ring dissolving into the live sky - and off everywhere else, so vanilla scenes, scenes
+// without a boundary and `fog edge off` take no copy at all. Run at OnPlayDrawBegin after the band and the boundary
+// are resolved (ApplyOverride), and straight after a console change so status reads it at once.
+void ApplySky() {
+    bool on = true;
+    uint8_t scope = WORLD_FOG_SKY_SCOPE_EDGE;
+    switch (sSkyChoice) {
+        case SkyChoice::Edge:
+            sSkyWhy = "console";
+            break;
+        case SkyChoice::All:
+            scope = WORLD_FOG_SKY_SCOPE_ALL;
+            sSkyWhy = "console";
+            break;
+        case SkyChoice::Off:
+            on = false;
+            sSkyWhy = "console";
+            break;
+        default: {
+            s16 start = 0;
+            s16 end = 0;
+            const bool world = WorldFog_Live(&start, &end) != 0;
+            const bool boundary = LiveEdge().Draws();
+            on = world && boundary;
+            sSkyWhy = !world ? "no_world_fog" : (!boundary ? "no_boundary" : "world_and_boundary");
+            break;
+        }
+    }
+    WorldFog_SetSky(on ? sSkyMethod : WORLD_FOG_SKY_OFF, scope);
+}
+
+// The sky line, for `fog sky ...` and `fog status`. live= what draws (edge, all or off), from choice= (auto, edge,
+// all, off) for the reason why=; sky= the live method or off and method= the chosen one. armed= whether the last
+// rendered frame took the copy, size= and origin= the copy and where it came from in the render target, horizon_row=
+// the horizon's row in the copy at its centre column (clamp's), horizon= the line over render-target pixels at float
+// precision (a check rebuilds clamp's sample rows from it, and 6 digits put a row off by one), dumps= the
+// `fog sky dump`s written. edge_tris= and edge_baked= are the edge layer's witness (sturdy-bassoon#230): interpreted
+// triangles and baked draws the last rendered frame drew with it.
 void DescribeSky(const char* op, const char* action, std::vector<std::string>& lines) {
     const Fast::SkyFogStatus& now = Fast::SkyFogNow();
     const Fast::SkyFogParams& p = now.last;
@@ -492,17 +548,22 @@ void DescribeSky(const char* op, const char* action, std::vector<std::string>& l
         const float cx = p.origin[0] + p.size[0] * 0.5f;
         std::snprintf(row, sizeof(row), "%.1f", -(p.horizon[0] * cx + p.horizon[2]) / p.horizon[1] - p.origin[1]);
     }
+    const char* live = WorldFog_Sky() == WORLD_FOG_SKY_OFF
+                           ? "off"
+                           : (WorldFog_SkyScope() == WORLD_FOG_SKY_SCOPE_EDGE ? "edge" : "all");
     Addf(lines,
-         "op=%s result=ok action=%s sky=%s method=%s fb=%d copies=%llu armed=%d size=%dx%d origin=%d,%d msaa=%u "
-         "horizon_row=%s horizon=%.9g,%.9g,%.9g dumps=%llu dump_ok=%d dump_pending=%d hold=%d",
-         op, action, SkyName(WorldFog_Sky()), SkyName(sSkyMethod), now.fb, (unsigned long long)now.copies,
-         now.copies != 0 && now.lastCopyRun == now.runs ? 1 : 0, p.size[0], p.size[1], p.origin[0], p.origin[1],
-         now.msaa, row, p.horizon[0], p.horizon[1], p.horizon[2], (unsigned long long)now.dumps,
-         now.lastDumpOk ? 1 : 0, now.dumpPending ? 1 : 0, now.hold ? 1 : 0);
+         "op=%s result=ok action=%s live=%s choice=%s why=%s sky=%s method=%s fb=%d copies=%llu armed=%d size=%dx%d "
+         "origin=%d,%d msaa=%u horizon_row=%s horizon=%.9g,%.9g,%.9g dumps=%llu dump_ok=%d dump_pending=%d hold=%d "
+         "edge_tris=%llu edge_baked=%llu",
+         op, action, live, SkyChoiceName(sSkyChoice), sSkyWhy, SkyName(WorldFog_Sky()), SkyName(sSkyMethod), now.fb,
+         (unsigned long long)now.copies, now.copies != 0 && now.lastCopyRun == now.runs ? 1 : 0, p.size[0], p.size[1],
+         p.origin[0], p.origin[1], now.msaa, row, p.horizon[0], p.horizon[1], p.horizon[2],
+         (unsigned long long)now.dumps, now.lastDumpOk ? 1 : 0, now.dumpPending ? 1 : 0, now.hold ? 1 : 0,
+         (unsigned long long)now.lastEdgeTris, (unsigned long long)now.lastEdgeBakedDraws);
 }
 
-constexpr const char* kSkyUsage =
-    "usage=sky_[status]|sky_on|sky_off|sky_mirror|sky_clamp|sky_dump_[<path-prefix>]|sky_hold_on|sky_hold_off";
+constexpr const char* kSkyUsage = "usage=sky_[status]|sky_auto|sky_edge|sky_all|sky_on|sky_off|sky_mirror|sky_clamp|"
+                                  "sky_dump_[<path-prefix>]|sky_hold_on|sky_hold_off";
 
 // `fog sky ...` (sturdy-bassoon#226): switch sky-colour fog live.
 int32_t RunSky(const std::vector<std::string>& args, std::vector<std::string>& lines) {
@@ -541,18 +602,24 @@ int32_t RunSky(const std::vector<std::string>& args, std::vector<std::string>& l
         DescribeSky("sky", "status", lines);
         return 0;
     }
-    if (action == "on") {
-        WorldFog_SetSky(sSkyMethod);
+    // The scope words choose what draws; mirror and clamp only choose the method (sturdy-bassoon#230: under #226 they
+    // also switched it on, which the default now does where it matters). `on` is `all`, as #226's scripts used it.
+    if (action == "auto") {
+        sSkyChoice = SkyChoice::Auto;
+    } else if (action == "edge") {
+        sSkyChoice = SkyChoice::Edge;
+    } else if (action == "all" || action == "on") {
+        sSkyChoice = SkyChoice::All;
     } else if (action == "off") {
-        WorldFog_SetSky(WORLD_FOG_SKY_OFF);
+        sSkyChoice = SkyChoice::Off;
     } else if (action == "mirror" || action == "clamp") {
         sSkyMethod = action == "mirror" ? WORLD_FOG_SKY_MIRROR : WORLD_FOG_SKY_CLAMP;
-        WorldFog_SetSky(sSkyMethod);
     } else {
         // The typed word is not echoed.
         Addf(lines, "op=sky result=error error=unknown_subcommand %s", kSkyUsage);
         return 1;
     }
+    ApplySky();
     DescribeSky("sky", action.c_str(), lines);
     return 0;
 }
@@ -789,19 +856,22 @@ void ApplyOverride() {
     // band in any scene, or vanilla fog even in a scene with rows. Written every frame, like the max.
     if (!sOverride.active || gPlayState == nullptr) {
         WorldFog_UseScene();
-        return;
-    }
-    const Band band = LiveBand(gPlayState);
-    if (band.world) {
-        WorldFog_UseBand(band.start, band.end);
     } else {
-        WorldFog_UseVanilla();
-        gPlayState->lightCtx.fogNear = band.near;
+        const Band band = LiveBand(gPlayState);
+        if (band.world) {
+            WorldFog_UseBand(band.start, band.end);
+        } else {
+            WorldFog_UseVanilla();
+            gPlayState->lightCtx.fogNear = band.near;
+        }
+        gPlayState->lightCtx.fogFar = band.far;
+        for (int i = 0; i < 3; i++) {
+            gPlayState->lightCtx.fogColor[i] = band.color[i];
+        }
     }
-    gPlayState->lightCtx.fogFar = band.far;
-    for (int i = 0; i < 3; i++) {
-        gPlayState->lightCtx.fogColor[i] = band.color[i];
-    }
+    // Sky-colour fog and its edge layer (sturdy-bassoon#226, #230), from the band and boundary just resolved, before
+    // Play_Draw decides whether to take the copy (WorldFog_SkyCopy).
+    ApplySky();
 }
 
 void RegisterDistanceFog() {
@@ -835,14 +905,17 @@ const ConsoleSink::Command distanceFogCommand(
     "turns it off, edge scene hands it back, edge status reads it. haze (sturdy-bassoon#168) tunes the horizon haze "
     "band, which under world fog lays the fog colour over the sky's lowest part, under the world: haze <H> <F> makes "
     "it opaque up to H degrees above the horizon and fades it out over F more; haze off / on / scene / status. sky "
-    "(sturdy-bassoon#226, an experiment, DX11) makes fogged pixels blend toward the sky behind them instead of the "
-    "fog colour: sky on|off, sky mirror (fogged ground takes the skybox's mirrored sky) or sky clamp (the sky just "
-    "above the horizon), sky status, sky dump [path-prefix] (writes the sky copy and the frame as PPMs, by default "
-    "in the TEMP folder), sky hold on|off (keep fogging toward the copy already taken, for captures a moment "
-    "apart); it is kept across scene loads. status prints the live band, where it starts, and each light "
-    "setting's fog as C to paste into a scene. A scene load hands fog back (not sky); nothing is saved.",
+    "(sturdy-bassoon#226, #230, DX11) makes fogged pixels blend toward the sky behind them instead of the fog "
+    "colour: sky edge (only boundary fog's share, so the ring past the playable area dissolves into the sky while "
+    "depth fog keeps its colour), sky all (every fogged pixel; on is the same), sky off, sky auto (the default: edge "
+    "under world fog with a boundary, off elsewhere); sky mirror (fogged ground takes the skybox's mirrored sky) or "
+    "sky clamp (the sky just above the horizon) picks the method; sky status, sky dump [path-prefix] (writes the sky "
+    "copy and the frame as PPMs, by default in the TEMP folder), sky hold on|off (keep fogging toward the copy "
+    "already taken, for captures a moment apart); the choice is kept across scene loads. status prints the live "
+    "band, where it starts, and each light setting's fog as C to paste into a scene. A scene load hands fog back "
+    "(not sky); nothing is saved.",
     { { "near|world|edge|haze|sky|status|off", Ship::ArgumentType::TEXT, true },
-      { "far|start|H|on|off|mirror|clamp|dump", Ship::ArgumentType::TEXT, true },
+      { "far|start|H|auto|edge|all|on|off|mirror|clamp|dump", Ship::ArgumentType::TEXT, true },
       { "r|end|F|path-prefix", Ship::ArgumentType::TEXT, true },
       { "g|r", Ship::ArgumentType::TEXT, true },
       { "b|g", Ship::ArgumentType::TEXT, true },
