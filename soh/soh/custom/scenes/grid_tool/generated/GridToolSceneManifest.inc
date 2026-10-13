@@ -54,4 +54,5 @@
     { SCENE_F5_CELLAR_173, CustomF5Cellar173Scene_TrySpawn, CustomF5Cellar173Scene_InitRoom }, // project f1730000-0000-4000-8000-0000000000f5 name f5_cellar_173
     { SCENE_TERRAIN_F2P_FOG, CustomTerrainF2pFogScene_TrySpawn, CustomTerrainF2pFogScene_InitRoom }, // terrain-bake terrain_f2p_fog
     { SCENE_KIND_BENCH, CustomKindBenchScene_TrySpawn, CustomKindBenchScene_InitRoom }, // project be4c0217-0000-4000-8000-00000000be4c name kind_bench
+    { SCENE_SCENE_206_OOT_WATER, CustomScene206OotWaterScene_TrySpawn, CustomScene206OotWaterScene_InitRoom }, // project a2060000-0206-4000-8000-000000000206 name scene_206_oot_water
 // END GRID TOOL EXPORTS

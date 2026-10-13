@@ -53,4 +53,5 @@
 #include "../f5_cellar_173/CustomF5Cellar173Scene.h" // project f1730000-0000-4000-8000-0000000000f5 name f5_cellar_173
 #include "../terrain_f2p_fog/CustomTerrainF2pFogScene.h" // terrain-bake terrain_f2p_fog
 #include "../kind_bench/CustomKindBenchScene.h" // project be4c0217-0000-4000-8000-00000000be4c name kind_bench
+#include "../scene_206_oot_water/CustomScene206OotWaterScene.h" // project a2060000-0206-4000-8000-000000000206 name scene_206_oot_water
 // END GRID TOOL EXPORTS

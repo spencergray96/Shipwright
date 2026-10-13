@@ -1194,7 +1194,7 @@ void EmitTrace(const char* phase) {
     // the hold-off before camera-requested bars start (sturdy-bassoon#42).
     std::snprintf(buf, sizeof(buf),
                   "trace %s frame=%u lbox=%u/%u pos=%.2f,%.2f,%.2f prev=%.2f,%.2f,%.2f velY=%.2f lin=%.2f bg=0x%X "
-                  "floorH=%.1f yoff=%.2f sf1=0x%X sf2=0x%X sf3=0x%X anim=0x%X trans=%d rdown=%.1f,%.1f,%.1f rdent=%s "
+                  "floorH=%.1f ydw=%.1f yoff=%.2f sf1=0x%X sf2=0x%X sf3=0x%X anim=0x%X trans=%d rdown=%.1f,%.1f,%.1f rdent=%s "
                   "cam_at=%.1f,%.1f,%.1f cam_eye=%.1f,%.1f,%.1f cam_dist=%.1f cam_setting=%d cam_mode=%d "
                   "cf=%u cbr=%d cpitch=%d/%d cslope=%d/%d cswing=%d/%d ccol=%d cidle=%d cceil=%d ceyey=%.1f/%.1f "
                   "cceily=%.1f ccorner=%.1f chold=%.1f caty=%.1f cdrop=%.1f/%.1f ch=%.1f crel=%.1f",
@@ -1202,7 +1202,7 @@ void EmitTrace(const char* phase) {
                   player->actor.world.pos.x, player->actor.world.pos.y,
                   player->actor.world.pos.z, player->actor.prevPos.x, player->actor.prevPos.y,
                   player->actor.prevPos.z, player->actor.velocity.y, player->linearVelocity,
-                  static_cast<unsigned>(player->actor.bgCheckFlags), player->actor.floorHeight,
+                  static_cast<unsigned>(player->actor.bgCheckFlags), player->actor.floorHeight, player->actor.yDistToWater,
                   player->actor.shape.yOffset * player->actor.scale.y,
                   static_cast<unsigned>(player->stateFlags1), static_cast<unsigned>(player->stateFlags2),
                   static_cast<unsigned>(player->stateFlags3),
@@ -1807,6 +1807,75 @@ int32_t EmitState(std::string* output) {
         *output += line;
     }
     return 0;
+}
+
+// sturdy-bassoon#206 (throwaway, test/206-oot-water only): read and move the scene's waterboxes at
+// runtime, for the planted case and the surface-height tuning, and read Link's water state.
+//   water206 list                                   water206 n=<count> / water206 i=<n> xmin= ysurf= zmin= xlen= zlen= props=0x
+//   water206 set <i> <xmin> <ysurf> <zmin> <xlen> <zlen>   writes one box in place (the compiled array)
+//   water206 player                                 water206 pos= ydw= sf1= swim=0|1 floorH=
+// rc=1: no play state, a bad index or a bad argument.
+int32_t Water206_Run(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    char buf[256];
+    if (gPlayState == nullptr || gPlayState->colCtx.colHeader == nullptr) {
+        lines.push_back("op=water206 result=error why=no_play_state");
+        return 1;
+    }
+    CollisionHeader* col = gPlayState->colCtx.colHeader;
+    const std::string sub = args.empty() ? "list" : args[0];
+    if (sub == "list") {
+        std::snprintf(buf, sizeof(buf), "op=list n=%u scene=0x%X", static_cast<unsigned>(col->numWaterBoxes),
+                      static_cast<unsigned>(gPlayState->sceneNum));
+        lines.push_back(buf);
+        for (u32 i = 0; i < col->numWaterBoxes; i++) {
+            const WaterBox& w = col->waterBoxes[i];
+            std::snprintf(buf, sizeof(buf), "op=box i=%u xmin=%d ysurf=%d zmin=%d xlen=%d zlen=%d props=0x%X", i,
+                          w.xMin, w.ySurface, w.zMin, w.xLength, w.zLength, static_cast<unsigned>(w.properties));
+            lines.push_back(buf);
+        }
+        return 0;
+    }
+    if (sub == "set") {
+        if (args.size() != 7) {
+            lines.push_back("op=set result=error why=usage");
+            return 1;
+        }
+        int v[6];
+        try {
+            for (int k = 0; k < 6; k++) {
+                v[k] = std::stoi(args[1 + k]);
+            }
+        } catch (...) {
+            lines.push_back("op=set result=error why=not_a_number");
+            return 1;
+        }
+        if (v[0] < 0 || static_cast<u32>(v[0]) >= col->numWaterBoxes) {
+            lines.push_back("op=set result=error why=bad_index");
+            return 1;
+        }
+        WaterBox& w = col->waterBoxes[v[0]];
+        w.xMin = static_cast<s16>(v[1]);
+        w.ySurface = static_cast<s16>(v[2]);
+        w.zMin = static_cast<s16>(v[3]);
+        w.xLength = static_cast<s16>(v[4]);
+        w.zLength = static_cast<s16>(v[5]);
+        std::snprintf(buf, sizeof(buf), "op=set result=ok i=%d xmin=%d ysurf=%d zmin=%d xlen=%d zlen=%d", v[0], w.xMin,
+                      w.ySurface, w.zMin, w.xLength, w.zLength);
+        lines.push_back(buf);
+        return 0;
+    }
+    if (sub == "player") {
+        Player* player = GET_PLAYER(gPlayState);
+        std::snprintf(buf, sizeof(buf), "op=player pos=%.1f,%.1f,%.1f ydw=%.1f floorH=%.1f sf1=0x%X swim=%d",
+                      player->actor.world.pos.x, player->actor.world.pos.y, player->actor.world.pos.z,
+                      player->actor.yDistToWater, player->actor.floorHeight,
+                      static_cast<unsigned>(player->stateFlags1),
+                      (player->stateFlags1 & PLAYER_STATE1_IN_WATER) ? 1 : 0);
+        lines.push_back(buf);
+        return 0;
+    }
+    lines.push_back("op=" + sub + " result=error why=unknown_subcommand");
+    return 1;
 }
 
 int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vector<std::string>& args,
@@ -2901,6 +2970,10 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     // label, because the console prints the COMPOSED body rather than the definition string.
     // The one bridge whose '%' doubling is not hypothetical: `region expand` takes arbitrary
     // typed text and prints a transformation of it.
+    if (args.size() >= 2 && args[1] == "water206") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(Water206_Run, sub, "water206 ", output, WriteMarker);
+    }
     if (args.size() >= 3 && args[1] == "region") {
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(RsRegionConsole_Run, sub, "rs_region ", output, WriteMarker);

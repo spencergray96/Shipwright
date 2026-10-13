@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "scene": "scene_206_oot_water",
+  "list": "objects/rs_props/scene_206_oot_water/props",
+  "kinds": {
+    "fountain-879": "rs_879",
+    "fountain-879-no-drops": "rs_879_no_drops",
+    "standing-torch-724-no-flame": "rs_724_no_flame"
+  },
+  "props": [
+    {"id":"w206a","kind":"fountain-879-no-drops","pos":[360,0,40],"rot":0},
+    {"id":"w206b","kind":"fountain-879-no-drops","pos":[-40,0,40],"rot":1},
+    {"id":"w206c","kind":"fountain-879","pos":[-440,0,40],"rot":0},
+    {"id":"w206t","kind":"standing-torch-724-no-flame","pos":[-20,0,-340],"rot":0}
+  ]
+}
