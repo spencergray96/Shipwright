@@ -325,6 +325,11 @@ static bool ValidateDef(const QuestDef* def, char* buf, size_t len) {
                 if ((WORLD_FLAG_IS_DEBUG(r.a) != 0) != (def->tier == QUEST_TIER_DEBUG)) {
                     return Problem(buf, len, "reward[%d]: world flag %d is in the other tier's band", i, r.a);
                 }
+                // A placement band's flags are handed out by the grid tool's export, one per placement
+                // (#232): a quest setting one would light or open someone else's prop.
+                if (WORLD_FLAG_IS_PLACEMENT(r.a)) {
+                    return Problem(buf, len, "reward[%d]: world flag %d is in a placement band", i, r.a);
+                }
                 break;
             case QUEST_REWARD_RUPEES:
                 if (r.a < -32768 || r.a > 32767 || r.a == 0) {

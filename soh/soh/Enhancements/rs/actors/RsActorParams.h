@@ -14,15 +14,15 @@
 //
 // `ActorEntry.params` is an `s16` in the compiled scene file, and it is the ONLY per-placement
 // datum a scene can hand an actor. It carries the NpcId for a quest-giver, the (quest, step)
-// pair for a quest item, the (staircase, row) pair for a staircase (#147), and the interaction id
-// for an interaction trigger (#183).
+// pair for a quest item, the (staircase, row) pair for a staircase (#147), the interaction id
+// for an interaction trigger (#183), and a fire's world flag and switches (#232).
 //
 // This is not gated on the grid tool (D24). Placement arrives in three stages: hand-inserted
 // ActorEntry rows in a scene's C source now (all P3's proofs need), standard Blender + Fast64
 // actor placement for authored content later - which carries `params` today - and possibly-never
 // grid-tool helpers. The three actors above are not designed for the grid tool. The interaction
-// trigger (#183) is the one exception: it exists only as a row the grid tool writes, for an id the
-// grid tool mints.
+// trigger (#183) and the fire (#232) are the exceptions: each exists only as a row the grid tool
+// writes, for an id or a flag the grid tool mints.
 //
 // TWO RULES WORTH THE UP-FRONT COST:
 //

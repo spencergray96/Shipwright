@@ -45,7 +45,8 @@
 #define RS_FIRE_DMG_ARROW 0x00000020
 #define RS_FIRE_DMG_FIRE 0x00020800
 #define RS_FIRE_DMG_ANY 0x00020820
-// En_Light's light: radius 300, the glow 40 above the fire's base at params 4's size.
+// En_Light's light: radius 300, the glow 40 above the fire's base at params 4's size. En_Light keeps it
+// at 40 whatever its size; ours scales it with the fire, so a small fire's halo stays on its flame.
 #define RS_FIRE_LIGHT_RADIUS 300
 #define RS_FIRE_GLOW_ABOVE 40.0f
 // Obj_Syokudai's flame grows in over 10 ticks when it lights.
@@ -76,7 +77,7 @@ static ColliderCylinderInit sRsFireCylinderInit = {
         BUMP_ON,
         OCELEM_NONE,
     },
-    { 15, 45, -7, { 0, 0, 0 } }, // resized at Init
+    { 0, 0, 0, { 0, 0, 0 } }, // sized at Init, from RS_FIRE_CYL_* and the fire's size and hit size
 };
 
 const char* RsFire_LitByName(int32_t litBy) {
@@ -92,15 +93,15 @@ const char* RsFire_LitByName(int32_t litBy) {
     }
 }
 
-// How much bigger this fire's visible flame is than Obj_Syokudai's: where its collider and stick
-// test are centred.
-static float RsFire_Ratio(RsFire* this) {
-    return this->size * (RS_FIRE_BASE_SCALE / RS_FIRE_SYOKUDAI_SCALE);
+// How much bigger a fire of this size is than Obj_Syokudai's flame. Of the visible size: where its
+// collider and stick test are centred. Of the hit size: how far they reach.
+static float RsFire_SyokudaiRatio(float size) {
+    return size * (RS_FIRE_BASE_SCALE / RS_FIRE_SYOKUDAI_SCALE);
 }
 
-// The same for its hit size: how far they reach.
-static float RsFire_HitRatio(RsFire* this) {
-    return this->hitSize * (RS_FIRE_BASE_SCALE / RS_FIRE_SYOKUDAI_SCALE);
+static void RsFire_PlayIgnition(RsFire* this) {
+    Audio_PlaySoundGeneral(NA_SE_EV_FLAME_IGNITION, &this->actor.projectedPos, 4, &gSfxDefaultFreqAndVolScale,
+                           &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
 }
 
 // A percentage from a rot field: 0 reads as `unset`, anything else is clamped.
@@ -147,8 +148,7 @@ static void RsFire_Light(RsFire* this, PlayState* play, int32_t by) {
         Flags_SetWorldFlag(this->flag);
     }
     RsFire_TakeLight(this, play);
-    Audio_PlaySoundGeneral(NA_SE_EV_FLAME_IGNITION, &this->actor.projectedPos, 4, &gSfxDefaultFreqAndVolScale,
-                           &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+    RsFire_PlayIgnition(this);
     RsFire_Mark(this, "lit");
 }
 
@@ -188,8 +188,8 @@ void RsFire_Init(Actor* thisx, PlayState* play) {
     ActorShape_Init(&thisx->shape, 0.0f, NULL, 0.0f);
     Actor_SetScale(thisx, RS_FIRE_BASE_SCALE * this->size);
 
-    ratio = RsFire_Ratio(this);
-    hitRatio = RsFire_HitRatio(this);
+    ratio = RsFire_SyokudaiRatio(this->size);
+    hitRatio = RsFire_SyokudaiRatio(this->hitSize);
     Collider_InitCylinder(play, &this->collider);
     Collider_SetCylinder(play, &this->collider, thisx, &sRsFireCylinderInit);
     // Obj_Syokudai's cylinder, sized by the hit size and centred on the visible flame's centre - which
@@ -220,12 +220,13 @@ void RsFire_Destroy(Actor* thisx, PlayState* play) {
 }
 
 // A hit on the flame: a normal arrow through a lit fire leaves burning; fire lights an unlit one.
-static void RsFire_TakeHit(RsFire* this, PlayState* play) {
+// Returns whether the flame was hit, because Obj_Syokudai tests the stick only when it was not.
+static s32 RsFire_TakeHit(RsFire* this, PlayState* play) {
     uint32_t dmgFlags;
     EnArrow* arrow;
 
     if (!(this->collider.base.acFlags & AC_HIT)) {
-        return;
+        return 0;
     }
     this->collider.base.acFlags &= ~AC_HIT;
     dmgFlags = this->collider.info.acHitInfo->toucher.dmgFlags;
@@ -243,6 +244,7 @@ static void RsFire_TakeHit(RsFire* this, PlayState* play) {
     } else if (dmgFlags & RS_FIRE_DMG_FIRE) {
         RsFire_Light(this, play, RS_FIRE_LIT_BY_FIRE);
     }
+    return 1;
 }
 
 // A Deku stick's tip in the flame.
@@ -256,21 +258,21 @@ static void RsFire_TakeStick(RsFire* this, PlayState* play) {
     if (player->heldItemAction != PLAYER_IA_DEKU_STICK) {
         return;
     }
-    ratio = RsFire_Ratio(this);
-    hitRatio = RsFire_HitRatio(this);
+    ratio = RsFire_SyokudaiRatio(this->size);
+    hitRatio = RsFire_SyokudaiRatio(this->hitSize);
     d.x = player->meleeWeaponInfo[0].tip.x - this->actor.world.pos.x;
     d.y = player->meleeWeaponInfo[0].tip.y - (this->actor.world.pos.y + RS_FIRE_STICK_ABOVE * ratio);
     d.z = player->meleeWeaponInfo[0].tip.z - this->actor.world.pos.z;
-    // Centred on the visible flame; the reach grows with the hit size, and never below Obj_Syokudai's.
-    reach = RS_FIRE_STICK_REACH * (hitRatio > 1.0f ? hitRatio : 1.0f);
+    // Centred on the visible flame, reaching by the hit size - with no floor, as the collider has none
+    // (the owner, #232: no single floor suits every flame), so a stick and an arrow agree on its size.
+    reach = RS_FIRE_STICK_REACH * hitRatio;
     if (SQ(d.x) + SQ(d.y) + SQ(d.z) >= SQ(reach)) {
         return;
     }
     if (this->lit) {
         if (player->unk_860 == 0) {
             player->unk_860 = RS_FIRE_STICK_LIGHT;
-            Audio_PlaySoundGeneral(NA_SE_EV_FLAME_IGNITION, &this->actor.projectedPos, 4, &gSfxDefaultFreqAndVolScale,
-                                   &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+            RsFire_PlayIgnition(this);
             RsFire_Mark(this, "stick_lit");
         } else if (player->unk_860 < RS_FIRE_STICK_KEEP) {
             player->unk_860 = RS_FIRE_STICK_KEEP;
@@ -287,8 +289,9 @@ void RsFire_Update(Actor* thisx, PlayState* play) {
     RsFire* this = (RsFire*)thisx;
     float intensity;
 
-    RsFire_TakeHit(this, play);
-    RsFire_TakeStick(this, play);
+    if (!RsFire_TakeHit(this, play)) {
+        RsFire_TakeStick(this, play);
+    }
 
     if (this->lit) {
         this->timer++;

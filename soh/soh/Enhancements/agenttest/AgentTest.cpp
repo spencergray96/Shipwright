@@ -285,13 +285,14 @@
  *   rs_interaction <line>                one line of RsInteractionConsole_Run output per marker, from
  *                                        `agenttest interaction ...` - always `op=...`, an indexed row or
  *                                        `case=...`, never `id=... event=...`
- *   rs_fire event=<spawn|lit|arrow_lit|stick_lit|bad_flag> lit= by= flag= size= light= x= y= z=
+ *   rs_fire event=<spawn|lit|arrow_lit|stick_lit> lit= by= flag= size= hit= light= x= y= z=
+ *   rs_fire event=bad_flag flag= params=
  *                                        an RS torch fire (sturdy-bassoon#232): `lit` names what lit it
  *                                        (by=stick|fire), `arrow_lit` an arrow it set burning, `stick_lit`
  *                                        a Deku stick it lit. Gameplay markers
  *   rs_fire <line>                       one line of RsFireConsole_Run output per marker, from
- *                                        `agenttest rsfire ...` - `fire idx=...`, `fires count=...`,
- *                                        `pool ...` or `op=...`, never `event=...`
+ *                                        `agenttest rsfire ...` - `fire idx=...` or `op=...`, never
+ *                                        `event=...`
  *   rs_stairs <line>                     one line of RsStairConsole_Run output per marker, from
  *                                        `agenttest stairs ...` - always `op=...`, an indexed row or
  *                                        `last="..."`, never a line that starts `stair=... event=...`,

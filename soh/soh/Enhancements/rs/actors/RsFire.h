@@ -29,7 +29,7 @@
 // THE LIGHT (#233 is the slice that changes this): a lit fire with a light takes one node of the
 // scene's 32 at the moment it lights - at Init, or when a stick or arrow lights it - and gives it
 // back only when destroyed, so a puzzle torch costs nothing until it is lit. Unlit-light fires
-// (bit 7) never take one. When the pool is full, LightContext_InsertLight returns NULL and the fire
+// (params bit 14) never take one. When the pool is full, LightContext_InsertLight returns NULL and the fire
 // burns with no light; nothing is taken from another holder.
 //
 // THE COLLIDER: one AC cylinder over the flame, registered only while Link is within
@@ -57,7 +57,7 @@ typedef struct RsFire {
     /* */ int16_t timer;        // the flame's texture scroll
     /* */ int16_t growTicks;    // ticks since it lit, for the flame growing in (0..RS_FIRE_GROW_TICKS)
     /* */ uint8_t lit;
-    /* */ uint8_t lightWanted;  // params bit 7 clear
+    /* */ uint8_t lightWanted;  // params bit 14 clear
     /* */ int16_t flag;         // the world flag it sets when lit; -1 when it has none
     /* */ int32_t litBy;        // what lit it last: RsFireLitBy
 } RsFire;

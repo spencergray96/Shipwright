@@ -37,12 +37,12 @@
 // The debug placement band sits inside the debug band, so `quest debugwipe` clears a test map's fires.
 #define WORLD_FLAG_PLACEMENT_FIRST 2048
 #define WORLD_FLAG_PLACEMENT_DEBUG_FIRST 3968
-#define WORLD_FLAG_IS_PLACEMENT(flag)    \
-    (((flag) >= WORLD_FLAG_PLACEMENT_FIRST && (flag) < WORLD_FLAG_DEBUG_FIRST) || \
+#define WORLD_FLAG_IS_PLACEMENT(flag)                                                                     \
+    (((flag) >= WORLD_FLAG_PLACEMENT_FIRST && (flag) < WORLD_FLAG_DEBUG_FIRST) ||                      \
      ((flag) >= WORLD_FLAG_PLACEMENT_DEBUG_FIRST && (flag) < WORLD_FLAG_MAX))
 
 typedef enum WorldFlagId {
-    // --- production band: [0, WORLD_FLAG_DEBUG_FIRST) -------------------------------------
+    // --- production band, named: [0, WORLD_FLAG_PLACEMENT_FIRST) -------------------------------------
     WORLD_FLAG_COOK_RANGE_OPEN = 0, // QUEST_COOKS_ASSISTANT's reward, and the first production flag
                                     // there has ever been (P4). It is an UNLOCK: a durable
                                     // permission bit that anything may read, deliberately separate
@@ -52,7 +52,7 @@ typedef enum WorldFlagId {
                                     // unlocked behaviour is gone - the proof that the bit, and not
                                     // the status, is what carries the permission.
 
-    // --- debug band: [WORLD_FLAG_DEBUG_FIRST, WORLD_FLAG_MAX) -----------------------------
+    // --- debug band, named: [WORLD_FLAG_DEBUG_FIRST, WORLD_FLAG_PLACEMENT_DEBUG_FIRST) -----------------------------
     WORLD_FLAG_DEBUG_SMOKE = 3840,   // exercised by the agent-test predicate probe; never real state
     WORLD_FLAG_DEBUG_JOURNAL = 3841, // QUEST_DEBUG_JOURNAL's completion witness (P2). Its OWN flag on
                                      // purpose: sharing 3840 would couple it to the P1 smoke fixture,

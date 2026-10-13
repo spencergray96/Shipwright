@@ -25,28 +25,32 @@ const char* kUsage = "op=usage result=error usage=\"rsfire list | pool\"";
 // LIGHTS_BUFFER_SIZE is static to z_lights.c; this mirrors it for the report only (#233 may change it).
 constexpr int32_t kLightPool = 32;
 
+// The live fires, in the prop list's order.
+template <typename Fn> void ForEachFire(Fn fn) {
+    for (Actor* a = gPlayState->actorCtx.actorLists[ACTORCAT_PROP].head; a != nullptr; a = a->next) {
+        if (a->id == ACTOR_RS_FIRE) {
+            fn(a, reinterpret_cast<const RsFire*>(a));
+        }
+    }
+}
+
 int32_t List(std::vector<std::string>& lines) {
     int32_t count = 0;
     int32_t lit = 0;
     int32_t lights = 0;
 
-    for (Actor* a = gPlayState->actorCtx.actorLists[ACTORCAT_PROP].head; a != nullptr; a = a->next) {
-        if (a->id != ACTOR_RS_FIRE) {
-            continue;
-        }
-        const RsFire* fire = reinterpret_cast<const RsFire*>(a);
+    ForEachFire([&](const Actor* a, const RsFire* fire) {
         Addf(lines,
              "fire idx=%d x=%d y=%d z=%d size=%d hit=%d lit=%d by=%s flag=%d want_light=%d light=%d params=0x%04X",
              count, (int)lroundf(a->world.pos.x), (int)lroundf(a->world.pos.y), (int)lroundf(a->world.pos.z),
              (int)lroundf(fire->size * 100.0f), (int)lroundf(fire->hitSize * 100.0f), fire->lit,
-             RsFire_LitByName(fire->litBy),
-             (int)fire->flag, fire->lightWanted,
-             fire->lightNode != nullptr ? 1 : 0, (unsigned)(u16)a->params);
+             RsFire_LitByName(fire->litBy), (int)fire->flag, fire->lightWanted, fire->lightNode != nullptr ? 1 : 0,
+             (unsigned)(u16)a->params);
         count++;
         lit += fire->lit ? 1 : 0;
         lights += fire->lightNode != nullptr ? 1 : 0;
-    }
-    Addf(lines, "fires count=%d lit=%d lights=%d", count, lit, lights);
+    });
+    Addf(lines, "op=list result=ok count=%d lit=%d lights=%d", count, lit, lights);
     return 0;
 }
 
@@ -57,19 +61,15 @@ int32_t Pool(std::vector<std::string>& lines) {
     for (LightNode* n = gPlayState->lightCtx.listHead; n != nullptr; n = n->next) {
         nodes++;
     }
-    for (Actor* a = gPlayState->actorCtx.actorLists[ACTORCAT_PROP].head; a != nullptr; a = a->next) {
-        if (a->id == ACTOR_RS_FIRE && reinterpret_cast<const RsFire*>(a)->lightNode != nullptr) {
-            fires++;
-        }
-    }
-    Addf(lines, "pool nodes=%d of=%d fires=%d", nodes, kLightPool, fires);
+    ForEachFire([&](const Actor*, const RsFire* fire) { fires += fire->lightNode != nullptr ? 1 : 0; });
+    Addf(lines, "op=pool result=ok nodes=%d of=%d fires=%d", nodes, kLightPool, fires);
     return 0;
 }
 
 } // namespace
 
 int32_t RsFireConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines) {
-    if (args.empty()) {
+    if (args.size() != 1) {
         lines.push_back(kUsage);
         return 1;
     }

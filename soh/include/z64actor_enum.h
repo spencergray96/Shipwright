@@ -31,7 +31,7 @@ enum ActorIDExtra {
     /* 0x01DA */ ACTOR_RS_QUEST_ITEM, // Enhancements/rs/actors/RsQuestItem.c - params = (quest, step)
     /* 0x01DB */ ACTOR_RS_STAIRS,     // Enhancements/rs/actors/RsStairs.c - params = (staircase, row)
     /* 0x01DC */ ACTOR_RS_INTERACTION, // Enhancements/rs/actors/RsInteraction.c - params = interaction id
-    /* 0x01DD */ ACTOR_RS_FIRE,        // Enhancements/rs/actors/RsFire.c - params = (switch flag, unlit, no light)
+    /* 0x01DD */ ACTOR_RS_FIRE,        // Enhancements/rs/actors/RsFire.c - params = (world flag, unlit, no light)
     // #endregion
     ACTOR_ID_EXTRA_MAX
 };
