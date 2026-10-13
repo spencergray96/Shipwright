@@ -20,7 +20,10 @@
 //   rot.x   its size, as a percentage of En_Light params 4's fire (scale 0.004). 0 reads as 100.
 //           Clamped to RS_FIRE_SCALE_MIN..RS_FIRE_SCALE_MAX
 //   rot.y   unused: the fire turns to the camera every frame
-//   rot.z   reserved, 0
+//   rot.z   its HIT size, in the same percent: how far the flame reaches for a stick, an arrow, a fire
+//           arrow or Din's. 0 reads as the visual size. Apart from rot.x because a small flame
+//           is awkward to hit (the owner, 2026-10-13: the torch's 50% fire wants a bigger reach), and
+//           no one floor suits every flame. Same clamp
 // The row's position is the fire's base: the top of the torch's bowl.
 //
 // THE LIGHT (#233 is the slice that changes this): a lit fire with a light takes one node of the
@@ -50,6 +53,7 @@ typedef struct RsFire {
     /* */ LightNode* lightNode; // NULL: no light (none wanted, not lit yet, or the pool was full)
     /* */ LightInfo lightInfo;
     /* */ float size;           // rot.x as a factor: 1.0 is params 4's fire
+    /* */ float hitSize;        // rot.z as a factor, the same scale: the reach of the flame
     /* */ int16_t timer;        // the flame's texture scroll
     /* */ int16_t growTicks;    // ticks since it lit, for the flame growing in (0..RS_FIRE_GROW_TICKS)
     /* */ uint8_t lit;

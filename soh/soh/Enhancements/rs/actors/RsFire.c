@@ -29,11 +29,13 @@
 // En_Light params 4's scale: the fire the owner picked, and what rot.x is a percentage of.
 #define RS_FIRE_BASE_SCALE 0.004f
 // Obj_Syokudai's flame scale (z_obj_syokudai.c, ObjSyokudai_Draw). Its collider and stick test are
-// sized for that flame, so ours scale by the ratio between the two.
+// sized for that flame, so ours scale by the ratio between the two: WHERE they sit by the visible
+// flame (the size), HOW FAR they reach by the hit size.
 #define RS_FIRE_SYOKUDAI_SCALE 0.0027f
 // Obj_Syokudai's flame, from the flame's base (its flame is drawn 52 above the stand's origin): the
-// cylinder is radius 15, height 45, from 7 below the base; the stick's tip must be within 20 of a
-// point 15 above the base.
+// cylinder is radius 15, height 45, from 7 below the base, so it is centred about 15 above the base;
+// the stick's tip must be within 20 of a point 15 above the base. Ours keep that centre on the
+// visible flame and grow around it with the hit size, so a bigger reach never floats above the fire.
 #define RS_FIRE_CYL_RADIUS 15.0f
 #define RS_FIRE_CYL_HEIGHT 45.0f
 #define RS_FIRE_CYL_BELOW 7.0f
@@ -90,17 +92,37 @@ const char* RsFire_LitByName(int32_t litBy) {
     }
 }
 
-// How much bigger this fire's flame is than Obj_Syokudai's, so its collider and stick test match it.
+// How much bigger this fire's visible flame is than Obj_Syokudai's: where its collider and stick
+// test are centred.
 static float RsFire_Ratio(RsFire* this) {
     return this->size * (RS_FIRE_BASE_SCALE / RS_FIRE_SYOKUDAI_SCALE);
+}
+
+// The same for its hit size: how far they reach.
+static float RsFire_HitRatio(RsFire* this) {
+    return this->hitSize * (RS_FIRE_BASE_SCALE / RS_FIRE_SYOKUDAI_SCALE);
+}
+
+// A percentage from a rot field: 0 reads as `unset`, anything else is clamped.
+static int32_t RsFire_Percent(int32_t raw, int32_t unset) {
+    if (raw == 0) {
+        return unset;
+    }
+    if (raw < RS_FIRE_SCALE_MIN) {
+        return RS_FIRE_SCALE_MIN;
+    }
+    if (raw > RS_FIRE_SCALE_MAX) {
+        return RS_FIRE_SCALE_MAX;
+    }
+    return raw;
 }
 
 static void RsFire_Mark(RsFire* this, const char* event) {
     char line[200];
 
-    snprintf(line, sizeof(line), "rs_fire event=%s lit=%d by=%s flag=%d size=%d light=%d x=%d y=%d z=%d", event,
-             this->lit, RsFire_LitByName(this->litBy), (int)this->flag,
-             (int)(this->size * 100.0f + 0.5f), this->lightNode != NULL ? 1 : 0, (int)this->actor.world.pos.x,
+    snprintf(line, sizeof(line), "rs_fire event=%s lit=%d by=%s flag=%d size=%d hit=%d light=%d x=%d y=%d z=%d",
+             event, this->lit, RsFire_LitByName(this->litBy), (int)this->flag, (int)(this->size * 100.0f + 0.5f),
+             (int)(this->hitSize * 100.0f + 0.5f), this->lightNode != NULL ? 1 : 0, (int)this->actor.world.pos.x,
              (int)this->actor.world.pos.y, (int)this->actor.world.pos.z);
     RsAgent_Marker(line);
 }
@@ -132,8 +154,9 @@ static void RsFire_Light(RsFire* this, PlayState* play, int32_t by) {
 
 void RsFire_Init(Actor* thisx, PlayState* play) {
     RsFire* this = (RsFire*)thisx;
-    int32_t percent = thisx->home.rot.x;
+    int32_t percent = RsFire_Percent(thisx->home.rot.x, RS_FIRE_SCALE_DEFAULT);
     float ratio;
+    float hitRatio;
     char line[128];
 
     this->flag = -1;
@@ -151,14 +174,8 @@ void RsFire_Init(Actor* thisx, PlayState* play) {
         }
     }
 
-    if (percent == 0) {
-        percent = RS_FIRE_SCALE_DEFAULT;
-    } else if (percent < RS_FIRE_SCALE_MIN) {
-        percent = RS_FIRE_SCALE_MIN;
-    } else if (percent > RS_FIRE_SCALE_MAX) {
-        percent = RS_FIRE_SCALE_MAX;
-    }
     this->size = (float)percent / 100.0f;
+    this->hitSize = (float)RsFire_Percent(thisx->home.rot.z, percent) / 100.0f;
     this->lightWanted = RS_FIRE_PARAMS_GET_NO_LIGHT(thisx->params) ? 0 : 1;
     this->lightNode = NULL;
     this->timer = (int16_t)(Rand_ZeroOne() * 255.0f);
@@ -172,11 +189,14 @@ void RsFire_Init(Actor* thisx, PlayState* play) {
     Actor_SetScale(thisx, RS_FIRE_BASE_SCALE * this->size);
 
     ratio = RsFire_Ratio(this);
+    hitRatio = RsFire_HitRatio(this);
     Collider_InitCylinder(play, &this->collider);
     Collider_SetCylinder(play, &this->collider, thisx, &sRsFireCylinderInit);
-    this->collider.dim.radius = (s16)(RS_FIRE_CYL_RADIUS * ratio + 0.5f);
-    this->collider.dim.height = (s16)(RS_FIRE_CYL_HEIGHT * ratio + 0.5f);
-    this->collider.dim.yShift = (s16)(-(RS_FIRE_CYL_BELOW * ratio + 0.5f));
+    // Obj_Syokudai's cylinder, sized by the hit size and centred on the visible flame's centre - which
+    // is where Obj_Syokudai's own sits, 15 above its flame's base (-7 + 45 / 2).
+    this->collider.dim.radius = (s16)(RS_FIRE_CYL_RADIUS * hitRatio + 0.5f);
+    this->collider.dim.height = (s16)(RS_FIRE_CYL_HEIGHT * hitRatio + 0.5f);
+    this->collider.dim.yShift = (s16)(RS_FIRE_STICK_ABOVE * ratio - (float)this->collider.dim.height / 2.0f);
 
     if (this->flag >= 0 && Flags_GetWorldFlag(this->flag)) {
         // Lit once already in this save: it stays lit, without its ignition sound.
@@ -229,6 +249,7 @@ static void RsFire_TakeHit(RsFire* this, PlayState* play) {
 static void RsFire_TakeStick(RsFire* this, PlayState* play) {
     Player* player = GET_PLAYER(play);
     float ratio;
+    float hitRatio;
     float reach;
     Vec3f d;
 
@@ -236,11 +257,12 @@ static void RsFire_TakeStick(RsFire* this, PlayState* play) {
         return;
     }
     ratio = RsFire_Ratio(this);
+    hitRatio = RsFire_HitRatio(this);
     d.x = player->meleeWeaponInfo[0].tip.x - this->actor.world.pos.x;
     d.y = player->meleeWeaponInfo[0].tip.y - (this->actor.world.pos.y + RS_FIRE_STICK_ABOVE * ratio);
     d.z = player->meleeWeaponInfo[0].tip.z - this->actor.world.pos.z;
-    // The tip's reach is the stick's, not the fire's, but a much bigger flame is easier to find.
-    reach = RS_FIRE_STICK_REACH * (ratio > 1.0f ? ratio : 1.0f);
+    // Centred on the visible flame; the reach grows with the hit size, and never below Obj_Syokudai's.
+    reach = RS_FIRE_STICK_REACH * (hitRatio > 1.0f ? hitRatio : 1.0f);
     if (SQ(d.x) + SQ(d.y) + SQ(d.z) >= SQ(reach)) {
         return;
     }

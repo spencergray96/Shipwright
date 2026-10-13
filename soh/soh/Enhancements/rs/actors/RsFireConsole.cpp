@@ -36,9 +36,10 @@ int32_t List(std::vector<std::string>& lines) {
         }
         const RsFire* fire = reinterpret_cast<const RsFire*>(a);
         Addf(lines,
-             "fire idx=%d x=%d y=%d z=%d size=%d lit=%d by=%s flag=%d want_light=%d light=%d params=0x%04X", count,
-             (int)lroundf(a->world.pos.x), (int)lroundf(a->world.pos.y), (int)lroundf(a->world.pos.z),
-             (int)lroundf(fire->size * 100.0f), fire->lit, RsFire_LitByName(fire->litBy),
+             "fire idx=%d x=%d y=%d z=%d size=%d hit=%d lit=%d by=%s flag=%d want_light=%d light=%d params=0x%04X",
+             count, (int)lroundf(a->world.pos.x), (int)lroundf(a->world.pos.y), (int)lroundf(a->world.pos.z),
+             (int)lroundf(fire->size * 100.0f), (int)lroundf(fire->hitSize * 100.0f), fire->lit,
+             RsFire_LitByName(fire->litBy),
              (int)fire->flag, fire->lightWanted,
              fire->lightNode != nullptr ? 1 : 0, (unsigned)(u16)a->params);
         count++;

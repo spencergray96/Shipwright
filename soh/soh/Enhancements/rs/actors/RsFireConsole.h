@@ -13,7 +13,7 @@
 // existing `agenttest worldflag <n> [0|1]`.
 //
 // `args[0]` is the subcommand:
-//   list            one `fire idx=<i> x= y= z= size=<percent> lit=0|1 by=<none|flag|stick|fire>
+//   list            one `fire idx=<i> x= y= z= size=<percent> hit=<percent> lit=0|1 by=<none|flag|stick|fire>
 //                   flag=<world flag|-1> want_light=0|1 light=0|1 params=0x<hex>` line per live
 //                   Rs_Fire, in
 //                   the actor list's order, then `fires count=<n> lit=<n> lights=<n>`. Positions are
