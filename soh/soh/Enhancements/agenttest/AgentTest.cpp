@@ -449,6 +449,10 @@
  *                                          and complete at end (world units), in any scene; clip= the far clip,
  *                                          else the scene's. "fog off" hands back to the scene's own rows if it has
  *                                          them, else to vanilla
+ *   agenttest fog haze [<H> <F>|off|on|scene|status]
+ *                                          the horizon haze band (sturdy-bassoon#168): under world-unit fog, the fog
+ *                                          colour over the sky up to H degrees above the horizon, fading over F more;
+ *                                          one `fog haze op=haze ...` marker (DistanceFogConsole.h has the fields)
  *   agenttest keepinput [on|off]           ONE-SHOT: the walk/press in flight at the NEXT scene load is not cancelled
  *                                          by it but carries on in the new scene - a stick held through a load, as
  *                                          a player holds one through a step warp to another scene (sturdy-bassoon
@@ -2981,7 +2985,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             "press <BUTTONS> [frames] | hold [<BUTTONS>|none] | ocarina <NOTES> [hold] [gap] | song <name> | stats | "
               "rooms | time <dawn|day|dusk|night|value> | sunssong | display | "
             "trace <ticks> | octrace <ticks> | ocstall <ms> <tick>|off | "
-            "cutscene <index>|off | fog <near> <far> [r g b] [max=<m>]|world <start> <end> [r g b] [clip=<c>]|status|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
+            "cutscene <index>|off | fog <near> <far> [r g b] [max=<m>]|world <start> <end> [r g b] [clip=<c>]|haze <H> <F>|status|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
             "roomdist [hysteresis]|off | uncull | kill <actor> | sceneflag <sceneId> [value] | "
             "worldflag count|<n> [0|1] | "
             "queststore count|<id> [status mask] | questpred <kind> <a> <b> <negate> | "
@@ -3030,7 +3034,7 @@ void RegisterAgentTest() {
               "press <BUTTONS> [frames] | hold [<BUTTONS>|none] | ocarina <NOTES> [hold] [gap] | song <name> | stats | "
               "rooms | time <dawn|day|dusk|night|value> | sunssong | display | "
               "trace <ticks> | octrace <ticks> | ocstall <ms> <tick>|off | "
-              "cutscene <index>|off | fog <near> <far> [r g b] [max=<m>]|world <start> <end> [r g b] [clip=<c>]|status|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
+              "cutscene <index>|off | fog <near> <far> [r g b] [max=<m>]|world <start> <end> [r g b] [clip=<c>]|haze <H> <F>|status|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
               "roomdist [hysteresis]|off | uncull | kill <actor> | sceneflag <sceneId> [value] | "
               "worldflag count|<n> [0|1] | "
               "queststore count|<id> [status mask] | questpred <kind> <a> <b> <negate> | "
