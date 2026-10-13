@@ -10,6 +10,7 @@
 #include "soh/custom/scenes/grid_tool/GridToolSceneRegistry.h"
 #include "soh/custom/scenes/CustomSceneLighting.h"
 #include "soh/Enhancements/distancefog/WorldFog.h"
+#include "soh/Enhancements/distancefog/HorizonHaze.h"
 #include <overlays/misc/ovl_kaleido_scope/z_kaleido_scope.h>
 #include "soh/Enhancements/enhancementTypes.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
@@ -1548,6 +1549,13 @@ void Play_Draw(PlayState* play) {
                 }
             }
         }
+
+        // SOH [Fork] (sturdy-bassoon#168): the horizon haze band, under world-unit fog only
+        // (distancefog/HorizonHaze.h). After the skybox and before the sun and moon, so a low sun or moon still
+        // shows over it; before the sky filter and the lightning flash, so they tint and flash it with the sky;
+        // before the rooms, which paint over it. Not under the skybox's switches: it follows world-unit fog, so a
+        // scene with no sky still gets fog-coloured shapes against fog colour.
+        HorizonHaze_Draw(play);
 
         if ((HREG(80) != 10) || (HREG(90) & 2)) {
             if (!play->envCtx.sunMoonDisabled) {

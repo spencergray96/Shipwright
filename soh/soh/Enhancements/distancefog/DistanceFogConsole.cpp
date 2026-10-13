@@ -1,12 +1,14 @@
 #include "DistanceFogConsole.h"
 
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 
 #include "soh/Enhancements/console/ConsoleSink.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/ShipInit.hpp"
+#include "HorizonHaze.h"
 #include "WorldFog.h"
 
 extern "C" {
@@ -66,6 +68,16 @@ struct EdgeOverride {
 };
 
 EdgeOverride sEdge;
+
+// `fog haze ...` (sturdy-bassoon#168): the horizon haze band's override, layered on the scene's height and fade.
+// Its own, like the edge's: `fog off` leaves it alone, `fog haze scene` hands it back, a scene load hands back all.
+struct HazeOverride {
+    bool off = false;       // `fog haze off`: no band, even under world-unit fog
+    bool hasValues = false; // `fog haze <H> <F>`
+    WorldFogHaze values = { 0.0f, 0.0f };
+};
+
+HazeOverride sHaze;
 
 // The boundary to draw this frame: the scene's, with the override's rectangle and ramp over it.
 struct Edge {
@@ -458,6 +470,99 @@ int32_t RunEdge(const std::vector<std::string>& args, std::vector<std::string>& 
     return 0;
 }
 
+// A degree value as a C float literal, as sceneTemplate.ts writes it: 4.0f, 2.25f.
+std::string FloatLiteral(float value) {
+    char text[32];
+    std::snprintf(text, sizeof(text), "%g", value);
+    std::string out = text;
+    if (out.find_first_of(".e") == std::string::npos) {
+        out += ".0";
+    }
+    return out + "f";
+}
+
+// The height and fade the band draws with: the scene's, or the override's.
+WorldFogHaze LiveHaze() {
+    return sHaze.hasValues ? sHaze.values : WorldFog_SceneHaze();
+}
+
+// The haze line (sturdy-bassoon#168), for `fog haze ...` and `fog status`. haze= on|off is the switch, kind= whether
+// world-unit fog is live (the band draws only then), drawn= whether the last frame drew it and draws= how many ticks
+// have since boot, color= the colour it last drew with (none before the first), fog= the live fog colour, c= the
+// scene's InitScene call for the live height and fade. drawn= and color= are the last frame's, so read them a frame
+// after a change.
+void DescribeHaze(const char* op, const char* action, const PlayState* play, std::vector<std::string>& lines) {
+    s16 start = 0;
+    s16 end = 0;
+    const bool world = WorldFog_Live(&start, &end) != 0;
+    const WorldFogHaze live = LiveHaze();
+    const WorldFogHaze scene = WorldFog_SceneHaze();
+    const HorizonHazeFrame* frame = HorizonHaze_LastFrame();
+    char color[16] = "none";
+    if (frame->draws != 0) {
+        std::snprintf(color, sizeof(color), "%u,%u,%u", frame->color[0], frame->color[1], frame->color[2]);
+    }
+    Addf(lines,
+         "op=%s result=ok action=%s haze=%s kind=%s drawn=%u draws=%u h=%g f=%g top=%g src=%s scene_h=%g "
+         "scene_f=%g color=%s fog=%u,%u,%u c=WorldFog_SetHaze(%s,%s)",
+         op, action, sHaze.off ? "off" : "on", world ? "world" : "vanilla", frame->drawn, frame->draws, live.height,
+         live.fade, live.height + live.fade, sHaze.hasValues ? "override" : "scene", scene.height, scene.fade, color,
+         play->lightCtx.fogColor[0], play->lightCtx.fogColor[1], play->lightCtx.fogColor[2],
+         FloatLiteral(live.height).c_str(), FloatLiteral(live.fade).c_str());
+}
+
+constexpr const char* kHazeUsage = "usage=haze_[status]|haze_off|haze_on|haze_scene|haze_<H(0..45)>_<F(0..45)>";
+
+bool ParseHazeDegrees(const std::string& text, float* out) {
+    char* end = nullptr;
+    const float value = std::strtof(text.c_str(), &end);
+    if (end == text.c_str() || *end != '\0' || !std::isfinite(value) || value < 0.0f || value > WORLD_FOG_HAZE_MAX) {
+        return false;
+    }
+    *out = value;
+    return true;
+}
+
+// `fog haze ...` (sturdy-bassoon#168): tune the horizon haze band live. Height and fade are degrees above the
+// eye's horizontal plane.
+int32_t RunHaze(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    const std::string action = args.size() < 2 ? "status" : args[1];
+    if (action == "status" && args.size() <= 2) {
+        DescribeHaze("haze", "status", gPlayState, lines);
+        return 0;
+    }
+    if (action == "off" && args.size() == 2) {
+        sHaze.off = true;
+        DescribeHaze("haze", "off", gPlayState, lines);
+        return 0;
+    }
+    if (action == "on" && args.size() == 2) {
+        sHaze.off = false;
+        DescribeHaze("haze", "on", gPlayState, lines);
+        return 0;
+    }
+    if (action == "scene" && args.size() == 2) {
+        sHaze = HazeOverride();
+        DescribeHaze("haze", "scene", gPlayState, lines);
+        return 0;
+    }
+    if (!LooksNumeric(action)) {
+        // Not one of the words and not a number: the typed word is not echoed.
+        Addf(lines, "op=haze result=error error=unknown_subcommand %s", kHazeUsage);
+        return 1;
+    }
+    WorldFogHaze values = { 0.0f, 0.0f };
+    if (args.size() != 3 || !ParseHazeDegrees(args[1], &values.height) || !ParseHazeDegrees(args[2], &values.fade)) {
+        Addf(lines, "op=haze result=error error=bad_argument %s", kHazeUsage);
+        return 1;
+    }
+    sHaze.off = false;
+    sHaze.hasValues = true;
+    sHaze.values = values;
+    DescribeHaze("haze", "set", gPlayState, lines);
+    return 0;
+}
+
 } // namespace
 
 int32_t DistanceFogConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines) {
@@ -465,11 +570,11 @@ int32_t DistanceFogConsole_Run(const std::vector<std::string>& args, std::vector
     const bool isSet = LooksNumeric(sub);
     const char* op = isSet || sub == "world" ? "set" : sub.c_str();
 
-    if (!isSet && sub != "status" && sub != "off" && sub != "world" && sub != "edge") {
+    if (!isSet && sub != "status" && sub != "off" && sub != "world" && sub != "edge" && sub != "haze") {
         // The typed word is not echoed: it is free text, and this line is parsed field by field.
         lines.push_back("op=unknown result=error error=unknown_subcommand "
                         "usage=status|off|<near>_<far>_[r_g_b]_[max=<m>]|world_<start>_<end>_[r_g_b]_[clip=<c>]|"
-                        "edge_...");
+                        "edge_...|haze_...");
         return 1;
     }
     if (gPlayState == nullptr) {
@@ -500,6 +605,8 @@ int32_t DistanceFogConsole_Run(const std::vector<std::string>& args, std::vector
         }
         // Boundary fog (sturdy-bassoon#169): the edge's own line, as `fog edge status` prints it.
         DescribeEdge("status", "status", gPlayState, lines);
+        // The horizon haze (sturdy-bassoon#168): its own line, as `fog haze status` prints it.
+        DescribeHaze("status", "status", gPlayState, lines);
         return 0;
     }
     if (sub == "off") {
@@ -513,6 +620,9 @@ int32_t DistanceFogConsole_Run(const std::vector<std::string>& args, std::vector
     }
     if (sub == "edge") {
         return RunEdge(args, lines);
+    }
+    if (sub == "haze") {
+        return RunHaze(args, lines);
     }
 
     // An optional trailing max=<m> (sturdy-bassoon#169): the fog-space value where fog reaches 100%, passed to
@@ -578,6 +688,9 @@ void ApplyOverride() {
     } else {
         WorldFog_UseBoundary(edge.rects, edge.count, edge.b0, edge.b1);
     }
+    // The horizon haze (sturdy-bassoon#168): the scene's height and fade unless `fog haze` overrides them, handed
+    // over every frame like the boundary. It draws only under world-unit fog, which HorizonHaze_Draw checks itself.
+    HorizonHaze_Use(sHaze.off ? 0 : 1, LiveHaze());
     // Which kind of fog Play_SetFog emits this frame (sturdy-bassoon#167). The scene's own resolves in
     // WorldFog.cpp - its blended rows if it has them, else vanilla - and the override layers on top: a world
     // band in any scene, or vanilla fog even in a scene with rows. Written every frame, like the max.
@@ -605,6 +718,7 @@ void RegisterDistanceFog() {
     COND_HOOK(OnSceneInit, true, [](int16_t) {
         sOverride.active = false;
         sEdge = EdgeOverride();
+        sHaze = HazeOverride();
     });
 }
 
@@ -615,7 +729,7 @@ RegisterShipInitFunc initFunc(RegisterDistanceFog, {});
 const ConsoleSink::Command distanceFogCommand(
     "fog", DistanceFogConsole_Run,
     "Tune the scene's distance fog live (sturdy-bassoon#144): <near> <far> [r g b] [max=<m>] | "
-    "world <start> <end> [r g b] [clip=<c>] | edge ... | status | off. "
+    "world <start> <end> [r g b] [clip=<c>] | edge ... | haze ... | status | off. "
     "near is fog-space 0..1000 (nonlinear: 996, the most a scene can have, starts ~2,000 units out at far 12800; 1000 "
     "is no fog), far is world units 100..12800 and also the far clip. Without r g b the colour keeps following "
     "time of day and weather; lights are never touched. max is the fog-space value where fog reaches 100% "
@@ -625,12 +739,14 @@ const ConsoleSink::Command distanceFogCommand(
     "clip (100..12800, default the scene's). edge (sturdy-bassoon#169) tunes boundary fog, which under world fog "
     "also fogs geometry by how far it lies past the playable area: edge <b0> <b1> ramps it from b0 units past the "
     "edge to full at b1; edge rect <x0> <z0> <x1> <z1> [b0 b1] sets one rectangle by hand, in any scene; edge off "
-    "turns it off, edge scene hands it back, edge status reads it. status "
+    "turns it off, edge scene hands it back, edge status reads it. haze (sturdy-bassoon#168) tunes the horizon haze "
+    "band, which under world fog lays the fog colour over the sky's lowest part, under the world: haze <H> <F> makes "
+    "it opaque up to H degrees above the horizon and fades it out over F more; haze off / on / scene / status. status "
     "prints the live band, where it starts, and each light setting's fog as C to paste into a scene. A scene "
     "load hands fog back; nothing is saved.",
-    { { "near|world|edge|status|off", Ship::ArgumentType::TEXT, true },
-      { "far|start", Ship::ArgumentType::TEXT, true },
-      { "r|end", Ship::ArgumentType::TEXT, true },
+    { { "near|world|edge|haze|status|off", Ship::ArgumentType::TEXT, true },
+      { "far|start|H", Ship::ArgumentType::TEXT, true },
+      { "r|end|F", Ship::ArgumentType::TEXT, true },
       { "g|r", Ship::ArgumentType::TEXT, true },
       { "b|g", Ship::ArgumentType::TEXT, true },
       { "max=<m>|b", Ship::ArgumentType::TEXT, true },

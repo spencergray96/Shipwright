@@ -54,6 +54,23 @@
 //                       load hands back both.
 //                       Refusals: error=bad_argument, error=no_ramp for a rect with no ramp anywhere, and
 //                       error=unknown_subcommand for a word that is none of the above
+//   haze ...            the horizon haze band (sturdy-bassoon#168; HorizonHaze.h): under world-unit fog only, a band of
+//                       the fog colour over the sky and under the world, opaque up to H degrees above the eye's
+//                       horizontal plane and fading out over a further F. Its own override, beside the band's:
+//     haze [status]               read it
+//     haze <H> <F>                height and fade, degrees, 0..45 each (decimals allowed), in place of the scene's;
+//                                 also switches it back on
+//     haze off                    no band, even under world-unit fog
+//     haze on                     undo off, keeping any <H> <F>
+//     haze scene                  hand height and fade back to the scene's, and on
+//                       Each prints `op=haze result=ok action=status|set|off|on|scene haze=on|off kind=world|vanilla
+//                       drawn=0|1 draws=<n> h=<H> f=<F> top=<H+F> src=scene|override scene_h= scene_f=
+//                       color=r,g,b|none fog=r,g,b c=WorldFog_SetHaze(<H>f,<F>f)`: kind= whether world-unit fog is
+//                       live (the band draws only then), drawn= whether the last frame drew it, draws= the ticks
+//                       drawn since boot, color= the colour it last drew with, fog= lightCtx's fog colour now, c=
+//                       the scene's InitScene call. drawn= and color= are the last frame's. `status` adds the same
+//                       line as op=status. `fog off` leaves the haze alone; a scene load hands it back.
+//                       Refusals: error=bad_argument and error=unknown_subcommand
 //   status              read what is live and what the scene would give
 //   off                 hand fog and far clip back to the scene: its world-unit rows if it has them, else its
 //                       light settings. A <near> <far> band is vanilla fog even in a scene with rows

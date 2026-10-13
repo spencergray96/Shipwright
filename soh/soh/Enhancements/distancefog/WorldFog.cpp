@@ -1,6 +1,7 @@
 #include "WorldFog.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include <fast/interpreter.h>
 #include <spdlog/spdlog.h>
@@ -40,6 +41,18 @@ WorldFogRect sBoundary[WORLD_FOG_BOUNDARY_MAX_RECTS];
 uint8_t sBoundaryCount = 0;
 int16_t sBoundaryB0 = 0;
 int16_t sBoundaryB1 = 1;
+
+// The scene's horizon haze (sturdy-bassoon#168), in degrees.
+constexpr WorldFogHaze kHazeDefault = { WORLD_FOG_HAZE_DEFAULT_HEIGHT, WORLD_FOG_HAZE_DEFAULT_FADE };
+WorldFogHaze sHaze = kHazeDefault;
+
+float HazeDegrees(float in, const char* name) {
+    const float out = std::isfinite(in) ? std::clamp(in, 0.0f, WORLD_FOG_HAZE_MAX) : 0.0f;
+    if (out != in) {
+        SPDLOG_ERROR("[worldfog] haze {} {} is out of range; drawing {}", name, in, out);
+    }
+    return out;
+}
 
 // The renderer's form of a boundary: float rectangles, at most the cap.
 uint8_t ToFloats(const WorldFogRect* rects, uint8_t count, float (*out)[4]) {
@@ -87,6 +100,16 @@ void WorldFog_ClearScene(void) {
     sHasScene = false;
     sBoundaryCount = 0;
     Fast::FogBoundaryClear();
+    sHaze = kHazeDefault;
+}
+
+void WorldFog_SetHaze(float height, float fade) {
+    sHaze.height = HazeDegrees(height, "height");
+    sHaze.fade = HazeDegrees(fade, "fade");
+}
+
+WorldFogHaze WorldFog_SceneHaze(void) {
+    return sHaze;
 }
 
 uint8_t WorldFog_HasScene(void) {
