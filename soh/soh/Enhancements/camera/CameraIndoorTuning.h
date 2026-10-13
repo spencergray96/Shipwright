@@ -234,6 +234,28 @@ extern "C" {
 #define CVAR_CAM_RISE_WALL CVAR_ENHANCEMENT("CamRiseWall")
 #define CAM_RISE_WALL_DEFAULT 1
 
+// How much of the rule runs while CamRiseWall is on: a bisect switch (#223's second look), not a
+// setting. 1 = walls only (the rule as first shipped). 2 = undersides as well. 3 = and, for a rise
+// under head height, the line reaches CAM_RISE_WALL_REACH past the probe point.
+//
+// 2: fountain-879-no-drops re-fit its bowl as a column (y 18-38, half-width 21) under a wider bowl
+// (38-53, 30), so the bowl's underside hangs exposed above the basin's top (20). From 20-28 off the
+// centre line, 62-66 south of the centre, the line clears the basin rim, passes under the bowl's lip
+// and comes up through that underside to the bowl's top: no wall, so 1 kept the 53 rise and the eye
+// went to the floor (eye.y - at.y -38.6..-39.0, as with the rule off). fountain-879's bowl box runs
+// down into the basin (18-53), so it has no exposed underside and 1 already read level there.
+// An underside counts only if the line passes up through it below rise + 1, so under head height:
+// a doorway's lintel or an arch over a ramp is above Link's head and never in the way.
+// 3: the floor under a probe point is found with BgCheck's 1-unit tolerance, so a point up to 1 unit
+// outside a tier reads its top, and a line that ends there never reaches the tier's side: a 1-unit
+// band where the rise is kept on either fountain (-42.6 standing still in it, a two-frame dip walking
+// through it). Reaching CAM_RISE_WALL_REACH further takes the line across that side under its top.
+// docs/test-runs/2026-10-13-issue-223-camera-dip-2/ in sturdy-bassoon.
+#define CVAR_CAM_RISE_WALL_STAGE CVAR_ENHANCEMENT("CamRiseWallStage")
+#define CAM_RISE_WALL_STAGE_DEFAULT 3
+#define CAM_RISE_WALL_STAGE_MAX 3
+#define CAM_RISE_WALL_REACH 1.5f
+
 /*
  * Young Link's framing on adult Link (sturdy-bassoon#136). The camera reads a camera-only player
  * height, lerp(68, 44, t) for adult Link on grid-tool scenes, everywhere z_camera.c derived its

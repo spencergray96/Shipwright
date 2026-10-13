@@ -738,9 +738,14 @@ s16 Camera_XZAngle(Vec3f* to, Vec3f* from) {
  * of boxes narrowing upwards (the fountain: tops 20, 53, 68, 90, 110), so the probe line stops on
  * the side of a tier taller than its origin and reads the top of the wider tier under it: a
  * 53-unit rise about 40 ahead, and the eye goes into the floor behind Link. A parapet's top reads
- * level by the same test, before Camera_SoftenLedge's parapet rule sees it. Walls only, because BgCheck
- * files a ramp, a terrain hump or a slope steeper at the top as floor (anything under ~60 degrees,
- * normal.y > 0.5), so those never stop the line and a hill still reads as a hill.
+ * level by the same test, before Camera_SoftenLedge's parapet rule sees it. Walls and undersides, not
+ * floors, because BgCheck files a ramp, a terrain hump or a slope steeper at the top as floor
+ * (anything under ~60 degrees, normal.y > 0.5), so those never stop the line and a hill still reads
+ * as a hill. Undersides because a tier wider than the one below it (fountain-879-no-drops' bowl over
+ * its column) lets the line pass under its lip and up into it from below. And the line reaches
+ * CAM_RISE_WALL_REACH past the probe point, because the floor under the point is found with a
+ * 1-unit tolerance: a point just outside a tier reads its top, and a line that stops there never
+ * crosses the tier's side. CamRiseWallStage bisects the three (CameraIndoorTuning.h).
  */
 static f32 Camera_FloorAheadIfReachable(Camera* camera, Vec3f* probePos, f32 floorY) {
     f32 groundY = camera->playerGroundY;
@@ -751,6 +756,10 @@ static f32 Camera_FloorAheadIfReachable(Camera* camera, Vec3f* probePos, f32 flo
     CollisionPoly* poly;
     s32 bgId;
     s32 riseUnderHead;
+    s32 stage;
+    s32 checkCeil;
+    f32 len;
+    f32 reach;
 
     sProbeReachPoly = -1;
     sProbeReachY = 0.0f;
@@ -781,9 +790,18 @@ static f32 Camera_FloorAheadIfReachable(Camera* camera, Vec3f* probePos, f32 flo
     } else {
         from.y = to.y = groundY + height;
     }
+    stage = CVarGetInteger(CVAR_CAM_RISE_WALL_STAGE, CAM_RISE_WALL_STAGE_DEFAULT);
+    checkCeil = !riseUnderHead || stage >= 2;
+    len = OLib_Vec3fDistXZ(&from, &to);
+    if (riseUnderHead && stage >= 3 && len > 1.0f) {
+        reach = CAM_RISE_WALL_REACH / len;
+        to.x += (to.x - from.x) * reach;
+        to.z += (to.z - from.z) * reach;
+    }
     // Front faces only: the wall, slab edge or slab underside in the way faces the player. Under
-    // head height walls only (#223): the riser or tier side in the way, never the slope itself.
-    if (BgCheck_CameraLineTest1(&camera->play->colCtx, &from, &to, &hit, &poly, 1, !riseUnderHead, !riseUnderHead, 1,
+    // head height walls and undersides only (#223): the riser, tier side or overhang in the way,
+    // never the slope itself.
+    if (BgCheck_CameraLineTest1(&camera->play->colCtx, &from, &to, &hit, &poly, 1, !riseUnderHead, checkCeil, 1,
                                 &bgId)) {
         sProbeVerdict = 1;
         sProbeReachPoly = Camera_DiagPolyIndex(camera, poly, bgId);
