@@ -166,13 +166,21 @@ void DescribeWindLists(std::vector<std::string>& lines) {
 }
 
 // And its fourth (#216 W): every baked list that recorded a wobble vertex, keyed the same way. A list
-// with no line here has nothing that fades.
+// with no line here has nothing that fades. wobble_depths= (#222) lists the depths (0-63, ascending,
+// comma-separated) its wobble corners carry: 63 is the full wobble, every kind's before #222.
 void DescribeWobbleLists(std::vector<std::string>& lines) {
     const std::vector<Fast::StaticBakeKeyedEntry> entries = Fast::StaticBakeGetWobbleEntries();
     Addf(lines, "op=props result=ok wobble_lists=%u", (unsigned)entries.size());
     for (const Fast::StaticBakeKeyedEntry& e : entries) {
-        Addf(lines, "op=props wobble_key=%p draws=%u tris=%u wobble_vertices=%u wobble_tris=%u", e.key,
-             e.info.draws, e.info.tris, e.info.wobbleVertices, e.info.wobbleTris);
+        std::string depths;
+        for (uint32_t d = 0; d <= Fast::STATIC_BAKE_WOBBLE_DEPTH_MAX; d++) {
+            if ((e.info.wobbleDepths >> d) & 1) {
+                depths += (depths.empty() ? "" : ",") + std::to_string(d);
+            }
+        }
+        Addf(lines, "op=props wobble_key=%p draws=%u tris=%u wobble_vertices=%u wobble_tris=%u wobble_depths=%s",
+             e.key, e.info.draws, e.info.tris, e.info.wobbleVertices, e.info.wobbleTris,
+             depths.empty() ? "none" : depths.c_str());
     }
 }
 

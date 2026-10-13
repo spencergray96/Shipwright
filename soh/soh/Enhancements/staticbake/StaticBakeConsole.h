@@ -76,7 +76,9 @@
 //             same way. wind_vertices counts the weighted vertices its recording loaded, wind_tris the
 //             triangles with a weighted corner. Then `op=props result=ok wobble_lists=<n>` and one line
 //             per baked list that recorded a wobble vertex (sturdy-bassoon#216 W): `op=props
-//             wobble_key=<p> draws=<n> tris=<n> wobble_vertices=<n> wobble_tris=<n>`, keyed the same way.
+//             wobble_key=<p> draws=<n> tris=<n> wobble_vertices=<n> wobble_tris=<n> wobble_depths=<d,...>`,
+//             keyed the same way; wobble_depths (sturdy-bassoon#222) lists the depths 0-63 its wobble
+//             corners carry, ascending (63 the full wobble, every kind's before #222).
 //             Read-only, the same from both sinks
 //
 // Texture scroll (sturdy-bassoon#187 A1): libultraship's registry (fast/StaticMeshCache.h, "Texture
