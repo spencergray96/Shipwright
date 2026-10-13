@@ -8,9 +8,17 @@
     "standing-torch-724-no-flame": "rs_724_no_flame"
   },
   "props": [
-    {"id":"w206a","kind":"fountain-879-no-drops","pos":[360,0,40],"rot":0},
-    {"id":"w206b","kind":"fountain-879-no-drops","pos":[-40,0,40],"rot":1},
-    {"id":"w206c","kind":"fountain-879","pos":[-440,0,40],"rot":0},
-    {"id":"w206t","kind":"standing-torch-724-no-flame","pos":[-20,0,-340],"rot":0}
+    {"id":"v01","kind":"fountain-879","pos":[600,0,40],"rot":0},
+    {"id":"v02","kind":"fountain-879-no-drops","pos":[440,0,40],"rot":0},
+    {"id":"v03","kind":"fountain-879-no-drops","pos":[280,0,40],"rot":0},
+    {"id":"v04","kind":"fountain-879-no-drops","pos":[120,0,40],"rot":0},
+    {"id":"v05","kind":"fountain-879-no-drops","pos":[-40,0,40],"rot":0},
+    {"id":"v06","kind":"fountain-879-no-drops","pos":[-200,0,40],"rot":0},
+    {"id":"v07","kind":"fountain-879-no-drops","pos":[-360,0,40],"rot":0},
+    {"id":"v08","kind":"fountain-879-no-drops","pos":[-520,0,40],"rot":0},
+    {"id":"v09","kind":"fountain-879-no-drops","pos":[280,0,320],"rot":1},
+    {"id":"v10","kind":"fountain-879-no-drops","pos":[-40,0,320],"rot":0},
+    {"id":"v11","kind":"fountain-879-no-drops","pos":[-360,0,320],"rot":1},
+    {"id":"w206t","kind":"standing-torch-724-no-flame","pos":[60,0,-220],"rot":0}
   ]
 }

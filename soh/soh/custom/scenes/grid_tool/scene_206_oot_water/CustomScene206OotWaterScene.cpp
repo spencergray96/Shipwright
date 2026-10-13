@@ -69,7 +69,7 @@ static EntranceEntry sScene206OotWaterEntrances[] = {
 // mode 0 is PLAYER_START_MODE_NOTHING, which leaves Player's update/draw entirely inert), low
 // byte 0xFF = "no start bg-camera override" (we don't author per-scene camera data).
 static ActorEntry sScene206OotWaterPlayerSpawn = {
-    ACTOR_PLAYER, { -20, 0, -460 }, { 0, 0, 0 }, 0xDFF
+    ACTOR_PLAYER, { 60, 0, -260 }, { 0, 0, 0 }, 0xDFF
 };
 
 static RomFile sScene206OotWaterRoomList[] = {
