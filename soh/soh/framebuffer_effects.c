@@ -14,6 +14,10 @@ s32 gReusableFrameBuffer = -1;
 // N64 resolution sized buffer (320x240), used by picto box and deku bubble
 s32 gN64ResFrameBuffer = -1;
 
+// Sky-colour fog's copy of the sky (sturdy-bassoon#226; WorldFog.h WorldFog_SkyCopy). Resized with the window like
+// the others, so it is the internal render resolution: texel = drawn pixel.
+s32 gSkyFogFrameBuffer = -1;
+
 void FB_CreateFramebuffers(void) {
     if (gPauseFrameBuffer == -1) {
         gPauseFrameBuffer = gfx_create_framebuffer(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH, SCREEN_HEIGHT, true);
@@ -29,6 +33,10 @@ void FB_CreateFramebuffers(void) {
 
     if (gN64ResFrameBuffer == -1) {
         gN64ResFrameBuffer = gfx_create_framebuffer(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH, SCREEN_HEIGHT, false);
+    }
+
+    if (gSkyFogFrameBuffer == -1) {
+        gSkyFogFrameBuffer = gfx_create_framebuffer(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH, SCREEN_HEIGHT, true);
     }
 }
 
