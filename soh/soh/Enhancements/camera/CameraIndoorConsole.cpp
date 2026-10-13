@@ -144,6 +144,7 @@ void AddTunables(std::vector<std::string>& lines) {
          CVarGetInteger(CVAR_CAM_PROBE_CEIL_ON, CAM_PROBE_CEIL_ON_DEFAULT));
     Addf(lines, "ledge cap=%.1f rail=%d", CVarGetFloat(CVAR_CAM_LEDGE_DROP_CAP, CAM_LEDGE_DROP_CAP_DEFAULT),
          CVarGetInteger(CVAR_CAM_LEDGE_RAIL, CAM_LEDGE_RAIL_DEFAULT));
+    Addf(lines, "rise wall=%d", CVarGetInteger(CVAR_CAM_RISE_WALL, CAM_RISE_WALL_DEFAULT));
     Addf(lines, "height t=%.3f", CVarGetFloat(CVAR_CAM_ADULT_HEIGHT_T, CAM_ADULT_HEIGHT_T_DEFAULT));
     Addf(lines, "eye release=%.1f", CVarGetFloat(CVAR_CAM_EYE_RELEASE, CAM_EYE_RELEASE_DEFAULT));
 }
@@ -204,6 +205,7 @@ int32_t Defaults(std::vector<std::string>& lines) {
     CVarClear(CVAR_CAM_PROBE_CEIL_ON);
     CVarClear(CVAR_CAM_LEDGE_DROP_CAP);
     CVarClear(CVAR_CAM_LEDGE_RAIL);
+    CVarClear(CVAR_CAM_RISE_WALL);
     CVarClear(CVAR_CAM_ADULT_HEIGHT_T);
     CVarClear(CVAR_CAM_EYE_RELEASE);
     CVarSave();
@@ -278,6 +280,10 @@ int32_t CameraIndoorConsole_Run(const std::vector<std::string>& args, std::vecto
     if (sub == "ledgerail") {
         return SetSwitch(args, lines, CVAR_CAM_LEDGE_RAIL, "ledgerail");
     }
+    // #223 a rise behind a wall reads level, grid-tool scenes only.
+    if (sub == "risewall") {
+        return SetSwitch(args, lines, CVAR_CAM_RISE_WALL, "risewall");
+    }
     // #136 adult camera height, grid-tool scenes only.
     if (sub == "heightt") {
         return SetHeightT(args, lines);
@@ -302,9 +308,9 @@ namespace {
 
 const ConsoleSink::Command cameraIndoorCommand(
     "camindoor", CameraIndoorConsole_Run,
-    "Grid-tool camera tuning (sturdy-bassoon#108, #152, #155, #136, #174): status | on | off | scale <f> | "
+    "Grid-tool camera tuning (sturdy-bassoon#108, #152, #155, #136, #174, #223): status | on | off | scale <f> | "
     "height <f> | ease <f> | ring <n> | radius <f> | bias <f> | k <n> | ceilclamp|floorahead|probeceil "
-    "on|off | corner <f> | hold <f> | ledgecap <f> | ledgerail on|off | "
+    "on|off | corner <f> | hold <f> | ledgecap <f> | ledgerail|risewall on|off | "
     "heightt <f>|+<f>|-<f> | release <f> | "
     "defaults. The follow distance "
     "is multiplied by `scale` while a ceiling is found within `height` of the floor the player is on, "
@@ -320,12 +326,13 @@ const ConsoleSink::Command cameraIndoorCommand(
     "clamp); `hold` is how much further the clamp's test reaches on the frame after it found a "
     "ceiling (0 = none). ledgecap is the deepest a drop ahead counts as, in units (0 = no cap: the "
     "camera looks down harder the further the drop goes); ledgerail ignores a low top with a drop "
-    "behind it (a parapet) rather than reading it as a step up. "
+    "behind it (a parapet) rather than reading it as a step up; risewall reads a rise with a wall "
+    "between Link's feet and it (a prop's tier, a crate) as level, so the camera does not dip to look up it. "
     "heightt moves adult Link's camera height toward Young Link's (0 vanilla, 1 child); a sign steps it. "
     "release is how much faster than Link the eye may move away from him per frame, so an eye coming "
     "free of a wall glides back out instead of jumping (0 = off: vanilla).",
     { { "status|on|off|scale|height|ease|ring|radius|bias|k|ceilclamp|corner|hold|floorahead|probeceil|ledgecap|"
-        "ledgerail|heightt|release|defaults",
+        "ledgerail|risewall|heightt|release|defaults",
         Ship::ArgumentType::TEXT },
       { "value", Ship::ArgumentType::TEXT, true } });
 
