@@ -285,6 +285,13 @@
  *   rs_interaction <line>                one line of RsInteractionConsole_Run output per marker, from
  *                                        `agenttest interaction ...` - always `op=...`, an indexed row or
  *                                        `case=...`, never `id=... event=...`
+ *   rs_fire event=<spawn|lit|arrow_lit|stick_lit|bad_flag> lit= by= flag= size= light= x= y= z=
+ *                                        an RS torch fire (sturdy-bassoon#232): `lit` names what lit it
+ *                                        (by=stick|fire), `arrow_lit` an arrow it set burning, `stick_lit`
+ *                                        a Deku stick it lit. Gameplay markers
+ *   rs_fire <line>                       one line of RsFireConsole_Run output per marker, from
+ *                                        `agenttest rsfire ...` - `fire idx=...`, `fires count=...`,
+ *                                        `pool ...` or `op=...`, never `event=...`
  *   rs_stairs <line>                     one line of RsStairConsole_Run output per marker, from
  *                                        `agenttest stairs ...` - always `op=...`, an indexed row or
  *                                        `last="..."`, never a line that starts `stair=... event=...`,
@@ -563,6 +570,11 @@
  *                                          the code table, one interaction's resolved rule, the registry's
  *                                          planted refusals, and #117's cost bench laid out with real
  *                                          triggers. InteractionConsole.h documents every line
+ *   agenttest rsfire list|pool
+ *                                          the RS torch fires (sturdy-bassoon#232): where each is, its size,
+ *                                          lit and by what, its world flag, whether it holds a light node;
+ *                                          and the scene's light nodes against the engine's 32.
+ *                                          RsFireConsole.h documents every line
  *   agenttest warps list|dump|where|status|badcheck
  *                                          step warps (sturdy-bassoon#154). `dump` is every warp tile
  *                                          in this scene as the scan found it - where it is, where it
@@ -640,6 +652,7 @@
 #include "soh/Enhancements/rs/quest/QuestConsole.h"
 #include "soh/Enhancements/rs/dialogue/NpcConsole.h"
 #include "soh/Enhancements/rs/prefs/RegionConsole.h"
+#include "soh/Enhancements/rs/actors/RsFireConsole.h"
 #include "soh/Enhancements/rs/maps/WorldConsole.h"
 #include "soh/Enhancements/rs/stairs/StairConsole.h"
 #include "soh/Enhancements/rs/interactions/InteractionConsole.h"
@@ -2925,6 +2938,12 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(RsInteractionConsole_Run, sub, "rs_interaction ", output, WriteMarker);
     }
+    // RS torch fires (sturdy-bassoon#232). Same prefix as the fires' own event markers, for the
+    // interaction's reason: `rs_fire fire idx=...` is an answer, `rs_fire event=...` a fire reporting.
+    if (args.size() >= 3 && args[1] == "rsfire") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(RsFireConsole_Run, sub, "rs_fire ", output, WriteMarker);
+    }
     // Step warps (sturdy-bassoon#154). Same prefix as the tiles' own event markers, for the stairs'
     // reason: `rs_warp op=…` is an answer, `rs_warp tile=<n> event=…` is a tile reporting itself.
     if (args.size() >= 3 && args[1] == "warps") {
@@ -2999,6 +3018,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
               "warps list|dump|where|status|badcheck | "
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
+              "rsfire list|pool | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
@@ -3048,6 +3068,7 @@ void RegisterAgentTest() {
               "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
               "warps list|dump|where|status|badcheck | "
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
+              "rsfire list|pool | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
