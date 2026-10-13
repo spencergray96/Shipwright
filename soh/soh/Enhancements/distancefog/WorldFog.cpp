@@ -13,6 +13,9 @@ extern "C" {
 
 static_assert(WORLD_FOG_SKY_MIRROR == Fast::SKY_FOG_MIRROR && WORLD_FOG_SKY_CLAMP == Fast::SKY_FOG_CLAMP,
               "WorldFog.h's sky modes are the renderer's (sturdy-bassoon#226)");
+static_assert(WORLD_FOG_SKY_SCOPE_ALL == Fast::SKY_FOG_SCOPE_ALL &&
+                  WORLD_FOG_SKY_SCOPE_EDGE == Fast::SKY_FOG_SCOPE_EDGE,
+              "WorldFog.h's sky scopes are the renderer's (sturdy-bassoon#230)");
 static_assert(WORLD_FOG_BOUNDARY_MAX_RECTS == Fast::FOG_BOUNDARY_MAX_RECTS,
               "WorldFog.h's rectangle cap is the renderer's (and sceneTemplate.ts's FOG_BOUNDARY_MAX_RECTS)");
 
@@ -80,9 +83,10 @@ void PushBoundary(const WorldFogRect* rects, uint8_t count, int16_t b0, int16_t 
     Fast::FogBoundarySet(out, count, b0, b1);
 }
 
-// Sky-colour fog (sturdy-bassoon#226): the console's mode. The renderer is told the framebuffer and mode on every
-// change; the copy Play_Draw emits is what arms it, frame by frame.
+// Sky-colour fog (sturdy-bassoon#226): the mode and scope the console resolved for this frame (#230). The renderer is
+// told the framebuffer, mode and scope; the copy Play_Draw emits is what arms it, frame by frame.
 uint8_t sSky = WORLD_FOG_SKY_OFF;
+uint8_t sSkyScope = WORLD_FOG_SKY_SCOPE_ALL;
 
 } // namespace
 
@@ -225,13 +229,18 @@ float WorldFog_DistancePast(const WorldFogRect* rects, uint8_t count, float x, f
     return Fast::FogBoundaryDistance(boundary, x, z);
 }
 
-void WorldFog_SetSky(uint8_t mode) {
+void WorldFog_SetSky(uint8_t mode, uint8_t scope) {
     sSky = mode <= WORLD_FOG_SKY_CLAMP ? mode : WORLD_FOG_SKY_OFF;
-    Fast::SkyFogSet(gSkyFogFrameBuffer, sSky);
+    sSkyScope = scope == WORLD_FOG_SKY_SCOPE_EDGE ? WORLD_FOG_SKY_SCOPE_EDGE : WORLD_FOG_SKY_SCOPE_ALL;
+    Fast::SkyFogSet(gSkyFogFrameBuffer, sSky, sSkyScope);
 }
 
 uint8_t WorldFog_Sky(void) {
     return sSky;
+}
+
+uint8_t WorldFog_SkyScope(void) {
+    return sSkyScope;
 }
 
 void WorldFog_SetSkyHold(uint8_t hold) {
