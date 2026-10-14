@@ -1,0 +1,13 @@
+{
+  "format": 2,
+  "scene": "scene_235_puzzle_fires",
+  "list": "objects/rs_props/scene_235_puzzle_fires/props",
+  "kinds": {
+    "standing-torch-724-oot-fire": "rs_724_oot_fire"
+  },
+  "props": [
+    {"id":"deco","kind":"standing-torch-724-oot-fire","pos":[-20,0,-220],"rot":0},
+    {"id":"p1stick","kind":"standing-torch-724-oot-fire","pos":[-140,0,-220],"rot":0,"interaction":32514},
+    {"id":"p2arrow","kind":"standing-torch-724-oot-fire","pos":[-20,0,-20],"rot":0,"interaction":32515}
+  ]
+}
