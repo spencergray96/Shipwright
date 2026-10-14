@@ -1,5 +1,6 @@
 #include "DistanceFogConsole.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -19,6 +20,7 @@ extern "C" {
 extern PlayState* gPlayState;
 extern SaveContext gSaveContext;
 extern s32 gPlayFogMax;
+extern s32 gSkyColourFrameBuffer; // soh/framebuffer_effects.h (sturdy-bassoon#229)
 }
 
 namespace {
@@ -569,8 +571,8 @@ constexpr const char* kSkyUsage = "usage=sky_[status]|sky_auto|sky_edge|sky_all|
 int32_t RunSky(const std::vector<std::string>& args, std::vector<std::string>& lines) {
     const std::string action = args.size() < 2 ? "status" : args[1];
     if (action == "dump" && args.size() <= 3) {
-        if (WorldFog_Sky() == WORLD_FOG_SKY_OFF) {
-            // The dump is taken from a frame that copied the sky; with it off none does.
+        if (WorldFog_Sky() == WORLD_FOG_SKY_OFF && !WorldFog_ColourLive()) {
+            // The dump is taken from a frame that copied the sky; with sky fog and the sky's colour off none does.
             Addf(lines, "op=sky result=error error=sky_off %s", kSkyUsage);
             return 1;
         }
@@ -624,6 +626,174 @@ int32_t RunSky(const std::vector<std::string>& args, std::vector<std::string>& l
     return 0;
 }
 
+// The sky's colour (sturdy-bassoon#229; WorldFog.h WorldFog_SetColour): depth fog toward the live sky's colour just
+// above the horizon in place of the scene's fog colour. The console chooses auto (the default) or scene, and the band
+// and smoothing; ApplyColour resolves them every frame. Kept across scene loads, like the sky's choice; nothing is
+// saved.
+enum class ColourChoice : uint8_t { Auto, Scene };
+ColourChoice sColourChoice = ColourChoice::Auto;
+float sColourLo = WORLD_FOG_COLOUR_DEFAULT_LO;
+float sColourHi = WORLD_FOG_COLOUR_DEFAULT_HI;
+float sColourTau = WORLD_FOG_COLOUR_DEFAULT_TAU;
+// Why the live colour is what it is, for status: world_fog (auto, live), or why it is the scene's - console (`fog
+// colour scene`), no_world_fog, pinned (a `fog world ... r g b` colour), sky_all (#226's per-pixel colour wins) or
+// unsupported (the renderer has no reduction).
+const char* sColourWhy = "no_world_fog";
+uint32_t sColourLogCount = 0;
+// `fog haze site before` (sturdy-bassoon#229): the haze band before the sun and moon under the sky's colour, as #168
+// drew it; kept across scene loads like the choice above. The default draws it after the copy.
+bool sHazeSiteBefore = false;
+
+WorldFogHaze LiveHaze();
+
+// The live colour for this frame. Auto takes the sky's under world-unit fog unless the colour is pinned, sky fog's
+// scope is all, or the renderer cannot. The sampled band is the chosen one, except with the haze band drawn before
+// the copy, where it would be in the copy: then the sampled band starts that far above the haze's top instead.
+// Run at OnPlayDrawBegin after ApplySky and the band (ApplyOverride), and straight after a console change.
+void ApplyColour() {
+    s16 start = 0;
+    s16 end = 0;
+    const bool world = WorldFog_Live(&start, &end) != 0;
+    bool live = false;
+    if (sColourChoice == ColourChoice::Scene) {
+        sColourWhy = "console";
+    } else if (!world) {
+        sColourWhy = "no_world_fog";
+    } else if (sOverride.active && sOverride.pinColor) {
+        sColourWhy = "pinned";
+    } else if (WorldFog_Sky() != WORLD_FOG_SKY_OFF && WorldFog_SkyScope() == WORLD_FOG_SKY_SCOPE_ALL) {
+        sColourWhy = "sky_all";
+    } else if (!WorldFog_ColourSupported()) {
+        sColourWhy = "unsupported";
+    } else {
+        live = true;
+        sColourWhy = "world_fog";
+    }
+    float lo = sColourLo;
+    float hi = sColourHi;
+    if (live && sHazeSiteBefore && !sHaze.off) {
+        const WorldFogHaze haze = LiveHaze();
+        lo = std::min(haze.height + haze.fade + sColourLo, 80.0f);
+        hi = lo + (sColourHi - sColourLo);
+    }
+    static const u8 kNoFog[3] = { 0, 0, 0 };
+    WorldFog_SetColour(live ? 1 : 0, gPlayState != nullptr ? gPlayState->lightCtx.fogColor : kNoFog, lo, hi,
+                       sColourTau);
+    // The band samples the colour only once the renderer is drawing it (WorldFog_ColourLive can still say no) and,
+    // before the copy, only once a reduction has written the framebuffer at all: never a texel nothing wrote.
+    const bool bandSky = WorldFog_ColourLive() && (!sHazeSiteBefore || Fast::SkyColourNow().reductions != 0);
+    HorizonHaze_UseColour(bandSky ? 1 : 0, sHazeSiteBefore ? 0 : 1);
+}
+
+// The colour line, for `fog colour ...` and `fog status`. live= auto|scene what draws, choice= the console's, why= the
+// reason; drawn= whether the last rendered frame's depth fog took the sky's colour. rgb= raw= samples= held= are the
+// last readback (0..255, two decimals; none before one), taken at the end of the next rendered frame after a request,
+// readout_run= its rendered frame and run= the newest - so read status twice for a fresh one. band= the chosen
+// degrees, band_px= the live band in pixels above the horizon, smooth= tau, k= and dt= the last reduction's step.
+void DescribeColour(const char* op, const char* action, std::vector<std::string>& lines) {
+    const Fast::SkyColourStatus& now = Fast::SkyColourNow();
+    const Fast::SkyFogStatus& sky = Fast::SkyFogNow();
+    char rgb[48] = "none";
+    char raw[48] = "none";
+    if (now.readoutOk) {
+        std::snprintf(rgb, sizeof(rgb), "%.2f,%.2f,%.2f", now.readout.colour[0], now.readout.colour[1],
+                      now.readout.colour[2]);
+        std::snprintf(raw, sizeof(raw), "%.2f,%.2f,%.2f", now.readout.raw[0], now.readout.raw[1], now.readout.raw[2]);
+    }
+    const u8* scene = gPlayState != nullptr ? gPlayState->lightCtx.fogColor : nullptr;
+    Addf(lines,
+         "op=%s result=ok action=%s live=%s choice=%s why=%s drawn=%d rgb=%s raw=%s samples=%u held=%d "
+         "readout_run=%llu run=%llu scene_rgb=%u,%u,%u band=%g,%g band_px=%.2f,%.2f smooth=%g k=%.5f dt=%.5f "
+         "reductions=%llu fb=%d log=%s logged=%llu",
+         op, action, WorldFog_ColourLive() ? "auto" : "scene", sColourChoice == ColourChoice::Auto ? "auto" : "scene",
+         sColourWhy, now.live && now.lastRun == sky.runs ? 1 : 0, rgb, raw, now.readoutOk ? now.readout.samples : 0,
+         now.readoutOk && now.readout.samples == 0 ? 1 : 0, (unsigned long long)now.readoutRun,
+         (unsigned long long)sky.runs, scene != nullptr ? scene[0] : 0, scene != nullptr ? scene[1] : 0,
+         scene != nullptr ? scene[2] : 0, sColourLo, sColourHi, now.last.loPx, now.last.hiPx, sColourTau, now.last.k,
+         now.lastDt, (unsigned long long)now.reductions, gSkyColourFrameBuffer, now.logging ? "on" : "off",
+         (unsigned long long)now.logged);
+    Fast::SkyColourRequestReadout();
+}
+
+constexpr const char* kColourUsage = "usage=colour_[status]|colour_auto|colour_scene|colour_band_<lo>_<hi>(0..15)|"
+                                     "colour_smooth_<seconds(0..5)>|colour_snap|colour_log_on_[path]|colour_log_off";
+
+bool ParseFloat(const std::string& text, float lo, float hi, float* out) {
+    char* end = nullptr;
+    const float value = std::strtof(text.c_str(), &end);
+    if (end == text.c_str() || *end != '\0' || !std::isfinite(value) || value < lo || value > hi) {
+        return false;
+    }
+    *out = value;
+    return true;
+}
+
+// `fog colour ...` (sturdy-bassoon#229): the depth fog's colour source, live.
+int32_t RunColour(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    const std::string action = args.size() < 2 ? "status" : args[1];
+    if ((action == "status" || action == "auto" || action == "scene" || action == "snap") && args.size() <= 2) {
+        if (action == "auto" || action == "scene") {
+            sColourChoice = action == "auto" ? ColourChoice::Auto : ColourChoice::Scene;
+        } else if (action == "snap") {
+            Fast::SkyColourSnap();
+        }
+        ApplyColour();
+        DescribeColour("colour", action.c_str(), lines);
+        return 0;
+    }
+    if (action == "band") {
+        float lo = 0.0f;
+        float hi = 0.0f;
+        if (args.size() != 4 || !ParseFloat(args[2], 0.0f, 15.0f, &lo) || !ParseFloat(args[3], 0.0f, 15.0f, &hi) ||
+            hi <= lo) {
+            Addf(lines, "op=colour result=error error=bad_argument %s", kColourUsage);
+            return 1;
+        }
+        sColourLo = lo;
+        sColourHi = hi;
+        ApplyColour();
+        DescribeColour("colour", "band", lines);
+        return 0;
+    }
+    if (action == "smooth") {
+        float tau = 0.0f;
+        if (args.size() != 3 || !ParseFloat(args[2], 0.0f, 5.0f, &tau)) {
+            Addf(lines, "op=colour result=error error=bad_argument %s", kColourUsage);
+            return 1;
+        }
+        sColourTau = tau;
+        ApplyColour();
+        DescribeColour("colour", "smooth", lines);
+        return 0;
+    }
+    if (action == "log") {
+        const bool on = args.size() >= 3 && args[2] == "on";
+        if (args.size() < 3 || args.size() > 4 || (!on && (args[2] != "off" || args.size() != 3))) {
+            Addf(lines, "op=colour result=error error=bad_argument %s", kColourUsage);
+            return 1;
+        }
+        std::string path;
+        if (on) {
+            if (args.size() == 4) {
+                path = args[3];
+            } else {
+                const char* temp = std::getenv("TEMP");
+                path = std::string(temp != nullptr ? temp : ".") + "/skycolour-" + std::to_string(++sColourLogCount) +
+                       ".txt";
+            }
+        }
+        if (!Fast::SkyColourLog(path)) {
+            Addf(lines, "op=colour result=error error=log_open %s", kColourUsage);
+            return 1;
+        }
+        DescribeColour("colour", "log", lines);
+        return 0;
+    }
+    // The typed word is not echoed.
+    Addf(lines, "op=colour result=error error=unknown_subcommand %s", kColourUsage);
+    return 1;
+}
+
 // A degree value as a C float literal, as sceneTemplate.ts writes it: 4.0f, 2.25f.
 std::string FloatLiteral(float value) {
     char text[32];
@@ -653,28 +823,26 @@ void DescribeHaze(const char* op, const char* action, const PlayState* play, std
     const WorldFogHaze scene = WorldFog_SceneHaze();
     const HorizonHazeFrame* frame = HorizonHaze_LastFrame();
     char color[16] = "none";
-    if (frame->draws != 0) {
+    if (frame->draws != 0 && frame->skyColour) {
+        std::snprintf(color, sizeof(color), "auto"); // the sky's colour, on the GPU (sturdy-bassoon#229)
+    } else if (frame->draws != 0) {
         std::snprintf(color, sizeof(color), "%u,%u,%u", frame->color[0], frame->color[1], frame->color[2]);
     }
     Addf(lines,
          "op=%s result=ok action=%s haze=%s kind=%s drawn=%u draws=%u h=%g f=%g top=%g src=%s scene_h=%g "
-         "scene_f=%g color=%s fog=%u,%u,%u c=WorldFog_SetHaze(%s,%s)",
+         "scene_f=%g color=%s fog=%u,%u,%u c=WorldFog_SetHaze(%s,%s) colour_src=%s site=%s site_choice=%s",
          op, action, sHaze.off ? "off" : "on", world ? "world" : "vanilla", frame->drawn, frame->draws, live.height,
          live.fade, live.height + live.fade, sHaze.hasValues ? "override" : "scene", scene.height, scene.fade, color,
          play->lightCtx.fogColor[0], play->lightCtx.fogColor[1], play->lightCtx.fogColor[2],
-         FloatLiteral(live.height).c_str(), FloatLiteral(live.fade).c_str());
+         FloatLiteral(live.height).c_str(), FloatLiteral(live.fade).c_str(), frame->skyColour ? "sky" : "fog",
+         frame->afterCopy ? "after_copy" : "before_sun", sHazeSiteBefore ? "before" : "after");
 }
 
-constexpr const char* kHazeUsage = "usage=haze_[status]|haze_off|haze_on|haze_scene|haze_<H(0..45)>_<F(0..45)>";
+constexpr const char* kHazeUsage =
+    "usage=haze_[status]|haze_off|haze_on|haze_scene|haze_<H(0..45)>_<F(0..45)>|haze_site_after|haze_site_before";
 
 bool ParseHazeDegrees(const std::string& text, float* out) {
-    char* end = nullptr;
-    const float value = std::strtof(text.c_str(), &end);
-    if (end == text.c_str() || *end != '\0' || !std::isfinite(value) || value < 0.0f || value > WORLD_FOG_HAZE_MAX) {
-        return false;
-    }
-    *out = value;
-    return true;
+    return ParseFloat(text, 0.0f, WORLD_FOG_HAZE_MAX, out);
 }
 
 // `fog haze ...` (sturdy-bassoon#168): tune the horizon haze band live. Height and fade are degrees above the
@@ -698,6 +866,18 @@ int32_t RunHaze(const std::vector<std::string>& args, std::vector<std::string>& 
     if (action == "scene" && args.size() == 2) {
         sHaze = HazeOverride();
         DescribeHaze("haze", "scene", gPlayState, lines);
+        return 0;
+    }
+    // Where the band draws under the sky's colour (sturdy-bassoon#229): after the copy (the default), or before the
+    // sun and moon with the previous frame's colour, the colour then sampled above the band (ApplyColour).
+    if (action == "site") {
+        if (args.size() != 3 || (args[2] != "after" && args[2] != "before")) {
+            Addf(lines, "op=haze result=error error=bad_argument %s", kHazeUsage);
+            return 1;
+        }
+        sHazeSiteBefore = args[2] == "before";
+        ApplyColour();
+        DescribeHaze("haze", "site", gPlayState, lines);
         return 0;
     }
     if (!LooksNumeric(action)) {
@@ -725,11 +905,11 @@ int32_t DistanceFogConsole_Run(const std::vector<std::string>& args, std::vector
     const char* op = isSet || sub == "world" ? "set" : sub.c_str();
 
     if (!isSet && sub != "status" && sub != "off" && sub != "world" && sub != "edge" && sub != "haze" &&
-        sub != "sky") {
+        sub != "sky" && sub != "colour") {
         // The typed word is not echoed: it is free text, and this line is parsed field by field.
         lines.push_back("op=unknown result=error error=unknown_subcommand "
                         "usage=status|off|<near>_<far>_[r_g_b]_[max=<m>]|world_<start>_<end>_[r_g_b]_[clip=<c>]|"
-                        "edge_...|haze_...|sky_...");
+                        "edge_...|haze_...|sky_...|colour_...");
         return 1;
     }
     if (gPlayState == nullptr) {
@@ -764,6 +944,8 @@ int32_t DistanceFogConsole_Run(const std::vector<std::string>& args, std::vector
         DescribeHaze("status", "status", gPlayState, lines);
         // Sky-colour fog (sturdy-bassoon#226): the sky's own line, as `fog sky status` prints it.
         DescribeSky("status", "status", lines);
+        // The sky's colour (sturdy-bassoon#229): its own line, as `fog colour status` prints it.
+        DescribeColour("status", "status", lines);
         return 0;
     }
     if (sub == "off") {
@@ -783,6 +965,9 @@ int32_t DistanceFogConsole_Run(const std::vector<std::string>& args, std::vector
     }
     if (sub == "sky") {
         return RunSky(args, lines);
+    }
+    if (sub == "colour") {
+        return RunColour(args, lines);
     }
 
     // An optional trailing max=<m> (sturdy-bassoon#169): the fog-space value where fog reaches 100%, passed to
@@ -872,6 +1057,9 @@ void ApplyOverride() {
     // Sky-colour fog and its edge layer (sturdy-bassoon#226, #230), from the band and boundary just resolved, before
     // Play_Draw decides whether to take the copy (WorldFog_SkyCopy).
     ApplySky();
+    // The sky's colour (sturdy-bassoon#229), from the band, the colour and the sky just resolved: lightCtx.fogColor is
+    // final here, and is what Play_SetFog emits next.
+    ApplyColour();
 }
 
 void RegisterDistanceFog() {
@@ -911,12 +1099,17 @@ const ConsoleSink::Command distanceFogCommand(
     "under world fog with a boundary, off elsewhere); sky mirror (fogged ground takes the skybox's mirrored sky) or "
     "sky clamp (the sky just above the horizon) picks the method; sky status, sky dump [path-prefix] (writes the sky "
     "copy and the frame as PPMs, by default in the TEMP folder), sky hold on|off (keep fogging toward the copy "
-    "already taken, for captures a moment apart); the choice is kept across scene loads. status prints the live "
+    "already taken, for captures a moment apart); the choice is kept across scene loads. colour (sturdy-bassoon#229, "
+    "DX11) gives depth fog the live sky's colour just above the horizon in place of the scene's fog colour: colour "
+    "auto (the default, under world fog) or colour scene; colour band <lo> <hi> (degrees above the horizon), colour "
+    "smooth <seconds>, colour snap, colour log on [path] | off, colour status. haze site after|before chooses where "
+    "the band draws under it. status prints the live "
     "band, where it starts, and each light setting's fog as C to paste into a scene. A scene load hands fog back "
     "(not sky); nothing is saved.",
-    { { "near|world|edge|haze|sky|status|off", Ship::ArgumentType::TEXT, true },
-      { "far|start|H|auto|edge|all|on|off|mirror|clamp|dump", Ship::ArgumentType::TEXT, true },
-      { "r|end|F|path-prefix", Ship::ArgumentType::TEXT, true },
+    { { "near|world|edge|haze|sky|colour|status|off", Ship::ArgumentType::TEXT, true },
+      { "far|start|H|auto|edge|all|on|off|mirror|clamp|dump|scene|band|smooth|snap|log|site", Ship::ArgumentType::TEXT,
+        true },
+      { "r|end|F|path-prefix|lo|seconds|after|before", Ship::ArgumentType::TEXT, true },
       { "g|r", Ship::ArgumentType::TEXT, true },
       { "b|g", Ship::ArgumentType::TEXT, true },
       { "max=<m>|b", Ship::ArgumentType::TEXT, true },

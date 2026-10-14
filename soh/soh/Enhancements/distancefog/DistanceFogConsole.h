@@ -63,13 +63,20 @@
 //     haze off                    no band, even under world-unit fog
 //     haze on                     undo off, keeping any <H> <F>
 //     haze scene                  hand height and fade back to the scene's, and on
+//     haze site after|before      under the sky's colour (sturdy-bassoon#229, `colour` below): draw the band right
+//                                 after the sky copy (after, the default: never in the copy, a low sun behind it) or
+//                                 before the sun and moon with the previous frame's colour (the colour's band then
+//                                 starts above the haze's top). Kept across scene loads
 //                       Each prints `op=haze result=ok action=status|set|off|on|scene haze=on|off kind=world|vanilla
 //                       drawn=0|1 draws=<n> h=<H> f=<F> top=<H+F> src=scene|override scene_h= scene_f=
 //                       color=r,g,b|none fog=r,g,b c=WorldFog_SetHaze(<H>f,<F>f)`: kind= whether world-unit fog is
 //                       live (the band draws only then), drawn= whether the last frame drew it, draws= the ticks
 //                       drawn since boot, color= the colour it last drew with, fog= lightCtx's fog colour now, c=
 //                       the scene's InitScene call. drawn= and color= are the last frame's. `status` adds the same
-//                       line as op=status. `fog off` leaves the haze alone; a scene load hands it back.
+//                       line as op=status. `fog off` leaves the haze alone; a scene load hands it back. Then
+//                       `colour_src=fog|sky site=before_sun|after_copy site_choice=after|before`: what the last
+//                       frame's band drew with and where (sturdy-bassoon#229); color= reads auto while it drew with
+//                       the sky's colour
 //                       Refusals: error=bad_argument and error=unknown_subcommand
 //   sky ...             sky-colour fog (sturdy-bassoon#226; WorldFog.h, an experiment, DX11 only): fogged pixels blend
 //                       toward the sky behind them, a copy of the frame taken before the rooms draw, instead of the fog
@@ -82,7 +89,11 @@
 //                                 the horizon in its column
 //     sky dump [<path-prefix>]    at the end of the next frame that copied the sky, write <prefix>-copy.ppm and
 //                                 <prefix>-frame.ppm: the copy and the finished frame (before ImGui), same frame, 8-bit
-//                                 RGB, pixel for pixel. Default prefix <TEMP>/skyfog-<n>. Refused with sky off
+//                                 RGB, pixel for pixel. Default prefix <TEMP>/skyfog-<n>. With the sky's colour live
+//                                 (sturdy-bassoon#229) also <prefix>-colour.txt: that frame's reduction - colour= raw=
+//                                 samples= k= snap= and the horizon=, origin=, size=, viewport= (copy texels) and
+//                                 lo_px= hi_px= it averaged the copy's band with. Refused with sky fog and the colour
+//                                 both off
 //     sky hold on|off             a measurement aid: keep fogging toward the copy already taken instead of a fresh one
 //                                 each frame, so captures a moment apart see the same sky in their fog (the sky itself
 //                                 still drifts). For a camera that does not move: the horizon is the held copy's
@@ -94,6 +105,27 @@
 //                       in the copy at its centre column, horizon= the line a x + b y + c over render-target pixels
 //                       (above it > 0). `status` adds it as op=status.
 //                       Refusals: error=sky_off (a dump with it off), error=bad_argument, error=unknown_subcommand
+//   colour ...          the sky's colour (sturdy-bassoon#229; WorldFog.h, DX11): depth fog toward the live sky's colour
+//                       just above the horizon - the sky copy's band lo..hi degrees above it, averaged across the view
+//                       on the GPU and smoothed over tau seconds - instead of lightCtx.fogColor. Only fog toward the
+//                       scene's colour changes, and only its colour. Kept across scene loads, auto at launch:
+//     colour [status]             read it
+//     colour auto | colour scene  auto takes the sky's colour under world-unit fog unless the colour is pinned (`fog
+//                                 world ... r g b`), `fog sky all` is on, or the renderer cannot; scene never does
+//     colour band <lo> <hi>       the band, degrees above the horizon, 0 <= lo < hi <= 15 (0.5 3 at launch)
+//     colour smooth <s>           the time constant, 0..5 seconds (0.25 at launch; 0 none)
+//     colour snap                 start the smoothing again from the next frame's average
+//     colour log on [<path>] | colour log off
+//                                 one line a rendered frame, `run= colour=r,g,b raw=r,g,b samples= k=` (0..255), a few
+//                                 frames late and never waiting for the GPU. Default <TEMP>/skycolour-<n>.txt
+//                       Each prints `op=colour result=ok action=... live=auto|scene choice=auto|scene why=world_fog|
+//                       console|no_world_fog|pinned|sky_all|unsupported drawn=0|1 rgb=r,g,b raw=r,g,b samples=<n>
+//                       held=0|1 readout_run=<n> run=<n> scene_rgb=r,g,b band=lo,hi band_px=lo,hi smooth=<s> k= dt=
+//                       reductions=<n> fb=<n> log=on|off logged=<n>`: drawn= whether the last rendered frame's depth
+//                       fog took it; rgb= (what fog draws with) raw= (that frame's average) samples= (0: held) are the
+//                       last readback, taken at the end of the next rendered frame after each line - read twice for a
+//                       fresh one. `status` adds it as op=status.
+//                       Refusals: error=bad_argument, error=log_open, error=unknown_subcommand
 //   status              read what is live and what the scene would give
 //   off                 hand fog and far clip back to the scene: its world-unit rows if it has them, else its
 //                       light settings. A <near> <far> band is vanilla fog even in a scene with rows

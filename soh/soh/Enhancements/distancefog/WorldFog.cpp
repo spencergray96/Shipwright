@@ -88,6 +88,9 @@ void PushBoundary(const WorldFogRect* rects, uint8_t count, int16_t b0, int16_t 
 uint8_t sSky = WORLD_FOG_SKY_OFF;
 uint8_t sSkyScope = WORLD_FOG_SKY_SCOPE_ALL;
 
+// The sky's colour (sturdy-bassoon#229), as the console resolved it for this frame.
+bool sColourLive = false;
+
 } // namespace
 
 extern "C" {
@@ -248,10 +251,33 @@ void WorldFog_SetSkyHold(uint8_t hold) {
 }
 
 void WorldFog_SkyCopy(Gfx** gfx) {
-    if (sSky == WORLD_FOG_SKY_OFF || gSkyFogFrameBuffer < 0) {
+    if ((sSky == WORLD_FOG_SKY_OFF && !sColourLive) || gSkyFogFrameBuffer < 0) {
         return;
     }
     gDPCopyFB((*gfx)++, gSkyFogFrameBuffer, 0, false, NULL);
+}
+
+void WorldFog_SetColour(uint8_t live, const uint8_t sceneFog[3], float loDeg, float hiDeg, float tau) {
+    sColourLive = live != 0 && gSkyFogFrameBuffer >= 0 && gSkyColourFrameBuffer >= 0;
+    Fast::SkyColourSettings settings;
+    settings.on = sColourLive;
+    settings.copyFb = gSkyFogFrameBuffer;
+    settings.colourFb = gSkyColourFrameBuffer;
+    for (int i = 0; i < 3; i++) {
+        settings.sceneFog[i] = sceneFog[i];
+    }
+    settings.loDeg = loDeg;
+    settings.hiDeg = hiDeg;
+    settings.tau = tau;
+    Fast::SkyColourSet(settings);
+}
+
+uint8_t WorldFog_ColourLive(void) {
+    return sColourLive ? 1 : 0;
+}
+
+uint8_t WorldFog_ColourSupported(void) {
+    return Fast::SkyColourSupported() ? 1 : 0;
 }
 
 } // extern "C"

@@ -1573,9 +1573,12 @@ void Play_Draw(PlayState* play) {
         }
 
         // Sky-colour fog (sturdy-bassoon#226): the sky is complete here - skybox, sun and moon, filters, the lightning
-        // flash - and no room has drawn, so a copy of the frame now is what fogged geometry blends toward. Emits
-        // nothing while sky fog is off.
+        // flash - and no room has drawn, so a copy of the frame now is what fogged geometry blends toward, and what
+        // the sky's colour (sturdy-bassoon#229) is averaged from. Emits nothing while both are off.
         WorldFog_SkyCopy(&POLY_OPA_DISP);
+        // SOH [Fork] (sturdy-bassoon#229): under the sky's colour the haze band draws here instead, after the copy, so
+        // it is never in what the colour is averaged from or in the sky the edge layer fades into (HorizonHaze.h).
+        HorizonHaze_DrawAfterSkyCopy(play);
 
         if ((HREG(80) != 10) || (HREG(90) & 8)) {
             sp228 = LightContext_NewLights(&play->lightCtx, gfxCtx);

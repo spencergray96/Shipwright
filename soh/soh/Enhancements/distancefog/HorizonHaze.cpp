@@ -7,6 +7,7 @@
 #include "WorldFog.h"
 
 extern "C" {
+#include "soh/framebuffer_effects.h"
 #include <z64.h>
 #include "macros.h"
 #include "functions.h"
@@ -37,7 +38,11 @@ constexpr float kPi = 3.14159265358979f;
 bool sEnabled = true;
 WorldFogHaze sHaze = { WORLD_FOG_HAZE_DEFAULT_HEIGHT, WORLD_FOG_HAZE_DEFAULT_FADE };
 
-HorizonHazeFrame sFrame = { 0, 0, { 0, 0, 0 } };
+// The sky's colour (sturdy-bassoon#229): sample it, and at which site.
+bool sSkyColour = false;
+bool sAfterCopy = true;
+
+HorizonHazeFrame sFrame = { 0, 0, { 0, 0, 0 }, 0, 0 };
 
 // The frame-interpolation child's key: the band's own, so a tick without a skybox never shifts its index.
 const char sInterpolationKey = 0;
@@ -87,11 +92,18 @@ void HorizonHaze_Use(uint8_t enabled, WorldFogHaze haze) {
     sFrame.drawn = 0;
 }
 
+void HorizonHaze_UseColour(uint8_t skyColour, uint8_t afterCopy) {
+    sSkyColour = skyColour != 0;
+    sAfterCopy = afterCopy != 0;
+}
+
 const HorizonHazeFrame* HorizonHaze_LastFrame(void) {
     return &sFrame;
 }
 
-void HorizonHaze_Draw(PlayState* play) {
+// One band, at whichever site called it. Static inside the extern "C" block: OPEN_DISPS declares the frame
+// interpolation functions at block scope, and they take the enclosing function's language linkage.
+static void DrawBand(PlayState* play, bool skyColour, bool afterCopy) {
     s16 start;
     s16 end;
     if (!sEnabled || !WorldFog_Live(&start, &end)) {
@@ -104,6 +116,8 @@ void HorizonHaze_Draw(PlayState* play) {
     sFrame.color[0] = fog[0];
     sFrame.color[1] = fog[1];
     sFrame.color[2] = fog[2];
+    sFrame.skyColour = skyColour ? 1 : 0;
+    sFrame.afterCopy = afterCopy ? 1 : 0;
 
     // Rebuilt every tick, so a new height or fade shows at once and nothing is kept between ticks.
     Vtx* vtx = static_cast<Vtx*>(Graph_Alloc(gfxCtx, sizeof(Vtx) * kColumns * kRows));
@@ -135,7 +149,15 @@ void HorizonHaze_Draw(PlayState* play) {
                         G_TD_CLAMP | G_TP_PERSP | G_CYC_1CYCLE | G_PM_NPRIMITIVE,
                     G_AC_NONE | G_ZS_PIXEL | G_RM_XLU_SURF | G_RM_XLU_SURF2);
     gSPLoadGeometryMode(POLY_OPA_DISP++, G_SHADE | G_SHADING_SMOOTH);
-    gDPSetPrimColor(POLY_OPA_DISP++, 0, 0, fog[0], fog[1], fog[2], 255);
+    if (skyColour) {
+        // The sky's colour (sturdy-bassoon#229): TEXEL0 in prim's place, from the renderer's one-texel framebuffer, so
+        // every texture coordinate reads it. Texturing is on for this draw only; the alpha is still the vertices'.
+        gSPTexture(POLY_OPA_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
+        gDPSetTextureImageFB(POLY_OPA_DISP++, 0, 0, 0, gSkyColourFrameBuffer);
+        gDPSetCombineLERP(POLY_OPA_DISP++, 0, 0, 0, TEXEL0, 0, 0, 0, SHADE, 0, 0, 0, TEXEL0, 0, 0, 0, SHADE);
+    } else {
+        gDPSetPrimColor(POLY_OPA_DISP++, 0, 0, fog[0], fog[1], fog[2], 255);
+    }
     gSPMatrix(POLY_OPA_DISP++, mtx, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
 
     POLY_OPA_DISP = DrawStrip(POLY_OPA_DISP, rows[0], rows[1]);
@@ -146,9 +168,24 @@ void HorizonHaze_Draw(PlayState* play) {
         POLY_OPA_DISP = DrawStrip(POLY_OPA_DISP, rows[2], rows[3]);
     }
     gDPPipeSync(POLY_OPA_DISP++);
+    if (skyColour) {
+        gSPTexture(POLY_OPA_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_OFF);
+    }
 
     FrameInterpolation_RecordCloseChild();
     CLOSE_DISPS(gfxCtx);
+}
+
+void HorizonHaze_Draw(PlayState* play) {
+    if (!sSkyColour || !sAfterCopy) {
+        DrawBand(play, sSkyColour, false);
+    }
+}
+
+void HorizonHaze_DrawAfterSkyCopy(PlayState* play) {
+    if (sSkyColour && sAfterCopy) {
+        DrawBand(play, true, true);
+    }
 }
 
 } // extern "C"

@@ -18,6 +18,10 @@ s32 gN64ResFrameBuffer = -1;
 // the others, so it is the internal render resolution: texel = drawn pixel.
 s32 gSkyFogFrameBuffer = -1;
 
+// The sky's colour (sturdy-bassoon#229; WorldFog.h WorldFog_SetColour): 1x1 and never resized. The renderer writes it
+// at the copy; depth fog reads it in the pixel stage, and the haze band samples it as a texture.
+s32 gSkyColourFrameBuffer = -1;
+
 void FB_CreateFramebuffers(void) {
     if (gPauseFrameBuffer == -1) {
         gPauseFrameBuffer = gfx_create_framebuffer(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH, SCREEN_HEIGHT, true);
@@ -37,6 +41,10 @@ void FB_CreateFramebuffers(void) {
 
     if (gSkyFogFrameBuffer == -1) {
         gSkyFogFrameBuffer = gfx_create_framebuffer(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH, SCREEN_HEIGHT, true);
+    }
+
+    if (gSkyColourFrameBuffer == -1) {
+        gSkyColourFrameBuffer = gfx_create_framebuffer(1, 1, 1, 1, false);
     }
 }
 

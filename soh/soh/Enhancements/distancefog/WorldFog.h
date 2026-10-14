@@ -130,11 +130,28 @@ uint8_t WorldFog_SkyScope(void);
 // `fog sky hold` (a measurement aid): keep fogging toward the copy already taken instead of a fresh one each frame,
 // so two captures a moment apart see the same sky in their fog (Fast::SkyFogHold).
 void WorldFog_SetSkyHold(uint8_t hold);
-// Play_Draw's copy point, after the lightning flash and before the rooms (z_play.c): while sky fog is on, emits the
-// copy of the frame into gSkyFogFrameBuffer - a bare gDPCopyFB, which changes no RDP state the rooms inherit. With it
-// off it emits nothing, so the display list is exactly today's.
+// Play_Draw's copy point, after the lightning flash and before the rooms (z_play.c): while sky fog or the sky's colour
+// (below) is on, emits the copy of the frame into gSkyFogFrameBuffer - a bare gDPCopyFB, which changes no RDP state
+// the rooms inherit. With both off it emits nothing, so the display list is exactly today's.
 union Gfx;
 void WorldFog_SkyCopy(union Gfx** gfx);
+
+// The sky's colour (sturdy-bassoon#229): depth fog takes the live sky's colour just above the horizon in place of
+// lightCtx.fogColor. At the copy above, the renderer averages the copy's band loDeg..hiDeg above the horizon across
+// the view's width, smooths it over tau seconds, and writes it into gSkyColourFrameBuffer (one texel); every fogged
+// pixel whose fog colour is the scene's then blends toward it (libultraship interpreter.h, Fast::SkyColourSet). The
+// amount of fog is untouched, and so is fog toward any other colour (an actor's own). The haze band samples the same
+// texel (HorizonHaze.h). DX11 at feature level 11_0 and up; elsewhere, and wherever it is off, fog keeps
+// lightCtx.fogColor. The console (DistanceFogConsole.cpp) resolves it every frame: by default on under world-unit fog.
+#define WORLD_FOG_COLOUR_DEFAULT_LO 0.5f   // degrees above the horizon: clear of the skybox's mirror seam
+#define WORLD_FOG_COLOUR_DEFAULT_HI 3.0f
+#define WORLD_FOG_COLOUR_DEFAULT_TAU 0.25f // seconds
+// live: whether depth fog takes the sky's colour from this frame on; sceneFog is lightCtx.fogColor as Play_SetFog emits
+// it this frame, the colour it replaces.
+void WorldFog_SetColour(uint8_t live, const uint8_t sceneFog[3], float loDeg, float hiDeg, float tau);
+uint8_t WorldFog_ColourLive(void);
+// 1 when the renderer can draw it at all (Fast::SkyColourSupported).
+uint8_t WorldFog_ColourSupported(void);
 
 #ifdef __cplusplus
 }
