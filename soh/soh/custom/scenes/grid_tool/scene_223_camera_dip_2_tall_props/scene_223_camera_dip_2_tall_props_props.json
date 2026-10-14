@@ -1,0 +1,30 @@
+{
+  "format": 2,
+  "scene": "scene_223_camera_dip_2_tall_props",
+  "list": "objects/rs_props/scene_223_camera_dip_2_tall_props/props",
+  "kinds": {
+    "fountain-879": "rs_879",
+    "fountain-879-no-drops": "rs_879_no_drops",
+    "oak-tree-10820": "rs_10820",
+    "standard-5628": "rs_5628",
+    "wheat-15506": "rs_15506"
+  },
+  "props": [
+    {"id":"f879","kind":"fountain-879","pos":[520,0,240],"rot":0},
+    {"id":"fnd","kind":"fountain-879-no-drops","pos":[200,0,240],"rot":0},
+    {"id":"fnd1","kind":"fountain-879-no-drops","pos":[-120,0,240],"rot":1},
+    {"id":"oak","kind":"oak-tree-10820","pos":[-500,0,260],"rot":0},
+    {"id":"oak3","kind":"oak-tree-10820","pos":[-500,0,-140],"rot":3},
+    {"id":"std","kind":"standard-5628","pos":[540,0,-180],"rot":0},
+    {"id":"std2","kind":"standard-5628","pos":[220,0,-180],"rot":2},
+    {"id":"wh0","kind":"wheat-15506","pos":[-60,0,-220],"rot":0},
+    {"id":"wh1","kind":"wheat-15506","pos":[-60,0,-180],"rot":3},
+    {"id":"wh2","kind":"wheat-15506","pos":[-60,0,-140],"rot":6},
+    {"id":"wh3","kind":"wheat-15506","pos":[-100,0,-220],"rot":1},
+    {"id":"wh4","kind":"wheat-15506","pos":[-100,0,-180],"rot":4},
+    {"id":"wh5","kind":"wheat-15506","pos":[-100,0,-140],"rot":7},
+    {"id":"wh6","kind":"wheat-15506","pos":[-140,0,-220],"rot":2},
+    {"id":"wh7","kind":"wheat-15506","pos":[-140,0,-180],"rot":5},
+    {"id":"wh8","kind":"wheat-15506","pos":[-140,0,-140],"rot":0}
+  ]
+}
