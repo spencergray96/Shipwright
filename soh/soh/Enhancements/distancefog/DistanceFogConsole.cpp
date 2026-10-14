@@ -40,6 +40,14 @@ constexpr int32_t kVanillaMax = 1000;
 // World-unit fog (sturdy-bassoon#167): start and end are view depths in world units, carried as u16 by
 // gSPFogWorld and as s16 by the side table, so they stay under 32768.
 constexpr int32_t kWorldMax = 32767;
+// A world-unit band's far clip goes past vanilla's 12800 (sturdy-bassoon#227; WorldFog.h). The vanilla band
+// keeps kFarMax.
+constexpr int32_t kWorldClipMax = WORLD_FOG_CLIP_MAX;
+// `fog znear` (sturdy-bassoon#227): the near clip plane, a judging knob for distant z-fighting. View_Init's 10 is
+// what the game uses everywhere else; 60 stays inside the skybox's cube.
+constexpr int32_t kZNearDefault = 10;
+constexpr int32_t kZNearMin = 1;
+constexpr int32_t kZNearMax = 60;
 
 const char* const kSettingNames[4] = { "dawn", "day", "dusk", "night" };
 
@@ -80,6 +88,20 @@ struct HazeOverride {
 };
 
 HazeOverride sHaze;
+
+// `fog znear <n>` (sturdy-bassoon#227): 0 leaves the near plane alone. sZNearApplied remembers that it was written,
+// so `fog znear off` and a scene load put 10 back once.
+int32_t sZNear = 0;
+bool sZNearApplied = false;
+
+// Play_Draw builds the perspective from view.zNear and keeps whatever is there, so the override is written every
+// frame (ApplyOverride) and 10 put back once when it ends. The console calls it too, so its line reads the new plane.
+void ApplyZNear() {
+    if (gPlayState != nullptr && (sZNear != 0 || sZNearApplied)) {
+        gPlayState->view.zNear = static_cast<f32>(sZNear != 0 ? sZNear : kZNearDefault);
+        sZNearApplied = sZNear != 0;
+    }
+}
 
 // The boundary to draw this frame: the scene's, with the override's rectangle and ramp over it.
 struct Edge {
@@ -145,7 +167,7 @@ Band SceneBand(const PlayState* play) {
     band.start = gWorldFogScene.start;
     band.end = gWorldFogScene.end;
     if (band.world) {
-        band.far = static_cast<s16>(CLAMP(gWorldFogScene.clip, kFarMin, kFarMax));
+        band.far = static_cast<s16>(CLAMP(gWorldFogScene.clip, kFarMin, kWorldClipMax));
     }
     return band;
 }
@@ -309,7 +331,7 @@ bool LooksNumeric(const std::string& text) {
 
 constexpr const char* kSetUsage = "usage=<near(0..1000)>_<far(100..12800)>_[r_g_b(0..255)]_[max=<near+4..1000>]";
 constexpr const char* kWorldUsage =
-    "usage=world_<start(0..32766)>_<end(start+1..32767)>_[r_g_b(0..255)]_[clip=<100..12800>]";
+    "usage=world_<start(0..32766)>_<end(start+1..32767)>_[r_g_b(0..255)]_[clip=<100..32767>]";
 
 // `fog world <start> <end> [r g b] [clip=<c>]` (sturdy-bassoon#167): a world-unit band in any scene, vanilla
 // ones included. Without clip= the clip stays the scene's own, live; max= is vanilla's and is refused.
@@ -321,7 +343,8 @@ int32_t RunWorld(const std::vector<std::string>& args, std::vector<std::string>&
     while (ok && !positional.empty() && positional.back().find('=') != std::string::npos) {
         const std::string word = positional.back();
         positional.pop_back();
-        ok = !clipGiven && word.rfind("clip=", 0) == 0 && ParseInt(word.substr(5), kFarMin, kFarMax, &clip);
+        ok = !clipGiven && word.rfind("clip=", 0) == 0 &&
+             ParseInt(word.substr(5), kFarMin, kWorldClipMax, &clip);
         clipGiven = true;
     }
     int32_t start = 0;
@@ -717,6 +740,63 @@ int32_t RunHaze(const std::vector<std::string>& args, std::vector<std::string>& 
     return 0;
 }
 
+constexpr const char* kRowsUsage = "usage=rows_<start(0..32766)>_<end(start+1..32767)>_<clip(100..32767)>";
+
+// `fog rows <start> <end> <clip>` (sturdy-bassoon#227, a test aid): every row of the loaded scene's table becomes
+// this one, in memory, until the next scene load. Unlike `fog world`, which writes the band and clip after
+// Environment_Update, this goes through the scene's own path - the rows' range checks, the blend and
+// Environment_Update's clamp - as an export of that row would. The usual line follows, with the override's
+// band if one is active (`fog off` shows the rows).
+int32_t RunRows(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    int32_t start = 0;
+    int32_t end = 0;
+    int32_t clip = 0;
+    if (args.size() != 4 || !ParseInt(args[1], 0, kWorldMax - 1, &start) ||
+        !ParseInt(args[2], start + 1, kWorldMax, &end) || !ParseInt(args[3], kFarMin, kWorldClipMax, &clip)) {
+        Addf(lines, "op=rows result=error error=bad_argument %s", kRowsUsage);
+        return 1;
+    }
+    if (!WorldFog_SetSceneRows(static_cast<s16>(start), static_cast<s16>(end), static_cast<s16>(clip))) {
+        Addf(lines, "op=rows result=error error=no_world_rows %s", kRowsUsage);
+        return 1;
+    }
+    Describe("rows", gPlayState, lines);
+    return 0;
+}
+
+constexpr const char* kZNearUsage = "usage=znear_[status]|znear_off|znear_<n(1..60)>";
+
+// `fog znear ...` (sturdy-bassoon#227): the line. znear= the view's near plane now, src= override|game.
+void DescribeZNear(const char* action, std::vector<std::string>& lines) {
+    Addf(lines, "op=znear result=ok action=%s znear=%.0f src=%s default=%d", action, gPlayState->view.zNear,
+         sZNear != 0 ? "override" : "game", kZNearDefault);
+}
+
+// `fog znear <n>|off|status` (sturdy-bassoon#227): move the near clip plane, to judge distant z-fighting against
+// close-up clipping. Written at OnPlayDrawBegin, before Play_Draw builds the perspective; nothing is saved.
+int32_t RunZNear(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    const std::string action = args.size() < 2 ? "status" : args[1];
+    if (action == "status" && args.size() <= 2) {
+        DescribeZNear("status", lines);
+        return 0;
+    }
+    if (action == "off" && args.size() == 2) {
+        sZNear = 0;
+        ApplyZNear();
+        DescribeZNear("off", lines);
+        return 0;
+    }
+    int32_t value = 0;
+    if (args.size() != 2 || !ParseInt(action, kZNearMin, kZNearMax, &value)) {
+        Addf(lines, "op=znear result=error error=bad_argument %s", kZNearUsage);
+        return 1;
+    }
+    sZNear = value;
+    ApplyZNear();
+    DescribeZNear("set", lines);
+    return 0;
+}
+
 } // namespace
 
 int32_t DistanceFogConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines) {
@@ -725,11 +805,11 @@ int32_t DistanceFogConsole_Run(const std::vector<std::string>& args, std::vector
     const char* op = isSet || sub == "world" ? "set" : sub.c_str();
 
     if (!isSet && sub != "status" && sub != "off" && sub != "world" && sub != "edge" && sub != "haze" &&
-        sub != "sky") {
+        sub != "sky" && sub != "rows" && sub != "znear") {
         // The typed word is not echoed: it is free text, and this line is parsed field by field.
         lines.push_back("op=unknown result=error error=unknown_subcommand "
                         "usage=status|off|<near>_<far>_[r_g_b]_[max=<m>]|world_<start>_<end>_[r_g_b]_[clip=<c>]|"
-                        "edge_...|haze_...|sky_...");
+                        "edge_...|haze_...|sky_...|rows_<start>_<end>_<clip>|znear_...");
         return 1;
     }
     if (gPlayState == nullptr) {
@@ -783,6 +863,12 @@ int32_t DistanceFogConsole_Run(const std::vector<std::string>& args, std::vector
     }
     if (sub == "sky") {
         return RunSky(args, lines);
+    }
+    if (sub == "rows") {
+        return RunRows(args, lines);
+    }
+    if (sub == "znear") {
+        return RunZNear(args, lines);
     }
 
     // An optional trailing max=<m> (sturdy-bassoon#169): the fog-space value where fog reaches 100%, passed to
@@ -872,6 +958,8 @@ void ApplyOverride() {
     // Sky-colour fog and its edge layer (sturdy-bassoon#226, #230), from the band and boundary just resolved, before
     // Play_Draw decides whether to take the copy (WorldFog_SkyCopy).
     ApplySky();
+    // `fog znear` (sturdy-bassoon#227), before Play_Draw builds the perspective from view.zNear.
+    ApplyZNear();
 }
 
 void RegisterDistanceFog() {
@@ -882,6 +970,7 @@ void RegisterDistanceFog() {
         sOverride.active = false;
         sEdge = EdgeOverride();
         sHaze = HazeOverride();
+        sZNear = 0; // sZNearApplied stays, so the next frame puts 10 back
     });
 }
 
@@ -892,14 +981,14 @@ RegisterShipInitFunc initFunc(RegisterDistanceFog, {});
 const ConsoleSink::Command distanceFogCommand(
     "fog", DistanceFogConsole_Run,
     "Tune the scene's distance fog live (sturdy-bassoon#144): <near> <far> [r g b] [max=<m>] | "
-    "world <start> <end> [r g b] [clip=<c>] | edge ... | haze ... | status | off. "
+    "world <start> <end> [r g b] [clip=<c>] | edge ... | haze ... | rows ... | znear ... | status | off. "
     "near is fog-space 0..1000 (nonlinear: 996, the most a scene can have, starts ~2,000 units out at far 12800; 1000 "
     "is no fog), far is world units 100..12800 and also the far clip. Without r g b the colour keeps following "
     "time of day and weather; lights are never touched. max is the fog-space value where fog reaches 100% "
     "(sturdy-bassoon#169): 1000, the default, completes it at the clip; lower completes it sooner, down to "
     "near+4. Below near 980 the sky fades to the fog colour. world (sturdy-bassoon#167) draws fog linear in "
     "view depth instead, clear to start and complete at end, both world units, in any scene; clip is the far "
-    "clip (100..12800, default the scene's). edge (sturdy-bassoon#169) tunes boundary fog, which under world fog "
+    "clip (100..32767, default the scene's). edge (sturdy-bassoon#169) tunes boundary fog, which under world fog "
     "also fogs geometry by how far it lies past the playable area: edge <b0> <b1> ramps it from b0 units past the "
     "edge to full at b1; edge rect <x0> <z0> <x1> <z1> [b0 b1] sets one rectangle by hand, in any scene; edge off "
     "turns it off, edge scene hands it back, edge status reads it. haze (sturdy-bassoon#168) tunes the horizon haze "
@@ -911,11 +1000,14 @@ const ConsoleSink::Command distanceFogCommand(
     "under world fog with a boundary, off elsewhere); sky mirror (fogged ground takes the skybox's mirrored sky) or "
     "sky clamp (the sky just above the horizon) picks the method; sky status, sky dump [path-prefix] (writes the sky "
     "copy and the frame as PPMs, by default in the TEMP folder), sky hold on|off (keep fogging toward the copy "
-    "already taken, for captures a moment apart); the choice is kept across scene loads. status prints the live "
+    "already taken, for captures a moment apart); the choice is kept across scene loads. rows <start> <end> <clip> "
+    "(sturdy-bassoon#227, a test aid) makes every world-unit row of the loaded scene this one until the next scene "
+    "load, through the scene's own path rather than over it. znear <n> (1..60) moves the near clip plane from 10, to "
+    "judge distant z-fighting against close-up clipping; znear off / status. status prints the live "
     "band, where it starts, and each light setting's fog as C to paste into a scene. A scene load hands fog back "
     "(not sky); nothing is saved.",
-    { { "near|world|edge|haze|sky|status|off", Ship::ArgumentType::TEXT, true },
-      { "far|start|H|auto|edge|all|on|off|mirror|clamp|dump", Ship::ArgumentType::TEXT, true },
+    { { "near|world|edge|haze|sky|rows|znear|status|off", Ship::ArgumentType::TEXT, true },
+      { "far|start|H|n|auto|edge|all|on|off|mirror|clamp|dump", Ship::ArgumentType::TEXT, true },
       { "r|end|F|path-prefix", Ship::ArgumentType::TEXT, true },
       { "g|r", Ship::ArgumentType::TEXT, true },
       { "b|g", Ship::ArgumentType::TEXT, true },

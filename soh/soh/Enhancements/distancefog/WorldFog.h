@@ -24,8 +24,13 @@ extern "C" {
 typedef struct WorldFogSetting {
     int16_t start; // view depth, world units, where fog begins (0%)
     int16_t end;   // where it is complete (100%); start < end
-    int16_t clip;  // the far clip (zFar) under this setting, 100..12800
+    int16_t clip;  // the far clip (zFar) under this setting, 100..WORLD_FOG_CLIP_MAX
 } WorldFogSetting;
+
+// The most a world-unit scene's far clip can be (sturdy-bassoon#227): fogFar is an s16. Vanilla fog keeps
+// Environment_Update's 12800 clamp; only a scene with rows, or `fog world ... clip=`, reaches past it. The
+// grid tool's sceneTemplate.ts refuses a row past the same value; change both.
+#define WORLD_FOG_CLIP_MAX 32767
 
 // The table is indexed like the light settings a custom scene has once it has spawned
 // (CustomSceneLighting_AddDefaultStorm, sturdy-bassoon#164): 0-3 config 0 (dawn, day, dusk, night), 4-7 a
@@ -45,6 +50,10 @@ uint8_t WorldFog_HasScene(void);
 // The row for light setting `index`, or NULL without rows. An index past the table reads its time-of-day
 // row (index % 4), the fallback Environment_UsableLightConfig gives the light settings themselves.
 const WorldFogSetting* WorldFog_SceneSetting(uint8_t index);
+// `fog rows` (sturdy-bassoon#227, a test aid): replace every row of the loaded scene's table with one, in memory
+// and through the same range checks as compiled-in rows, until the next scene load hands its own rows back. So
+// Environment_Update blends and clamps it exactly as an export of that row would. 0 without rows.
+uint8_t WorldFog_SetSceneRows(int16_t start, int16_t end, int16_t clip);
 
 // The scene's band this frame, which Environment_Update blends; meaningful while WorldFog_HasScene().
 extern WorldFogSetting gWorldFogScene;
