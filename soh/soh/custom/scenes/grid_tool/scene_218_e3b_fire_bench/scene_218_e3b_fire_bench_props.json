@@ -1,0 +1,18 @@
+{
+  "format": 2,
+  "scene": "scene_218_e3b_fire_bench",
+  "list": "objects/rs_props/scene_218_e3b_fire_bench/props",
+  "kinds": {
+    "standing-torch-724-oot-fire": "rs_724_oot_fire"
+  },
+  "props": [
+    {"id":"k0t0","kind":"standing-torch-724-oot-fire","pos":[300,0,-220],"rot":0},
+    {"id":"k0t1","kind":"standing-torch-724-oot-fire","pos":[220,0,-220],"rot":1},
+    {"id":"k0t2","kind":"standing-torch-724-oot-fire","pos":[140,0,-220],"rot":2},
+    {"id":"k0t3","kind":"standing-torch-724-oot-fire","pos":[60,0,-220],"rot":3},
+    {"id":"k0t4","kind":"standing-torch-724-oot-fire","pos":[-20,0,-220],"rot":4},
+    {"id":"k0t5","kind":"standing-torch-724-oot-fire","pos":[-100,0,-220],"rot":5},
+    {"id":"k0t6","kind":"standing-torch-724-oot-fire","pos":[-180,0,-220],"rot":6},
+    {"id":"k0t7","kind":"standing-torch-724-oot-fire","pos":[-260,0,-220],"rot":7}
+  ]
+}

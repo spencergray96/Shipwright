@@ -186,4 +186,5 @@
 /* 0xA9 */ DEFINE_SCENE(f5_cellar_173_scene, none, SCENE_F5_CELLAR_173, SDC_DEFAULT, 0, 0) // project f1730000-0000-4000-8000-0000000000f5 name f5_cellar_173
 /* 0xAA */ DEFINE_SCENE(terrain_f2p_fog_scene, none, SCENE_TERRAIN_F2P_FOG, SDC_DEFAULT, 0, 0) // terrain-bake terrain_f2p_fog
 /* 0xAB */ DEFINE_SCENE(kind_bench_scene, none, SCENE_KIND_BENCH, SDC_DEFAULT, 0, 0) // project be4c0217-0000-4000-8000-00000000be4c name kind_bench
+/* 0xAC */ DEFINE_SCENE(scene_218_e3b_fire_bench_scene, none, SCENE_SCENE_218_E3B_FIRE_BENCH, SDC_DEFAULT, 0, 0) // project e3b00218-0000-4000-8000-00000000e3b0 name scene_218_e3b_fire_bench
 // END GRID TOOL EXPORTS
