@@ -73,11 +73,21 @@ static ActorEntry sScene235PuzzleFiresPlayerSpawn = {
     ACTOR_PLAYER, { 0, 0, -480 }, { 0, 0, 0 }, 0xDFF
 };
 
-// 3 attached actors (sturdy-bassoon#218), one per placement of a kind that carries one.
-static ActorEntry sScene235PuzzleFiresActors[3] = {
+// 13 attached actors (sturdy-bassoon#218), one per placement of a kind that carries one.
+static ActorEntry sScene235PuzzleFiresActors[13] = {
     { ACTOR_RS_FIRE, { -19, 43, -219 }, { 50, 0, 75 }, RS_FIRE_PARAMS(0, 0, 0, 0) }, // Rs_Fire of standing-torch-724-oot-fire "deco" on level 0
     { ACTOR_RS_FIRE, { -139, 43, -219 }, { 50, 0, 75 }, RS_FIRE_PARAMS(1, 3968, 1, 0) }, // Rs_Fire of standing-torch-724-oot-fire "p1stick" on level 0
     { ACTOR_RS_FIRE, { -19, 43, -19 }, { 50, 0, 75 }, RS_FIRE_PARAMS(1, 3969, 1, 0) }, // Rs_Fire of standing-torch-724-oot-fire "p2arrow" on level 0
+    { ACTOR_RS_FIRE, { 781, 43, -299 }, { 50, 0, 75 }, RS_FIRE_PARAMS(1, 3971, 1, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-left-dark" on level 0
+    { ACTOR_RS_FIRE, { 701, 43, -459 }, { 50, 0, 75 }, RS_FIRE_PARAMS(0, 0, 0, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-left-lit" on level 0
+    { ACTOR_RS_FIRE, { 541, 43, -299 }, { 50, 0, 75 }, RS_FIRE_PARAMS(1, 3974, 1, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-long-dark" on level 0
+    { ACTOR_RS_FIRE, { 581, 43, -459 }, { 50, 0, 75 }, RS_FIRE_PARAMS(0, 0, 0, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-long-lit" on level 0
+    { ACTOR_RS_FIRE, { 461, 43, -299 }, { 50, 0, 75 }, RS_FIRE_PARAMS(1, 3972, 1, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-right-dark" on level 0
+    { ACTOR_RS_FIRE, { 541, 43, -459 }, { 50, 0, 75 }, RS_FIRE_PARAMS(0, 0, 0, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-right-lit" on level 0
+    { ACTOR_RS_FIRE, { 621, 43, -299 }, { 50, 0, 75 }, RS_FIRE_PARAMS(1, 3970, 1, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-straight-dark" on level 0
+    { ACTOR_RS_FIRE, { 621, 43, -459 }, { 50, 0, 75 }, RS_FIRE_PARAMS(0, 0, 0, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-straight-lit" on level 0
+    { ACTOR_RS_FIRE, { 861, 43, -379 }, { 50, 0, 75 }, RS_FIRE_PARAMS(1, 3973, 1, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-wide-left-dark" on level 0
+    { ACTOR_RS_FIRE, { 741, 43, -499 }, { 50, 0, 75 }, RS_FIRE_PARAMS(0, 0, 0, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-wide-left-lit" on level 0
 };
 
 static RomFile sScene235PuzzleFiresRoomList[] = {
@@ -170,9 +180,9 @@ extern "C" void CustomScene235PuzzleFiresScene_InitRoom(PlayState* play, RoomCon
     roomCtx->curRoom.behaviorType2 = ROOM_BEHAVIOR_TYPE2_0;
     roomCtx->curRoom.lensMode      = LENS_MODE_HIDE_ACTORS;
 
-    // 3 entries; play->numSetupActors is an s16 (sturdy-bassoon#45), so this is
+    // 13 entries; play->numSetupActors is an s16 (sturdy-bassoon#45), so this is
     // the authored count and not a truncation of it.
-    play->numSetupActors = 3;
+    play->numSetupActors = 13;
     play->setupActorList = sScene235PuzzleFiresActors;
 
     ArchiveProps_DeclareRoom(play, roomCtx, sScene235PuzzleFiresPropLists, ARRAY_COUNT(sScene235PuzzleFiresPropLists));

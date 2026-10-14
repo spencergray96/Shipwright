@@ -8,6 +8,16 @@
   "props": [
     {"id":"deco","kind":"standing-torch-724-oot-fire","pos":[-20,0,-220],"rot":0},
     {"id":"p1stick","kind":"standing-torch-724-oot-fire","pos":[-140,0,-220],"rot":0,"interaction":32514},
-    {"id":"p2arrow","kind":"standing-torch-724-oot-fire","pos":[-20,0,-20],"rot":0,"interaction":32515}
+    {"id":"p2arrow","kind":"standing-torch-724-oot-fire","pos":[-20,0,-20],"rot":0,"interaction":32515},
+    {"id":"range-left-dark","kind":"standing-torch-724-oot-fire","pos":[780,0,-300],"rot":0,"interaction":32517},
+    {"id":"range-left-lit","kind":"standing-torch-724-oot-fire","pos":[700,0,-460],"rot":0},
+    {"id":"range-long-dark","kind":"standing-torch-724-oot-fire","pos":[540,0,-300],"rot":0,"interaction":32520},
+    {"id":"range-long-lit","kind":"standing-torch-724-oot-fire","pos":[580,0,-460],"rot":0},
+    {"id":"range-right-dark","kind":"standing-torch-724-oot-fire","pos":[460,0,-300],"rot":0,"interaction":32518},
+    {"id":"range-right-lit","kind":"standing-torch-724-oot-fire","pos":[540,0,-460],"rot":0},
+    {"id":"range-straight-dark","kind":"standing-torch-724-oot-fire","pos":[620,0,-300],"rot":0,"interaction":32516},
+    {"id":"range-straight-lit","kind":"standing-torch-724-oot-fire","pos":[620,0,-460],"rot":0},
+    {"id":"range-wide-left-dark","kind":"standing-torch-724-oot-fire","pos":[860,0,-380],"rot":0,"interaction":32519},
+    {"id":"range-wide-left-lit","kind":"standing-torch-724-oot-fire","pos":[740,0,-500],"rot":0}
   ]
 }
