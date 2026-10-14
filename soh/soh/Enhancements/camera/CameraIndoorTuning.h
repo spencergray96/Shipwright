@@ -215,6 +215,53 @@ extern "C" {
 #define CAM_LEDGE_RAIL_DEFAULT 1
 
 /*
+ * A rise behind a wall (sturdy-bassoon#223). Grid-tool scenes only; the rule is in
+ * Camera_FloorAheadIfReachable.
+ */
+// 1 = a rise the slope probe reads between Link's feet and his head counts only if a line from his
+// feet to it meets no wall. 0 = the rise counts whatever is in the way (vanilla, and #103's "feet to
+// head height is left alone").
+//
+// Found on the fountain prop: its stacked collision boxes (tops 20, 53, 68, 90, 110) read as a
+// 53-unit rise ahead from anywhere within 30 of its centre line, and the eye went into the floor
+// behind Link. Measured at the shipped height 56, eye.y - at.y: -37.7..-42.6 off, +19.4..+21.2 on,
+// +21.8 on open ground. Three traced terrain walks read the same rises (up to 37.3) either way: BgCheck
+// files a slope under ~60 degrees as floor, so a hill keeps its look-up. Cost: a crate, bench or
+// barrel in front of Link no longer tips the camera up at it. Rejected: a rise cap like
+// CamLedgeDropCap (bounds the dip but keeps it, and bounds a real hill too), and testing floors as
+// well as walls (the line clips a terrain hump or a ramp's crest). docs/test-runs/
+// 2026-10-11-issue-223-fountain-camera/ in sturdy-bassoon.
+#define CVAR_CAM_RISE_WALL CVAR_ENHANCEMENT("CamRiseWall")
+#define CAM_RISE_WALL_DEFAULT 1
+
+// How much of the rule runs while CamRiseWall is on: a bisect switch (#223's second look), not a
+// setting. 1 = walls only (the rule as first shipped). 2 = undersides as well. 3 = and, for a rise
+// under head height, the line reaches CAM_RISE_WALL_REACH past the probe point.
+//
+// 2: fountain-879-no-drops re-fit its bowl as a column (y 18-38, half-width 21) under a wider bowl
+// (38-53, 30), so the bowl's underside hangs exposed above the basin's top (20). From 20-28 off the
+// centre line, 62-66 south of the centre, the line clears the basin rim, passes under the bowl's lip
+// and comes up through that underside to the bowl's top: no wall, so 1 kept the 53 rise and the eye
+// went to the floor (eye.y - at.y -38.6..-39.0, as with the rule off). fountain-879's bowl box runs
+// down into the basin (18-53), so it has no exposed underside and 1 already read level there.
+// An underside counts only if the line passes up through it below rise + 1, so under head height:
+// a doorway's lintel or an arch over a ramp is above Link's head and never in the way.
+// 3: the floor under a probe point is found with BgCheck's 1-unit tolerance, so a point up to 1 unit
+// outside a tier reads its top, and a line that ends there never reaches the tier's side: a 1-unit
+// band where the rise is kept on either fountain (-42.6 standing still in it, a two-frame dip walking
+// through it). Reaching CAM_RISE_WALL_REACH further takes the line across that side. The end keeps
+// its height (rise + 1), so the line can cross the side up to 1 above its top: it is still caught,
+// by the line test's own 1-unit tolerance (chkDist), with a margin of rise * (1.5 - outside) /
+// (distance + 1.5) - 0.46 for the 53 rise at the near probe, under 0.1 for a rise of 5 at the far
+// one, which tilts the camera about 2 degrees. Measured: caught at y 52.6 (on the face) and 53.1
+// (0.5 outside).
+// docs/test-runs/2026-10-13-issue-223-camera-dip-2/ in sturdy-bassoon.
+#define CVAR_CAM_RISE_WALL_STAGE CVAR_ENHANCEMENT("CamRiseWallStage")
+#define CAM_RISE_WALL_STAGE_DEFAULT 3
+#define CAM_RISE_WALL_STAGE_MAX 3
+#define CAM_RISE_WALL_REACH 1.5f
+
+/*
  * Young Link's framing on adult Link (sturdy-bassoon#136). The camera reads a camera-only player
  * height, lerp(68, 44, t) for adult Link on grid-tool scenes, everywhere z_camera.c derived its
  * framing from Player_GetHeight. Player_GetHeight itself is untouched, and so is everything else
@@ -280,6 +327,20 @@ extern "C" {
 #define CAM_EYE_RELEASE_DEFAULT 4.0f
 #define CAM_EYE_RELEASE_MAX 400.0f
 
+// One slope probe point as `agenttest trace` prints it (#223). Poly indices are the static
+// scene's list (-1 none, -2 a dynapoly); s32 because numPolygons is (ENGINE_BUDGETS.md).
+typedef struct {
+    f32 x;
+    f32 z;
+    f32 floorRaw;  // the floor under it, relative to Link's ground, before reachability (-9999 none)
+    s32 floorPoly;
+    s16 verdict;   // Camera_FloorAheadIfReachable: 0 kept (line clear), 1 rejected by the line,
+                   // 2 kept untested (level or no floor), 3 floorahead off, 4 a rise under head
+                   // height kept because risewall is off, 5 ... because the scene is not a grid-tool scene
+    s32 reachPoly; // the poly the reachability line stopped on, -1 none
+    f32 reachY;    // and the height it stopped at
+} CamProbePointDiag;
+
 /*
  * One Camera_Normal1 frame, for `agenttest trace` (sturdy-bassoon#152). Written by the camera and
  * read by nothing in it, like the `applied*` mirror below. `frame` says which frame it describes,
@@ -310,6 +371,15 @@ typedef struct {
     f32 dropFar;     // last read them (before the #155 knobs; they hold between odd frames)
     f32 height;      // the camera's player height this frame (#136)
     f32 eyeHeld;     // how far the eye release held the eye back this frame, 0 when it did not (#174)
+    // The slope probe's last reading (#223). The line from the origin is cast on an even frame and
+    // its yaw and height are that frame's; the floors under the points and their verdicts are read
+    // on the odd frame after.
+    s16 probeYaw;          // the yaw the line was cast along
+    s32 probeLinePoly;     // the poly Camera_BGCheckInfo reported: the one the line stopped on, or a
+                           // floor within 5 under its far end when the line was clear (-1 neither)
+    f32 probeOriginY;      // the line's height
+    f32 probeLineDist;     // XZ distance from Link to where the line stopped
+    CamProbePointDiag probe[2]; // near and far (the same point when the line stopped short of near)
 } CameraFrameDiag;
 
 void Camera_GetFrameDiag(CameraFrameDiag* out);

@@ -149,7 +149,7 @@
  *         cam_at=<x>,<y>,<z> cam_eye=<x>,<y>,<z> cam_dist=<f> cam_setting=<n> cam_mode=<n>
  *         cf=<n> cbr=<n> cpitch=<in>/<out> cslope=<raw>/<adj> cswing=<timer>/<on> ccol=<n> cidle=<n>
  *         cceil=<n> ceyey=<pre>/<post> cceily=<f> ccorner=<f> chold=<f> caty=<f> cdrop=<near>/<far> ch=<f>
- *         crel=<f>
+ *         crel=<f> cprobe=yaw:<b>,oy:<f>,line:<poly>@<dist> near=<x>,<z>,f:<rise>#<poly>,v:<verdict>#<poly>@<y> far=...
  *                                        the active camera, then Camera_Normal1's last frame (cf= is the
  *                                        frame it ran; older than frame= means Normal1 was not running):
  *                                        which pitch branch ran (0 idle re-centre, 1 obstructed swing,
@@ -164,7 +164,14 @@
  *                                        last frame found no ceiling) and at.y, the slope probe's floors relative
  *                                        to Link's ground, the camera's player height, and how far the eye
  *                                        release held the eye back (0 = it did not; sturdy-bassoon #152,
- *                                        #155, #136, #174). Pitches are binangs (0x10000 = 360 degrees)
+ *                                        #155, #136, #174). Pitches are binangs (0x10000 = 360 degrees).
+ *                                        cprobe= is the slope probe's last reading (#223): the yaw and height
+ *                                        its line from the origin was cast at, the static poly that line
+ *                                        reported (-1 none, -2 dynapoly; CameraIndoorTuning.h) and how far
+ *                                        ahead it stopped; then per probe point x,z, the floor under it
+ *                                        relative to Link's ground (-9999 none) and its poly, and the
+ *                                        reachability verdict (codes in CameraIndoorTuning.h's
+ *                                        CamProbePointDiag) with the poly and height its line stopped at
  *   octrace frame=<n> msg=<n> ocmode=<n> act=<n> song=<n> suns=<n> pb=<pos>,<state>,<btn> shown=<n> buf=<n>
  *         task=<n> eff=0x<id> trans=<n> time=0x<hex> speed=<n>
  *                                        per-tick ocarina diagnostic while "agenttest octrace" is active
@@ -624,6 +631,7 @@
 #include <ctime>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <cctype>
 #include <algorithm>
 #include <utility>
@@ -1203,7 +1211,7 @@ void EmitTrace(const char* phase) {
     Camera* camera = GET_ACTIVE_CAM(gPlayState);
     CameraFrameDiag cd;
     Camera_GetFrameDiag(&cd);
-    char buf[896];
+    char buf[1280];
     // lbox= is the letterbox: current bar size / animation target, per tick - the readout for
     // the hold-off before camera-requested bars start (sturdy-bassoon#42).
     std::snprintf(buf, sizeof(buf),
@@ -1229,6 +1237,16 @@ void EmitTrace(const char* phase) {
                   cd.slopeAdj, cd.swingTimer, cd.swingActive, cd.colCase, cd.idleBgHit, cd.ceilState, cd.eyeYPre,
                   cd.eyeYPost, cd.ceilY, cd.ceilOverWallY, cd.ceilHold, cd.atY, cd.dropNear, cd.dropFar, cd.height,
                   cd.eyeHeld);
+    // The slope probe's last reading (sturdy-bassoon#223), appended so the fields above keep their order.
+    size_t used = std::strlen(buf);
+    used += std::snprintf(buf + used, sizeof(buf) - used, " cprobe=yaw:%d,oy:%.1f,line:%d@%.1f", cd.probeYaw,
+                          cd.probeOriginY, cd.probeLinePoly, cd.probeLineDist);
+    for (int i = 0; i < 2 && used < sizeof(buf); i++) {
+        const CamProbePointDiag& p = cd.probe[i];
+        used += std::snprintf(buf + used, sizeof(buf) - used, " %s=%.1f,%.1f,f:%.1f#%d,v:%d#%d@%.1f",
+                              i == 0 ? "near" : "far", p.x, p.z, p.floorRaw, p.floorPoly, p.verdict, p.reachPoly,
+                              p.reachY);
+    }
     WriteMarker(buf);
 }
 
