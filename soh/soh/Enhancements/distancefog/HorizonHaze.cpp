@@ -38,9 +38,9 @@ constexpr float kPi = 3.14159265358979f;
 bool sEnabled = true;
 WorldFogHaze sHaze = { WORLD_FOG_HAZE_DEFAULT_HEIGHT, WORLD_FOG_HAZE_DEFAULT_FADE };
 
-// The sky's colour (sturdy-bassoon#229): sample it, and at which site.
+// The sky's colour (sturdy-bassoon#229): sample it, and at which site (the console's default is before the sun).
 bool sSkyColour = false;
-bool sAfterCopy = true;
+bool sAfterCopy = false;
 
 HorizonHazeFrame sFrame = { 0, 0, { 0, 0, 0 }, 0, 0 };
 

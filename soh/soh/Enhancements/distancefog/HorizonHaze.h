@@ -19,10 +19,12 @@
 //
 // Under the sky's colour (sturdy-bassoon#229; WorldFog.h WorldFog_SetColour) the band takes that colour instead: it
 // samples gSkyColourFrameBuffer's one texel as TEXEL0 where prim gave the fog colour, so it and depth fog draw with the
-// same value. And it moves to a second site, right after the sky copy (HorizonHaze_DrawAfterSkyCopy), so it is never in
-// the copy the colour is averaged from, nor in the sky the edge layer fades the beyond ring into - no loop, and the
-// ring meets the true sky. The cost: a low sun or moon is behind it again. `fog haze site before` keeps it before the
-// sun and moon with the previous frame's colour instead (the console then samples the colour above the band).
+// same value. Where it draws is the console's (`fog haze site`):
+//   - before the sun and moon (the default, the owner's pick), with the previous frame's colour, the texel then
+//     holding. It is in the sky copy, so the console samples the colour above the band's top (no loop), and the edge
+//     layer fades the ring into the band's sky colour in its rows;
+//   - right after the sky copy (HorizonHaze_DrawAfterSkyCopy), with this frame's colour: never in the copy, so the
+//     ring meets the true sky, but a low sun or moon is behind it.
 //
 // It draws only while world-unit fog is live this frame (WorldFog_Live), so vanilla scenes are untouched unless
 // `fog world` is typed there. The scene's height and fade come from its InitScene (WorldFog_SetHaze); the `fog haze`

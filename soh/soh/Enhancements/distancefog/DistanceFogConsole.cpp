@@ -640,9 +640,11 @@ float sColourTau = WORLD_FOG_COLOUR_DEFAULT_TAU;
 // unsupported (the renderer has no reduction).
 const char* sColourWhy = "no_world_fog";
 uint32_t sColourLogCount = 0;
-// `fog haze site before` (sturdy-bassoon#229): the haze band before the sun and moon under the sky's colour, as #168
-// drew it; kept across scene loads like the choice above. The default draws it after the copy.
-bool sHazeSiteBefore = false;
+// `fog haze site before|after` (sturdy-bassoon#229): where the haze band draws under the sky's colour. Before the sun
+// and moon (the default, the owner's pick on 2026-10-14: "definitely looks better"), as #168 drew it, with the
+// previous frame's colour and the colour sampled above it; or after the sky copy, never in it. Kept across scene
+// loads like the choice above.
+bool sHazeSiteBefore = true;
 
 WorldFogHaze LiveHaze();
 

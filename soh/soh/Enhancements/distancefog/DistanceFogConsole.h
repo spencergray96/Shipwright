@@ -63,10 +63,11 @@
 //     haze off                    no band, even under world-unit fog
 //     haze on                     undo off, keeping any <H> <F>
 //     haze scene                  hand height and fade back to the scene's, and on
-//     haze site after|before      under the sky's colour (sturdy-bassoon#229, `colour` below): draw the band right
-//                                 after the sky copy (after, the default: never in the copy, a low sun behind it) or
-//                                 before the sun and moon with the previous frame's colour (the colour's band then
-//                                 starts above the haze's top). Kept across scene loads
+//     haze site before|after      under the sky's colour (sturdy-bassoon#229, `colour` below): draw the band before
+//                                 the sun and moon with the previous frame's colour (before, the default: the
+//                                 colour's band then starts above the haze's top, and the band is in the sky copy)
+//                                 or right after the copy (never in it; a low sun goes behind it). Kept across scene
+//                                 loads
 //                       Each prints `op=haze result=ok action=status|set|off|on|scene haze=on|off kind=world|vanilla
 //                       drawn=0|1 draws=<n> h=<H> f=<F> top=<H+F> src=scene|override scene_h= scene_f=
 //                       color=r,g,b|none fog=r,g,b c=WorldFog_SetHaze(<H>f,<F>f)`: kind= whether world-unit fog is
