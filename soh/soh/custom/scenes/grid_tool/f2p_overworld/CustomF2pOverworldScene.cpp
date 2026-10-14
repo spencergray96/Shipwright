@@ -49,14 +49,14 @@ static EnvLightSettings sF2pOverworldLightSettings[4] = {
 // fog begins and completes, and the far clip. Dawn, day, dusk, night, then the Song of Storms' four. The
 // light settings above keep their vanilla fog fields; while these rows are live they set the band and clip.
 static const WorldFogSetting sF2pOverworldWorldFog[8] = {
-    { 6000, 11500, 12800 }, // dawn
-    { 6000, 11500, 12800 }, // day
-    { 6000, 11500, 12800 }, // dusk
-    { 6000, 11500, 12800 }, // night
-    { 6000, 11500, 12800 }, // storm dawn
-    { 6000, 11500, 12800 }, // storm day
-    { 6000, 11500, 12800 }, // storm dusk
-    { 6000, 11500, 12800 }, // storm night
+    { 15000, 24000, 25000 }, // dawn
+    { 15000, 24000, 25000 }, // day
+    { 15000, 24000, 25000 }, // dusk
+    { 15000, 24000, 25000 }, // night
+    { 15000, 24000, 25000 }, // storm dawn
+    { 15000, 24000, 25000 }, // storm day
+    { 15000, 24000, 25000 }, // storm dusk
+    { 15000, 24000, 25000 }, // storm night
 };
 
 // Boundary fog (sturdy-bassoon#169): the playable area as world-unit rectangles {x0, z0, x1, z1}, and the ramp
