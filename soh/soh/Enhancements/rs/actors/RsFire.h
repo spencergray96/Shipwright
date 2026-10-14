@@ -32,10 +32,15 @@
 // (params bit 14) never take one. When the pool is full, LightContext_InsertLight returns NULL and the fire
 // burns with no light; nothing is taken from another holder.
 //
-// THE COLLIDER: one AC cylinder over the flame, registered only while Link is within
-// RS_FIRE_AC_RANGE. Obj_Syokudai registers two, from anywhere in the scene, every frame - the
-// combination ENGINE_BUDGETS "Collision check subscriptions" says never to copy into a one-scene
-// world. Not UPDATE_CULLING_DISABLED either: a culled fire neither updates nor draws, as En_Light.
+// THE COLLIDER: one AC cylinder over the flame, registered on every tick the fire updates. Flags 0,
+// as En_Light: a fire culled from view (about 1,350 units from the camera, vanilla's default uncull
+// zone) neither updates nor draws, so it holds no slot, and an arrow can light any fire Link can see
+// (the owner, 2026-10-13, option B of #232; a 1,000-unit gate on Link was dropped). Obj_Syokudai
+// instead disables culling and registers two AC from up to 4,000 away, every frame - the combination
+// ENGINE_BUDGETS "Collision check subscriptions" says never to copy into a one-scene world.
+// THE LEVER FOR LONG SHOTS (option C, not built): a puzzle fire that must be hit from beyond view gets
+// a larger uncull zone (or UPDATE_CULLING_DISABLED) of its own, set per placement by its `fire`
+// Interaction, so only those torches pay the AC slot and update at a distance.
 
 #include "z64actor.h"
 #include "z64light.h"
@@ -44,8 +49,6 @@
 #define RS_FIRE_SCALE_DEFAULT 100
 #define RS_FIRE_SCALE_MIN 10
 #define RS_FIRE_SCALE_MAX 400
-// The flame collider is registered only while Link is this near, in units.
-#define RS_FIRE_AC_RANGE 1000.0f
 
 typedef struct RsFire {
     /* 0x0000 */ Actor actor;

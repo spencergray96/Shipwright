@@ -307,11 +307,10 @@ void RsFire_Update(Actor* thisx, PlayState* play) {
         Audio_PlayActorSound2(thisx, NA_SE_EV_TORCH - SFX_FLAG);
     }
 
-    // The flame's collider, only while Link is near enough to reach it with a stick or an arrow.
-    if (thisx->xyzDistToPlayerSq < SQ(RS_FIRE_AC_RANGE)) {
-        Collider_UpdateCylinder(thisx, &this->collider);
-        CollisionCheck_SetAC(play, &play->colChkCtx, &this->collider.base);
-    }
+    // The flame's collider, every tick it updates - and it updates only while in view, so the culling
+    // (RsFire.h) is the range: an arrow can light any fire Link can see.
+    Collider_UpdateCylinder(thisx, &this->collider);
+    CollisionCheck_SetAC(play, &play->colChkCtx, &this->collider.base);
 }
 
 void RsFire_Draw(Actor* thisx, PlayState* play) {
