@@ -165,13 +165,13 @@
  *                                        to Link's ground, the camera's player height, and how far the eye
  *                                        release held the eye back (0 = it did not; sturdy-bassoon #152,
  *                                        #155, #136, #174). Pitches are binangs (0x10000 = 360 degrees).
- *                                        cprobe= is the slope probe's last odd-frame reading (#223): the yaw
- *                                        and height it ran at, the static poly its line from the origin
- *                                        stopped on (-1 none, -2 dynapoly) and how far ahead; then per probe
- *                                        point x,z, the floor under it relative to Link's ground (-9999 none)
- *                                        and its poly, and the reachability verdict (0 kept, line clear;
- *                                        1 rejected; 2 level/none; 3 floorahead off; 4 risewall off; 5 not a
- *                                        grid-tool scene) with the poly and height its line stopped at
+ *                                        cprobe= is the slope probe's last reading (#223): the yaw and height
+ *                                        its line from the origin was cast at, the static poly that line
+ *                                        reported (-1 none, -2 dynapoly; CameraIndoorTuning.h) and how far
+ *                                        ahead it stopped; then per probe point x,z, the floor under it
+ *                                        relative to Link's ground (-9999 none) and its poly, and the
+ *                                        reachability verdict (codes in CameraIndoorTuning.h's
+ *                                        CamProbePointDiag) with the poly and height its line stopped at
  *   octrace frame=<n> msg=<n> ocmode=<n> act=<n> song=<n> suns=<n> pb=<pos>,<state>,<btn> shown=<n> buf=<n>
  *         task=<n> eff=0x<id> trans=<n> time=0x<hex> speed=<n>
  *                                        per-tick ocarina diagnostic while "agenttest octrace" is active
@@ -1225,13 +1225,14 @@ void EmitTrace(const char* phase) {
                   cd.eyeHeld);
     // The slope probe's last reading (sturdy-bassoon#223), appended so the fields above keep their order.
     size_t used = std::strlen(buf);
-    std::snprintf(buf + used, sizeof(buf) - used,
-                  " cprobe=yaw:%d,oy:%.1f,line:%d@%.1f near=%.1f,%.1f,f:%.1f#%d,v:%d#%d@%.1f "
-                  "far=%.1f,%.1f,f:%.1f#%d,v:%d#%d@%.1f",
-                  cd.probeYaw, cd.probeOriginY, cd.probeLinePoly, cd.probeLineDist, cd.probeX[0], cd.probeZ[0],
-                  cd.probeFloorRaw[0], cd.probeFloorPoly[0], cd.probeVerdict[0], cd.probeReachPoly[0],
-                  cd.probeReachY[0], cd.probeX[1], cd.probeZ[1], cd.probeFloorRaw[1], cd.probeFloorPoly[1],
-                  cd.probeVerdict[1], cd.probeReachPoly[1], cd.probeReachY[1]);
+    used += std::snprintf(buf + used, sizeof(buf) - used, " cprobe=yaw:%d,oy:%.1f,line:%d@%.1f", cd.probeYaw,
+                          cd.probeOriginY, cd.probeLinePoly, cd.probeLineDist);
+    for (int i = 0; i < 2 && used < sizeof(buf); i++) {
+        const CamProbePointDiag& p = cd.probe[i];
+        used += std::snprintf(buf + used, sizeof(buf) - used, " %s=%.1f,%.1f,f:%.1f#%d,v:%d#%d@%.1f",
+                              i == 0 ? "near" : "far", p.x, p.z, p.floorRaw, p.floorPoly, p.verdict, p.reachPoly,
+                              p.reachY);
+    }
     WriteMarker(buf);
 }
 

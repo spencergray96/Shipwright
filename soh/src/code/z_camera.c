@@ -55,21 +55,20 @@ void Camera_GetFrameDiag(CameraFrameDiag* out) {
 
 // A collision poly as the trace prints it: its index in the static scene's list, -1 for none, -2 for
 // a dynapoly (#223).
-static s16 Camera_DiagPolyIndex(Camera* camera, CollisionPoly* poly, s32 bgId) {
+static s32 Camera_DiagPolyIndex(Camera* camera, CollisionPoly* poly, s32 bgId) {
     if (poly == NULL) {
         return -1;
     }
     if (bgId != BGCHECK_SCENE) {
         return -2;
     }
-    return (s16)(poly - camera->play->colCtx.colHeader->polyList);
+    return (s32)(poly - camera->play->colCtx.colHeader->polyList);
 }
 
 // Camera_FloorAheadIfReachable's verdict on the probe it last ran, for the trace (#223).
 static s16 sProbeVerdict;
-static s16 sProbeReachPoly;
+static s32 sProbeReachPoly;
 static f32 sProbeReachY;
-static s32 sProbeLineHit; // the even frame's Camera_BGCheckInfo stopped on geometry
 
 /**
  * The #136 knob, clamped to 0..1: how far adult Link's camera height is moved toward Young Link's.
@@ -813,8 +812,9 @@ static f32 Camera_FloorAheadIfReachable(Camera* camera, Vec3f* probePos, f32 flo
 }
 
 // The trace's copy of one probe point's reading (#223): where, the floor under it before the
-// reachability rule, and that rule's verdict on it.
-static void Camera_DiagProbe(Camera* camera, s32 i, Vec3f* pos, f32 floorY) {
+// reachability rule, and that rule's verdict on it. Call it straight after
+// Camera_FloorAheadIfReachable, whose verdict it copies.
+static void Camera_DiagProbe(Camera* camera, CamProbePointDiag* out, Vec3f* pos, f32 floorY) {
     CollisionPoly* floorPoly = NULL;
     s32 floorBgId = BGCHECK_SCENE;
     Vec3f above = *pos;
@@ -824,13 +824,13 @@ static void Camera_DiagProbe(Camera* camera, s32 i, Vec3f* pos, f32 floorY) {
         above.y = floorY + 1.0f;
         BgCheck_CameraRaycastFloor2(&camera->play->colCtx, &floorPoly, &floorBgId, &above);
     }
-    sCamDiag.probeX[i] = pos->x;
-    sCamDiag.probeZ[i] = pos->z;
-    sCamDiag.probeFloorRaw[i] = floorY == BGCHECK_Y_MIN ? -9999.0f : floorY - camera->playerGroundY;
-    sCamDiag.probeFloorPoly[i] = Camera_DiagPolyIndex(camera, floorPoly, floorBgId);
-    sCamDiag.probeVerdict[i] = sProbeVerdict;
-    sCamDiag.probeReachPoly[i] = sProbeReachPoly;
-    sCamDiag.probeReachY[i] = sProbeReachY;
+    out->x = pos->x;
+    out->z = pos->z;
+    out->floorRaw = floorY == BGCHECK_Y_MIN ? -9999.0f : floorY - camera->playerGroundY;
+    out->floorPoly = Camera_DiagPolyIndex(camera, floorPoly, floorBgId);
+    out->verdict = sProbeVerdict;
+    out->reachPoly = sProbeReachPoly;
+    out->reachY = sProbeReachY;
 }
 
 static f32 D_8015CE50;
@@ -884,7 +884,12 @@ s16 func_80044ADC(Camera* camera, s16 yaw, s16 arg2) {
         D_8015CE58.pos.x = playerPos.x + (sp2C * sinYaw);
         D_8015CE58.pos.y = playerPos.y;
         D_8015CE58.pos.z = playerPos.z + (sp2C * cosYaw);
-        sProbeLineHit = Camera_BGCheckInfo(camera, &playerPos, &D_8015CE58);
+        // The trace's record of the line, from the frame it is cast on (#223).
+        sCamDiag.probeYaw = yaw;
+        sCamDiag.probeOriginY = playerPos.y;
+        sCamDiag.probeLinePoly = Camera_BGCheckInfo(camera, &playerPos, &D_8015CE58)
+                                     ? Camera_DiagPolyIndex(camera, D_8015CE58.poly, D_8015CE58.bgId)
+                                     : -1;
         if (arg2) {
             D_8015CE50 = D_8015CE54 = camera->playerGroundY;
         }
@@ -893,23 +898,20 @@ s16 func_80044ADC(Camera* camera, s16 yaw, s16 arg2) {
         D_8015CE58.pos.x += D_8015CE58.norm.x * 5.0f;
         D_8015CE58.pos.y += D_8015CE58.norm.y * 5.0f;
         D_8015CE58.pos.z += D_8015CE58.norm.z * 5.0f;
-        sCamDiag.probeYaw = yaw;
-        sCamDiag.probeOriginY = playerPos.y;
         sCamDiag.probeLineDist = sp2C;
-        sCamDiag.probeLinePoly = sProbeLineHit ? Camera_DiagPolyIndex(camera, D_8015CE58.poly, D_8015CE58.bgId) : -1;
         if (sp2C < sp30) {
             sp30 = sp2C;
             floorRaw = Camera_GetFloorYLayer(camera, &floorNorm, &D_8015CE58.pos, &bgId);
             D_8015CE50 = D_8015CE54 = Camera_FloorAheadIfReachable(camera, &D_8015CE58.pos, floorRaw);
-            Camera_DiagProbe(camera, 0, &D_8015CE58.pos, floorRaw);
-            Camera_DiagProbe(camera, 1, &D_8015CE58.pos, floorRaw);
+            Camera_DiagProbe(camera, &sCamDiag.probe[0], &D_8015CE58.pos, floorRaw);
+            sCamDiag.probe[1] = sCamDiag.probe[0];
         } else {
             floorRaw = Camera_GetFloorYLayer(camera, &floorNorm, &rotatedPos, &bgId);
             D_8015CE50 = Camera_FloorAheadIfReachable(camera, &rotatedPos, floorRaw);
-            Camera_DiagProbe(camera, 0, &rotatedPos, floorRaw);
+            Camera_DiagProbe(camera, &sCamDiag.probe[0], &rotatedPos, floorRaw);
             floorRaw = Camera_GetFloorYLayer(camera, &floorNorm, &D_8015CE58.pos, &bgId);
             D_8015CE54 = Camera_FloorAheadIfReachable(camera, &D_8015CE58.pos, floorRaw);
-            Camera_DiagProbe(camera, 1, &D_8015CE58.pos, floorRaw);
+            Camera_DiagProbe(camera, &sCamDiag.probe[1], &D_8015CE58.pos, floorRaw);
         }
 
         if (D_8015CE50 == BGCHECK_Y_MIN) {

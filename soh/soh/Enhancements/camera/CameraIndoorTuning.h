@@ -249,7 +249,12 @@ extern "C" {
 // 3: the floor under a probe point is found with BgCheck's 1-unit tolerance, so a point up to 1 unit
 // outside a tier reads its top, and a line that ends there never reaches the tier's side: a 1-unit
 // band where the rise is kept on either fountain (-42.6 standing still in it, a two-frame dip walking
-// through it). Reaching CAM_RISE_WALL_REACH further takes the line across that side under its top.
+// through it). Reaching CAM_RISE_WALL_REACH further takes the line across that side. The end keeps
+// its height (rise + 1), so the line can cross the side up to 1 above its top: it is still caught,
+// by the line test's own 1-unit tolerance (chkDist), with a margin of rise * (1.5 - outside) /
+// (distance + 1.5) - 0.46 for the 53 rise at the near probe, under 0.1 for a rise of 5 at the far
+// one, which tilts the camera about 2 degrees. Measured: caught at y 52.6 (on the face) and 53.1
+// (0.5 outside).
 // docs/test-runs/2026-10-13-issue-223-camera-dip-2/ in sturdy-bassoon.
 #define CVAR_CAM_RISE_WALL_STAGE CVAR_ENHANCEMENT("CamRiseWallStage")
 #define CAM_RISE_WALL_STAGE_DEFAULT 3
@@ -322,6 +327,20 @@ extern "C" {
 #define CAM_EYE_RELEASE_DEFAULT 4.0f
 #define CAM_EYE_RELEASE_MAX 400.0f
 
+// One slope probe point as `agenttest trace` prints it (#223). Poly indices are the static
+// scene's list (-1 none, -2 a dynapoly); s32 because numPolygons is (ENGINE_BUDGETS.md).
+typedef struct {
+    f32 x;
+    f32 z;
+    f32 floorRaw;  // the floor under it, relative to Link's ground, before reachability (-9999 none)
+    s32 floorPoly;
+    s16 verdict;   // Camera_FloorAheadIfReachable: 0 kept (line clear), 1 rejected by the line,
+                   // 2 kept untested (level or no floor), 3 floorahead off, 4 a rise under head
+                   // height kept because risewall is off, 5 ... because the scene is not a grid-tool scene
+    s32 reachPoly; // the poly the reachability line stopped on, -1 none
+    f32 reachY;    // and the height it stopped at
+} CamProbePointDiag;
+
 /*
  * One Camera_Normal1 frame, for `agenttest trace` (sturdy-bassoon#152). Written by the camera and
  * read by nothing in it, like the `applied*` mirror below. `frame` says which frame it describes,
@@ -352,22 +371,15 @@ typedef struct {
     f32 dropFar;     // last read them (before the #155 knobs; they hold between odd frames)
     f32 height;      // the camera's player height this frame (#136)
     f32 eyeHeld;     // how far the eye release held the eye back this frame, 0 when it did not (#174)
-    // The slope probe's last odd-frame reading, as func_80044ADC took it (#223). Poly indices are the
-    // static scene's (-1 none, -2 a dynapoly).
-    s16 probeYaw;       // the yaw it probed along
-    s16 probeLinePoly;  // what the probe line from the origin hit (Camera_BGCheckInfo), -1 nothing
-    f32 probeOriginY;   // the probe line's height
-    f32 probeLineDist;  // XZ distance from Link to the probe line's stop point
-    f32 probeX[2];      // near and far probe points (they are the same point when the line stopped short)
-    f32 probeZ[2];
-    f32 probeFloorRaw[2]; // the floor under each, relative to Link's ground, before reachability
-    s16 probeFloorPoly[2];
-    s16 probeVerdict[2];  // Camera_FloorAheadIfReachable: 0 kept (line clear), 1 rejected by the
-                          // line, 2 kept untested (level or no floor), 3 floorahead off, 4 a rise
-                          // under head height kept because risewall is off, 5 ... because the scene
-                          // is not a grid-tool scene
-    s16 probeReachPoly[2]; // the poly the reachability line stopped on, -1 none
-    f32 probeReachY[2];    // and the height it stopped at
+    // The slope probe's last reading (#223). The line from the origin is cast on an even frame and
+    // its yaw and height are that frame's; the floors under the points and their verdicts are read
+    // on the odd frame after.
+    s16 probeYaw;          // the yaw the line was cast along
+    s32 probeLinePoly;     // the poly Camera_BGCheckInfo reported: the one the line stopped on, or a
+                           // floor within 5 under its far end when the line was clear (-1 neither)
+    f32 probeOriginY;      // the line's height
+    f32 probeLineDist;     // XZ distance from Link to where the line stopped
+    CamProbePointDiag probe[2]; // near and far (the same point when the line stopped short of near)
 } CameraFrameDiag;
 
 void Camera_GetFrameDiag(CameraFrameDiag* out);
