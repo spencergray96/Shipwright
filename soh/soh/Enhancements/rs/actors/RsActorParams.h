@@ -6,6 +6,7 @@
 #include "soh/Enhancements/rs/quest/QuestIds.h"
 #include "soh/Enhancements/rs/dialogue/NpcIds.h"
 #include "soh/Enhancements/rs/stairs/StairDef.h"
+#include "soh/Enhancements/worldstate/WorldFlags.h"
 
 // ============================================================================================
 //  WHAT AN RS ACTOR'S `params` CARRIES  (sturdy-bassoon#58 P3 / #64 - the D25 decision)
@@ -13,15 +14,15 @@
 //
 // `ActorEntry.params` is an `s16` in the compiled scene file, and it is the ONLY per-placement
 // datum a scene can hand an actor. It carries the NpcId for a quest-giver, the (quest, step)
-// pair for a quest item, the (staircase, row) pair for a staircase (#147), and the interaction id
-// for an interaction trigger (#183).
+// pair for a quest item, the (staircase, row) pair for a staircase (#147), the interaction id
+// for an interaction trigger (#183), and a fire's world flag and switches (#232).
 //
 // This is not gated on the grid tool (D24). Placement arrives in three stages: hand-inserted
 // ActorEntry rows in a scene's C source now (all P3's proofs need), standard Blender + Fast64
 // actor placement for authored content later - which carries `params` today - and possibly-never
 // grid-tool helpers. The three actors above are not designed for the grid tool. The interaction
-// trigger (#183) is the one exception: it exists only as a row the grid tool writes, for an id the
-// grid tool mints.
+// trigger (#183) and the fire (#232) are the exceptions: each exists only as a row the grid tool
+// writes, for an id or a flag the grid tool mints.
 //
 // TWO RULES WORTH THE UP-FRONT COST:
 //
@@ -59,6 +60,43 @@ RS_STATIC_ASSERT((RS_NPC_PARAMS_ID_MASK | RS_NPC_PARAMS_RSVD_MASK) <= 0x7FFF, "b
 #define RS_INTERACTION_PARAMS_ID_MASK 0x7FFF
 #define RS_INTERACTION_PARAMS(id) ((int16_t)((id) & RS_INTERACTION_PARAMS_ID_MASK))
 #define RS_INTERACTION_PARAMS_GET_ID(params) ((int32_t)((uint16_t)(params) & RS_INTERACTION_PARAMS_ID_MASK))
+
+// --- fire (sturdy-bassoon#232) -----------------------------------------------------------------
+//
+// OoT's torch fire on an RS torch. Params is the placement's behaviour; its SIZE rides on rot.x, as
+// a percentage of vanilla En_Light params 4's fire (RsFire.h), because a size is a number, not a
+// flag.
+//
+// A puzzle fire remembers being lit in the project's WORLD FLAG store (worldstate/WorldFlags.h,
+// 4096 flags), never a vanilla switch flag: this world is one scene, so switch flags are 32
+// persistent for the whole game (ENGINE_BUDGETS "World-state flags"). The flag must be a PLACEMENT
+// flag (WorldFlagIds.h): one per placement, handed out by the grid tool's export. World flag 0 is a
+// real flag, so "no flag" is its own bit rather than a sentinel value.
+//
+// THE SECOND EXCEPTION TO RULE 1, the interaction trigger's reason: every bit is spoken for, so
+// there is no reserved span. Every row is written by the grid tool's export, and a later packing
+// ships with its own re-export.
+
+#define RS_FIRE_PARAMS_FLAG_MASK 0x0FFF    // bits 0-11: the world flag set when it is lit
+#define RS_FIRE_PARAMS_HAS_FLAG 0x1000     // bit 12: it has one (a fire with none remembers nothing)
+#define RS_FIRE_PARAMS_UNLIT 0x2000        // bit 13: starts unlit (a puzzle torch), unless its flag is set
+#define RS_FIRE_PARAMS_NO_LIGHT 0x4000     // bit 14: never takes a light node (#233: the pool is 32 a scene)
+#define RS_FIRE_PARAMS(hasFlag, flag, unlit, noLight) \
+    ((int16_t)(((hasFlag) ? (RS_FIRE_PARAMS_HAS_FLAG | ((flag) & RS_FIRE_PARAMS_FLAG_MASK)) : 0) | \
+               ((unlit) ? RS_FIRE_PARAMS_UNLIT : 0) | ((noLight) ? RS_FIRE_PARAMS_NO_LIGHT : 0)))
+#define RS_FIRE_PARAMS_GET_FLAG(params) ((int32_t)((uint16_t)(params) & RS_FIRE_PARAMS_FLAG_MASK))
+#define RS_FIRE_PARAMS_GET_HAS_FLAG(params) (((uint16_t)(params) & RS_FIRE_PARAMS_HAS_FLAG) != 0)
+#define RS_FIRE_PARAMS_GET_UNLIT(params) (((uint16_t)(params) & RS_FIRE_PARAMS_UNLIT) != 0)
+#define RS_FIRE_PARAMS_GET_NO_LIGHT(params) (((uint16_t)(params) & RS_FIRE_PARAMS_NO_LIGHT) != 0)
+
+// No two fields share a bit: their sum is their union only when they are disjoint.
+#define RS_FIRE_PARAMS_FIELDS_SUM \
+    (RS_FIRE_PARAMS_FLAG_MASK + RS_FIRE_PARAMS_HAS_FLAG + RS_FIRE_PARAMS_UNLIT + RS_FIRE_PARAMS_NO_LIGHT)
+#define RS_FIRE_PARAMS_FIELDS_UNION \
+    (RS_FIRE_PARAMS_FLAG_MASK | RS_FIRE_PARAMS_HAS_FLAG | RS_FIRE_PARAMS_UNLIT | RS_FIRE_PARAMS_NO_LIGHT)
+RS_STATIC_ASSERT(RS_FIRE_PARAMS_FIELDS_SUM == RS_FIRE_PARAMS_FIELDS_UNION, "fire params fields must not overlap");
+RS_STATIC_ASSERT(RS_FIRE_PARAMS_FIELDS_UNION <= 0x7FFF, "bit 15 stays zero: params is a signed s16");
+RS_STATIC_ASSERT(RS_FIRE_PARAMS_FLAG_MASK + 1 <= WORLD_FLAG_MAX, "every flag a fire can name is in the store");
 
 // --- quest item --------------------------------------------------------------------------------
 //

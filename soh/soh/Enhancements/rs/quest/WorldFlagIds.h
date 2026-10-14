@@ -27,8 +27,22 @@
 
 #define WORLD_FLAG_DEBUG_FIRST 3840
 
+// PLACEMENT FLAGS (sturdy-bassoon#232): the top of each tier is not named here. It is handed out one
+// flag per placement by the grid tool's export - a puzzle fire that remembers being lit, and later
+// any prop of ours that must remember something - and frozen to that placement the way an
+// interaction id is. Named flags count up from the bottom of their tier and must stay below its
+// placement band; every named enumerator's band line below says so.
+//   production: named [0, WORLD_FLAG_PLACEMENT_FIRST), placements [WORLD_FLAG_PLACEMENT_FIRST, DEBUG_FIRST)
+//   debug:      named [DEBUG_FIRST, WORLD_FLAG_PLACEMENT_DEBUG_FIRST), placements [..._DEBUG_FIRST, MAX)
+// The debug placement band sits inside the debug band, so `quest debugwipe` clears a test map's fires.
+#define WORLD_FLAG_PLACEMENT_FIRST 2048
+#define WORLD_FLAG_PLACEMENT_DEBUG_FIRST 3968
+#define WORLD_FLAG_IS_PLACEMENT(flag)                                                                     \
+    (((flag) >= WORLD_FLAG_PLACEMENT_FIRST && (flag) < WORLD_FLAG_DEBUG_FIRST) ||                      \
+     ((flag) >= WORLD_FLAG_PLACEMENT_DEBUG_FIRST && (flag) < WORLD_FLAG_MAX))
+
 typedef enum WorldFlagId {
-    // --- production band: [0, WORLD_FLAG_DEBUG_FIRST) -------------------------------------
+    // --- production band, named: [0, WORLD_FLAG_PLACEMENT_FIRST) -------------------------------------
     WORLD_FLAG_COOK_RANGE_OPEN = 0, // QUEST_COOKS_ASSISTANT's reward, and the first production flag
                                     // there has ever been (P4). It is an UNLOCK: a durable
                                     // permission bit that anything may read, deliberately separate
@@ -38,7 +52,7 @@ typedef enum WorldFlagId {
                                     // unlocked behaviour is gone - the proof that the bit, and not
                                     // the status, is what carries the permission.
 
-    // --- debug band: [WORLD_FLAG_DEBUG_FIRST, WORLD_FLAG_MAX) -----------------------------
+    // --- debug band, named: [WORLD_FLAG_DEBUG_FIRST, WORLD_FLAG_PLACEMENT_DEBUG_FIRST) -----------------------------
     WORLD_FLAG_DEBUG_SMOKE = 3840,   // exercised by the agent-test predicate probe; never real state
     WORLD_FLAG_DEBUG_JOURNAL = 3841, // QUEST_DEBUG_JOURNAL's completion witness (P2). Its OWN flag on
                                      // purpose: sharing 3840 would couple it to the P1 smoke fixture,
@@ -85,32 +99,44 @@ typedef enum WorldFlagId {
 
 RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_FIRST > 0, "the production band must be non-empty");
 RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_FIRST < WORLD_FLAG_MAX, "the debug band must be non-empty");
+RS_STATIC_ASSERT(WORLD_FLAG_PLACEMENT_FIRST > 0 && WORLD_FLAG_PLACEMENT_FIRST < WORLD_FLAG_DEBUG_FIRST,
+                 "the production placement band must sit inside the production band");
+RS_STATIC_ASSERT(WORLD_FLAG_PLACEMENT_DEBUG_FIRST > WORLD_FLAG_DEBUG_FIRST &&
+                     WORLD_FLAG_PLACEMENT_DEBUG_FIRST < WORLD_FLAG_MAX,
+                 "the debug placement band must sit inside the debug band");
 
-RS_STATIC_ASSERT(WORLD_FLAG_COOK_RANGE_OPEN >= 0 && WORLD_FLAG_COOK_RANGE_OPEN < WORLD_FLAG_DEBUG_FIRST,
+RS_STATIC_ASSERT(WORLD_FLAG_COOK_RANGE_OPEN >= 0 && WORLD_FLAG_COOK_RANGE_OPEN < WORLD_FLAG_PLACEMENT_FIRST,
                  "WORLD_FLAG_COOK_RANGE_OPEN must sit in the production band");
 
-RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_SMOKE >= WORLD_FLAG_DEBUG_FIRST && WORLD_FLAG_DEBUG_SMOKE < WORLD_FLAG_MAX,
+RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_SMOKE >= WORLD_FLAG_DEBUG_FIRST &&
+                     WORLD_FLAG_DEBUG_SMOKE < WORLD_FLAG_PLACEMENT_DEBUG_FIRST,
                  "WORLD_FLAG_DEBUG_SMOKE must sit in the debug band");
-RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_JOURNAL >= WORLD_FLAG_DEBUG_FIRST && WORLD_FLAG_DEBUG_JOURNAL < WORLD_FLAG_MAX,
+RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_JOURNAL >= WORLD_FLAG_DEBUG_FIRST &&
+                     WORLD_FLAG_DEBUG_JOURNAL < WORLD_FLAG_PLACEMENT_DEBUG_FIRST,
                  "WORLD_FLAG_DEBUG_JOURNAL must sit in the debug band");
-RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_GIVER >= WORLD_FLAG_DEBUG_FIRST && WORLD_FLAG_DEBUG_GIVER < WORLD_FLAG_MAX,
+RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_GIVER >= WORLD_FLAG_DEBUG_FIRST &&
+                     WORLD_FLAG_DEBUG_GIVER < WORLD_FLAG_PLACEMENT_DEBUG_FIRST,
                  "WORLD_FLAG_DEBUG_GIVER must sit in the debug band");
-RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_GIVER_GATE >= WORLD_FLAG_DEBUG_FIRST && WORLD_FLAG_DEBUG_GIVER_GATE < WORLD_FLAG_MAX,
+RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_GIVER_GATE >= WORLD_FLAG_DEBUG_FIRST &&
+                     WORLD_FLAG_DEBUG_GIVER_GATE < WORLD_FLAG_PLACEMENT_DEBUG_FIRST,
                  "WORLD_FLAG_DEBUG_GIVER_GATE must sit in the debug band");
-RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_THREE >= WORLD_FLAG_DEBUG_FIRST && WORLD_FLAG_DEBUG_THREE < WORLD_FLAG_MAX,
+RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_THREE >= WORLD_FLAG_DEBUG_FIRST &&
+                     WORLD_FLAG_DEBUG_THREE < WORLD_FLAG_PLACEMENT_DEBUG_FIRST,
                  "WORLD_FLAG_DEBUG_THREE must sit in the debug band");
-RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_FOUR >= WORLD_FLAG_DEBUG_FIRST && WORLD_FLAG_DEBUG_FOUR < WORLD_FLAG_MAX,
+RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_FOUR >= WORLD_FLAG_DEBUG_FIRST &&
+                     WORLD_FLAG_DEBUG_FOUR < WORLD_FLAG_PLACEMENT_DEBUG_FIRST,
                  "WORLD_FLAG_DEBUG_FOUR must sit in the debug band");
-RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_TWIN >= WORLD_FLAG_DEBUG_FIRST && WORLD_FLAG_DEBUG_TWIN < WORLD_FLAG_MAX,
+RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_TWIN >= WORLD_FLAG_DEBUG_FIRST &&
+                     WORLD_FLAG_DEBUG_TWIN < WORLD_FLAG_PLACEMENT_DEBUG_FIRST,
                  "WORLD_FLAG_DEBUG_TWIN must sit in the debug band");
 RS_STATIC_ASSERT(WORLD_FLAG_MUSIC_FIRST_VISIT_SETTLEMENT >= WORLD_FLAG_DEBUG_FIRST &&
-                     WORLD_FLAG_MUSIC_FIRST_VISIT_SETTLEMENT < WORLD_FLAG_MAX,
+                     WORLD_FLAG_MUSIC_FIRST_VISIT_SETTLEMENT < WORLD_FLAG_PLACEMENT_DEBUG_FIRST,
                  "WORLD_FLAG_MUSIC_FIRST_VISIT_SETTLEMENT must sit in the debug band");
 RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_TREE_MILLER >= WORLD_FLAG_DEBUG_FIRST &&
-                     WORLD_FLAG_DEBUG_TREE_MILLER < WORLD_FLAG_MAX,
+                     WORLD_FLAG_DEBUG_TREE_MILLER < WORLD_FLAG_PLACEMENT_DEBUG_FIRST,
                  "WORLD_FLAG_DEBUG_TREE_MILLER must sit in the debug band");
 RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_INTERACTION_CRATE >= WORLD_FLAG_DEBUG_FIRST &&
-                     WORLD_FLAG_DEBUG_INTERACTION_CRATE < WORLD_FLAG_MAX,
+                     WORLD_FLAG_DEBUG_INTERACTION_CRATE < WORLD_FLAG_PLACEMENT_DEBUG_FIRST,
                  "WORLD_FLAG_DEBUG_INTERACTION_CRATE must sit in the debug band");
 
 #endif // SOH_RS_WORLD_FLAG_IDS_H

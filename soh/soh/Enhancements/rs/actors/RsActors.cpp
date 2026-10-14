@@ -4,6 +4,7 @@
 #include "RsQuestItem.h"
 #include "RsStairs.h"
 #include "RsInteraction.h"
+#include "RsFire.h"
 
 #include <cstdio>
 #include <string>
@@ -50,6 +51,11 @@ void RsStairs_Update(Actor* thisx, PlayState* play);
 void RsInteraction_Init(Actor* thisx, PlayState* play);
 void RsInteraction_Destroy(Actor* thisx, PlayState* play);
 void RsInteraction_Update(Actor* thisx, PlayState* play);
+
+void RsFire_Init(Actor* thisx, PlayState* play);
+void RsFire_Destroy(Actor* thisx, PlayState* play);
+void RsFire_Update(Actor* thisx, PlayState* play);
+void RsFire_Draw(Actor* thisx, PlayState* play);
 }
 
 // The C++ half of the mod's actors (sturdy-bassoon#58 P3 / #64):
@@ -584,6 +590,24 @@ void RegisterRsActors() {
             nullptr,
         };
         ActorDB::Instance->AddEntry(interaction);
+
+        // OoT's torch fire on an RS torch (#232). Flags 0, as En_Light: a culled fire neither updates nor
+        // draws, and its flame collider registers only near Link (RsFire.h says why).
+        ActorDBInit fire = {
+            "Rs_Fire",
+            "RS torch fire (sized, lit by stick or arrow)",
+            ACTOR_RS_FIRE,
+            ACTORCAT_PROP,
+            0,
+            OBJECT_GAMEPLAY_KEEP,
+            sizeof(RsFire),
+            (ActorFunc)RsFire_Init,
+            (ActorFunc)RsFire_Destroy,
+            (ActorFunc)RsFire_Update,
+            (ActorFunc)RsFire_Draw,
+            nullptr,
+        };
+        ActorDB::Instance->AddEntry(fire);
 
         sAddedToActorDB = true;
     }

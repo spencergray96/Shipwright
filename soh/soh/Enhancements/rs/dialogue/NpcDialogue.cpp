@@ -473,6 +473,11 @@ bool CheckOption(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& re
                 return Problem(buf, len, "%s[%d].opt[%d]: world flag %d is in the other tier's band", word,
                                screenIndex, index, option.a);
             }
+            // Quest_Register's rule for a reward (#232): a placement band's flag belongs to a placement.
+            if (WORLD_FLAG_IS_PLACEMENT(option.a)) {
+                return Problem(buf, len, "%s[%d].opt[%d]: world flag %d is in a placement band", word, screenIndex,
+                               index, option.a);
+            }
             break;
         default:
             return Problem(buf, len, "%s[%d].opt[%d]: unknown action kind %d", word, screenIndex, index,
