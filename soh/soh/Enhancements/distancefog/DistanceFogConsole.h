@@ -31,8 +31,9 @@
 //   world <start> <end> [r g b] [clip=<c>]
 //                       world-unit fog (sturdy-bassoon#167; WorldFog.h): linear in view depth, clear out to
 //                       start and complete at end, both world units (0..32767, start < end), in any scene,
-//                       vanilla ones included. clip= sets the far clip (100..12800); without it the clip stays
-//                       the scene's own. max= is vanilla's and is refused here
+//                       vanilla ones included. clip= sets the far clip (100..32767, past vanilla's 12800 since
+//                       sturdy-bassoon#227); without it the clip stays the scene's own. max= is vanilla's and is
+//                       refused here
 //   edge ...            boundary fog (sturdy-bassoon#169; WorldFog.h): under world-unit fog only, geometry also
 //                       fogs by how far its world position lies past the playable area, ramping from b0 world
 //                       units outside it to full at b1. Its own override, beside the band's:
@@ -127,6 +128,18 @@
 //                       last readback, taken at the end of the next rendered frame after each line - read twice for a
 //                       fresh one. `status` adds it as op=status.
 //                       Refusals: error=bad_argument, error=log_open, error=unknown_subcommand
+//   rows <start> <end> <clip>
+//                       a test aid (sturdy-bassoon#227; WorldFog_SetSceneRows): every world-unit row of the loaded
+//                       scene becomes this one, in memory, until the next scene load. Unlike `world`, which writes
+//                       band and clip after Environment_Update, it goes through the scene's own path (the rows'
+//                       range checks, the blend, Environment_Update's clamp), as an export of the row would. Prints
+//                       the usual line as op=rows. Refusals: error=bad_argument, error=no_world_rows
+//   znear [status] | znear off | znear <n>
+//                       the near clip plane (sturdy-bassoon#227), 1..60 in place of View_Init's 10, to judge distant
+//                       z-fighting against close-up clipping. z_camera.c's CAM_EYE_CEILING_CLEARANCE assumes 10, so
+//                       a larger near cuts into ceilings under covered floors. Prints `op=znear result=ok
+//                       action=status|set|off znear=<now> src=override|game default=10`. A scene load hands it back;
+//                       `fog off` leaves it alone. Refusals: error=bad_argument
 //   status              read what is live and what the scene would give
 //   off                 hand fog and far clip back to the scene: its world-unit rows if it has them, else its
 //                       light settings. A <near> <far> band is vanilla fog even in a scene with rows

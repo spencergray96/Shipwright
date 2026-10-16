@@ -1283,12 +1283,13 @@ void Environment_Update(PlayState* play, EnvironmentContext* envCtx, LightContex
             lightCtx->fogFar = 12800;
         }
 
-        // SOH [Fork] (sturdy-bassoon#167): a scene with world-unit fog rows takes its far clip from them, under
-        // the same 12800 clamp. adjFogNear and adjFogFar are fog-space nudges (game over, Door_Warp1, Magic_Dark,
-        // weather tags, fishing) with no world-unit meaning, so world-unit fog does not apply them; the colour
-        // adjustment above still applies (ENGINE_BUDGETS.md, the distance fog section).
+        // SOH [Fork] (sturdy-bassoon#167): a scene with world-unit fog rows takes its far clip from them, up to
+        // WORLD_FOG_CLIP_MAX rather than 12800 (sturdy-bassoon#227: the fog's end hides the far edge). adjFogNear
+        // and adjFogFar are fog-space nudges (game over, Door_Warp1, Magic_Dark, weather tags, fishing) with no
+        // world-unit meaning, so world-unit fog does not apply them; the colour adjustment above still applies
+        // (ENGINE_BUDGETS.md, the distance fog section).
         if (WorldFog_HasScene()) {
-            lightCtx->fogFar = CLAMP(gWorldFogScene.clip, 100, 12800);
+            lightCtx->fogFar = CLAMP(gWorldFogScene.clip, 100, WORLD_FOG_CLIP_MAX);
         }
 
         // When environment debug is enabled, various environment related variables can be configured via the reg editor

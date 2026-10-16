@@ -21,10 +21,10 @@ static_assert(WORLD_FOG_BOUNDARY_MAX_RECTS == Fast::FOG_BOUNDARY_MAX_RECTS,
 
 namespace {
 
-// Environment_Update clamps a scene's far clip to 12800 (z_kankyo.c, "Adjust fog near and far"); the
-// console's far takes 100 and up.
+// Environment_Update clamps a world-unit scene's far clip to the same range (z_kankyo.c, "Adjust fog near and
+// far"; sturdy-bassoon#227); the console's far takes 100 and up.
 constexpr int16_t kClipMin = 100;
-constexpr int16_t kClipMax = 12800;
+constexpr int16_t kClipMax = WORLD_FOG_CLIP_MAX;
 
 WorldFogSetting sRows[WORLD_FOG_SETTINGS];
 bool sHasScene = false;
@@ -95,7 +95,7 @@ bool sColourLive = false;
 
 extern "C" {
 
-WorldFogSetting gWorldFogScene = { 0, 1, kClipMax };
+WorldFogSetting gWorldFogScene = { 0, 1, 12800 }; // vanilla's clip, until a scene with rows replaces it
 
 void WorldFog_SetScene(const WorldFogSetting* rows, uint8_t count) {
     sHasScene = false;
@@ -139,6 +139,18 @@ const WorldFogSetting* WorldFog_SceneSetting(uint8_t index) {
         return nullptr;
     }
     return &sRows[index < WORLD_FOG_SETTINGS ? index : index % 4];
+}
+
+uint8_t WorldFog_SetSceneRows(int16_t start, int16_t end, int16_t clip) {
+    if (!sHasScene) {
+        return 0;
+    }
+    const WorldFogSetting row = Sanitized({ start, end, clip }, 0);
+    for (int i = 0; i < WORLD_FOG_SETTINGS; i++) {
+        sRows[i] = row;
+    }
+    gWorldFogScene = row; // every row is this one, so it is the blend too, even while Environment_Update idles
+    return 1;
 }
 
 void WorldFog_UseScene(void) {
