@@ -239,10 +239,16 @@ static void RsFire_SetArrowBurning(EnArrow* arrow) {
 // its model, at scale 0.01 (z_en_arrow.c, func_809B4800). The quad sweeps that tip from tick to tick.
 #define RS_FIRE_ARROW_TIP 15.0f
 
+// How much further out than the collider's radius the engine's own arrow test counts a hit, measured
+// (#235 run record, the arrow-line scan): a lit hit-75 fire (radius 17) took an arrow passing 19.5-20
+// from its axis. The walk adds it so a fire lights on the close path exactly where a burning arrow would
+// have lit it the ordinary way.
+#define RS_FIRE_PATH_PAD 3.0f
+
 // Where along a -> b (0..1) the segment first enters this fire's hit cylinder - the collider itself,
-// sized by its hit size - or -1 if it never does.
+// sized by its hit size, widened by RS_FIRE_PATH_PAD - or -1 if it never does.
 static float RsFire_SegmentEnters(RsFire* fire, Vec3f* a, Vec3f* b) {
-    float r = (float)fire->collider.dim.radius;
+    float r = (float)fire->collider.dim.radius + RS_FIRE_PATH_PAD;
     float yLo = fire->actor.world.pos.y + (float)fire->collider.dim.yShift;
     float yHi = yLo + (float)fire->collider.dim.height;
     float ox = a->x - fire->actor.world.pos.x;
