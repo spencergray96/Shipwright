@@ -219,7 +219,198 @@ void RsFire_Destroy(Actor* thisx, PlayState* play) {
     this->lightNode = NULL;
 }
 
-// A hit on the flame: a normal arrow through a lit fire leaves burning; fire lights an unlit one.
+// Obj_Syokudai's own conversion: params 0 is a burning arrow, and 0x800 is what it now deals - which is
+// what lights the next fire it passes through.
+static void RsFire_SetArrowBurning(EnArrow* arrow) {
+    arrow->actor.params = 0;
+    arrow->collider.info.toucher.dmgFlags = 0x800;
+}
+
+// THE ARROW'S PATH IN ONE TICK (sturdy-bassoon#235). An arrow flies 150 units a tick and is
+// collision-checked once a tick, over that whole stretch; a lit fire sets it burning only when the fire
+// next updates. So from close in, one tick's stretch reaches a lit fire AND an unlit one beyond it while
+// the arrow is still plain, and the unlit one stays dark - vanilla's Obj_Syokudai does the same (the
+// #235 run record, its vanilla control), made worse by the arrow telling only one fire a tick (below).
+// Here the fire that is told walks the stretch the arrow flew this tick, in order along it: the order
+// along the path, as finely as it can be known, for this one check only (RsFire_WalkStretch). The tick
+// rate, En_Arrow and Obj_Syokudai are untouched.
+
+// How far ahead of the arrow's origin its collider's tip sits: En_Arrow's quad tip is (0, +-400, 1500) in
+// its model, at scale 0.01 (z_en_arrow.c, func_809B4800). The quad sweeps that tip from tick to tick.
+#define RS_FIRE_ARROW_TIP 15.0f
+
+// Where along a -> b (0..1) the segment first enters this fire's hit cylinder - the collider itself,
+// sized by its hit size - or -1 if it never does.
+static float RsFire_SegmentEnters(RsFire* fire, Vec3f* a, Vec3f* b) {
+    float r = (float)fire->collider.dim.radius;
+    float yLo = fire->actor.world.pos.y + (float)fire->collider.dim.yShift;
+    float yHi = yLo + (float)fire->collider.dim.height;
+    float ox = a->x - fire->actor.world.pos.x;
+    float oz = a->z - fire->actor.world.pos.z;
+    float dx = b->x - a->x;
+    float dy = b->y - a->y;
+    float dz = b->z - a->z;
+    float qa = dx * dx + dz * dz;
+    float qb = 2.0f * (ox * dx + oz * dz);
+    float qc = ox * ox + oz * oz - r * r;
+    float lo = 0.0f;
+    float hi = 1.0f;
+    float disc;
+    float root;
+    float t0;
+    float t1;
+
+    // Across the circle, in x/z.
+    if (qa < 0.0001f) {
+        if (qc > 0.0f) {
+            return -1.0f;
+        }
+    } else {
+        disc = qb * qb - 4.0f * qa * qc;
+        if (disc < 0.0f) {
+            return -1.0f;
+        }
+        root = sqrtf(disc);
+        t0 = (-qb - root) / (2.0f * qa);
+        t1 = (-qb + root) / (2.0f * qa);
+        lo = MAX(lo, t0);
+        hi = MIN(hi, t1);
+    }
+    // Between the cylinder's bottom and top.
+    if (fabsf(dy) < 0.0001f) {
+        if (a->y < yLo || a->y > yHi) {
+            return -1.0f;
+        }
+    } else {
+        t0 = (yLo - a->y) / dy;
+        t1 = (yHi - a->y) / dy;
+        lo = MAX(lo, MIN(t0, t1));
+        hi = MIN(hi, MAX(t0, t1));
+    }
+    return (lo <= hi) ? lo : -1.0f;
+}
+
+// The stretch `arrow`'s collider swept this tick: its tip, from last tick's position to this one. False
+// when the arrow did not move.
+static s32 RsFire_ArrowStretch(EnArrow* arrow, Vec3f* a, Vec3f* b) {
+    Vec3f dir;
+    float len;
+
+    Math_Vec3f_Diff(&arrow->actor.world.pos, &arrow->actor.prevPos, &dir);
+    len = sqrtf(SQ(dir.x) + SQ(dir.y) + SQ(dir.z));
+    if (len < 1.0f) {
+        return 0;
+    }
+    a->x = arrow->actor.prevPos.x + dir.x / len * RS_FIRE_ARROW_TIP;
+    a->y = arrow->actor.prevPos.y + dir.y / len * RS_FIRE_ARROW_TIP;
+    a->z = arrow->actor.prevPos.z + dir.z / len * RS_FIRE_ARROW_TIP;
+    b->x = arrow->actor.world.pos.x + dir.x / len * RS_FIRE_ARROW_TIP;
+    b->y = arrow->actor.world.pos.y + dir.y / len * RS_FIRE_ARROW_TIP;
+    b->z = arrow->actor.world.pos.z + dir.z / len * RS_FIRE_ARROW_TIP;
+    return 1;
+}
+
+// Where along a -> b this fire sits when the stretch misses its cylinder by our arithmetic though the
+// engine said it was hit (a rounding edge): the point of closest approach to its axis, 0..1.
+static float RsFire_ClosestOnStretch(RsFire* fire, Vec3f* a, Vec3f* b) {
+    float dx = b->x - a->x;
+    float dz = b->z - a->z;
+    float qa = dx * dx + dz * dz;
+    float t;
+
+    if (qa < 0.0001f) {
+        return 0.0f;
+    }
+    t = ((fire->actor.world.pos.x - a->x) * dx + (fire->actor.world.pos.z - a->z) * dz) / qa;
+    return CLAMP(t, 0.0f, 1.0f);
+}
+
+// THE ENGINE TELLS ONLY ONE FIRE. En_Arrow's collider is TOUCH_NEAREST (z_collision_check.c,
+// Collider_QuadSetNearestAC): of everything its stretch touches in a tick, only the collider nearest the
+// stretch's middle is hit, and the rest are cleared. So whichever fire is told walks the whole stretch
+// itself, in order along it, as the arrow would have met them one at a time:
+//   - a lit fire sets the arrow burning;
+//   - an unlit fire lights if the arrow is burning by then - so a chain (lit, unlit A, unlit B) lights
+//     both A and B, and a burning arrow lights every unlit fire on its stretch;
+//   - an unlit fire met by a PLAIN arrow stops the walk: a plain arrow stops in it, as it does at an
+//     unlit Obj_Syokudai, and never reaches what lies beyond.
+// Afterwards the arrow is left burning if it caught, so the next fire past the stretch's end sees a
+// burning arrow too. Cost: one pass over the scene's props, only on a tick an arrow touches a fire.
+#define RS_FIRE_STRETCH_MAX 16
+
+static void RsFire_WalkStretch(RsFire* told, PlayState* play, EnArrow* arrow, s32 burning) {
+    RsFire* fires[RS_FIRE_STRETCH_MAX];
+    float along[RS_FIRE_STRETCH_MAX];
+    s32 count = 0;
+    s32 plainAtStart = !burning;
+    s32 haveStretch;
+    s32 i;
+    s32 j;
+    Vec3f a;
+    Vec3f b;
+    Actor* other;
+
+    haveStretch = RsFire_ArrowStretch(arrow, &a, &b);
+    // The told fire is on the stretch whatever our arithmetic says: the engine hit it.
+    fires[count] = told;
+    along[count] = haveStretch ? RsFire_SegmentEnters(told, &a, &b) : 0.0f;
+    if (along[count] < 0.0f) {
+        along[count] = RsFire_ClosestOnStretch(told, &a, &b);
+    }
+    count++;
+    if (haveStretch) {
+        for (other = play->actorCtx.actorLists[ACTORCAT_PROP].head; other != NULL && count < RS_FIRE_STRETCH_MAX;
+             other = other->next) {
+            float t;
+
+            if (other == &told->actor || other->id != ACTOR_RS_FIRE) {
+                continue;
+            }
+            t = RsFire_SegmentEnters((RsFire*)other, &a, &b);
+            if (t >= 0.0f) {
+                fires[count] = (RsFire*)other;
+                along[count] = t;
+                count++;
+            }
+        }
+    }
+    // In order along the stretch (a handful at most: insertion sort).
+    for (i = 1; i < count; i++) {
+        RsFire* f = fires[i];
+        float t = along[i];
+
+        for (j = i - 1; j >= 0 && along[j] > t; j--) {
+            fires[j + 1] = fires[j];
+            along[j + 1] = along[j];
+        }
+        fires[j + 1] = f;
+        along[j + 1] = t;
+    }
+    for (i = 0; i < count; i++) {
+        RsFire* f = fires[i];
+
+        if (f->lit) {
+            if (!burning) {
+                burning = 1;
+                RsFire_Mark(f, "arrow_lit");
+            }
+        } else if (burning) {
+            // Lit the classic way only when the told fire met an arrow already burning when it came.
+            if (f != told || plainAtStart) {
+                RsFire_Mark(f, "path_lit");
+            }
+            RsFire_Light(f, play, RS_FIRE_LIT_BY_FIRE);
+        } else {
+            break;
+        }
+    }
+    if (burning && plainAtStart) {
+        RsFire_SetArrowBurning(arrow);
+    }
+}
+
+// A hit on the flame. An arrow - plain, burning or a fire arrow - walks its stretch (above). Anything else
+// that burns (Din's Fire) lights an unlit one, as Obj_Syokudai's 0x20800.
 // Returns whether the flame was hit, because Obj_Syokudai tests the stick only when it was not.
 static s32 RsFire_TakeHit(RsFire* this, PlayState* play) {
     uint32_t dmgFlags;
@@ -230,18 +421,13 @@ static s32 RsFire_TakeHit(RsFire* this, PlayState* play) {
     }
     this->collider.base.acFlags &= ~AC_HIT;
     dmgFlags = this->collider.info.acHitInfo->toucher.dmgFlags;
-    if (this->lit) {
-        if (dmgFlags & RS_FIRE_DMG_ARROW) {
-            // Obj_Syokudai's own conversion: params 0 is a burning arrow, and 0x800 is what it now
-            // deals - which is what lights the next fire it passes through.
-            arrow = (EnArrow*)this->collider.base.ac;
-            if (arrow != NULL && arrow->actor.update != NULL && arrow->actor.id == ACTOR_EN_ARROW) {
-                arrow->actor.params = 0;
-                arrow->collider.info.toucher.dmgFlags = 0x800;
-                RsFire_Mark(this, "arrow_lit");
-            }
-        }
-    } else if (dmgFlags & RS_FIRE_DMG_FIRE) {
+    arrow = (EnArrow*)this->collider.base.ac;
+    if (arrow != NULL && (arrow->actor.update == NULL || arrow->actor.id != ACTOR_EN_ARROW)) {
+        arrow = NULL;
+    }
+    if (arrow != NULL && (dmgFlags & (RS_FIRE_DMG_ARROW | 0x800))) {
+        RsFire_WalkStretch(this, play, arrow, (dmgFlags & RS_FIRE_DMG_ARROW) ? 0 : 1);
+    } else if (!this->lit && (dmgFlags & RS_FIRE_DMG_FIRE)) {
         RsFire_Light(this, play, RS_FIRE_LIT_BY_FIRE);
     }
     return 1;

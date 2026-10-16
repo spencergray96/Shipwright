@@ -12,6 +12,10 @@
 //   - Obj_Syokudai's INTERACTION, without its stand: a Deku stick lights from a lit fire and lights
 //     an unlit one; a normal arrow through a lit fire becomes a fire arrow; a fire arrow or Din's
 //     lights an unlit one.
+//   - ONE ADDITION (sturdy-bassoon#235): an arrow that went through a lit fire EARLIER ON THE SAME TICK'S
+//     STRETCH lights the unlit ones after it too. Obj_Syokudai misses that from close in: an arrow flies
+//     150 units a tick, burns only from the lit fire's next update, and tells only the nearest fire of
+//     its stretch (RsFire.c, RsFire_WalkStretch; the event `path_lit`).
 //
 // The scene's ActorEntry row carries (RsActorParams.h for params):
 //   params  bits 0-11 the world flag set when it is lit, bit 12 it has one, bit 13 starts unlit,
