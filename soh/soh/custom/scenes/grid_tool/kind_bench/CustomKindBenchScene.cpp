@@ -49,14 +49,14 @@ static EnvLightSettings sKindBenchLightSettings[4] = {
 // fog begins and completes, and the far clip. Dawn, day, dusk, night, then the Song of Storms' four. The
 // light settings above keep their vanilla fog fields; while these rows are live they set the band and clip.
 static const WorldFogSetting sKindBenchWorldFog[8] = {
-    { 6000, 11500, 12800 }, // dawn
-    { 6000, 11500, 12800 }, // day
-    { 6000, 11500, 12800 }, // dusk
-    { 6000, 11500, 12800 }, // night
-    { 6000, 11500, 12800 }, // storm dawn
-    { 6000, 11500, 12800 }, // storm day
-    { 6000, 11500, 12800 }, // storm dusk
-    { 6000, 11500, 12800 }, // storm night
+    { 8000, 15000, 16000 }, // dawn
+    { 8000, 15000, 16000 }, // day
+    { 8000, 15000, 16000 }, // dusk
+    { 8000, 15000, 16000 }, // night
+    { 8000, 15000, 16000 }, // storm dawn
+    { 8000, 15000, 16000 }, // storm day
+    { 8000, 15000, 16000 }, // storm dusk
+    { 8000, 15000, 16000 }, // storm night
 };
 
 // v1 scope has no multi-entrance/exit support - a single spawn index 0.
@@ -137,6 +137,9 @@ static void InitScene(PlayState* play, s32 spawn) {
     play->envCtx.numLightSettings  = 4;
     play->envCtx.lightSettingsList = sKindBenchLightSettings;
     WorldFog_SetScene(sKindBenchWorldFog, ARRAY_COUNT(sKindBenchWorldFog));
+    // The horizon haze band (sturdy-bassoon#168): opaque up to this many degrees above the horizon, then fading
+    // out over the next, under world-unit fog.
+    WorldFog_SetHaze(2.0f, 2.0f);
 
     Play_InitEnvironment(play, play->skyboxId);
     GameInteractor_ExecuteAfterSceneCommands(play->sceneNum);
