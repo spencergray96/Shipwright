@@ -145,7 +145,7 @@ static void InitScene(PlayState* play, s32 spawn) {
     WorldFog_SetBoundary(sTerrainF2pFogFogBoundary, 1, 0, 1280);
     // The horizon haze band (sturdy-bassoon#168): opaque up to this many degrees above the horizon, then fading
     // out over the next, under world-unit fog.
-    WorldFog_SetHaze(4.0f, 3.0f);
+    WorldFog_SetHaze(2.0f, 2.0f);
 
     Play_InitEnvironment(play, play->skyboxId);
     GameInteractor_ExecuteAfterSceneCommands(play->sceneNum);
