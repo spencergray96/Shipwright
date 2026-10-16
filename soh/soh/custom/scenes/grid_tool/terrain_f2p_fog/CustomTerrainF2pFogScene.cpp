@@ -48,14 +48,14 @@ static EnvLightSettings sTerrainF2pFogLightSettings[4] = {
 // fog begins and completes, and the far clip. Dawn, day, dusk, night, then the Song of Storms' four. The
 // light settings above keep their vanilla fog fields; while these rows are live they set the band and clip.
 static const WorldFogSetting sTerrainF2pFogWorldFog[8] = {
-    { 15000, 24000, 25000 }, // dawn
-    { 15000, 24000, 25000 }, // day
-    { 15000, 24000, 25000 }, // dusk
-    { 15000, 24000, 25000 }, // night
-    { 15000, 24000, 25000 }, // storm dawn
-    { 15000, 24000, 25000 }, // storm day
-    { 15000, 24000, 25000 }, // storm dusk
-    { 15000, 24000, 25000 }, // storm night
+    { 8000, 15000, 16000 }, // dawn
+    { 8000, 15000, 16000 }, // day
+    { 8000, 15000, 16000 }, // dusk
+    { 8000, 15000, 16000 }, // night
+    { 8000, 15000, 16000 }, // storm dawn
+    { 8000, 15000, 16000 }, // storm day
+    { 8000, 15000, 16000 }, // storm dusk
+    { 8000, 15000, 16000 }, // storm night
 };
 
 // Boundary fog (sturdy-bassoon#169): the playable area as world-unit rectangles {x0, z0, x1, z1}, and the ramp
