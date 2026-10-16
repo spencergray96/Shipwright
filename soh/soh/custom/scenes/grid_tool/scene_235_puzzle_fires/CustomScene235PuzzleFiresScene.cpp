@@ -75,19 +75,19 @@ static ActorEntry sScene235PuzzleFiresPlayerSpawn = {
 
 // 13 attached actors (sturdy-bassoon#218), one per placement of a kind that carries one.
 static ActorEntry sScene235PuzzleFiresActors[13] = {
-    { ACTOR_RS_FIRE, { -19, 43, -219 }, { 50, 0, 75 }, RS_FIRE_PARAMS(0, 0, 0, 0) }, // Rs_Fire of standing-torch-724-oot-fire "deco" on level 0
-    { ACTOR_RS_FIRE, { -139, 43, -219 }, { 50, 0, 100 }, RS_FIRE_PARAMS(1, 3968, 1, 0) }, // Rs_Fire of standing-torch-724-oot-fire "p1stick" on level 0
-    { ACTOR_RS_FIRE, { -19, 43, -19 }, { 50, 0, 100 }, RS_FIRE_PARAMS(1, 3969, 1, 0) }, // Rs_Fire of standing-torch-724-oot-fire "p2arrow" on level 0
-    { ACTOR_RS_FIRE, { 781, 43, -299 }, { 50, 0, 100 }, RS_FIRE_PARAMS(1, 3971, 1, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-left-dark" on level 0
-    { ACTOR_RS_FIRE, { 701, 43, -459 }, { 50, 0, 75 }, RS_FIRE_PARAMS(0, 0, 0, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-left-lit" on level 0
-    { ACTOR_RS_FIRE, { 541, 43, -299 }, { 50, 0, 100 }, RS_FIRE_PARAMS(1, 3974, 1, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-long-dark" on level 0
-    { ACTOR_RS_FIRE, { 581, 43, -459 }, { 50, 0, 75 }, RS_FIRE_PARAMS(0, 0, 0, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-long-lit" on level 0
-    { ACTOR_RS_FIRE, { 461, 43, -299 }, { 50, 0, 100 }, RS_FIRE_PARAMS(1, 3972, 1, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-right-dark" on level 0
-    { ACTOR_RS_FIRE, { 541, 43, -459 }, { 50, 0, 75 }, RS_FIRE_PARAMS(0, 0, 0, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-right-lit" on level 0
-    { ACTOR_RS_FIRE, { 621, 43, -299 }, { 50, 0, 100 }, RS_FIRE_PARAMS(1, 3970, 1, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-straight-dark" on level 0
-    { ACTOR_RS_FIRE, { 621, 43, -459 }, { 50, 0, 75 }, RS_FIRE_PARAMS(0, 0, 0, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-straight-lit" on level 0
-    { ACTOR_RS_FIRE, { 861, 43, -379 }, { 50, 0, 100 }, RS_FIRE_PARAMS(1, 3973, 1, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-wide-left-dark" on level 0
-    { ACTOR_RS_FIRE, { 741, 43, -499 }, { 50, 0, 75 }, RS_FIRE_PARAMS(0, 0, 0, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-wide-left-lit" on level 0
+    { ACTOR_RS_FIRE, { -19, 43, -219 }, { 50, 0, 60 }, RS_FIRE_PARAMS(0, 0, 0, 0) }, // Rs_Fire of standing-torch-724-oot-fire "deco" on level 0
+    { ACTOR_RS_FIRE, { -139, 43, -219 }, { 50, 0, 75 }, RS_FIRE_PARAMS(1, 3968, 1, 0) }, // Rs_Fire of standing-torch-724-oot-fire "p1stick" on level 0
+    { ACTOR_RS_FIRE, { -19, 43, -19 }, { 50, 0, 75 }, RS_FIRE_PARAMS(1, 3969, 1, 0) }, // Rs_Fire of standing-torch-724-oot-fire "p2arrow" on level 0
+    { ACTOR_RS_FIRE, { 781, 43, -299 }, { 50, 0, 75 }, RS_FIRE_PARAMS(1, 3971, 1, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-left-dark" on level 0
+    { ACTOR_RS_FIRE, { 701, 43, -459 }, { 50, 0, 60 }, RS_FIRE_PARAMS(0, 0, 0, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-left-lit" on level 0
+    { ACTOR_RS_FIRE, { 541, 43, -299 }, { 50, 0, 75 }, RS_FIRE_PARAMS(1, 3974, 1, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-long-dark" on level 0
+    { ACTOR_RS_FIRE, { 581, 43, -459 }, { 50, 0, 60 }, RS_FIRE_PARAMS(0, 0, 0, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-long-lit" on level 0
+    { ACTOR_RS_FIRE, { 461, 43, -299 }, { 50, 0, 75 }, RS_FIRE_PARAMS(1, 3972, 1, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-right-dark" on level 0
+    { ACTOR_RS_FIRE, { 541, 43, -459 }, { 50, 0, 60 }, RS_FIRE_PARAMS(0, 0, 0, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-right-lit" on level 0
+    { ACTOR_RS_FIRE, { 621, 43, -299 }, { 50, 0, 75 }, RS_FIRE_PARAMS(1, 3970, 1, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-straight-dark" on level 0
+    { ACTOR_RS_FIRE, { 621, 43, -459 }, { 50, 0, 60 }, RS_FIRE_PARAMS(0, 0, 0, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-straight-lit" on level 0
+    { ACTOR_RS_FIRE, { 861, 43, -379 }, { 50, 0, 75 }, RS_FIRE_PARAMS(1, 3973, 1, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-wide-left-dark" on level 0
+    { ACTOR_RS_FIRE, { 741, 43, -499 }, { 50, 0, 60 }, RS_FIRE_PARAMS(0, 0, 0, 0) }, // Rs_Fire of standing-torch-724-oot-fire "range-wide-left-lit" on level 0
 };
 
 static RomFile sScene235PuzzleFiresRoomList[] = {
