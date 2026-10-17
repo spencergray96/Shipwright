@@ -564,7 +564,8 @@ void ApplySky() {
 // the horizon's row in the copy at its centre column (clamp's), horizon= the line over render-target pixels at float
 // precision (a check rebuilds clamp's sample rows from it, and 6 digits put a row off by one), dumps= the
 // `fog sky dump`s written. edge_tris= and edge_baked= are the edge layer's witness (sturdy-bassoon#230): interpreted
-// triangles and baked draws the last rendered frame drew with it.
+// triangles and baked draws the last rendered frame drew with it. drawn= the copy texels the sky drew (x0, y0, x1,
+// y1: a letterbox's bars are left out), which every read of the copy stays inside (sturdy-bassoon#241).
 void DescribeSky(const char* op, const char* action, std::vector<std::string>& lines) {
     const Fast::SkyFogStatus& now = Fast::SkyFogNow();
     const Fast::SkyFogParams& p = now.last;
@@ -579,12 +580,13 @@ void DescribeSky(const char* op, const char* action, std::vector<std::string>& l
     Addf(lines,
          "op=%s result=ok action=%s live=%s choice=%s why=%s sky=%s method=%s fb=%d copies=%llu armed=%d size=%dx%d "
          "origin=%d,%d msaa=%u horizon_row=%s horizon=%.9g,%.9g,%.9g dumps=%llu dump_ok=%d dump_pending=%d hold=%d "
-         "edge_tris=%llu edge_baked=%llu",
+         "edge_tris=%llu edge_baked=%llu drawn=%d,%d,%d,%d",
          op, action, live, SkyChoiceName(sSkyChoice), sSkyWhy, SkyName(WorldFog_Sky()), SkyName(sSkyMethod), now.fb,
          (unsigned long long)now.copies, now.copies != 0 && now.lastCopyRun == now.runs ? 1 : 0, p.size[0], p.size[1],
          p.origin[0], p.origin[1], now.msaa, row, p.horizon[0], p.horizon[1], p.horizon[2],
          (unsigned long long)now.dumps, now.lastDumpOk ? 1 : 0, now.dumpPending ? 1 : 0, now.hold ? 1 : 0,
-         (unsigned long long)now.lastEdgeTris, (unsigned long long)now.lastEdgeBakedDraws);
+         (unsigned long long)now.lastEdgeTris, (unsigned long long)now.lastEdgeBakedDraws, p.drawn[0], p.drawn[1],
+         p.drawn[2], p.drawn[3]);
 }
 
 constexpr const char* kSkyUsage = "usage=sky_[status]|sky_auto|sky_edge|sky_all|sky_on|sky_off|sky_mirror|sky_clamp|"
@@ -714,7 +716,9 @@ void ApplyColour() {
 // reason; drawn= whether the last rendered frame's depth fog took the sky's colour. rgb= raw= samples= held= are the
 // last readback (0..255, two decimals; none before one), taken at the end of the next rendered frame after a request,
 // readout_run= its rendered frame and run= the newest - so read status twice for a fresh one. band= the chosen
-// degrees, band_px= the live band in pixels above the horizon, smooth= tau, k= and dt= the last reduction's step.
+// degrees, band_px= the live band in pixels above the horizon, rect= the copy texels the last reduction read (x0, y0,
+// x1, y1: the 3D viewport cut to the scissor, so a letterbox's bars are left out - sturdy-bassoon#241), smooth= tau,
+// k= and dt= the last reduction's step.
 void DescribeColour(const char* op, const char* action, std::vector<std::string>& lines) {
     const Fast::SkyColourStatus& now = Fast::SkyColourNow();
     const Fast::SkyFogStatus& sky = Fast::SkyFogNow();
@@ -728,20 +732,22 @@ void DescribeColour(const char* op, const char* action, std::vector<std::string>
     const u8* scene = gPlayState != nullptr ? gPlayState->lightCtx.fogColor : nullptr;
     Addf(lines,
          "op=%s result=ok action=%s live=%s choice=%s why=%s drawn=%d rgb=%s raw=%s samples=%u held=%d "
-         "readout_run=%llu run=%llu scene_rgb=%u,%u,%u band=%g,%g band_px=%.2f,%.2f smooth=%g k=%.5f dt=%.5f "
-         "reductions=%llu fb=%d log=%s logged=%llu",
+         "readout_run=%llu run=%llu scene_rgb=%u,%u,%u band=%g,%g band_px=%.2f,%.2f rect=%d,%d,%d,%d smooth=%g "
+         "k=%.5f dt=%.5f reductions=%llu fb=%d log=%s logged=%llu",
          op, action, WorldFog_ColourLive() ? "auto" : "scene", sColourChoice == ColourChoice::Auto ? "auto" : "scene",
          sColourWhy, now.live && now.lastRun == sky.runs ? 1 : 0, rgb, raw, now.readoutOk ? now.readout.samples : 0,
          now.readoutOk && now.readout.samples == 0 ? 1 : 0, (unsigned long long)now.readoutRun,
          (unsigned long long)sky.runs, scene != nullptr ? scene[0] : 0, scene != nullptr ? scene[1] : 0,
-         scene != nullptr ? scene[2] : 0, sColourLo, sColourHi, now.last.loPx, now.last.hiPx, sColourTau, now.last.k,
+         scene != nullptr ? scene[2] : 0, sColourLo, sColourHi, now.last.loPx, now.last.hiPx, now.last.viewport[0],
+         now.last.viewport[1], now.last.viewport[2], now.last.viewport[3], sColourTau, now.last.k,
          now.lastDt, (unsigned long long)now.reductions, gSkyColourFrameBuffer, now.logging ? "on" : "off",
          (unsigned long long)now.logged);
     Fast::SkyColourRequestReadout();
 }
 
 constexpr const char* kColourUsage = "usage=colour_[status]|colour_auto|colour_scene|colour_band_<lo>_<hi>(0..15)|"
-                                     "colour_smooth_<seconds(0..5)>|colour_snap|colour_log_on_[path]|colour_log_off";
+                                     "colour_smooth_<seconds(0..5)>|colour_snap|colour_reset|colour_log_on_[path]|"
+                                     "colour_log_off";
 
 bool ParseFloat(const std::string& text, float lo, float hi, float* out) {
     char* end = nullptr;
@@ -756,11 +762,16 @@ bool ParseFloat(const std::string& text, float lo, float hi, float* out) {
 // `fog colour ...` (sturdy-bassoon#229): the depth fog's colour source, live.
 int32_t RunColour(const std::vector<std::string>& args, std::vector<std::string>& lines) {
     const std::string action = args.size() < 2 ? "status" : args[1];
-    if ((action == "status" || action == "auto" || action == "scene" || action == "snap") && args.size() <= 2) {
+    if ((action == "status" || action == "auto" || action == "scene" || action == "snap" || action == "reset") &&
+        args.size() <= 2) {
         if (action == "auto" || action == "scene") {
             sColourChoice = action == "auto" ? ColourChoice::Auto : ColourChoice::Scene;
         } else if (action == "snap") {
             Fast::SkyColourSnap();
+        } else if (action == "reset") {
+            // What a scene load asks for (sturdy-bassoon#241): with none of the band on screen the next reduction
+            // starts from the scene's fog colour instead of holding.
+            Fast::SkyColourReset();
         }
         ApplyColour();
         DescribeColour("colour", action.c_str(), lines);
@@ -1161,6 +1172,9 @@ void RegisterDistanceFog() {
         sEdge = EdgeOverride();
         sHaze = HazeOverride();
         sZNear = 0; // sZNearApplied stays, so the next frame puts 10 back
+        // The sky's colour starts from this scene's own fog colour if none of its band is on screen at first (a
+        // letterboxed or downward first frame), never from the last scene's (sturdy-bassoon#241).
+        Fast::SkyColourReset();
     });
 }
 
@@ -1193,7 +1207,8 @@ const ConsoleSink::Command distanceFogCommand(
     "already taken, for captures a moment apart); the choice is kept across scene loads. colour (sturdy-bassoon#229, "
     "DX11) gives depth fog the live sky's colour just above the horizon in place of the scene's fog colour: colour "
     "auto (the default, under world fog) or colour scene; colour band <lo> <hi> (degrees above the horizon), colour "
-    "smooth <seconds>, colour snap, colour log on [path] | off, colour status. haze site after|before chooses where "
+    "smooth <seconds>, colour snap, colour reset (as a scene load: with the band off screen, start from the scene's "
+    "fog colour), colour log on [path] | off, colour status. haze site after|before chooses where "
     "the band draws under it. rows <start> <end> <clip> (sturdy-bassoon#227, a test aid) makes every world-unit row "
     "of the loaded scene this one until the next scene load, through the scene's own path rather than over it. znear "
     "<n> (1..60) moves the near clip plane from 10, to judge distant z-fighting against close-up clipping; znear off "
@@ -1201,7 +1216,7 @@ const ConsoleSink::Command distanceFogCommand(
     "band, where it starts, and each light setting's fog as C to paste into a scene. A scene load hands fog back "
     "(not sky); nothing is saved.",
     { { "near|world|edge|haze|sky|colour|rows|znear|status|off", Ship::ArgumentType::TEXT, true },
-      { "far|start|H|n|auto|edge|all|on|off|mirror|clamp|dump|scene|band|smooth|snap|log|site",
+      { "far|start|H|n|auto|edge|all|on|off|mirror|clamp|dump|scene|band|smooth|snap|reset|log|site",
         Ship::ArgumentType::TEXT, true },
       { "r|end|F|path-prefix|lo|seconds|after|before", Ship::ArgumentType::TEXT, true },
       { "g|r", Ship::ArgumentType::TEXT, true },
