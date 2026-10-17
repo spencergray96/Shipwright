@@ -746,7 +746,8 @@ void DescribeColour(const char* op, const char* action, std::vector<std::string>
 }
 
 constexpr const char* kColourUsage = "usage=colour_[status]|colour_auto|colour_scene|colour_band_<lo>_<hi>(0..15)|"
-                                     "colour_smooth_<seconds(0..5)>|colour_snap|colour_log_on_[path]|colour_log_off";
+                                     "colour_smooth_<seconds(0..5)>|colour_snap|colour_reset|colour_log_on_[path]|"
+                                     "colour_log_off";
 
 bool ParseFloat(const std::string& text, float lo, float hi, float* out) {
     char* end = nullptr;
@@ -761,11 +762,16 @@ bool ParseFloat(const std::string& text, float lo, float hi, float* out) {
 // `fog colour ...` (sturdy-bassoon#229): the depth fog's colour source, live.
 int32_t RunColour(const std::vector<std::string>& args, std::vector<std::string>& lines) {
     const std::string action = args.size() < 2 ? "status" : args[1];
-    if ((action == "status" || action == "auto" || action == "scene" || action == "snap") && args.size() <= 2) {
+    if ((action == "status" || action == "auto" || action == "scene" || action == "snap" || action == "reset") &&
+        args.size() <= 2) {
         if (action == "auto" || action == "scene") {
             sColourChoice = action == "auto" ? ColourChoice::Auto : ColourChoice::Scene;
         } else if (action == "snap") {
             Fast::SkyColourSnap();
+        } else if (action == "reset") {
+            // What a scene load asks for (sturdy-bassoon#241): with none of the band on screen the next reduction
+            // starts from the scene's fog colour instead of holding.
+            Fast::SkyColourReset();
         }
         ApplyColour();
         DescribeColour("colour", action.c_str(), lines);
@@ -1201,7 +1207,8 @@ const ConsoleSink::Command distanceFogCommand(
     "already taken, for captures a moment apart); the choice is kept across scene loads. colour (sturdy-bassoon#229, "
     "DX11) gives depth fog the live sky's colour just above the horizon in place of the scene's fog colour: colour "
     "auto (the default, under world fog) or colour scene; colour band <lo> <hi> (degrees above the horizon), colour "
-    "smooth <seconds>, colour snap, colour log on [path] | off, colour status. haze site after|before chooses where "
+    "smooth <seconds>, colour snap, colour reset (as a scene load: with the band off screen, start from the scene's "
+    "fog colour), colour log on [path] | off, colour status. haze site after|before chooses where "
     "the band draws under it. rows <start> <end> <clip> (sturdy-bassoon#227, a test aid) makes every world-unit row "
     "of the loaded scene this one until the next scene load, through the scene's own path rather than over it. znear "
     "<n> (1..60) moves the near clip plane from 10, to judge distant z-fighting against close-up clipping; znear off "
@@ -1209,7 +1216,7 @@ const ConsoleSink::Command distanceFogCommand(
     "band, where it starts, and each light setting's fog as C to paste into a scene. A scene load hands fog back "
     "(not sky); nothing is saved.",
     { { "near|world|edge|haze|sky|colour|rows|znear|status|off", Ship::ArgumentType::TEXT, true },
-      { "far|start|H|n|auto|edge|all|on|off|mirror|clamp|dump|scene|band|smooth|snap|log|site",
+      { "far|start|H|n|auto|edge|all|on|off|mirror|clamp|dump|scene|band|smooth|snap|reset|log|site",
         Ship::ArgumentType::TEXT, true },
       { "r|end|F|path-prefix|lo|seconds|after|before", Ship::ArgumentType::TEXT, true },
       { "g|r", Ship::ArgumentType::TEXT, true },
