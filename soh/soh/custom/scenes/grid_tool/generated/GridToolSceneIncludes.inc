@@ -53,4 +53,5 @@
 #include "../f5_cellar_173/CustomF5Cellar173Scene.h" // project f1730000-0000-4000-8000-0000000000f5 name f5_cellar_173
 #include "../terrain_f2p_fog/CustomTerrainF2pFogScene.h" // terrain-bake terrain_f2p_fog
 #include "../kind_bench/CustomKindBenchScene.h" // project be4c0217-0000-4000-8000-00000000be4c name kind_bench
+#include "../f2p_edge_test/CustomF2pEdgeTestScene.h" // world f2p_edge_test name f2p_edge_test
 // END GRID TOOL EXPORTS
