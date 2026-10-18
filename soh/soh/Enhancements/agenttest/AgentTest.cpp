@@ -578,10 +578,12 @@
  *                                          the code table, one interaction's resolved rule, the registry's
  *                                          planted refusals, and #117's cost bench laid out with real
  *                                          triggers. InteractionConsole.h documents every line
- *   agenttest rsfire list|pool
+ *   agenttest rsfire list|pool|distance [<n>|default]|glow [on|off|default]
  *                                          the RS torch fires (sturdy-bassoon#232): where each is, its size,
- *                                          lit and by what, its world flag, whether it holds a light node;
- *                                          and the scene's light nodes against the engine's 32.
+ *                                          lit and by what, its world flag, whether it holds a light node,
+ *                                          whether it is awake and drawn; the scene's light nodes against
+ *                                          the engine's 32; and (#243) the fires' draw distance and glow
+ *                                          halo, set live for every fire.
  *                                          RsFireConsole.h documents every line
  *   agenttest warps list|dump|where|status|badcheck
  *                                          step warps (sturdy-bassoon#154). `dump` is every warp tile
@@ -3037,7 +3039,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
               "warps list|dump|where|status|badcheck | "
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
-              "rsfire list|pool | "
+              "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
@@ -3087,7 +3089,7 @@ void RegisterAgentTest() {
               "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
               "warps list|dump|where|status|badcheck | "
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
-              "rsfire list|pool | "
+              "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
