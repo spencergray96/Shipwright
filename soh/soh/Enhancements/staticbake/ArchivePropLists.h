@@ -35,6 +35,11 @@
 //     with a line that does not read registers nothing either, with one warning: half a list scrolling
 //     is no better than none, and silence would hide it. One file for a path's two lists (below): the
 //     registry binds a rate to an image path, whichever list draws it.
+//   - a second layer's (sturdy-bassoon#231), TEXEL1's, come from `<path>.scroll1`, in the same form,
+//     registered for tile 1 (StaticBakeSetTextureScroll with a tile): the second tile of a two-layer OoT
+//     material, which scrolls one image its own way. A sidecar rather than a field on `.scroll`, so a
+//     build from before #231, which refuses a scroll file whole for a line it cannot read, never opens it
+//     and still scrolls tile 0. Each file stands alone: one that does not read leaves the other registered.
 //
 // THE TRANSLUCENT LIST (sturdy-bassoon#216 T2): beside each declared path the archive may hold
 // `<path>.xlu`, a display list of the same form holding the map's translucent pairs (materials under

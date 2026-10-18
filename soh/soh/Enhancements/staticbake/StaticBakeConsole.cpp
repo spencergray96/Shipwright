@@ -101,8 +101,10 @@ int32_t RunScroll(const std::vector<std::string>& args, std::vector<std::string>
         Describe("scroll", lines);
         // The path goes last: a registration from the host (#187 A2) is not checked the way a typed
         // one is, and a field that could hold a space has to be the rest of the line.
+        // tile= (#231) before the path: 0 TEXEL0's rate, 1 TEXEL1's, one line each.
         for (const Fast::StaticBakeTextureScroll& s : Fast::StaticBakeGetTextureScrolls()) {
-            Addf(lines, "op=scroll du=%g dv=%g bound=%d path=%s", s.du, s.dv, s.bound ? 1 : 0, s.path.c_str());
+            Addf(lines, "op=scroll du=%g dv=%g bound=%d tile=%d path=%s", s.du, s.dv, s.bound ? 1 : 0, s.tile,
+                 s.path.c_str());
         }
         return 0;
     }
@@ -115,15 +117,24 @@ int32_t RunScroll(const std::vector<std::string>& args, std::vector<std::string>
     }
     double du = 0.0;
     double dv = 0.0;
-    if (args.size() == 4 && ValidPath(args[1]) && ParseNumber(args[2], -1000.0, 1000.0, du) &&
-        ParseNumber(args[3], -1000.0, 1000.0, dv)) {
-        const bool changed = Fast::StaticBakeSetTextureScroll(args[1].c_str(), (float)du, (float)dv);
+    double tile = 0.0; // #231: an optional fifth argument, 0 (TEXEL0, the default) or 1 (TEXEL1)
+    if ((args.size() == 4 || args.size() == 5) && ValidPath(args[1]) && ParseNumber(args[2], -1000.0, 1000.0, du) &&
+        ParseNumber(args[3], -1000.0, 1000.0, dv) &&
+        (args.size() == 4 || (ParseNumber(args[4], 0.0, Fast::STATIC_BAKE_SCROLL_TILES - 1, tile) && tile == (int)tile))) {
+        const bool changed = Fast::StaticBakeSetTextureScroll(args[1].c_str(), (int)tile, (float)du, (float)dv);
         Describe("scroll", lines);
-        Addf(lines, "op=scroll du=%g dv=%g changed=%d set=%s", (float)du, (float)dv, changed ? 1 : 0, args[1].c_str());
+        // tile= only for tile 1, so a tile-0 line reads as it did before #231.
+        if (tile != 0.0) {
+            Addf(lines, "op=scroll du=%g dv=%g changed=%d tile=%d set=%s", (float)du, (float)dv, changed ? 1 : 0,
+                 (int)tile, args[1].c_str());
+        } else {
+            Addf(lines, "op=scroll du=%g dv=%g changed=%d set=%s", (float)du, (float)dv, changed ? 1 : 0,
+                 args[1].c_str());
+        }
         return 0;
     }
     lines.push_back("op=scroll result=error error=bad_argument "
-                    "usage=scroll(list)|scroll(clear)|scroll(<path>,<du>,<dv>)");
+                    "usage=scroll(list)|scroll(clear)|scroll(<path>,<du>,<dv>[,<tile>])");
     return 1;
 }
 
@@ -437,7 +448,7 @@ int32_t Run(const std::vector<std::string>& args, std::vector<std::string>& line
     // spaces inside the usage value either: `sort on|off` is written sort(on|off).
     lines.push_back("op=unknown result=error error=unknown_subcommand "
                     "usage=status|on|off|rebake|reset|link(<scene>,<scene>)|sort(on|off)|props|"
-                    "scroll(list|clear|<path>,<du>,<dv>)|clock(<seconds>|run)|texclear|"
+                    "scroll(list|clear|<path>,<du>,<dv>[,<tile>])|clock(<seconds>|run)|texclear|"
                     "wind(list|reset|saved|<key>,<value>...)|xlu(on|off)|wobble(list|reset|saved|<key>,<value>...)");
     return 1;
 }
@@ -462,7 +473,7 @@ const ConsoleSink::Command staticBakeCommand(
     "staticbake", StaticBakeConsole_Run,
     "The static geometry bake's runtime switch (sturdy-bassoon#142, #153): status | on | off | "
     "rebake | reset | link <scene> <scene> | sort on|off | props | scroll [list|clear|<path> <du> "
-    "<dv>] | clock [<seconds>|run] | texclear | wind [list|reset|saved|<key> <value>...] | xlu [on|off] | "
+    "<dv> [<tile>]] | clock [<seconds>|run] | texclear | wind [list|reset|saved|<key> <value>...] | xlu [on|off] | "
     "wobble [list|reset|saved|<key> <value>...]. On by default. on/off here "
     "also save the setting (Settings > Graphics), so the choice survives a restart; `agenttest "
     "staticbake on|off` does not. Off interprets every room and "
@@ -475,7 +486,8 @@ const ConsoleSink::Command staticBakeCommand(
     "session only). props lists the archive prop lists the group holds and what the "
     "bake made of each (#171), and every list with scrolling draws (#187). scroll registers a "
     "texture, by the archive path its list names, to scroll at du, dv texture widths a second, "
-    "baked or interpreted (0 0 removes it); the rate is read when a list records, so rebake after "
+    "baked or interpreted (0 0 removes it), as TEXEL0, or with tile 1 as TEXEL1, the second layer of a "
+    "two-layer material (#231); the rate is read when a list records, so rebake after "
     "changing one. clock pins the clock every scroll and the wind read, for same-picture comparisons, or lets "
     "it run. texclear empties the texture cache, as an ocarina textbox does; bakes and scrolls "
     "keep. scroll, clock and texclear are this session only. wind (#209) reports or sets the wind "
