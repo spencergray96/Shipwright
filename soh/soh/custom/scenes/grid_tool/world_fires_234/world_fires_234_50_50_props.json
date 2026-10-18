@@ -1,0 +1,14 @@
+{
+  "format": 2,
+  "scene": "world_fires_234",
+  "list": "objects/rs_props/world_fires_234_50_50/props",
+  "kinds": {
+    "standing-torch-724-oot-fire": "rs_724_oot_fire"
+  },
+  "props": [
+    {"id":"t0","kind":"standing-torch-724-oot-fire","pos":[3380,0,3900],"rot":4},
+    {"id":"t2","kind":"standing-torch-724-oot-fire","pos":[3540,0,3900],"rot":6},
+    {"id":"t4","kind":"standing-torch-724-oot-fire","pos":[3700,0,3900],"rot":0},
+    {"id":"t6","kind":"standing-torch-724-oot-fire","pos":[3860,0,3900],"rot":2}
+  ]
+}
