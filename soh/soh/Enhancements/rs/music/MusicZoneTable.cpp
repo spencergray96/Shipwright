@@ -55,8 +55,15 @@ namespace {
  * scene binding, the first-visit flag, the per-scene opt-in, the track list and its durations.
  * Build on it.
  *
- * The CONTENT below is a throwaway POC and is meant to be DELETED, not migrated. See
+ * The CONTENT below was a throwaway POC and most of it HAS now been deleted. See
  * content_status.
+ *
+ * AUTHOR A ZONE BY MAP SQUARE: `"squares": ["50,50"]`, keys of the world matrix named by
+ * `matrix` above. Each expands to that square's 64x64-tile rect, so the C and the director see
+ * nothing new - but "50,50" is a square the matrix calls Lumbridge, where four tile numbers are
+ * four numbers nobody can check. #90 P1 planned exactly this: a chunk IS a rect, so zones are
+ * chunk-aligned first and un-aligned one rect at a time as the world fills in. `rects` is still
+ * there for that un-aligning, and a zone may use both.
  *
  * THERE IS A PICTURE OF THIS FILE: tools/music/zone-map.svg, drawn over the world matrix's named
  * chunks by `npm run gen:zone-map` (#90 P4). Look at it before and after editing a rect - a rect
@@ -78,13 +85,21 @@ namespace {
  * deliberately (settlement / west_fields / north_march / wilderness rather than lumbridge) so
  * that nothing downstream inherits a false premise about where it is.
  *
- * The TRACK LISTS added in P2 are POC on the same terms, and P3 made half of them real without
- * making them right. `settlement` and `west_fields` now play the six imported Lumbridge tracks
- * (#91) - real RuneScape music, in rects named after a fixture, over terrain that is a density
- * stand-in. THE TRACKS ARE REAL AND THE PLACEMENT IS NOT: nothing about these two zones is
- * Lumbridge except the music, and when real geography lands the rows go and the rsTrack ids move
- * to the zones they belong to. `settlement_core`, `north_march`, `wilderness` and
- * `test_map_interior` keep vanilla ids, which is what keeps the mixed format exercised in-game.
+ * THE PLACEMENT IS NOW REAL FOR ONE CHUNK (2026-10-17). P1's fixture rects - `settlement`,
+ * `west_fields`, `north_march`, `settlement_core` - are DELETED. They were named after the
+ * settlement fixture and drawn before anything recorded where a map sat in the world, and once
+ * #173 stitched the overworld the P4 map showed them covering Falador and the Dwarven Mine while
+ * Lumbridge had no zone at all. `lumbridge` replaces them, on the square the matrix calls
+ * Lumbridge, with the six imported tracks (#91).
+ *
+ * EVERYWHERE ELSE IS THE FALLBACK ON PURPOSE (owner, 2026-10-17): only Lumbridge's music has been
+ * imported, so the rest of the world playing one vanilla track is an honest placeholder rather
+ * than an omission. `wilderness` and `test_map_interior` keep vanilla ids, which is also what
+ * keeps the mixed vanilla/imported format exercised in-game.
+ *
+ * NOTE WHAT THIS COST: the two fixture terrain scenes are still opted in (see scenes) and now
+ * play only the fallback, so the zone boundary a run can test against has moved to
+ * SCENE_F2P_OVERWORLD. Its Lumbridge chunk centres on OoT (3860, 3820) per its world include.
  *
  * What makes throwing this away cheap is the coordinate frame: a rect authored against today's
  * fixture lives in the same frame as a rect authored against real Falador later. Replacing POC
@@ -222,70 +237,29 @@ const RsZoneTrack kTracks_test_map_interior[] = {
 };
 
 /*
- * POC. A rect strictly inside `settlement`, which is strictly inside `west_fields` - three priority levels
- * nested without a single donut-shaped union. It corresponds to no authored feature; it exists so priority
- * resolution is exercised by something that really is enclosed, which P0's table never had (its
- * `settlement` won on its own rect with nothing around it). Single track, no duration: a one-track zone
- * that plays until you leave it, which is the P1 shape and still the right one for a small interior.
+ * THE FIRST ZONE OVER THE REAL WORLD (#90 P4, 2026-10-17). One map square, authored as a square rather than
+ * as four tile numbers: the matrix calls (50,50) Lumbridge, and it is the one chunk anybody has actually
+ * built on - 1504 drawn walls, floors and corners across four storeys, against 107 and 64 for the two
+ * Draynor chunks and a handful each where Lumbridge spills into H.A.M. Hideout and Lumbridge Swamp East.
+ * Its six tracks are the imported Lumbridge set (#91), so this is the first place in the mod where the
+ * music and the ground agree about where you are. CHUNK-ALIGNED ON PURPOSE AND FOR NOW: #90 P1 said zones
+ * may be authored chunk-aligned first because a chunk IS a rect, and un-aligned one rect at a time as the
+ * world fills in. When Lumbridge's music should reach past the chunk border - the swamp, the cow field -
+ * that is either more squares here or a hand-written rect beside them, and the format takes both. `harmony`
+ * is BOTH the one-shot opener and a member of the rotation, which is the only arrangement in which the
+ * shuffle bag's back-to-back guard is observable (authoring rule 7).
  */
-const RsZoneRect kRects_settlement_core[] = {
-    { 3024, 3404, 3043, 3429, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+const RsZoneRect kRects_lumbridge[] = {
+    // 50,50 Lumbridge
+    { 3200, 3200, 3263, 3263, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
-const RsZoneTrack kTracks_settlement_core[] = {
-    { NA_BGM_LINK_HOUSE, RS_ZONE_COND_ANY, 0, RS_TRACK_END_FADE_GLOBAL, NULL },
-};
-
-/*
- * POC. The composited settlement, drawn to its WALL rather than to the grid-tool project's footprint -
- * authoring rule 1. Multi-track since P2 and IMPORTED RS TRACKS since P3, and still authored to make the
- * opener interaction observable: `harmony` is BOTH the one-shot opener and an ordinary member of the
- * rotation, so the shuffle bag's very first draw after the opener is the one place the back-to-back guard
- * can be caught doing its job (authoring rule 7). If it ever draws harmony straight after the first-visit
- * harmony, the guard is broken - and note that with imported tracks that guard can no longer be checked by
- * comparing sequence ids, because all six of these carry the same placeholder 0x82. The director compares
- * the ENTRY, and the marker channel names tracks as `rs:harmony` rather than as `0x82` for the same reason.
- * These three are the longer half of the Lumbridge set (216 s, 237 s, 324 s), so a full bag cycle here runs
- * about thirteen minutes: this is the zone for listening, not for watching a queue move.
- *
- * Derivation:
- * `Lumbridge Settlement X3` is 62x79 tiles placed at terrain tile (56,64), and the composite rotates it 180
- * degrees about the footprint centre, so grid cell (gx,gy) lands on terrain tile (118-gx, 143-gy). Its
- * authored geometry occupies grid cells x 1..55, y 6..74 (the bounding box of every wall edge across all
- * three levels), i.e. grid extent x 1..56, y 6..75 - so terrain x 62..117, y 68..137, so RS x 3006..3061, y
- * 3382..3451. The footprint P0 used was RS x 3000..3062, y 3376..3455: up to 6 tiles of open ground outside
- * the wall on three sides, which is precisely what was audible.
- */
-const RsZoneRect kRects_settlement[] = {
-    { 3006, 3382, 3061, 3451, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
-};
-const RsZoneTrack kTracks_settlement[] = {
+const RsZoneTrack kTracks_lumbridge[] = {
     // harmony: 216.038 s of audio, 5 s end fade, placeholder 0x82
     { 0x82, RS_ZONE_COND_ANY, 216038, 5000, "custom/music/rs/harmony" },
     // yesteryear: 237.029 s of audio, 5 s end fade, placeholder 0x82
     { 0x82, RS_ZONE_COND_ANY, 237029, 5000, "custom/music/rs/yesteryear" },
     // book-of-spells: 323.663 s of audio, 5 s end fade, placeholder 0x82
     { 0x82, RS_ZONE_COND_ANY, 323663, 5000, "custom/music/rs/book-of-spells" },
-};
-const RsZoneTrack kFirstVisit_settlement[] = {
-    // harmony: 216.038 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 216038, 5000, "custom/music/rs/harmony" },
-};
-
-/*
- * POC. The open ground the settlement stands in, and the zone Link spawns in - which is why it carries the
- * tracks a run has to wait on: it is where a queue can be watched without moving. IMPORTED RS TRACKS since
- * P3, and deliberately the THREE SHORTEST of the Lumbridge set (115 s, 136 s, 154 s), because every in-zone
- * advance a run asserts has to be waited out in real time and the alternatives are two to five minutes
- * each. `flute-salad` is also the one with ~10 s of fade-out baked into the audio, which is the track the 5
- * s end fade has the least to do on - the pair that makes the end-fade design legible is this zone's
- * flute-salad against autumn-voyage, which stops dead. Widened from P0's x 2944..2999 to cover the whole
- * block, so that the ground between the old footprint edge and the actual wall now sounds like the fields -
- * the audible form of authoring rule 1 and the one thing a teleport can demonstrate about it.
- */
-const RsZoneRect kRects_west_fields[] = {
-    { 2944, 3376, 3062, 3455, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
-};
-const RsZoneTrack kTracks_west_fields[] = {
     // flute-salad: 115.217 s of audio, 5 s end fade, placeholder 0x82
     { 0x82, RS_ZONE_COND_ANY, 115217, 5000, "custom/music/rs/flute-salad" },
     // autumn-voyage: 136.046 s of audio, 5 s end fade, placeholder 0x82
@@ -293,22 +267,9 @@ const RsZoneTrack kTracks_west_fields[] = {
     // dream: 153.646 s of audio, 5 s end fade, placeholder 0x82
     { 0x82, RS_ZONE_COND_ANY, 153646, 5000, "custom/music/rs/dream" },
 };
-
-/*
- * POC. Same x band as `west_fields`, different y band - kept from P0 because it is the check that proves
- * the north/south axis, which is the one that flips. Since P2 it is also the LIVE EXAMPLE OF lengthSec 0:
- * three tracks and not one duration between them, so it picks a track on activation and then never
- * advances, however long you stand in it. That is P1's behaviour and it is still valid; it has a zone
- * rather than only a sentence so a run can assert the negative against something that would obviously move
- * if the rule were wrong.
- */
-const RsZoneRect kRects_north_march[] = {
-    { 2944, 3456, 3062, 3519, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
-};
-const RsZoneTrack kTracks_north_march[] = {
-    { NA_BGM_GERUDO_VALLEY, RS_ZONE_COND_ANY, 0, RS_TRACK_END_FADE_GLOBAL, NULL },
-    { NA_BGM_ZORA_DOMAIN, RS_ZONE_COND_ANY, 0, RS_TRACK_END_FADE_GLOBAL, NULL },
-    { NA_BGM_GORON_CITY, RS_ZONE_COND_ANY, 0, RS_TRACK_END_FADE_GLOBAL, NULL },
+const RsZoneTrack kFirstVisit_lumbridge[] = {
+    // harmony: 216.038 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 216038, 5000, "custom/music/rs/harmony" },
 };
 
 /*
@@ -339,52 +300,16 @@ const RsMusicZone kZones[] = {
         .firstVisitTrack = NULL,
     },
     {
-        .name = "settlement_core",
-        .priority = 30,
-        .sceneId = RS_ZONE_SCENE_ANY,
-        .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
-        .flags = 0,
-        .rectCount = 1,
-        .trackCount = 1,
-        .rects = kRects_settlement_core,
-        .tracks = kTracks_settlement_core,
-        .firstVisitTrack = NULL,
-    },
-    {
-        .name = "settlement",
-        .priority = 20,
+        .name = "lumbridge",
+        .priority = 10,
         .sceneId = RS_ZONE_SCENE_ANY,
         .firstVisitFlag = WORLD_FLAG_MUSIC_FIRST_VISIT_SETTLEMENT,
         .flags = 0,
         .rectCount = 1,
-        .trackCount = 3,
-        .rects = kRects_settlement,
-        .tracks = kTracks_settlement,
-        .firstVisitTrack = kFirstVisit_settlement,
-    },
-    {
-        .name = "west_fields",
-        .priority = 10,
-        .sceneId = RS_ZONE_SCENE_ANY,
-        .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
-        .flags = 0,
-        .rectCount = 1,
-        .trackCount = 3,
-        .rects = kRects_west_fields,
-        .tracks = kTracks_west_fields,
-        .firstVisitTrack = NULL,
-    },
-    {
-        .name = "north_march",
-        .priority = 10,
-        .sceneId = RS_ZONE_SCENE_ANY,
-        .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
-        .flags = 0,
-        .rectCount = 1,
-        .trackCount = 3,
-        .rects = kRects_north_march,
-        .tracks = kTracks_north_march,
-        .firstVisitTrack = NULL,
+        .trackCount = 6,
+        .rects = kRects_lumbridge,
+        .tracks = kTracks_lumbridge,
+        .firstVisitTrack = kFirstVisit_lumbridge,
     },
     {
         .name = "wilderness",
