@@ -273,6 +273,28 @@ const RsZoneTrack kFirstVisit_lumbridge[] = {
 };
 
 /*
+ * The second real zone, and the one that makes a boundary testable by ear (2026-10-17). Two squares rather
+ * than one, because Draynor's authored buildings straddle the chunk line - (48,50) Draynor Village has 107
+ * drawn and (48,51) Draynor Village North 64 - which is also the first zone to show that a chunk-aligned
+ * zone is not the same thing as a one-chunk zone. Draynor MANOR, (48,52), is deliberately NOT in it: in RS
+ * it is its own place with its own music, and nothing has been built there yet. ONE TRACK, AND THAT IS
+ * CORRECT RATHER THAN UNFINISHED: a single-track zone with a duration means `when it ends, play it again`,
+ * which is what the back-to-back guard reports as guard=single. It sits two chunks west of `lumbridge` with
+ * fallback ground between, so walking Lumbridge -> wilderness -> Draynor crosses two boundaries in each
+ * direction, which is the arrangement the dwell timer and the fades were asked to be judged against.
+ */
+const RsZoneRect kRects_draynor[] = {
+    // 48,50 Draynor Village
+    { 3072, 3200, 3135, 3263, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+    // 48,51 Draynor Village North
+    { 3072, 3264, 3135, 3327, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+};
+const RsZoneTrack kTracks_draynor[] = {
+    // unknown-land: 124.389 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 124389, 5000, "custom/music/rs/unknown-land" },
+};
+
+/*
  * The fallback: no rects, matches everywhere, lowest priority. It is what makes coverage total, so every
  * point in every opted-in scene has an answer and the director never falls silent by accident. Removing it
  * does not create silence - it creates a hole.
@@ -310,6 +332,18 @@ const RsMusicZone kZones[] = {
         .rects = kRects_lumbridge,
         .tracks = kTracks_lumbridge,
         .firstVisitTrack = kFirstVisit_lumbridge,
+    },
+    {
+        .name = "draynor",
+        .priority = 10,
+        .sceneId = RS_ZONE_SCENE_ANY,
+        .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
+        .flags = 0,
+        .rectCount = 2,
+        .trackCount = 1,
+        .rects = kRects_draynor,
+        .tracks = kTracks_draynor,
+        .firstVisitTrack = NULL,
     },
     {
         .name = "wilderness",

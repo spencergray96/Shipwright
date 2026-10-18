@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="125">
+    <!-- CRC64("custom/fonts/rs/unknown-land") = 0x4cc7260405a9806a, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="106"/>
+        <Font FontIdx="128"/>
+        <Font FontIdx="169"/>
+        <Font FontIdx="5"/>
+        <Font FontIdx="4"/>
+        <Font FontIdx="38"/>
+        <Font FontIdx="199"/>
+        <Font FontIdx="76"/>
+    </Fonts>
+</Sequence>
