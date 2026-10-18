@@ -57,6 +57,11 @@ namespace {
  *
  * The CONTENT below is a throwaway POC and is meant to be DELETED, not migrated. See
  * content_status.
+ *
+ * THERE IS A PICTURE OF THIS FILE: tools/music/zone-map.svg, drawn over the world matrix's named
+ * chunks by `npm run gen:zone-map` (#90 P4). Look at it before and after editing a rect - a rect
+ * is a number here and a PLACE there, and the map is the only thing that says which. Re-render it
+ * in the same change; `npm run gen:zone-map -- --check` fails when it is stale.
  */
 
 /*
