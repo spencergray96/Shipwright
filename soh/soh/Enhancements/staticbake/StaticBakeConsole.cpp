@@ -120,7 +120,8 @@ int32_t RunScroll(const std::vector<std::string>& args, std::vector<std::string>
     double tile = 0.0; // #231: an optional fifth argument, 0 (TEXEL0, the default) or 1 (TEXEL1)
     if ((args.size() == 4 || args.size() == 5) && ValidPath(args[1]) && ParseNumber(args[2], -1000.0, 1000.0, du) &&
         ParseNumber(args[3], -1000.0, 1000.0, dv) &&
-        (args.size() == 4 || (ParseNumber(args[4], 0.0, Fast::STATIC_BAKE_SCROLL_TILES - 1, tile) && tile == (int)tile))) {
+        (args.size() == 4 ||
+         (ParseNumber(args[4], 0.0, Fast::STATIC_BAKE_SCROLL_TILES - 1, tile) && tile == (int)tile))) {
         const bool changed = Fast::StaticBakeSetTextureScroll(args[1].c_str(), (int)tile, (float)du, (float)dv);
         Describe("scroll", lines);
         // tile= only for tile 1, so a tile-0 line reads as it did before #231.
