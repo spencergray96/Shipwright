@@ -36,15 +36,34 @@
 // (params bit 14) never take one. When the pool is full, LightContext_InsertLight returns NULL and the fire
 // burns with no light; nothing is taken from another holder.
 //
-// THE COLLIDER: one AC cylinder over the flame, registered on every tick the fire updates. Flags 0,
-// as En_Light: a fire culled from view (about 1,350 units from the camera, vanilla's default uncull
-// zone) neither updates nor draws, so it holds no slot, and an arrow can light any fire Link can see
-// (the owner, 2026-10-13, option B of #232; a 1,000-unit gate on Link was dropped). Obj_Syokudai
-// instead disables culling and registers two AC from up to 4,000 away, every frame - the combination
-// ENGINE_BUDGETS "Collision check subscriptions" says never to copy into a one-scene world.
-// THE LEVER FOR LONG SHOTS (option C, not built): a puzzle fire that must be hit from beyond view gets
-// a larger uncull zone (or UPDATE_CULLING_DISABLED) of its own, set per placement by its `fire`
-// Interaction, so only those torches pay the AC slot and update at a distance.
+// THE GLOW (sturdy-bassoon#243): the light's halo is on only while RsFire_GlowOn() says so - the
+// CVar below if set, else RS_FIRE_GLOW_DEFAULT. Off, the light is LIGHT_POINT_NOGLOW: the same node,
+// position, colour and radius, so it lights Link exactly as before (z_lights.c binds the two types
+// with the same function), and only Lights_DrawGlow's halo goes. Read every tick the fire updates;
+// `rsfire glow` also writes it into every fire at once, because a culled fire keeps its node (and
+// its halo) without updating.
+//
+// THE COLLIDER AND THE DRAW DISTANCE: one AC cylinder over the flame, registered on every tick the
+// fire updates. Flags 0, as En_Light: a fire culled from view neither updates nor draws, so it holds
+// no slot, and an arrow can light any fire Link can see (the owner, 2026-10-13, option B of #232; a
+// 1,000-unit gate on Link was dropped). The cull edge is uncullZoneForward + uncullZoneScale in front
+// of the camera. #243 raised the forward part from Actor_Init's 1,000 to RS_FIRE_DRAW_DISTANCE, vanilla
+// Obj_Syokudai's 4,000, for every fire (the owner: a glow with no flame until close in read badly in a
+// stitched world). The scale stays Actor_Init's 350, so flames now cull about 4,350 out, not 1,350, and
+// the arrow range grows with them. NOT UPDATE_CULLING_DISABLED, which Obj_Syokudai also sets: that
+// would register every fire in the scene in the 192-slot AC list every tick, seen or not (ENGINE_BUDGETS
+// "Collision check subscriptions"); a larger uncull zone pays only for the fires in view. The CVar
+// below overrides the distance for tuning; `rsfire distance` writes it into every live fire, because a
+// culled fire never updates to read it.
+
+// The shipped defaults (#243). The CVars only override them; unset, these are what every fire uses.
+#define RS_FIRE_DRAW_DISTANCE 4000 // uncullZoneForward: vanilla Obj_Syokudai's. Actor_Init's is 1,000
+#define RS_FIRE_DRAW_DISTANCE_MIN 100
+#define RS_FIRE_DRAW_DISTANCE_MAX 30000
+#define RS_FIRE_GLOW_DEFAULT 0 // 1 draws the halo
+// The overrides. CVAR_ENHANCEMENT is soh/cvar_prefixes.h's; it expands where these are used.
+#define CVAR_RS_FIRE_DRAW_DISTANCE CVAR_ENHANCEMENT("RsFireDrawDistance")
+#define CVAR_RS_FIRE_GLOW CVAR_ENHANCEMENT("RsFireGlow")
 
 #include "z64actor.h"
 #include "z64light.h"
@@ -82,6 +101,12 @@ extern "C" {
 
 // The console's view (RsFireConsole): what a marker cannot otherwise see.
 const char* RsFire_LitByName(int32_t litBy);
+// The settings in force: the CVar if set, else the default above. The distance is clamped to
+// RS_FIRE_DRAW_DISTANCE_MIN..MAX.
+int32_t RsFire_DrawDistance(void);
+int32_t RsFire_GlowOn(void);
+// Writes both settings into one live fire, as its next update would.
+void RsFire_ApplySettings(RsFire* fire);
 
 #ifdef __cplusplus
 }

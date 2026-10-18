@@ -128,15 +128,41 @@ static void RsFire_Mark(RsFire* this, const char* event) {
     RsAgent_Marker(line);
 }
 
+int32_t RsFire_DrawDistance(void) {
+    int32_t distance = CVarGetInteger(CVAR_RS_FIRE_DRAW_DISTANCE, RS_FIRE_DRAW_DISTANCE);
+
+    return CLAMP(distance, RS_FIRE_DRAW_DISTANCE_MIN, RS_FIRE_DRAW_DISTANCE_MAX);
+}
+
+int32_t RsFire_GlowOn(void) {
+    return CVarGetInteger(CVAR_RS_FIRE_GLOW, RS_FIRE_GLOW_DEFAULT) != 0 ? 1 : 0;
+}
+
+// The two settings (RsFire.h, #243). The light's type is all the glow is: Lights_PointGlowSetInfo and
+// Lights_PointNoGlowSetInfo differ in nothing else, so switching it in place keeps the node.
+void RsFire_ApplySettings(RsFire* this) {
+    this->actor.uncullZoneForward = (f32)RsFire_DrawDistance();
+    this->lightInfo.type = RsFire_GlowOn() ? LIGHT_POINT_GLOW : LIGHT_POINT_NOGLOW;
+}
+
 // Takes a node, once, if this fire wants a light and has none. A full pool returns NULL, and the fire
 // burns unlit: nothing is taken from another holder (#233 is where that changes).
 static void RsFire_TakeLight(RsFire* this, PlayState* play) {
+    s16 x;
+    s16 y;
+    s16 z;
+
     if (!this->lightWanted || this->lightNode != NULL) {
         return;
     }
-    Lights_PointGlowSetInfo(&this->lightInfo, (s16)this->actor.world.pos.x,
-                            (s16)(this->actor.world.pos.y + RS_FIRE_GLOW_ABOVE * this->size),
-                            (s16)this->actor.world.pos.z, 255, 255, 180, -1);
+    x = (s16)this->actor.world.pos.x;
+    y = (s16)(this->actor.world.pos.y + RS_FIRE_GLOW_ABOVE * this->size);
+    z = (s16)this->actor.world.pos.z;
+    if (RsFire_GlowOn()) {
+        Lights_PointGlowSetInfo(&this->lightInfo, x, y, z, 255, 255, 180, -1);
+    } else {
+        Lights_PointNoGlowSetInfo(&this->lightInfo, x, y, z, 255, 255, 180, -1);
+    }
     this->lightNode = LightContext_InsertLight(play, &play->lightCtx, &this->lightInfo);
 }
 
@@ -197,6 +223,8 @@ void RsFire_Init(Actor* thisx, PlayState* play) {
     this->collider.dim.radius = (s16)(RS_FIRE_CYL_RADIUS * hitRatio + 0.5f);
     this->collider.dim.height = (s16)(RS_FIRE_CYL_HEIGHT * hitRatio + 0.5f);
     this->collider.dim.yShift = (s16)(RS_FIRE_STICK_ABOVE * ratio - (float)this->collider.dim.height / 2.0f);
+    // The draw distance, before the first cull test (RsFire.h). The light takes its type in TakeLight.
+    thisx->uncullZoneForward = (f32)RsFire_DrawDistance();
 
     if (this->flag >= 0 && Flags_GetWorldFlag(this->flag)) {
         // Lit once already in this save: it stays lit, without its ignition sound.
@@ -484,6 +512,9 @@ void RsFire_Update(Actor* thisx, PlayState* play) {
     if (!RsFire_TakeHit(this, play)) {
         RsFire_TakeStick(this, play);
     }
+    // The draw distance and the glow, read every tick, so a CVar changed by hand reaches every fire in
+    // view; `rsfire distance|glow` reaches the culled ones too.
+    RsFire_ApplySettings(this);
 
     if (this->lit) {
         this->timer++;
@@ -500,7 +531,7 @@ void RsFire_Update(Actor* thisx, PlayState* play) {
     }
 
     // The flame's collider, every tick it updates - and it updates only while in view, so the culling
-    // (RsFire.h) is the range: an arrow can light any fire Link can see.
+    // (RsFire.h, the draw distance) is the range: an arrow can light any fire Link can see.
     Collider_UpdateCylinder(thisx, &this->collider);
     CollisionCheck_SetAC(play, &play->colChkCtx, &this->collider.base);
 }
