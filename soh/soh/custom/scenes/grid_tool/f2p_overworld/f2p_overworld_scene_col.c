@@ -1,21 +1,30 @@
 #include "../GridToolSceneData.h"
 
-SurfaceType f2p_overworld_scene_polygonTypes[2] = {
+SurfaceType f2p_overworld_scene_polygonTypes[3] = {
     // 0: floor/roof/ground - light footstep sound
     { SURFACETYPE0(0, 0, 0x00, 0, 0x00, 0, 0, 0), SURFACETYPE1(0x08, 0, 0, 0, 0, 0, 0, 0) },
     // 1: walls
     { SURFACETYPE0(0, 0, 0x00, 0, 0x00, 0, 0, 0), SURFACETYPE1(0x00, 0, 0, 0, 0, 0, 0, 0) },
+    // 2: no-climb prop walls (#109) - wall type 1 (WALL_FLAG_0): Link's ledge climb refuses it
+    { SURFACETYPE0(0, 0, 0x00, 0, 0x01, 0, 0, 0), SURFACETYPE1(0x00, 0, 0, 0, 0, 0, 0, 0) },
 };
 
-Vec3s f2p_overworld_scene_vertices[159470] = {
+Vec3s f2p_overworld_scene_vertices[422134] = {
 #include "f2p_overworld_scene_col.001.inc"
 };
 
-CollisionPoly f2p_overworld_scene_polygons[311353] = {
+CollisionPoly f2p_overworld_scene_polygons[835649] = {
 #include "f2p_overworld_scene_col.002.inc"
 #include "f2p_overworld_scene_col.003.inc"
 #include "f2p_overworld_scene_col.004.inc"
 #include "f2p_overworld_scene_col.005.inc"
+#include "f2p_overworld_scene_col.006.inc"
+#include "f2p_overworld_scene_col.007.inc"
+#include "f2p_overworld_scene_col.008.inc"
+#include "f2p_overworld_scene_col.009.inc"
+#include "f2p_overworld_scene_col.010.inc"
+#include "f2p_overworld_scene_col.011.inc"
+#include "f2p_overworld_scene_col.012.inc"
 };
 
 CamData f2p_overworld_camData[] = {
@@ -23,8 +32,8 @@ CamData f2p_overworld_camData[] = {
 };
 
 CollisionHeader f2p_overworld_scene_collisionHeader = {
-    { -7680, 0, -7680 },
-    { 7680, 270, 7680 },
+    { -12800, -100, -12800 },
+    { 12800, 1270, 12800 },
     ARRAY_COUNT(f2p_overworld_scene_vertices), f2p_overworld_scene_vertices,
     ARRAY_COUNT(f2p_overworld_scene_polygons), f2p_overworld_scene_polygons,
     f2p_overworld_scene_polygonTypes,
