@@ -47,17 +47,21 @@
 // fire updates. Flags 0, as En_Light: a fire culled from view neither updates nor draws, so it holds
 // no slot, and an arrow can light any fire Link can see (the owner, 2026-10-13, option B of #232; a
 // 1,000-unit gate on Link was dropped). The cull edge is uncullZoneForward + uncullZoneScale in front
-// of the camera. #243 raised the forward part from Actor_Init's 1,000 to RS_FIRE_DRAW_DISTANCE, vanilla
-// Obj_Syokudai's 4,000, for every fire (the owner: a glow with no flame until close in read badly in a
-// stitched world). The scale stays Actor_Init's 350, so flames now cull about 4,350 out, not 1,350, and
-// the arrow range grows with them. NOT UPDATE_CULLING_DISABLED, which Obj_Syokudai also sets: that
+// of the camera. #243 raised the forward part from Actor_Init's 1,000 to RS_FIRE_DRAW_DISTANCE, 6,000,
+// for every fire (the owner: a glow with no flame until close in read badly in a stitched world; they
+// picked 6,000 in game over vanilla Obj_Syokudai's 4,000). The scale stays Actor_Init's 350, so flames now
+// cull about 6,350 out, not 1,350. The arrow range grows with them only as far as an arrow flies (about
+// 2,200: En_Arrow lives 12 ticks), so past that the distance is draw cost alone. SoH's "Disable Draw
+// Distance" multiplier (Ship_CalcShouldDrawAndUpdate) scales this edge too when it is above 1.
+// NOT UPDATE_CULLING_DISABLED, which Obj_Syokudai also sets: that
 // would register every fire in the scene in the 192-slot AC list every tick, seen or not (ENGINE_BUDGETS
 // "Collision check subscriptions"); a larger uncull zone pays only for the fires in view. The CVar
 // below overrides the distance for tuning; `rsfire distance` writes it into every live fire, because a
 // culled fire never updates to read it.
 
 // The shipped defaults (#243). The CVars only override them; unset, these are what every fire uses.
-#define RS_FIRE_DRAW_DISTANCE 4000 // uncullZoneForward: vanilla Obj_Syokudai's. Actor_Init's is 1,000
+#define RS_FIRE_DRAW_DISTANCE 6000 // uncullZoneForward, the owner's pick. Actor_Init's is 1,000
+                                   // (Obj_Syokudai's 4,000)
 #define RS_FIRE_DRAW_DISTANCE_MIN 100
 #define RS_FIRE_DRAW_DISTANCE_MAX 30000
 #define RS_FIRE_GLOW_DEFAULT 0 // 1 draws the halo
