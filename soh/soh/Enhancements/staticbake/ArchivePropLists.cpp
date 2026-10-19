@@ -103,32 +103,44 @@ bool ParseScrollFile(const std::vector<char>& bytes, size_t offset, std::vector<
     return true;
 }
 
-// Registers the textures `<path>.scroll` names, before the list is first offered to the bake: a rate is
-// read when a draw is recorded (libultraship's "Texture scroll"), so it must be in the registry before
-// the list's first draw. Idempotent, as StaticBakeSetTextureScroll is, so a list resolved again (a new
-// bake group) registers the same rates again and changes nothing. Returns how many lines registered.
+// The scroll files beside a list, by the tile they register (sturdy-bassoon#231): `.scroll` is tile 0,
+// TEXEL0, and `.scroll1` tile 1, TEXEL1, the second layer of a two-layer material. The second is a
+// sidecar of the same form rather than a field on `.scroll`, because a build from before #231 refuses a
+// scroll file with a line it cannot read, whole: it never opens `.scroll1`, so there tile 0 still scrolls.
+constexpr const char* SCROLL_SUFFIXES[Fast::STATIC_BAKE_SCROLL_TILES] = { ".scroll", ".scroll1" };
+
+// Registers the textures `<path>.scroll` names (and `<path>.scroll1`, for tile 1), before the list is
+// first offered to the bake: a rate is read when a draw is recorded (libultraship's "Texture scroll"), so
+// it must be in the registry before the list's first draw. Idempotent, as StaticBakeSetTextureScroll is,
+// so a list resolved again (a new bake group) registers the same rates again and changes nothing. Each
+// file stands alone: one that does not read registers nothing, and the other is registered as it reads.
+// Returns how many lines registered, both files together.
 uint32_t RegisterScrolls(const char* path) {
     auto archives = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
-    const std::string scrollPath = std::string(path) + ".scroll";
-    if (!archives->HasFile(scrollPath)) {
-        return 0;
+    uint32_t registered = 0;
+    for (int tile = 0; tile < Fast::STATIC_BAKE_SCROLL_TILES; tile++) {
+        const std::string scrollPath = std::string(path) + SCROLL_SUFFIXES[tile];
+        if (!archives->HasFile(scrollPath)) {
+            continue;
+        }
+        std::shared_ptr<Ship::File> file = archives->LoadFile(scrollPath);
+        std::vector<ScrollLine> lines;
+        if (file == nullptr || file->Buffer == nullptr || !ParseScrollFile(*file->Buffer, file->BufferOffset, lines)) {
+            SPDLOG_WARN("[staticbake] archive prop list {}: its scroll file {} does not read, so none of its textures "
+                        "scroll on tile {} (sturdy-bassoon#187 A2, #231)",
+                        path, scrollPath, tile);
+            continue;
+        }
+        uint32_t changed = 0;
+        for (const ScrollLine& s : lines) {
+            changed += Fast::StaticBakeSetTextureScroll(s.path.c_str(), tile, s.du, s.dv) ? 1 : 0;
+        }
+        SPDLOG_INFO("[staticbake] archive prop list {}: {} scrolling texture(s) on tile {} registered before its first "
+                    "draw, {} changed (sturdy-bassoon#187 A2, #231)",
+                    path, lines.size(), tile, changed);
+        registered += (uint32_t)lines.size();
     }
-    std::shared_ptr<Ship::File> file = archives->LoadFile(scrollPath);
-    std::vector<ScrollLine> lines;
-    if (file == nullptr || file->Buffer == nullptr || !ParseScrollFile(*file->Buffer, file->BufferOffset, lines)) {
-        SPDLOG_WARN("[staticbake] archive prop list {}: its scroll file {} does not read, so none of its textures "
-                    "scroll (sturdy-bassoon#187 A2)",
-                    path, scrollPath);
-        return 0;
-    }
-    uint32_t changed = 0;
-    for (const ScrollLine& s : lines) {
-        changed += Fast::StaticBakeSetTextureScroll(s.path.c_str(), s.du, s.dv) ? 1 : 0;
-    }
-    SPDLOG_INFO("[staticbake] archive prop list {}: {} scrolling texture(s) registered before its first draw, {} "
-                "changed (sturdy-bassoon#187 A2)",
-                path, lines.size(), changed);
-    return (uint32_t)lines.size();
+    return registered;
 }
 
 bool IsEmptyList(const Fast::DisplayList& dl) {
@@ -174,7 +186,8 @@ Held Resolve(const char* path) {
     h.lists[ARCHIVE_PROPS_PASS_OPA] = ResolveList(path, false);
     h.lists[ARCHIVE_PROPS_PASS_XLU] = ResolveList(std::string(path) + XLU_SUFFIX, true);
     // Before OfferRoom hands either list to the bake (StaticBakeRegister), so before its first draw. One
-    // scroll file for the two: the registry binds a rate to an image path, whichever list draws it.
+    // scroll file (and one `.scroll1`, #231) for the two: the registry binds a rate to an image path's
+    // tile, whichever list draws it.
     if (h.lists[ARCHIVE_PROPS_PASS_OPA].state == Resolved::Listed ||
         h.lists[ARCHIVE_PROPS_PASS_XLU].state == Resolved::Listed) {
         h.scrolls = RegisterScrolls(path);
