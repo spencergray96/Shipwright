@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="242">
+    <!-- CRC64("custom/fonts/rs/medieval") = 0x675d9fa7d6d2fd7b, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="123"/>
+        <Font FontIdx="253"/>
+        <Font FontIdx="210"/>
+        <Font FontIdx="214"/>
+        <Font FontIdx="167"/>
+        <Font FontIdx="159"/>
+        <Font FontIdx="93"/>
+        <Font FontIdx="103"/>
+    </Fonts>
+</Sequence>

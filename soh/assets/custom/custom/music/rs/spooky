@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="224">
+    <!-- CRC64("custom/fonts/rs/spooky") = 0xba30014e96fc95c7, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="199"/>
+        <Font FontIdx="149"/>
+        <Font FontIdx="252"/>
+        <Font FontIdx="150"/>
+        <Font FontIdx="78"/>
+        <Font FontIdx="1"/>
+        <Font FontIdx="48"/>
+        <Font FontIdx="186"/>
+    </Fonts>
+</Sequence>

@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="95">
+    <!-- CRC64("custom/fonts/rs/dwarf-theme") = 0xe353607508fc65a3, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="163"/>
+        <Font FontIdx="101"/>
+        <Font FontIdx="252"/>
+        <Font FontIdx="8"/>
+        <Font FontIdx="117"/>
+        <Font FontIdx="96"/>
+        <Font FontIdx="83"/>
+        <Font FontIdx="227"/>
+    </Fonts>
+</Sequence>

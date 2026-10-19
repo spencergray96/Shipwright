@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="97">
+    <!-- CRC64("custom/fonts/rs/goblin-village") = 0xd0ca508026a67d24, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="36"/>
+        <Font FontIdx="125"/>
+        <Font FontIdx="166"/>
+        <Font FontIdx="38"/>
+        <Font FontIdx="128"/>
+        <Font FontIdx="80"/>
+        <Font FontIdx="202"/>
+        <Font FontIdx="208"/>
+    </Fonts>
+</Sequence>

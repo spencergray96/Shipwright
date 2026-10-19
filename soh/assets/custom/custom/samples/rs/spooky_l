@@ -1,0 +1,3 @@
+<Sample Version="0" Codec="S16" Medium="Ram" bit26="0" CustomFormat="ogg" Size="21403972" Path="custom/samples/rs/spooky_l.ogg">
+    <ADPCMLoop Start="0" End="10701986" Count="0"/>
+</Sample>

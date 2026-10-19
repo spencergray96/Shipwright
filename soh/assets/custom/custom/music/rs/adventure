@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="154">
+    <!-- CRC64("custom/fonts/rs/adventure") = 0x37fe0da5a8c10866, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="102"/>
+        <Font FontIdx="8"/>
+        <Font FontIdx="193"/>
+        <Font FontIdx="168"/>
+        <Font FontIdx="165"/>
+        <Font FontIdx="13"/>
+        <Font FontIdx="254"/>
+        <Font FontIdx="55"/>
+    </Fonts>
+</Sequence>

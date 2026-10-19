@@ -1,0 +1,3 @@
+<Sample Version="0" Codec="S16" Medium="Ram" bit26="0" CustomFormat="ogg" Size="9217396" Path="custom/samples/rs/goblin-village_r.ogg">
+    <ADPCMLoop Start="0" End="4608698" Count="0"/>
+</Sample>

@@ -88,26 +88,32 @@ namespace {
  * question than it looks. world/f2p.json flags each cell `terrain: real | standin`, which is
  * about the HEIGHT FIELD bake - it says nothing about whether anybody has built there. The two
  * barely overlap today: every chunk with authored buildings on it is flagged `standin`. The zone
- * map shades by drawn content for exactly that reason. So `lumbridge` and `draynor` are the right
- * music over placeholder ground, which is honest for now and worth not forgetting.
+ * map shades by drawn content for exactly that reason. Only five of the 36 chunks have anything
+ * drawn on them (Lumbridge, Draynor Village and North, Lumbridge Swamp East, H.A.M. Hideout), so
+ * most zones below are the right music over placeholder ground - a deliberate choice (#244), and
+ * worth not forgetting.
  *
- * THE PLACEMENT IS REAL FOR THREE CHUNKS ACROSS TWO ZONES (2026-10-17/18). P1's fixture rects -
- * `settlement`, `west_fields`, `north_march`, `settlement_core` - are DELETED. They were named
- * after the settlement fixture and drawn before anything recorded where a map sat in the world,
- * and once #173 stitched the overworld the P4 map showed them covering Falador and the Dwarven
- * Mine while Lumbridge had no zone at all. `lumbridge` replaces them on the square the matrix
- * calls Lumbridge, with the six imported tracks (#91); `draynor` covers the two squares Draynor's
- * buildings straddle, with a seventh. The owner walked both and approved them.
+ * EVERY PLAYABLE CHUNK HAS ITS OWN ZONE SINCE #244 (2026-10-18). 19 surface zones, each square in
+ * exactly one. The grouping is RS's own: the post-2021 'modern mode' music areas, measured per
+ * square from the OSRS Wiki's polygons (numbers and method in
+ * docs/test-runs/2026-10-18-f2p-music-zones/). Where a zone departs from what RS does - the four
+ * northwest chunks (Goblin Village, the Monastery, Doric's Hut, the Dwarven Mine), the Varrock
+ * outskirts, Falador and its farms, all the owner's call - or where RS's answer was a close call, the
+ * zone's own comment
+ * says so. P1's fixture rects (`settlement`, `west_fields`, `north_march`,
+ * `settlement_core`) are long DELETED: drawn before anything recorded where a map sat in the
+ * world, they turned out to cover Falador and the Dwarven Mine.
  *
- * EVERYWHERE ELSE IS THE FALLBACK ON PURPOSE (owner, 2026-10-17): only Lumbridge's and Draynor's
- * music has been imported, so the rest of the world playing one vanilla track is an honest
- * placeholder rather than an omission. `wilderness` and `test_map_interior` keep vanilla ids,
- * which is also what keeps the mixed vanilla/imported format exercised in-game. Filling in the
- * other 34 chunks is #244.
+ * THE FALLBACK NOW COVERS ONLY WHAT NO SQUARE DOES: #221's non-playable ring, plus any point in
+ * an anchored scene that lands outside the six-by-six. `wilderness` and `test_map_interior` keep
+ * vanilla ids, which is what keeps the mixed vanilla/imported format exercised in-game.
  *
- * NOTE WHAT THIS COST: the two fixture terrain scenes are still opted in (see scenes) and now
- * play only the fallback, so the zone boundary a run can test against has moved to
- * SCENE_F2P_OVERWORLD. Its Lumbridge chunk centres on OoT (3860, 3820) per its world include.
+ * THE TWO FIXTURE TERRAIN SCENES ARE STILL OPTED IN (see scenes), and since #244 they are no longer
+ * fallback-only. Their anchor puts the settlement composite on the Falador / Dwarven Mine squares -
+ * the very mistake the P4 map exposed - so they now play `falador`, `doric_hut` and
+ * `dwarven_mine` there:
+ * music for a place they are not. Dead weight rather than a bug; the boundary to test against is
+ * SCENE_F2P_OVERWORLD's, whose Lumbridge chunk centres on OoT (3860, 3820) per its world include.
  *
  * What made the swap cheap, and still does, is the coordinate frame: a rect authored against a
  * fixture lives in the same frame as one authored against real Falador later. Replacing content
@@ -245,21 +251,35 @@ const RsZoneTrack kTracks_test_map_interior[] = {
 };
 
 /*
- * THE FIRST ZONE OVER THE REAL WORLD (#90 P4, 2026-10-17). One map square, authored as a square rather than
- * as four tile numbers: the matrix calls (50,50) Lumbridge, and it is the one chunk anybody has actually
- * built on - 1504 drawn walls, floors and corners across four storeys, against 107 and 64 for the two
- * Draynor chunks and a handful each where Lumbridge spills into H.A.M. Hideout and Lumbridge Swamp East.
- * Its six tracks are the imported Lumbridge set (#91), so this is the first place in the mod where the
- * music and the ground agree about where you are. CHUNK-ALIGNED ON PURPOSE AND FOR NOW: #90 P1 said zones
- * may be authored chunk-aligned first because a chunk IS a rect, and un-aligned one rect at a time as the
- * world fills in. When Lumbridge's music should reach past the chunk border - the swamp, the cow field -
- * that is either more squares here or a hand-written rect beside them, and the format takes both. `harmony`
- * is BOTH the one-shot opener and a member of the rotation, which is the only arrangement in which the
- * shuffle bag's back-to-back guard is observable (authoring rule 7).
+ * THE FIRST ZONE OVER THE REAL WORLD (#90 P4, 2026-10-17). Authored by square rather than as tile numbers:
+ * the matrix calls (50,50) Lumbridge, and it is the one chunk anybody has actually built on - 1504 drawn
+ * walls, floors and corners across four storeys, against 107 and 64 for the two Draynor chunks and a
+ * handful each where Lumbridge spills into H.A.M. Hideout and Lumbridge Swamp East. Its six tracks are the
+ * imported Lumbridge set (#91), so this is the first place in the mod where the music and the ground agree
+ * about where you are. SIX SQUARES SINCE #244 (2026-10-18), because that is where RS plays this pool. RS's
+ * modern-mode music areas (OSRS Wiki's own polygons, measured per square in
+ * docs/test-runs/2026-10-18-f2p-music-zones/) put these six tracks over Lumbridge 100%, the cow field
+ * (50,51) 100%, Fred's Farm (49,51) 90%, H.A.M. Hideout (49,50) 87%, Lumbridge Swamp West (49,49) 86% and
+ * East (50,49) 71% - so the swamp and the farms are one place by ear, and the six tracks were already
+ * imported. The cost, accepted by the owner: the fallback gap between Lumbridge and Draynor that the
+ * 2026-10-18 listening pass walked across is gone, the border is now the 49|48 square line, and the opener
+ * can fire on first entering the swamp or a farm rather than only the town. `harmony` is BOTH the one-shot
+ * opener and a member of the rotation, which is the only arrangement in which the shuffle bag's
+ * back-to-back guard is observable (authoring rule 7).
  */
 const RsZoneRect kRects_lumbridge[] = {
     // 50,50 Lumbridge
     { 3200, 3200, 3263, 3263, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+    // 50,51 Lumbridge Cow Field
+    { 3200, 3264, 3263, 3327, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+    // 49,51 Fred's Farm
+    { 3136, 3264, 3199, 3327, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+    // 49,50 H.A.M. Hideout
+    { 3136, 3200, 3199, 3263, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+    // 49,49 Lumbridge Swamp West
+    { 3136, 3136, 3199, 3199, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+    // 50,49 Lumbridge Swamp East
+    { 3200, 3136, 3263, 3199, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_lumbridge[] = {
     // harmony: 216.038 s of audio, 5 s end fade, placeholder 0x82
@@ -281,15 +301,13 @@ const RsZoneTrack kFirstVisit_lumbridge[] = {
 };
 
 /*
- * The second real zone, and the one that makes a boundary testable by ear (2026-10-17). Two squares rather
- * than one, because Draynor's authored buildings straddle the chunk line - (48,50) Draynor Village has 107
- * drawn and (48,51) Draynor Village North 64 - which is also the first zone to show that a chunk-aligned
- * zone is not the same thing as a one-chunk zone. Draynor MANOR, (48,52), is deliberately NOT in it: in RS
- * it is its own place with its own music, and nothing has been built there yet. ONE TRACK, AND THAT IS
- * CORRECT RATHER THAN UNFINISHED: a single-track zone with a duration means `when it ends, play it again`,
- * which is what the back-to-back guard reports as guard=single. It sits two chunks west of `lumbridge` with
- * fallback ground between, so walking Lumbridge -> wilderness -> Draynor crosses two boundaries in each
- * direction, which is the arrangement the dwell timer and the fades were asked to be judged against.
+ * The second real zone (2026-10-17), three tracks since #244. Two squares because Draynor's authored
+ * buildings straddle the chunk line - (48,50) Draynor Village has 107 drawn and (48,51) Draynor Village
+ * North 64 - and because RS agrees: its Draynor pool covers 76% and 100% of them. The pool is RS's: RS
+ * modern-mode area pool, measured from the OSRS Wiki's music-area polygons
+ * (docs/test-runs/2026-10-18-f2p-music-zones/). Draynor MANOR, (48,52), is its own zone below. Since
+ * `lumbridge` grew to (49,50) in #244 there is no fallback ground between the two any more: the 48|49
+ * square line is a direct Lumbridge/Draynor border.
  */
 const RsZoneRect kRects_draynor[] = {
     // 48,50 Draynor Village
@@ -300,6 +318,290 @@ const RsZoneRect kRects_draynor[] = {
 const RsZoneTrack kTracks_draynor[] = {
     // unknown-land: 124.389 s of audio, 5 s end fade, placeholder 0x82
     { 0x82, RS_ZONE_COND_ANY, 124389, 5000, "custom/music/rs/unknown-land" },
+    // wander: 203.43 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 203430, 5000, "custom/music/rs/wander" },
+    // start: 164.026 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 164026, 5000, "custom/music/rs/start" },
+};
+
+/*
+ * Spooky covers 58% of the square in RS; the rest is the Lightness/Scape Soft pool (23%) and Draynor's
+ * (18%) at its edges. A one-track zone on purpose: the manor is one place with one mood. Nothing is built
+ * here yet - right music over stand-in ground, by choice (#244).
+ */
+const RsZoneRect kRects_draynor_manor[] = {
+    // 48,52 Draynor Manor
+    { 3072, 3328, 3135, 3391, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+};
+const RsZoneTrack kTracks_draynor_manor[] = {
+    // spooky: 222.958 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 222958, 5000, "custom/music/rs/spooky" },
+};
+
+/*
+ * Sea Shanty 2 covers 62% in RS; most of the rest is sea with no RS music area. Port Sarim Jail, (47,49),
+ * is its own zone because RS gives it a different track.
+ */
+const RsZoneRect kRects_port_sarim[] = {
+    // 47,50 Port Sarim
+    { 3008, 3200, 3071, 3263, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+};
+const RsZoneTrack kTracks_port_sarim[] = {
+    // sea-shanty-2: 124.831 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 124831, 5000, "custom/music/rs/sea-shanty-2" },
+};
+
+/*
+ * Tomorrow is the only RS music area on this square (30%; classic mode, one track per region, gave it 88%).
+ * The rest is sea, which RS leaves without an area - and an RS client keeps playing whatever was on. Our
+ * director would play the fallback there instead, so the whole square takes Tomorrow rather than leave
+ * holes in it.
+ */
+const RsZoneRect kRects_port_sarim_south[] = {
+    // 47,49 Port Sarim Jail
+    { 3008, 3136, 3071, 3199, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+};
+const RsZoneTrack kTracks_port_sarim_south[] = {
+    // tomorrow: 156.015 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 156015, 5000, "custom/music/rs/tomorrow" },
+};
+
+/*
+ * Vision is the only RS music area on this square (20%: the tower's island); the rest is sea. Whole square
+ * to Vision for the same reason as port_sarim_south.
+ */
+const RsZoneRect kRects_wizards_tower[] = {
+    // 48,49 Wizards' Tower
+    { 3072, 3136, 3135, 3199, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+};
+const RsZoneTrack kTracks_wizards_tower[] = {
+    // vision: 170.272 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 170272, 5000, "custom/music/rs/vision" },
+};
+
+/*
+ * Emperor and Attention cover 85% of (46,50) in RS. (46,49) Rimmington Church is the close call: modern
+ * mode puts only 27% of it under Tomorrow and 8% under this pool, classic gave it Attention (75%), and the
+ * church is Rimmington's - so it joins this zone rather than Port Sarim's south.
+ */
+const RsZoneRect kRects_rimmington[] = {
+    // 46,50 Rimmington
+    { 2944, 3200, 3007, 3263, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+    // 46,49 Rimmington Church
+    { 2944, 3136, 3007, 3199, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+};
+const RsZoneTrack kTracks_rimmington[] = {
+    // emperor: 240.025 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 240025, 5000, "custom/music/rs/emperor" },
+    // attention: 169.111 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 169111, 5000, "custom/music/rs/attention" },
+};
+
+/*
+ * The fields south of Falador, Air Altar included: RS's Long Way Home / Miles Away / Nightfall pool covers
+ * 77% and 95% of the two squares. Its own zone rather than part of `falador` because RS separates the
+ * city's pool from the farmland's. OWNER'S CHOICE (#244, 2026-10-18): Miles Away is dropped, so the zone
+ * plays Long Way Home and Nightfall.
+ */
+const RsZoneRect kRects_falador_farms[] = {
+    // 46,51 Air Altar
+    { 2944, 3264, 3007, 3327, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+    // 47,51 South Falador Farm
+    { 3008, 3264, 3071, 3327, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+};
+const RsZoneTrack kTracks_falador_farms[] = {
+    // long-way-home: 120.024 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 120024, 5000, "custom/music/rs/long-way-home" },
+    // nightfall: 228.02 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 228020, 5000, "custom/music/rs/nightfall" },
+};
+
+/*
+ * The city: RS's Workshop / Fanfare / Arrival pool covers 100% and 81% of the two squares. OWNER'S CHOICE
+ * (#244, 2026-10-18): Arrival is dropped, so the zone plays Workshop and Fanfare. Nothing is built here
+ * yet.
+ */
+const RsZoneRect kRects_falador[] = {
+    // 46,52 Falador West
+    { 2944, 3328, 3007, 3391, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+    // 47,52 Falador East
+    { 3008, 3328, 3071, 3391, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+};
+const RsZoneTrack kTracks_falador[] = {
+    // workshop: 250.52 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 250520, 5000, "custom/music/rs/workshop" },
+    // fanfare: 138.019 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 138019, 5000, "custom/music/rs/fanfare" },
+};
+
+/*
+ * OWNER'S CHOICE OVER RS's GROUPING (#244, 2026-10-18): Scape Soft alone. RS pools Lightness and Scape Soft
+ * over 88% of this square and the Dwarven Mine's; the owner split the pair into a zone per chunk, gave this
+ * one Scape Soft (its classic-mode track, 100%), and dropped Lightness.
+ */
+const RsZoneRect kRects_doric_hut[] = {
+    // 46,53 Doric's Hut
+    { 2944, 3392, 3007, 3455, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+};
+const RsZoneTrack kTracks_doric_hut[] = {
+    // scape-soft: 158.407 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 158407, 5000, "custom/music/rs/scape-soft" },
+};
+
+/*
+ * OWNER'S CHOICE OVER RS's GROUPING (#244, 2026-10-18): Dwarf Theme alone, its classic-mode track (100%).
+ * RS's modern mode puts the Lightness/Scape Soft pool over 93% of the surface here and Dwarf Theme over 7%,
+ * most of Dwarf Theme's area being the mine underground - which will be its own scene, and can take the
+ * track again then.
+ */
+const RsZoneRect kRects_dwarven_mine[] = {
+    // 47,53 Dwarven Mine
+    { 3008, 3392, 3071, 3455, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+};
+const RsZoneTrack kTracks_dwarven_mine[] = {
+    // dwarf-theme: 94.018 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 94018, 5000, "custom/music/rs/dwarf-theme" },
+};
+
+/*
+ * OWNER'S CHOICE OVER RS's AREA (#244, 2026-10-18): only the Goblin Village track, and a zone of its own.
+ * RS's own polygons split this square between Lightness/Scape Soft (50%), Alone (31%) and Goblin Village
+ * (16%); the chunk is named Goblin Village and gets that place's own music.
+ */
+const RsZoneRect kRects_goblin_village[] = {
+    // 46,54 Goblin Village
+    { 2944, 3456, 3007, 3519, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+};
+const RsZoneTrack kTracks_goblin_village[] = {
+    // goblin-village: 96.015 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 96015, 5000, "custom/music/rs/goblin-village" },
+};
+
+/*
+ * OWNER'S CHOICE OVER RS's AREA (#244, 2026-10-18): Ballad of Enchantment, a track borrowed from elsewhere
+ * - RS plays it around square (40,50), far west of the F2P map. RS's own areas put this square at 48%
+ * Lightness/Scape Soft and 32% Alone.
+ */
+const RsZoneRect kRects_monastery[] = {
+    // 47,54 Monastery
+    { 3008, 3456, 3071, 3519, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+};
+const RsZoneTrack kTracks_monastery[] = {
+    // ballad-of-enchantment: 207.029 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 207029, 5000, "custom/music/rs/ballad-of-enchantment" },
+};
+
+/*
+ * A close call: in RS Barbarianism covers 42% and the Varrock outskirts pool 43%. The square is named after
+ * the village, and Barbarianism is the village's own track, so the village wins.
+ */
+const RsZoneRect kRects_barbarian_village[] = {
+    // 48,53 Barbarian Village
+    { 3072, 3392, 3135, 3455, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+};
+const RsZoneTrack kTracks_barbarian_village[] = {
+    // barbarianism: 271.023 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 271023, 5000, "custom/music/rs/barbarianism" },
+};
+
+/*
+ * Forever covers 94% in RS.
+ */
+const RsZoneRect kRects_edgeville[] = {
+    // 48,54 Edgeville
+    { 3072, 3456, 3135, 3519, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+};
+const RsZoneTrack kTracks_edgeville[] = {
+    // forever: 219.452 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 219452, 5000, "custom/music/rs/forever" },
+};
+
+/*
+ * The Trade Parade covers 62% in RS; the rest is the Varrock city pool's edge.
+ */
+const RsZoneRect kRects_grand_exchange[] = {
+    // 49,54 Grand Exchange
+    { 3136, 3456, 3199, 3519, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+};
+const RsZoneTrack kTracks_grand_exchange[] = {
+    // the-trade-parade: 271.348 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 271348, 5000, "custom/music/rs/the-trade-parade" },
+};
+
+/*
+ * The city: RS's Garden / Medieval / Spirit / Adventure pool covers Varrock West 56%, Center 97% and the
+ * Palace 74%. The first zone besides `lumbridge` with a real shuffle bag (four tracks). Varrock's MUSIC is
+ * not one zone in RS: the outskirts and the Grand Exchange each have their own pool, and this file follows
+ * that (with the east gate folded into the outskirts by the owner).
+ */
+const RsZoneRect kRects_varrock[] = {
+    // 49,53 Varrock West
+    { 3136, 3392, 3199, 3455, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+    // 50,53 Varrock Center
+    { 3200, 3392, 3263, 3455, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+    // 50,54 Varrock Palace
+    { 3200, 3456, 3263, 3519, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+};
+const RsZoneTrack kTracks_varrock[] = {
+    // garden: 158.407 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 158407, 5000, "custom/music/rs/garden" },
+    // medieval: 240.025 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 240025, 5000, "custom/music/rs/medieval" },
+    // spirit: 234.011 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 234011, 5000, "custom/music/rs/spirit" },
+    // adventure: 153.623 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 153623, 5000, "custom/music/rs/adventure" },
+};
+
+/*
+ * OWNER'S CHOICE OVER RS's GROUPING (#244, 2026-10-18), built from RS's Doorways / Expanse / Still Night /
+ * Greatness pool, which rings the city: Champions' Guild 51%, Varrock South Gate 75%, SE Varrock Mine 55%,
+ * Lumber Yard 87%. Two departures from RS. Varrock East Gate (51,53) is MERGED IN, so the zone is one
+ * connected L - in RS that square is 50% Lullaby/Venture and 30% this pool, and the owner dropped Lullaby
+ * and Venture rather than give the gate its own zone, which also joins the Lumber Yard to the rest instead
+ * of leaving it cut off in the NE corner. And Doorways is DROPPED from the pool. Three tracks over five
+ * squares, the largest zone after `lumbridge`.
+ */
+const RsZoneRect kRects_varrock_outskirts[] = {
+    // 49,52 Champions' Guild
+    { 3136, 3328, 3199, 3391, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+    // 50,52 Varrock South Gate
+    { 3200, 3328, 3263, 3391, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+    // 51,52 SE Varrock Mine
+    { 3264, 3328, 3327, 3391, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+    // 51,53 Varrock East Gate
+    { 3264, 3392, 3327, 3455, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+    // 51,54 Lumber Yard
+    { 3264, 3456, 3327, 3519, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+};
+const RsZoneTrack kTracks_varrock_outskirts[] = {
+    // expanse: 170.272 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 170272, 5000, "custom/music/rs/expanse" },
+    // still-night: 172.826 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 172826, 5000, "custom/music/rs/still-night" },
+    // greatness: 221.518 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 221518, 5000, "custom/music/rs/greatness" },
+};
+
+/*
+ * Arabian / Al Kharid / Arabian 2 cover 96%, 82% and 95% of the three squares in RS (the Emir's Arena takes
+ * 13% of (51,50), and is outside the six-by-six otherwise).
+ */
+const RsZoneRect kRects_al_kharid[] = {
+    // 51,49 Al Kharid
+    { 3264, 3136, 3327, 3199, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+    // 51,50 Al Kharid North
+    { 3264, 3200, 3327, 3263, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+    // 51,51 Al Kharid Mine
+    { 3264, 3264, 3327, 3327, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
+};
+const RsZoneTrack kTracks_al_kharid[] = {
+    // arabian: 140.806 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 140806, 5000, "custom/music/rs/arabian" },
+    // al-kharid: 199.297 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 199297, 5000, "custom/music/rs/al-kharid" },
+    // arabian-2: 183.02 s of audio, 5 s end fade, placeholder 0x82
+    { 0x82, RS_ZONE_COND_ANY, 183020, 5000, "custom/music/rs/arabian-2" },
 };
 
 /*
@@ -335,7 +637,7 @@ const RsMusicZone kZones[] = {
         .sceneId = RS_ZONE_SCENE_ANY,
         .firstVisitFlag = WORLD_FLAG_MUSIC_FIRST_VISIT_SETTLEMENT,
         .flags = 0,
-        .rectCount = 1,
+        .rectCount = 6,
         .trackCount = 6,
         .rects = kRects_lumbridge,
         .tracks = kTracks_lumbridge,
@@ -348,9 +650,213 @@ const RsMusicZone kZones[] = {
         .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
         .flags = 0,
         .rectCount = 2,
-        .trackCount = 1,
+        .trackCount = 3,
         .rects = kRects_draynor,
         .tracks = kTracks_draynor,
+        .firstVisitTrack = NULL,
+    },
+    {
+        .name = "draynor_manor",
+        .priority = 10,
+        .sceneId = RS_ZONE_SCENE_ANY,
+        .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
+        .flags = 0,
+        .rectCount = 1,
+        .trackCount = 1,
+        .rects = kRects_draynor_manor,
+        .tracks = kTracks_draynor_manor,
+        .firstVisitTrack = NULL,
+    },
+    {
+        .name = "port_sarim",
+        .priority = 10,
+        .sceneId = RS_ZONE_SCENE_ANY,
+        .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
+        .flags = 0,
+        .rectCount = 1,
+        .trackCount = 1,
+        .rects = kRects_port_sarim,
+        .tracks = kTracks_port_sarim,
+        .firstVisitTrack = NULL,
+    },
+    {
+        .name = "port_sarim_south",
+        .priority = 10,
+        .sceneId = RS_ZONE_SCENE_ANY,
+        .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
+        .flags = 0,
+        .rectCount = 1,
+        .trackCount = 1,
+        .rects = kRects_port_sarim_south,
+        .tracks = kTracks_port_sarim_south,
+        .firstVisitTrack = NULL,
+    },
+    {
+        .name = "wizards_tower",
+        .priority = 10,
+        .sceneId = RS_ZONE_SCENE_ANY,
+        .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
+        .flags = 0,
+        .rectCount = 1,
+        .trackCount = 1,
+        .rects = kRects_wizards_tower,
+        .tracks = kTracks_wizards_tower,
+        .firstVisitTrack = NULL,
+    },
+    {
+        .name = "rimmington",
+        .priority = 10,
+        .sceneId = RS_ZONE_SCENE_ANY,
+        .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
+        .flags = 0,
+        .rectCount = 2,
+        .trackCount = 2,
+        .rects = kRects_rimmington,
+        .tracks = kTracks_rimmington,
+        .firstVisitTrack = NULL,
+    },
+    {
+        .name = "falador_farms",
+        .priority = 10,
+        .sceneId = RS_ZONE_SCENE_ANY,
+        .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
+        .flags = 0,
+        .rectCount = 2,
+        .trackCount = 2,
+        .rects = kRects_falador_farms,
+        .tracks = kTracks_falador_farms,
+        .firstVisitTrack = NULL,
+    },
+    {
+        .name = "falador",
+        .priority = 10,
+        .sceneId = RS_ZONE_SCENE_ANY,
+        .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
+        .flags = 0,
+        .rectCount = 2,
+        .trackCount = 2,
+        .rects = kRects_falador,
+        .tracks = kTracks_falador,
+        .firstVisitTrack = NULL,
+    },
+    {
+        .name = "doric_hut",
+        .priority = 10,
+        .sceneId = RS_ZONE_SCENE_ANY,
+        .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
+        .flags = 0,
+        .rectCount = 1,
+        .trackCount = 1,
+        .rects = kRects_doric_hut,
+        .tracks = kTracks_doric_hut,
+        .firstVisitTrack = NULL,
+    },
+    {
+        .name = "dwarven_mine",
+        .priority = 10,
+        .sceneId = RS_ZONE_SCENE_ANY,
+        .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
+        .flags = 0,
+        .rectCount = 1,
+        .trackCount = 1,
+        .rects = kRects_dwarven_mine,
+        .tracks = kTracks_dwarven_mine,
+        .firstVisitTrack = NULL,
+    },
+    {
+        .name = "goblin_village",
+        .priority = 10,
+        .sceneId = RS_ZONE_SCENE_ANY,
+        .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
+        .flags = 0,
+        .rectCount = 1,
+        .trackCount = 1,
+        .rects = kRects_goblin_village,
+        .tracks = kTracks_goblin_village,
+        .firstVisitTrack = NULL,
+    },
+    {
+        .name = "monastery",
+        .priority = 10,
+        .sceneId = RS_ZONE_SCENE_ANY,
+        .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
+        .flags = 0,
+        .rectCount = 1,
+        .trackCount = 1,
+        .rects = kRects_monastery,
+        .tracks = kTracks_monastery,
+        .firstVisitTrack = NULL,
+    },
+    {
+        .name = "barbarian_village",
+        .priority = 10,
+        .sceneId = RS_ZONE_SCENE_ANY,
+        .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
+        .flags = 0,
+        .rectCount = 1,
+        .trackCount = 1,
+        .rects = kRects_barbarian_village,
+        .tracks = kTracks_barbarian_village,
+        .firstVisitTrack = NULL,
+    },
+    {
+        .name = "edgeville",
+        .priority = 10,
+        .sceneId = RS_ZONE_SCENE_ANY,
+        .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
+        .flags = 0,
+        .rectCount = 1,
+        .trackCount = 1,
+        .rects = kRects_edgeville,
+        .tracks = kTracks_edgeville,
+        .firstVisitTrack = NULL,
+    },
+    {
+        .name = "grand_exchange",
+        .priority = 10,
+        .sceneId = RS_ZONE_SCENE_ANY,
+        .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
+        .flags = 0,
+        .rectCount = 1,
+        .trackCount = 1,
+        .rects = kRects_grand_exchange,
+        .tracks = kTracks_grand_exchange,
+        .firstVisitTrack = NULL,
+    },
+    {
+        .name = "varrock",
+        .priority = 10,
+        .sceneId = RS_ZONE_SCENE_ANY,
+        .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
+        .flags = 0,
+        .rectCount = 3,
+        .trackCount = 4,
+        .rects = kRects_varrock,
+        .tracks = kTracks_varrock,
+        .firstVisitTrack = NULL,
+    },
+    {
+        .name = "varrock_outskirts",
+        .priority = 10,
+        .sceneId = RS_ZONE_SCENE_ANY,
+        .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
+        .flags = 0,
+        .rectCount = 5,
+        .trackCount = 3,
+        .rects = kRects_varrock_outskirts,
+        .tracks = kTracks_varrock_outskirts,
+        .firstVisitTrack = NULL,
+    },
+    {
+        .name = "al_kharid",
+        .priority = 10,
+        .sceneId = RS_ZONE_SCENE_ANY,
+        .firstVisitFlag = RS_ZONE_NO_FIRST_VISIT,
+        .flags = 0,
+        .rectCount = 3,
+        .trackCount = 3,
+        .rects = kRects_al_kharid,
+        .tracks = kTracks_al_kharid,
         .firstVisitTrack = NULL,
     },
     {

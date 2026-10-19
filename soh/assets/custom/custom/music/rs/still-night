@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="174">
+    <!-- CRC64("custom/fonts/rs/still-night") = 0xe73e2e8d29d3903c, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="60"/>
+        <Font FontIdx="144"/>
+        <Font FontIdx="211"/>
+        <Font FontIdx="41"/>
+        <Font FontIdx="141"/>
+        <Font FontIdx="46"/>
+        <Font FontIdx="62"/>
+        <Font FontIdx="231"/>
+    </Fonts>
+</Sequence>

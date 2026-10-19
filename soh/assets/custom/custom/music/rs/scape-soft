@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="159">
+    <!-- CRC64("custom/fonts/rs/scape-soft") = 0xfbccd0e24d9af6f8, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="248"/>
+        <Font FontIdx="246"/>
+        <Font FontIdx="154"/>
+        <Font FontIdx="77"/>
+        <Font FontIdx="226"/>
+        <Font FontIdx="208"/>
+        <Font FontIdx="204"/>
+        <Font FontIdx="251"/>
+    </Fonts>
+</Sequence>
