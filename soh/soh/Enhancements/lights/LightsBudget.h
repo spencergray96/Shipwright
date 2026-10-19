@@ -42,10 +42,10 @@ typedef struct LightsStats {
     s32 sunFirstGate; // 1 when this tick's binds ran sun first (the CVar on and a grid-tool scene)
     u32 tick;         // state.frames of the tick the figures below describe
     s32 binds;        // Lights_BindAll calls (each drawn actor, the room draw, soft sprites)
-    s32 walked;       // the lists' lengths, summed: each bind walks its list once to count, once to bind
-    s32 overflowed;   // binds with more lights in range than 7 slots
-    s32 maxInRange;   // most point lights in range of one bind
-    // Link's own bind in that tick (-1 when he did not draw)
+    s32 walked;       // list nodes visited: in a grid-tool scene each bind walks its list twice (count, bind)
+    s32 overflowed;   // binds with more lights in range than 7 slots (grid-tool scenes; 0 in vanilla ones)
+    s32 maxInRange;   // most point lights in range of one bind (likewise)
+    // Link's own bind in that tick (-1 when he did not draw, and always in a vanilla scene)
     s32 linkInRange; // point lights within their radius of him
     s32 linkPoints;  // point lights bound
     s32 linkDirs;    // directional lights bound

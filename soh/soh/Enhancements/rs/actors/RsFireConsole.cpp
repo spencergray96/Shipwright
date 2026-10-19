@@ -197,9 +197,9 @@ const ConsoleSink::Command rsFireCommand(
     "The RS torch fires in this scene (sturdy-bassoon#232, #243): list | pool | distance [<n>|default] | "
     "glow [on|off|default]. list says where each fire is, its size, whether it is lit and by what, its "
     "world flag, whether it holds a light node, and whether it is awake and drawn; pool counts the scene's "
-    "light nodes against the pool's cap (`lights` for the rest). distance sets how far in front of the camera flames draw "
-    "(and so how far off an arrow can light one); glow switches the halo round each lit fire. Both apply "
-    "to every fire at once and are saved; default goes back to the built-in value.",
+    "light nodes against the pool's cap (`lights` for the rest). distance sets how far in front of the "
+    "camera flames draw (and so how far off an arrow can light one); glow switches the halo round each lit "
+    "fire. Both apply to every fire at once and are saved; default goes back to the built-in value.",
     { { "list|pool|distance|glow", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } });
 
 } // namespace

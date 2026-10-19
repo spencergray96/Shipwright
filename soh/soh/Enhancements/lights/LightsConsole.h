@@ -19,11 +19,12 @@
 //                   scene);
 //                   `tick frame=<n> binds=<n> walked=<n> overflowed=<n> max_in_range=<n>`: the last complete
 //                   tick's Lights_BindAll calls, the list nodes they visited (the cost the pool size
-//                   drives), the binds with more lights in range than 7 slots, and the most point lights
-//                   in range of one bind;
+//                   drives; a grid-tool scene walks each list twice), the binds with more lights in range
+//                   than 7 slots, and the most point lights in range of one bind. A vanilla scene counts
+//                   binds and walked only: it runs vanilla's loop and nothing more;
 //                   `link in_range=<n> points=<n> dirs=<n>`: Link's own bind in that tick: point lights in
-//                   range, point lights bound, directional lights bound. -1 each when he did not draw.
-//                   dirs=2 is "he keeps the sun"
+//                   range, point lights bound, directional lights bound. -1 each when he did not draw, and
+//                   always in a vanilla scene. dirs=2 is "he keeps the sun"
 //   sunfirst [on|off|default]
 //                   sets the setting (saved; default on), then, or bare,
 //                   `op=sunfirst result=ok sunfirst=on|off default=on override=0|1 gate=<0|1>`. gate is
