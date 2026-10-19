@@ -48,7 +48,9 @@ static void Lights_RollTick(void) {
     if (gPlayState == NULL) {
         return;
     }
-    frame = gPlayState->gameplayFrames;
+    // state.frames, not gameplayFrames: the latter stands still while the game is paused or held by
+    // IREG(72), and a frozen key would freeze the report with it.
+    frame = gPlayState->state.frames;
     if (sLightsTickStarted && frame == sLightsTickFrame) {
         return;
     }

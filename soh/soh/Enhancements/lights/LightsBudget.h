@@ -40,7 +40,7 @@ typedef struct LightsStats {
     s32 peak;         // most nodes held at once since the scene began
     s32 refused;      // inserts refused because the pool was at its cap, since the scene began
     s32 sunFirstGate; // 1 when this tick's binds ran sun first (the CVar on and a grid-tool scene)
-    u32 tick;         // gameplayFrames of the tick the figures below describe
+    u32 tick;         // state.frames of the tick the figures below describe
     s32 binds;        // Lights_BindAll calls (each drawn actor, the room draw, soft sprites)
     s32 walked;       // the lists' lengths, summed: each bind walks its list once to count, once to bind
     s32 overflowed;   // binds with more lights in range than 7 slots
