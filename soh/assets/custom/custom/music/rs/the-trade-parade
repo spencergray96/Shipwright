@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="273">
+    <!-- CRC64("custom/fonts/rs/the-trade-parade") = 0xff01339465dc3002, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="2"/>
+        <Font FontIdx="48"/>
+        <Font FontIdx="220"/>
+        <Font FontIdx="101"/>
+        <Font FontIdx="148"/>
+        <Font FontIdx="51"/>
+        <Font FontIdx="1"/>
+        <Font FontIdx="255"/>
+    </Fonts>
+</Sequence>

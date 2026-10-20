@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="235">
+    <!-- CRC64("custom/fonts/rs/spirit") = 0xad1b58430ad36ace, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="206"/>
+        <Font FontIdx="106"/>
+        <Font FontIdx="211"/>
+        <Font FontIdx="10"/>
+        <Font FontIdx="67"/>
+        <Font FontIdx="88"/>
+        <Font FontIdx="27"/>
+        <Font FontIdx="173"/>
+    </Fonts>
+</Sequence>

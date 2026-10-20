@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="172">
+    <!-- CRC64("custom/fonts/rs/expanse") = 0xc51d70fb2b407610, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="16"/>
+        <Font FontIdx="118"/>
+        <Font FontIdx="64"/>
+        <Font FontIdx="43"/>
+        <Font FontIdx="251"/>
+        <Font FontIdx="112"/>
+        <Font FontIdx="29"/>
+        <Font FontIdx="197"/>
+    </Fonts>
+</Sequence>

@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="125">
+    <!-- CRC64("custom/fonts/rs/sea-shanty-2") = 0xde87c5acc96bb1ff, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="255"/>
+        <Font FontIdx="177"/>
+        <Font FontIdx="107"/>
+        <Font FontIdx="201"/>
+        <Font FontIdx="172"/>
+        <Font FontIdx="197"/>
+        <Font FontIdx="135"/>
+        <Font FontIdx="222"/>
+    </Fonts>
+</Sequence>

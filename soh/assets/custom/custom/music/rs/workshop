@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="252">
+    <!-- CRC64("custom/fonts/rs/workshop") = 0x0cdf2017b29d1c52, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="82"/>
+        <Font FontIdx="28"/>
+        <Font FontIdx="157"/>
+        <Font FontIdx="178"/>
+        <Font FontIdx="23"/>
+        <Font FontIdx="32"/>
+        <Font FontIdx="223"/>
+        <Font FontIdx="12"/>
+    </Fonts>
+</Sequence>

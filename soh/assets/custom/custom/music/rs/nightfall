@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="229">
+    <!-- CRC64("custom/fonts/rs/nightfall") = 0x3819d0715a9a4f89, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="137"/>
+        <Font FontIdx="79"/>
+        <Font FontIdx="154"/>
+        <Font FontIdx="90"/>
+        <Font FontIdx="113"/>
+        <Font FontIdx="208"/>
+        <Font FontIdx="25"/>
+        <Font FontIdx="56"/>
+    </Fonts>
+</Sequence>

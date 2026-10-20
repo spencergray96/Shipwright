@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="170">
+    <!-- CRC64("custom/fonts/rs/attention") = 0xec1c67856e1c8979, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="121"/>
+        <Font FontIdx="137"/>
+        <Font FontIdx="28"/>
+        <Font FontIdx="110"/>
+        <Font FontIdx="133"/>
+        <Font FontIdx="103"/>
+        <Font FontIdx="28"/>
+        <Font FontIdx="236"/>
+    </Fonts>
+</Sequence>

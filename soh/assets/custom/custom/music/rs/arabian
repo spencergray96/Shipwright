@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="142">
+    <!-- CRC64("custom/fonts/rs/arabian") = 0x39b4a2f2e10117c7, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="199"/>
+        <Font FontIdx="23"/>
+        <Font FontIdx="1"/>
+        <Font FontIdx="225"/>
+        <Font FontIdx="242"/>
+        <Font FontIdx="162"/>
+        <Font FontIdx="180"/>
+        <Font FontIdx="57"/>
+    </Fonts>
+</Sequence>

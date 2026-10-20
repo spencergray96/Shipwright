@@ -1,0 +1,3 @@
+<Sample Version="0" Codec="S16" Medium="Ram" bit26="0" CustomFormat="ogg" Size="11983728" Path="custom/samples/rs/sea-shanty-2_r.ogg">
+    <ADPCMLoop Start="0" End="5991864" Count="0"/>
+</Sample>

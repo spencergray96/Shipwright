@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="200">
+    <!-- CRC64("custom/fonts/rs/al-kharid") = 0x18d3c6d493447c2e, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="46"/>
+        <Font FontIdx="124"/>
+        <Font FontIdx="68"/>
+        <Font FontIdx="147"/>
+        <Font FontIdx="212"/>
+        <Font FontIdx="198"/>
+        <Font FontIdx="211"/>
+        <Font FontIdx="24"/>
+    </Fonts>
+</Sequence>

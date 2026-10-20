@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="272">
+    <!-- CRC64("custom/fonts/rs/barbarianism") = 0x23a6f063f3c8ad78, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="120"/>
+        <Font FontIdx="173"/>
+        <Font FontIdx="200"/>
+        <Font FontIdx="243"/>
+        <Font FontIdx="99"/>
+        <Font FontIdx="240"/>
+        <Font FontIdx="166"/>
+        <Font FontIdx="35"/>
+    </Fonts>
+</Sequence>

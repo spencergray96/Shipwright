@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="208">
+    <!-- CRC64("custom/fonts/rs/ballad-of-enchantment") = 0xdcc5d44eb74daf59, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="89"/>
+        <Font FontIdx="175"/>
+        <Font FontIdx="77"/>
+        <Font FontIdx="183"/>
+        <Font FontIdx="78"/>
+        <Font FontIdx="212"/>
+        <Font FontIdx="197"/>
+        <Font FontIdx="220"/>
+    </Fonts>
+</Sequence>

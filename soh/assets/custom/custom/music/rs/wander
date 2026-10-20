@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="204">
+    <!-- CRC64("custom/fonts/rs/wander") = 0xfb347523e3f4b7bd, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="189"/>
+        <Font FontIdx="183"/>
+        <Font FontIdx="244"/>
+        <Font FontIdx="227"/>
+        <Font FontIdx="35"/>
+        <Font FontIdx="117"/>
+        <Font FontIdx="52"/>
+        <Font FontIdx="251"/>
+    </Fonts>
+</Sequence>

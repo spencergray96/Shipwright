@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="159">
+    <!-- CRC64("custom/fonts/rs/garden") = 0xee4cc281814fca7b, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="123"/>
+        <Font FontIdx="202"/>
+        <Font FontIdx="79"/>
+        <Font FontIdx="129"/>
+        <Font FontIdx="129"/>
+        <Font FontIdx="194"/>
+        <Font FontIdx="76"/>
+        <Font FontIdx="238"/>
+    </Fonts>
+</Sequence>

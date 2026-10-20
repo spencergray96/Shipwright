@@ -1,0 +1,13 @@
+<Sequence Version="0" Medium="Cart" CachePolicy="Either" Streamed="true" Stereo="true" Looped="false" Length="242">
+    <!-- CRC64("custom/fonts/rs/emperor") = 0x0762f93e48ea3ce6, one byte per Font, little-endian -->
+    <Fonts>
+        <Font FontIdx="230"/>
+        <Font FontIdx="60"/>
+        <Font FontIdx="234"/>
+        <Font FontIdx="72"/>
+        <Font FontIdx="62"/>
+        <Font FontIdx="249"/>
+        <Font FontIdx="98"/>
+        <Font FontIdx="7"/>
+    </Fonts>
+</Sequence>
