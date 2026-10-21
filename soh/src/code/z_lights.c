@@ -46,6 +46,7 @@ static s32 sLightsTickStarted;
 static s32 sLightsCountThisTick;    // a grid-tool scene: count what wants a slot before binding
 static s32 sLightsSunFirstThisTick; // and the setting is on: bind the sun first when it overflows
 static s32 sLightsShadowSmoothThisTick; // a grid-tool scene and the setting on: smooth the feet shadows (#250)
+static s32 sLightsShadowPulseThisTick;  // and the pulse setting on: the smoothed shadows breathe (#250)
 
 // Lights_FindSlot's cap: the slots in a Lights group (`Lights.l.l`).
 #define LIGHTS_BIND_SLOTS 7
@@ -143,9 +144,16 @@ typedef struct {
     LightNode* node;  // NULL: free
     LightInfo* info;  // the node's holder's info: a node freed and re-taken by another light is another light
     f32 strength;     // the smoothed lightNum
+    f32 brightness;   // the light's own colour sum, averaged over seconds: its flicker taken out
+    u16 samples;      // ticks averaged into it, to LIGHTS_SHADOW_BRIGHTNESS_TICKS
     s8 dir[3];        // the last direction it was bound at with the light above the feet
     s8 bound;         // bound this tick
 } LightsShadowLight;
+
+// The brightness average: a plain mean over the first LIGHTS_SHADOW_BRIGHTNESS_TICKS ticks a light is bound,
+// then a moving average over about as long. A fire's re-roll (0.5-1.0 of full, every tick) averages to a
+// steady value within a second or two, and drifts by about 1% after that.
+#define LIGHTS_SHADOW_BRIGHTNESS_TICKS 100
 
 typedef struct {
     Actor* actor; // NULL: free
@@ -159,6 +167,11 @@ typedef struct {
 
 static LightsShadowActor sShadowActors[LIGHTS_SHADOW_ACTORS];
 static f32 sShadowRate = LIGHTS_SHADOW_RATE_DEFAULT;
+static f32 sShadowPulseAmount = LIGHTS_SHADOW_PULSE_AMOUNT_DEFAULT;
+// Lights_SetShadowMeanColor's means, by pool node, with the info each was set for.
+static f32 sShadowNodeMean[LIGHTS_BUFFER_SIZE];
+static LightInfo* sShadowNodeMeanInfo[LIGHTS_BUFFER_SIZE];
+static f32 sShadowPulseSeconds = LIGHTS_SHADOW_PULSE_SECONDS_DEFAULT;
 static LightsShadowStats sShadowStats;
 
 // A fading light whose strength falls below this draws under an alpha of 1 (0.00005 x 255 x 78 < 1): drop it.
@@ -184,10 +197,41 @@ void Lights_GetShadowStats(LightsShadowStats* out) {
     *out = sShadowStats;
     out->gate = sLightsShadowSmoothThisTick;
     out->rate = sShadowRate;
+    out->pulseGate = sLightsShadowPulseThisTick;
+    out->pulseAmount = sShadowPulseAmount;
+    out->pulseSeconds = sShadowPulseSeconds;
     out->actors = 0;
     for (i = 0; i < LIGHTS_SHADOW_ACTORS; i++) {
         out->actors += Lights_ShadowSlotLive(&sShadowActors[i], frame);
     }
+}
+
+void Lights_SetShadowMeanColor(LightNode* node, LightInfo* info, f32 colorSum) {
+    s32 index;
+
+    if (node == NULL) {
+        return;
+    }
+    index = node - sLightsBuffer.buf;
+    if (index >= 0 && index < LIGHTS_BUFFER_SIZE) {
+        sShadowNodeMean[index] = colorSum;
+        sShadowNodeMeanInfo[index] = info;
+    }
+}
+
+void Lights_SetShadowPulse(f32 amount, f32 seconds) {
+    sShadowPulseAmount = CLAMP(amount, 0.0f, 0.9f);
+    sShadowPulseSeconds = CLAMP(seconds, 0.5f, 30.0f);
+}
+
+// The pulse's factor for one light this tick: 1 + amount x sin(phase). The phase runs with state.frames (20 a
+// second) and is offset by the light's pool node times the golden angle, so neighbouring nodes spread evenly
+// round the cycle and a light keeps its place in it whichever slot it binds to.
+static f32 Lights_ShadowPulse(LightNode* node, u32 frame) {
+    f32 cycle = (f32)frame / (20.0f * sShadowPulseSeconds);
+    f32 phase = 2.0f * M_PI * (cycle - floorf(cycle)) + 2.3999632f * (f32)(node - sLightsBuffer.buf);
+
+    return 1.0f + sShadowPulseAmount * sinf(phase);
 }
 
 f32 Lights_SetShadowRate(f32 rate) {
@@ -254,6 +298,9 @@ static void Lights_AdvanceShadowLights(LightsShadowActor* e, Lights* lights, s32
     LightsShadowLight* sl;
     LightsShadowLight* weakest;
     Light* light;
+    LightParams* params;
+    f32 now;
+    s32 index;
     s32 target;
     s32 i;
     s32 j;
@@ -270,7 +317,10 @@ static void Lights_AdvanceShadowLights(LightsShadowActor* e, Lights* lights, s32
     }
     for (j = 0; j < numPoints; j++) {
         light = &lights->l.l[j];
-        target = Lights_ShadowStrength(light);
+        params = &sBindNode[j]->info->params;
+        // This tick's flicker, divided out: the bound colour is the light's colour now times the distance
+        // falloff, so the strength at the averaged brightness is the bound one scaled by average / now.
+        now = (f32)(params->point.color[0] + params->point.color[1] + params->point.color[2]);
         sl = found[j];
         if (sl == NULL) {
             // A joining light takes a free entry, or else the weakest fading one, which is cut short. At
@@ -291,6 +341,21 @@ static void Lights_AdvanceShadowLights(LightsShadowActor* e, Lights* lights, s32
             sl = weakest;
             sl->node = sBindNode[j];
             sl->info = sBindNode[j]->info;
+            // A known mean starts the average settled; otherwise it starts from this tick's roll.
+            index = sBindNode[j] - sLightsBuffer.buf;
+            if (sShadowNodeMeanInfo[index] == sBindNode[j]->info && sShadowNodeMean[index] > 0.0f) {
+                sl->brightness = sShadowNodeMean[index];
+                sl->samples = LIGHTS_SHADOW_BRIGHTNESS_TICKS;
+            } else {
+                sl->brightness = now;
+                sl->samples = 1;
+            }
+        } else {
+            sl->samples = MIN(sl->samples + 1, LIGHTS_SHADOW_BRIGHTNESS_TICKS);
+            sl->brightness += (now - sl->brightness) / sl->samples;
+        }
+        target = (now > 0.0f) ? Lights_ShadowStrength(light) * (sl->brightness / now) : 0;
+        if (found[j] == NULL) {
             sl->strength = snap ? target : 0.0f;
         } else {
             sl->strength = snap ? target : sl->strength + sShadowRate * (target - sl->strength);
@@ -381,6 +446,9 @@ s32 Lights_ShadowCasts(Actor* actor, Lights* lights, LightsShadowCast* casts) {
         casts[n].light.l.dir[1] = sl->dir[1];
         casts[n].light.l.dir[2] = sl->dir[2];
         casts[n].lightNum = (sl->dir[1] > 0) ? (s32)sl->strength : 0;
+        if (sLightsShadowPulseThisTick) {
+            casts[n].lightNum = (s32)(casts[n].lightNum * Lights_ShadowPulse(sl->node, frame));
+        }
         if (rec != NULL) {
             rec->node[n] = (s16)(sl->node - sLightsBuffer.buf);
         }
@@ -428,6 +496,8 @@ static void Lights_RollTick(void) {
     sLightsSunFirstThisTick = sLightsCountThisTick && CVarGetInteger(CVAR_LIGHTS_SUN_FIRST, LIGHTS_SUN_FIRST_DEFAULT);
     sLightsShadowSmoothThisTick =
         sLightsCountThisTick && CVarGetInteger(CVAR_LIGHTS_SHADOW_SMOOTH, LIGHTS_SHADOW_SMOOTH_DEFAULT);
+    sLightsShadowPulseThisTick =
+        sLightsShadowSmoothThisTick && CVarGetInteger(CVAR_LIGHTS_SHADOW_PULSE, LIGHTS_SHADOW_PULSE_DEFAULT);
     fresh.sunFirstGate = sLightsSunFirstThisTick;
     sLightsTick = fresh;
     sLightsTickFrame = frame;

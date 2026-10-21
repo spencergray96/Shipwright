@@ -51,6 +51,15 @@
 // standing near fires, it takes the shadow's mean jump a tick from about 23% of its strength to about 2%.
 // `lights shadowrate` changes it for one session.
 #define LIGHTS_SHADOW_RATE_DEFAULT 0.12f
+// The pulse (the owner's ask at #250's look): on top of the smoothed strength, each light's shadow breathes on a
+// slow sine, darkening and lightening by `amount` of its strength over `seconds`. Each light keeps one phase
+// for as long as it holds its pool node, so several fires breathe out of step and a light re-bound into another
+// slot, or snapped in after a warp, carries on where it was. The sun's cut-off reads the strength before the
+// pulse, so the sun shadow stays steady. `lights shadowpulse off` is the plain fade.
+#define CVAR_LIGHTS_SHADOW_PULSE CVAR_ENHANCEMENT("LightsShadowPulse")
+#define LIGHTS_SHADOW_PULSE_DEFAULT 1
+#define LIGHTS_SHADOW_PULSE_AMOUNT_DEFAULT 0.10f
+#define LIGHTS_SHADOW_PULSE_SECONDS_DEFAULT 3.0f
 #define LIGHTS_SHADOW_ACTORS 16    // actors smoothed at once; past it, an actor draws unsmoothed (counted)
 // Lights per actor: up to 5 bound point lights and the rest fading. With 8, walking a path between 14
 // fires cut 8 fades short; with 12, none. When one must be cut, it is the weakest fading light (counted).
@@ -108,6 +117,9 @@ typedef struct LightsShadowCast {
 typedef struct LightsShadowStats {
     s32 gate;    // 1 when this tick's feet shadows are smoothed (the setting AND a grid-tool scene)
     f32 rate;    // the fraction a tick in force
+    s32 pulseGate;     // 1 when this tick's smoothed shadows pulse (the smoothing's gate AND the pulse setting)
+    f32 pulseAmount;   // the pulse's depth, a fraction of the strength
+    f32 pulseSeconds;  // the pulse's period
     s32 actors;  // table slots held by an actor drawn this tick or the last
     s32 snaps;   // fresh starts: snapped rather than faded
     s32 full;    // draws left unsmoothed because the table was full
@@ -128,6 +140,12 @@ s32 Lights_ShadowCasts(Actor* actor, Lights* lights, LightsShadowCast* casts);
 void Lights_GetShadowStats(LightsShadowStats* out);
 // For this session only; clamped to 0.01..1 (1 is unsmoothed). Returns the rate applied.
 f32 Lights_SetShadowRate(f32 rate);
+// For this session only; the amount clamped to 0..0.9, the period to 0.5..30 s.
+void Lights_SetShadowPulse(f32 amount, f32 seconds);
+// A light whose colour flickers round a known mean says so once it holds its node: the shadows start their
+// brightness average there, so a shadow that snaps in after a warp is right from its first tick instead of
+// settling from one random roll. Kept for that node and info only; a node re-taken by another light ignores it.
+void Lights_SetShadowMeanColor(LightNode* node, LightInfo* info, f32 colorSum);
 // Clamps to 1..LIGHTS_BUFFER_SIZE and returns the cap applied. Holders over the cap keep their nodes;
 // only new inserts are refused until the count drops below it.
 s32 Lights_SetPoolCap(s32 cap);

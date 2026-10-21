@@ -25,7 +25,7 @@ using ConsoleSink::Addf;
 
 const char* kUsage =
     "op=usage result=error usage=\"lights [status] | sunfirst [on|off|default] | pool [<n>|default] | shadow [clear] | "
-    "shadowsmooth [on|off|default] | shadowrate [<k>|default]\"";
+    "shadowsmooth [on|off|default] | shadowrate [<k>|default] | shadowpulse [on|off|default|<amount> <seconds>]\"";
 
 bool SunFirstOn() {
     return CVarGetInteger(CVAR_LIGHTS_SUN_FIRST, LIGHTS_SUN_FIRST_DEFAULT) != 0;
@@ -33,6 +33,10 @@ bool SunFirstOn() {
 
 bool ShadowSmoothOn() {
     return CVarGetInteger(CVAR_LIGHTS_SHADOW_SMOOTH, LIGHTS_SHADOW_SMOOTH_DEFAULT) != 0;
+}
+
+bool ShadowPulseOn() {
+    return CVarGetInteger(CVAR_LIGHTS_SHADOW_PULSE, LIGHTS_SHADOW_PULSE_DEFAULT) != 0;
 }
 
 int32_t Status(std::vector<std::string>& lines) {
@@ -155,6 +159,38 @@ int32_t ShadowSmooth(const std::vector<std::string>& args, std::vector<std::stri
     return 0;
 }
 
+int32_t ShadowPulse(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() == 3) {
+        char* end1 = nullptr;
+        char* end2 = nullptr;
+        const double amount = strtod(args[1].c_str(), &end1);
+        const double seconds = strtod(args[2].c_str(), &end2);
+        if (end1 == args[1].c_str() || *end1 != '\0' || end2 == args[2].c_str() || *end2 != '\0' || amount < 0.0 ||
+            amount > 0.9 || seconds < 0.5 || seconds > 30.0) {
+            Addf(lines, "op=shadowpulse result=error error=bad_value amount=0..0.9 seconds=0.5..30");
+            return 1;
+        }
+        Lights_SetShadowPulse((f32)amount, (f32)seconds);
+    } else if (args.size() == 2) {
+        if (args[1] == "default") {
+            CVarClear(CVAR_LIGHTS_SHADOW_PULSE);
+            Lights_SetShadowPulse(LIGHTS_SHADOW_PULSE_AMOUNT_DEFAULT, LIGHTS_SHADOW_PULSE_SECONDS_DEFAULT);
+        } else if (args[1] == "on" || args[1] == "off") {
+            CVarSetInteger(CVAR_LIGHTS_SHADOW_PULSE, args[1] == "on" ? 1 : 0);
+        } else {
+            Addf(lines, "op=shadowpulse result=error error=bad_value expects=on|off|default|<amount> <seconds>");
+            return 1;
+        }
+        CVarSave();
+    }
+    LightsShadowStats s;
+    Lights_GetShadowStats(&s);
+    Addf(lines, "op=shadowpulse result=ok shadowpulse=%s default=%s override=%d gate=%d amount=%.3f seconds=%.2f",
+         ShadowPulseOn() ? "on" : "off", LIGHTS_SHADOW_PULSE_DEFAULT ? "on" : "off",
+         CVarGetInteger(CVAR_LIGHTS_SHADOW_PULSE, -1) != -1 ? 1 : 0, s.pulseGate, s.pulseAmount, s.pulseSeconds);
+    return 0;
+}
+
 int32_t ShadowRate(const std::vector<std::string>& args, std::vector<std::string>& lines) {
     if (args.size() == 2) {
         if (args[1] == "default") {
@@ -178,7 +214,8 @@ int32_t ShadowRate(const std::vector<std::string>& args, std::vector<std::string
 } // namespace
 
 int32_t LightsConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines) {
-    if (args.size() > 2) {
+    // Only `shadowpulse <amount> <seconds>` takes two values.
+    if (args.size() > 3 || (args.size() == 3 && args[0] != "shadowpulse")) {
         lines.push_back(kUsage);
         return 1;
     }
@@ -194,6 +231,9 @@ int32_t LightsConsole_Run(const std::vector<std::string>& args, std::vector<std:
     }
     if (sub == "shadowsmooth") {
         return ShadowSmooth(args, lines);
+    }
+    if (sub == "shadowpulse") {
+        return ShadowPulse(args, lines);
     }
     if (sub == "shadowrate") {
         return ShadowRate(args, lines);
@@ -223,7 +263,9 @@ const ConsoleSink::Command lightsCommand(
     "over the last 120 ticks (#250): each slot's light and the alpha it drew at; `shadow clear` starts afresh. "
     "shadowsmooth switches the grid-tool scenes' smoothed feet shadows: each light's shadow fades toward its "
     "strength instead of jumping with the flame's flicker, and fades in and out as it joins or leaves the bound "
-    "lights. shadowrate sets the fraction a tick for this session only (default 0.12; 1 is unsmoothed).",
+    "lights. shadowrate sets the fraction a tick for this session only (default 0.12; 1 is unsmoothed). "
+    "shadowpulse switches a slow breathing of each smoothed shadow, each fire out of step (off is the plain "
+    "fade); `shadowpulse <amount> <seconds>` tunes its depth and period for this session.",
     { { "status|sunfirst|pool|shadow|shadowsmooth|shadowrate", Ship::ArgumentType::TEXT },
       { "value", Ship::ArgumentType::TEXT, true } });
 

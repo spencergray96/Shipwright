@@ -53,6 +53,12 @@
 //   shadowrate [<k>|default]
 //                   the fraction a tick each shadow moves toward its light's strength, 0.01..1, for THIS
 //                   SESSION ONLY (1 is unsmoothed); then, or bare, `op=shadowrate result=ok rate=<k> default=<k>`
+//   shadowpulse [on|off|default|<amount> <seconds>]
+//                   on|off sets the pulse (saved; default on; only while the smoothing is): each smoothed shadow
+//                   breathes by <amount> of its strength over <seconds>, each light on its own phase. Off is the
+//                   plain fade. <amount> <seconds> tunes it for THIS SESSION ONLY (0..0.9, 0.5..30 s); default
+//                   clears both. Then, or bare, `op=shadowpulse result=ok shadowpulse=on|off default=on
+//                   override=0|1 gate=<0|1> amount=<a> seconds=<s>`
 //
 // Returns 0 on success (and for the reads), 1 for a refused operation: an unknown subcommand, an extra
 // argument or a bad value (`op=<sub> result=error error=bad_value`).
