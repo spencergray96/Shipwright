@@ -448,6 +448,8 @@ s32 Lights_ShadowCasts(Actor* actor, Lights* lights, LightsShadowCast* casts) {
         casts[n].light.l.dir[1] = sl->dir[1];
         casts[n].light.l.dir[2] = sl->dir[2];
         casts[n].lightNum = (sl->dir[1] > 0) ? (s32)sl->strength : 0;
+        casts[n].key = sl->info; // #254
+        casts[n].keyNode = (s32)(sl->node - sLightsBuffer.buf);
         if (sLightsShadowPulseThisTick) {
             casts[n].lightNum =
                 (s32)(MIN(casts[n].lightNum, LIGHTS_SHADOW_FULL) * Lights_ShadowPulse(sl->node, frame));

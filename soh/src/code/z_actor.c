@@ -215,6 +215,27 @@ void ActorShadow_DrawFoot(PlayState* play, Light* light, MtxF* arg2, s32 arg3, f
     CLOSE_DISPS(play->state.gfxCtx);
 }
 
+// #region SOH [sturdy-bassoon#254] A foot shadow in its own interpolation child, keyed by its light and foot
+// (LightsBudget.h, CVAR_SHADOW_INTERP_PAIR), so the frames between two ticks lerp it against the same light's
+// shadow. `key` is the light's identity (a smoothed cast's LightInfo), or the slot marker below with the
+// slot's index (the sun's two from FOOT_SHADOW_SUN_ID). Not const, so the linker cannot fold it with another.
+static u8 sFootShadowSlotKey;
+#define FOOT_SHADOW_SUN_ID 0x100
+
+static void ActorShadow_DrawFootPaired(PlayState* play, const void* key, s32 id, s32 foot, Light* light, MtxF* floorMtx,
+                                       s32 lightNum, f32 shadowAlpha, f32 shadowScaleX, f32 shadowScaleZ) {
+    s32 paired = CVarGetInteger(CVAR_SHADOW_INTERP_PAIR, SHADOW_INTERP_PAIR_DEFAULT);
+
+    if (paired) {
+        FrameInterpolation_RecordOpenChild(key, (id << 1) | foot);
+    }
+    ActorShadow_DrawFoot(play, light, floorMtx, lightNum, shadowAlpha, shadowScaleX, shadowScaleZ);
+    if (paired) {
+        FrameInterpolation_RecordCloseChild();
+    }
+}
+// #endregion
+
 void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
     f32 distToFloor = actor->world.pos.y - actor->floorHeight;
 
@@ -284,8 +305,15 @@ void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
                 // then the sun's two, already cut.
                 for (j = 0; j < numCasts; j++) {
                     if (casts[j].lightNum > 0) {
-                        ActorShadow_DrawFoot(play, &casts[j].light, &floorMtx, casts[j].lightNum, shadowAlpha,
-                                             shadowScaleX, shadowScaleZ);
+                        if (casts[j].key != NULL) {
+                            ActorShadow_DrawFootPaired(play, casts[j].key, casts[j].keyNode, i, &casts[j].light,
+                                                       &floorMtx, casts[j].lightNum, shadowAlpha, shadowScaleX,
+                                                       shadowScaleZ);
+                        } else {
+                            ActorShadow_DrawFootPaired(
+                                play, &sFootShadowSlotKey, FOOT_SHADOW_SUN_ID + j - (numCasts - 2), i, &casts[j].light,
+                                &floorMtx, casts[j].lightNum, shadowAlpha, shadowScaleX, shadowScaleZ);
+                        }
                         if (isLink) {
                             Lights_RecordLinkShadow(i, j, casts[j].lightNum,
                                                     ActorShadow_FootAlpha(casts[j].lightNum, shadowAlpha));
@@ -300,8 +328,8 @@ void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
                             (lightPtr->l.col[0] + lightPtr->l.col[1] + lightPtr->l.col[2]) * ABS(lightPtr->l.dir[1]);
                         if (lightNum > 0) {
                             lightNumMax += lightNum;
-                            ActorShadow_DrawFoot(play, lightPtr, &floorMtx, lightNum, shadowAlpha, shadowScaleX,
-                                                 shadowScaleZ);
+                            ActorShadow_DrawFootPaired(play, &sFootShadowSlotKey, j, i, lightPtr, &floorMtx, lightNum,
+                                                       shadowAlpha, shadowScaleX, shadowScaleZ);
                             if (isLink) {
                                 Lights_RecordLinkShadow(i, j, lightNum, ActorShadow_FootAlpha(lightNum, shadowAlpha));
                             }
@@ -316,8 +344,8 @@ void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
                             ((lightPtr->l.col[0] + lightPtr->l.col[1] + lightPtr->l.col[2]) * ABS(lightPtr->l.dir[1])) -
                             (lightNumMax * 8);
                         if (lightNum > 0) {
-                            ActorShadow_DrawFoot(play, lightPtr, &floorMtx, lightNum, shadowAlpha, shadowScaleX,
-                                                 shadowScaleZ);
+                            ActorShadow_DrawFootPaired(play, &sFootShadowSlotKey, FOOT_SHADOW_SUN_ID + j, i, lightPtr,
+                                                       &floorMtx, lightNum, shadowAlpha, shadowScaleX, shadowScaleZ);
                             if (isLink) {
                                 Lights_RecordLinkShadow(i, numLights + j, lightNum,
                                                         ActorShadow_FootAlpha(lightNum, shadowAlpha));

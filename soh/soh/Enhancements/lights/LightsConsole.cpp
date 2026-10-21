@@ -27,7 +27,7 @@ using ConsoleSink::Addf;
 const char* kUsage =
     "op=usage result=error usage=\"lights [status] | sunfirst [on|off|default] | pool [<n>|default] | shadow [clear] | "
     "shadowsmooth [on|off|default] | shadowrate [<k>|default] | shadowpulse [on|off|default|<amount> <seconds>] | "
-    "shadowinterp [clear|on|off|default|probe <link|id>]\"";
+    "shadowinterp [clear|on|off|default|pair <on|off|default>|probe <link|id>]\"";
 
 bool SunFirstOn() {
     return CVarGetInteger(CVAR_LIGHTS_SUN_FIRST, LIGHTS_SUN_FIRST_DEFAULT) != 0;
@@ -218,6 +218,10 @@ bool ShadowInterpWorldOn() {
     return CVarGetInteger(CVAR_SHADOW_INTERP_WORLD, SHADOW_INTERP_WORLD_DEFAULT) != 0;
 }
 
+bool ShadowInterpPairOn() {
+    return CVarGetInteger(CVAR_SHADOW_INTERP_PAIR, SHADOW_INTERP_PAIR_DEFAULT) != 0;
+}
+
 std::string ProbeName() {
     const s16 id = FrameInterpolation_GetProbeActor();
     char buf[16];
@@ -229,7 +233,17 @@ std::string ProbeName() {
 }
 
 int32_t ShadowInterp(const std::vector<std::string>& args, std::vector<std::string>& lines) {
-    if (args.size() == 3) {
+    if (args.size() == 3 && args[1] == "pair") {
+        if (args[2] == "default") {
+            CVarClear(CVAR_SHADOW_INTERP_PAIR);
+        } else if (args[2] == "on" || args[2] == "off") {
+            CVarSetInteger(CVAR_SHADOW_INTERP_PAIR, args[2] == "on" ? 1 : 0);
+        } else {
+            Addf(lines, "op=shadowinterp result=error error=bad_value expects=pair_on|pair_off|pair_default");
+            return 1;
+        }
+        CVarSave();
+    } else if (args.size() == 3) {
         if (args[1] != "probe") {
             lines.push_back(kUsage);
             return 1;
@@ -263,9 +277,13 @@ int32_t ShadowInterp(const std::vector<std::string>& args, std::vector<std::stri
         CVarSave();
     }
     if (args.size() >= 2) {
-        Addf(lines, "op=shadowinterp result=ok world=%s default=%s override=%d probe=%s",
+        Addf(lines,
+             "op=shadowinterp result=ok world=%s default=%s override=%d pair=%s pair_default=%s pair_override=%d "
+             "probe=%s",
              ShadowInterpWorldOn() ? "on" : "off", SHADOW_INTERP_WORLD_DEFAULT ? "on" : "off",
-             CVarGetInteger(CVAR_SHADOW_INTERP_WORLD, -1) != -1 ? 1 : 0, ProbeName().c_str());
+             CVarGetInteger(CVAR_SHADOW_INTERP_WORLD, -1) != -1 ? 1 : 0, ShadowInterpPairOn() ? "on" : "off",
+             SHADOW_INTERP_PAIR_DEFAULT ? "on" : "off", CVarGetInteger(CVAR_SHADOW_INTERP_PAIR, -1) != -1 ? 1 : 0,
+             ProbeName().c_str());
         return 0;
     }
     static FrameInterpolationProbeTick ticks[LIGHTS_SHADOW_RECORD_TICKS];
@@ -283,10 +301,10 @@ int32_t ShadowInterp(const std::vector<std::string>& args, std::vector<std::stri
         maxSlide = fmaxf(maxSlide, ticks[i].maxSlide);
     }
     Addf(lines,
-         "op=shadowinterp result=ok ticks=%d min_size=%.3f min_cos=%.3f dips=%d max_slide=%.1f world=%s probe=%s "
-         "scene=0x%X",
-         n, minSize, minCos, dips, maxSlide, ShadowInterpWorldOn() ? "on" : "off", ProbeName().c_str(),
-         gPlayState != nullptr ? gPlayState->sceneNum : -1);
+         "op=shadowinterp result=ok ticks=%d min_size=%.3f min_cos=%.3f dips=%d max_slide=%.1f world=%s pair=%s "
+         "probe=%s scene=0x%X",
+         n, minSize, minCos, dips, maxSlide, ShadowInterpWorldOn() ? "on" : "off", ShadowInterpPairOn() ? "on" : "off",
+         ProbeName().c_str(), gPlayState != nullptr ? gPlayState->sceneNum : -1);
     for (int32_t i = 0; i < n; i++) {
         const FrameInterpolationProbeTick& t = ticks[i];
         char dyaw[16] = "-";
@@ -363,7 +381,8 @@ const ConsoleSink::Command lightsCommand(
     "actor's shadow matrices in the frames between ticks (size 1, cos 1 and slide 0 is untouched): Link's, or "
     "`shadowinterp probe <id>`'s for this session; `shadowinterp clear` starts afresh. `shadowinterp on|off` "
     "switches the feet and circle shadows to world-space interpolation, which stops them shrinking and reversing "
-    "when their actor turns sharply.",
+    "when their actor turns sharply; `shadowinterp pair on|off` pairs each foot shadow with its own light's from "
+    "tick to tick, so one joining or leaving does not swing the others.",
     { { "status|sunfirst|pool|shadow|shadowsmooth|shadowrate|shadowpulse|shadowinterp", Ship::ArgumentType::TEXT },
       { "value", Ship::ArgumentType::TEXT, true } });
 

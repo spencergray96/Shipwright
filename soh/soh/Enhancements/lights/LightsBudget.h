@@ -80,6 +80,15 @@
 // The horse shadow turns with its horse and stays in model space. Every scene; inert at 20 fps.
 #define CVAR_SHADOW_INTERP_WORLD CVAR_ENHANCEMENT("ShadowInterpWorld")
 #define SHADOW_INTERP_WORLD_DEFAULT 1
+// Each foot shadow paired with its own light's (sturdy-bassoon#254). Frame interpolation matches a matrix
+// to the last tick's by its place in the draw: ActorShadow_DrawFoot's OPEN_DISPS and how many times it ran
+// before. DrawFeet draws foot 0's shadows and then foot 1's, so when a light joins or leaves, every later
+// shadow is lerped against another light's, often the other foot's: it shrinks, swings or crosses over for
+// a tick. With the setting on, each foot shadow is drawn in an interpolation child keyed by its light and
+// foot: smoothed casts by their LightInfo and pool node, the sun's two and vanilla's unsmoothed slots (whose
+// lights are copies with no identity) by their slot. A shadow new this tick draws where it is, unlerped.
+#define CVAR_SHADOW_INTERP_PAIR CVAR_ENHANCEMENT("ShadowInterpPair")
+#define SHADOW_INTERP_PAIR_DEFAULT 1
 
 #ifdef __cplusplus
 extern "C" {
@@ -126,6 +135,10 @@ typedef struct LightsShadowTick {
 typedef struct LightsShadowCast {
     Light light;
     s32 lightNum;
+    // The light's identity from tick to tick, for frame interpolation (sturdy-bassoon#254): its holder's
+    // LightInfo and its pool node, so a node re-taken by another fire is another light. NULL for the sun's two.
+    const void* key;
+    s32 keyNode;
 } LightsShadowCast;
 
 // `lights shadowsmooth`'s counters, since the scene began.
