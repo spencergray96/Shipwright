@@ -59,17 +59,25 @@
 //                   plain fade. <amount> <seconds> tunes it for THIS SESSION ONLY (0..0.9, 0.5..30 s); default
 //                   clears both. Then, or bare, `op=shadowpulse result=ok shadowpulse=on|off default=on
 //                   override=0|1 gate=<0|1> amount=<a> seconds=<s>`
-//   shadowinterp [clear]
-//                   frame interpolation's effect on Link's shadow matrices (sturdy-bassoon#254, the probe in
-//                   frame_interpolation.cpp), over the last LIGHTS_SHADOW_RECORD_TICKS ticks that recorded one,
+//   shadowinterp [clear|on|off|default|probe <link|id>]
+//                   bare: frame interpolation's effect on one actor's shadow matrices (sturdy-bassoon#254, the probe
+//                   in frame_interpolation.cpp), over the last LIGHTS_SHADOW_RECORD_TICKS ticks that recorded one,
 //                   oldest first: `op=shadowinterp result=ok ticks=<n> min_size=<s> min_cos=<c> dips=<n>
-//                   scene=0x<hex>`, then one line a tick: `t=<frame> yaw=0x<hex> dyaw=<deg>|- m=<n> fr=<n>
-//                   cmp=<n> size=<s> cos=<c>`: Link's shape yaw as he drew, its change from the tick before (`-`
-//                   when that tick is not in the record), the matrices his shadowDraw recorded, the in-between
-//                   frames drawn before the tick, the matrix-frames compared, and the smallest in-between size and
-//                   long-axis cosine against what the tick drew (1 and 1 are untouched; size is a shadow's linear
-//                   scale, cos -1 is reversed). dips counts the ticks under size 0.9. Empty at 20 fps, where
-//                   nothing is interpolated. `clear` empties the record: `op=shadowinterp result=ok cleared=1`
+//                   max_slide=<u> world=on|off probe=link|0x<id> scene=0x<hex>`, then one line a tick:
+//                   `t=<frame> id=0x<id> yaw=0x<hex> dyaw=<deg>|- m=<n> ws=<n> fr=<n> cmp=<n> size=<s> cos=<c>
+//                   slide=<u> jump=<u>`: the actor's shape yaw as it drew, its change from the tick before (`-`
+//                   when that tick is not in the record), the matrices its shadowDraw recorded and how many of them
+//                   in world space, the in-between frames drawn before the tick, the matrix-frames compared, the
+//                   smallest in-between size and long-axis cosine against what the tick drew (1 and 1 are
+//                   untouched; size is a shadow's linear scale, cos -1 is reversed), the most an in-between
+//                   shadow's floor offset from its actor differed from the tick's (slide, units), and the
+//                   furthest an in-between frame drew the actor from where the tick drew it (jump). dips counts
+//                   the ticks under size 0.9. Empty at 20 fps, where nothing is interpolated.
+//                   `clear` empties the record: `op=shadowinterp result=ok cleared=1`.
+//                   on|off|default sets world-space interpolation of the feet and circle shadows (saved; default
+//                   on; every scene), `probe link|<id>` picks the probed actor for THIS SESSION ONLY (the first of
+//                   that id drawn each tick; 0x-hex ok) and clears the record; each then prints
+//                   `op=shadowinterp result=ok world=on|off default=on override=0|1 probe=link|0x<id>`
 //
 // Returns 0 on success (and for the reads), 1 for a refused operation: an unknown subcommand, an extra
 // argument or a bad value (`op=<sub> result=error error=bad_value`).

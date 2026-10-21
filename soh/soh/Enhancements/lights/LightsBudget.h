@@ -69,6 +69,17 @@
 #define LIGHTS_SHADOW_LIGHTS 12
 #define LIGHTS_SHADOW_SNAP_DIST 100.0f
 
+// Shadows interpolated in world space (sturdy-bassoon#254). SoH draws a 20 Hz tick and interpolates the frames
+// between two ticks, and a matrix drawn inside an actor's draw is interpolated in that actor's model space. A
+// feet or circle shadow is fixed in world direction, so in model space it turns the other way whenever the
+// actor turns; across a sharp turn the lerp shrinks it to cos(turn/2) at the midpoint and, past 90 degrees,
+// reverses it through zero: a feet shadow vanishes for a frame or two when Link snaps round. With the setting
+// on, ActorShadow_DrawFoot and the circle shadow (ActorShadow_DrawCircle, DrawWhiteCircle, and DrawFeet's
+// airborne circle) record their matrices in world space instead (FrameInterpolation_RecordWorldSpaceBegin).
+// The horse shadow turns with its horse and stays in model space. Every scene; inert at 20 fps.
+#define CVAR_SHADOW_INTERP_WORLD CVAR_ENHANCEMENT("ShadowInterpWorld")
+#define SHADOW_INTERP_WORLD_DEFAULT 1
+
 #ifdef __cplusplus
 extern "C" {
 #endif

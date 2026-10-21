@@ -10,17 +10,22 @@ std::unordered_map<Mtx*, MtxF> FrameInterpolation_Interpolate(float step);
 
 // #region SOH [sturdy-bassoon#254] The shadow probe, for `lights shadowinterp`. Between two 20 Hz ticks
 // the interpolated frames replace each matrix with a lerp of the two ticks' recordings; for each matrix
-// recorded inside RecordProbeBegin/End (Link's shadowDraw), the probe compares every in-between frame's
-// replacement with the matrix the tick itself drew. One entry a tick that recorded any; none at 20 fps,
-// where nothing is interpolated.
+// recorded inside RecordProbeBegin/End (one actor's shadowDraw: Link's, or the first actor of the id set by
+// FrameInterpolation_SetProbeActor), the probe compares every in-between frame's replacement with the
+// matrix the tick itself drew. One entry a tick that recorded any; none at 20 fps, where nothing is
+// interpolated.
 struct FrameInterpolationProbeTick {
-    u32 frame;    // state.frames of the tick
-    s16 yaw;      // the actor's shape.rot.y as it drew
-    s32 matrices; // matrices probed
-    s32 frames;   // interpolated frames drawn between the last tick and this one
-    s32 measured; // matrix-frames compared (an in-between frame with no replacement for one is skipped)
-    f32 minSize;  // the smallest in-between size against the drawn one (1 = unchanged); see probe_measure
-    f32 minCos;   // the smallest cosine between an in-between long axis and the drawn one (-1 = reversed)
+    u32 frame;      // state.frames of the tick
+    s16 id;         // the probed actor's id
+    s16 yaw;        // its shape.rot.y as it drew
+    s32 matrices;   // matrices probed
+    s32 worldSpace; // of them, recorded in world space (FrameInterpolation_RecordWorldSpaceBegin)
+    s32 frames;     // interpolated frames drawn between the last tick and this one
+    s32 measured;   // matrix-frames compared (an in-between frame with no replacement for one is skipped)
+    f32 minSize;    // the smallest in-between size against the drawn one (1 = unchanged); see probe_measure
+    f32 minCos;     // the smallest cosine between an in-between long axis and the drawn one (-1 = reversed)
+    f32 maxSlide;   // the most an in-between shadow's floor offset from the actor differs from the tick's
+    f32 maxJump;    // the furthest an in-between frame drew the actor from where the tick drew it
 };
 
 // Oldest first, at most `max`; returns the count.
@@ -76,8 +81,20 @@ void FrameInterpolation_RecordMatrixRotateAxis(f32 angle, Vec3f* axis, u8 mode);
 
 void FrameInterpolation_RecordSkinMatrixMtxFToMtx(MtxF* src, Mtx* dest);
 
-// sturdy-bassoon#254: opens and closes the shadow probe's scope (Link's shadowDraw in Actor_Draw).
-void FrameInterpolation_RecordProbeBegin(u32 frame, s16 yaw);
+// sturdy-bassoon#254: matrices recorded between these two are interpolated in world space instead of the
+// open actor's model space: for a draw fixed in world direction (a feet or circle shadow), which a sharp
+// turn would otherwise shrink and reverse in the frames between ticks. Nests; inert at 20 fps.
+void FrameInterpolation_RecordWorldSpaceBegin(void);
+
+void FrameInterpolation_RecordWorldSpaceEnd(void);
+
+// sturdy-bassoon#254: the shadow probe. Actor_Draw opens its scope round the probed actor's shadowDraw;
+// `id` -1 probes Link (the default), otherwise the first actor of that id drawn each tick. Session only.
+void FrameInterpolation_SetProbeActor(s16 id);
+
+s16 FrameInterpolation_GetProbeActor(void);
+
+void FrameInterpolation_RecordProbeBegin(const void* actor, s16 id, u32 frame, s16 yaw, f32 x, f32 y, f32 z);
 
 void FrameInterpolation_RecordProbeEnd(void);
 

@@ -137,7 +137,21 @@ void ActorShadow_Draw(Actor* actor, Lights* lights, PlayState* play, Gfx* dlist,
             temp2 = (1.0f - (temp1 * (1.0f / 350))) * actor->shape.shadowScale;
             Matrix_Scale(actor->scale.x * temp2, 1.0f, actor->scale.z * temp2, MTXMODE_APPLY);
 
-            gSPMatrix(POLY_OPA_DISP++, MATRIX_NEWMTX(play->state.gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
+            // #region SOH [sturdy-bassoon#254] The circle is fixed in world direction: interpolate it in world
+            // space. The horse shadow turns with its horse and stays in the actor's model space.
+            {
+                s32 worldSpace =
+                    (dlist == gCircleShadowDL) && CVarGetInteger(CVAR_SHADOW_INTERP_WORLD, SHADOW_INTERP_WORLD_DEFAULT);
+
+                if (worldSpace) {
+                    FrameInterpolation_RecordWorldSpaceBegin();
+                }
+                gSPMatrix(POLY_OPA_DISP++, MATRIX_NEWMTX(play->state.gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
+                if (worldSpace) {
+                    FrameInterpolation_RecordWorldSpaceEnd();
+                }
+            }
+            // #endregion
             gSPDisplayList(POLY_OPA_DISP++, dlist);
 
             CLOSE_DISPS(play->state.gfxCtx);
@@ -182,7 +196,20 @@ void ActorShadow_DrawFoot(PlayState* play, Light* light, MtxF* arg2, s32 arg3, f
     Matrix_RotateY(sp58, MTXMODE_APPLY);
     Matrix_Scale(arg5, 1.0f, arg5 * arg6, MTXMODE_APPLY);
 
-    gSPMatrix(POLY_OPA_DISP++, MATRIX_NEWMTX(play->state.gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
+    // #region SOH [sturdy-bassoon#254] The shadow points away from its light, not with the actor: interpolate
+    // it in world space.
+    {
+        s32 worldSpace = CVarGetInteger(CVAR_SHADOW_INTERP_WORLD, SHADOW_INTERP_WORLD_DEFAULT);
+
+        if (worldSpace) {
+            FrameInterpolation_RecordWorldSpaceBegin();
+        }
+        gSPMatrix(POLY_OPA_DISP++, MATRIX_NEWMTX(play->state.gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
+        if (worldSpace) {
+            FrameInterpolation_RecordWorldSpaceEnd();
+        }
+    }
+    // #endregion
     gSPDisplayList(POLY_OPA_DISP++, gFootShadowDL);
 
     CLOSE_DISPS(play->state.gfxCtx);
@@ -2866,11 +2893,15 @@ void Actor_Draw(PlayState* play, Actor* actor) {
     }
 
     if (actor->shape.shadowDraw != NULL) {
-        // #region SOH [sturdy-bassoon#254] Link's shadow matrices are probed for `lights shadowinterp`.
-        s32 probe = (GET_PLAYER(play) != NULL) && (actor == &GET_PLAYER(play)->actor);
+        // #region SOH [sturdy-bassoon#254] One actor's shadow matrices are probed for `lights shadowinterp`:
+        // Link's, or the first of the id `shadowinterp probe <id>` names.
+        s16 probeId = FrameInterpolation_GetProbeActor();
+        s32 probe = (probeId < 0) ? ((GET_PLAYER(play) != NULL) && (actor == &GET_PLAYER(play)->actor))
+                                  : (actor->id == probeId);
 
         if (probe) {
-            FrameInterpolation_RecordProbeBegin(play->state.frames, actor->shape.rot.y);
+            FrameInterpolation_RecordProbeBegin(actor, actor->id, play->state.frames, actor->shape.rot.y,
+                                                actor->world.pos.x, actor->world.pos.y, actor->world.pos.z);
         }
         actor->shape.shadowDraw(actor, lights, play);
         if (probe) {
