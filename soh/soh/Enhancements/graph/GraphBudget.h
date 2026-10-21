@@ -25,8 +25,13 @@
 //
 // The reserve must cover the largest single actor draw plus everything written into the two arenas after
 // the actor loop (effects, particles, the rest of Play_Draw), so a frame the guard stops still finishes
-// inside its arena. Both are measured, and `graph status` reports them.
-#define GRAPH_ACTOR_RESERVE_WORDS 0x400
+// inside its arena. Measured in Debug (`graph status`'s max_actor and after_peak): the largest actor draw
+// is Link's, 233 opaque words (a fire's 28 is the largest translucent one). After the loop a quiet frame
+// writes about 150 opaque and 36 translucent words; bombs bursting round Link, at most 1,185 and 1,383
+// (12 bombs on the kind bench; Kakariko read 958 and 1,244 at 8 bombs and at 24, the effect tables'
+// ceiling). So about 1,420 of each; 0x800 leaves about 45% over both. A frame that still overruns falls
+// to Graph_Update's backstop.
+#define GRAPH_ACTOR_RESERVE_WORDS 0x800
 
 #ifdef __cplusplus
 extern "C" {
