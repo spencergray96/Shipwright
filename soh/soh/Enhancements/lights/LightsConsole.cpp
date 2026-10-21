@@ -120,12 +120,14 @@ int32_t Shadow(const std::vector<std::string>& args, std::vector<std::string>& l
     static LightsShadowTick ticks[LIGHTS_SHADOW_RECORD_TICKS];
     const int32_t n = Lights_GetShadowRecord(ticks, LIGHTS_SHADOW_RECORD_TICKS);
     Addf(lines, "op=shadow result=ok ticks=%d scene=0x%X", n, gPlayState != nullptr ? gPlayState->sceneNum : -1);
-    const int32_t w = LIGHTS_SHADOW_CASTS_MAX;
+    const int32_t width = LIGHTS_SHADOW_CASTS_MAX;
     for (int32_t i = 0; i < n; i++) {
         const LightsShadowTick& t = ticks[i];
         Addf(lines, "t=%u sm=%d n=%d ids=%s f0=%s f1=%s num=%s", t.frame, t.smoothed, t.numLights,
-             SlotList(t.node, w, t.numLights, true).c_str(), SlotList(t.alpha[0], w, t.numLights, false).c_str(),
-             SlotList(t.alpha[1], w, t.numLights, false).c_str(), SlotList(t.lightNum, w, t.numLights, false).c_str());
+             SlotList(t.node, width, t.numLights, true).c_str(),
+             SlotList(t.alpha[0], width, t.numLights, false).c_str(),
+             SlotList(t.alpha[1], width, t.numLights, false).c_str(),
+             SlotList(t.lightNum, width, t.numLights, false).c_str());
     }
     return 0;
 }

@@ -47,12 +47,13 @@
 // shadows' shape and direction are vanilla's. Vanilla scenes are untouched.
 #define CVAR_LIGHTS_SHADOW_SMOOTH CVAR_ENHANCEMENT("LightsShadowSmooth")
 #define LIGHTS_SHADOW_SMOOTH_DEFAULT 1
-// The fraction a tick. 0.12 settles a change to 63% in 8 ticks (0.4 s) and 90% in 18 (0.9 s), and turns
-// the flicker's re-roll of about +-25% into about +-4%. `lights shadowrate` changes it for one session.
+// The fraction a tick. 0.12 settles a change to 63% in 8 ticks (0.4 s) and 90% in 18 (0.9 s). Measured
+// standing near fires, it takes the shadow's mean jump a tick from about 23% of its strength to about 2%.
+// `lights shadowrate` changes it for one session.
 #define LIGHTS_SHADOW_RATE_DEFAULT 0.12f
 #define LIGHTS_SHADOW_ACTORS 16    // actors smoothed at once; past it, an actor draws unsmoothed (counted)
-// Lights per actor: up to 5 bound point lights and the rest fading. Walking a path between 14 fires cut 8
-// fades short at 8; when one must be cut, it is the weakest fading light (counted).
+// Lights per actor: up to 5 bound point lights and the rest fading. With 8, walking a path between 14
+// fires cut 8 fades short; with 12, none. When one must be cut, it is the weakest fading light (counted).
 #define LIGHTS_SHADOW_LIGHTS 12
 #define LIGHTS_SHADOW_SNAP_DIST 100.0f
 
@@ -107,7 +108,7 @@ typedef struct LightsShadowCast {
 typedef struct LightsShadowStats {
     s32 gate;    // 1 when this tick's feet shadows are smoothed (the setting AND a grid-tool scene)
     f32 rate;    // the fraction a tick in force
-    s32 actors;  // table slots held by an actor drawn last tick
+    s32 actors;  // table slots held by an actor drawn this tick or the last
     s32 snaps;   // fresh starts: snapped rather than faded
     s32 full;    // draws left unsmoothed because the table was full
     s32 nobind;  // draws left unsmoothed because the bind's lights could not be identified
@@ -122,7 +123,7 @@ s32 Lights_GetShadowRecord(LightsShadowTick* out, s32 max);
 void Lights_ClearShadowRecord(void);
 // The smoothed shadows for `actor` drawn with `lights` (its bind this tick), into `casts`
 // (LIGHTS_SHADOW_CASTS_MAX). Returns the count, or -1 to draw vanilla's unsmoothed shadows: the setting
-// off, a vanilla scene, or a draw the table cannot hold (counted).
+// off, a vanilla scene, a full table (counted as `full`), or a bind it cannot identify (counted as `nobind`).
 s32 Lights_ShadowCasts(Actor* actor, Lights* lights, LightsShadowCast* casts);
 void Lights_GetShadowStats(LightsShadowStats* out);
 // For this session only; clamped to 0.01..1 (1 is unsmoothed). Returns the rate applied.

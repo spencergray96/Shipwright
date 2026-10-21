@@ -159,10 +159,11 @@ void ActorShadow_DrawHorse(Actor* actor, Lights* lights, PlayState* play) {
     ActorShadow_Draw(actor, lights, play, gHorseShadowDL, NULL);
 }
 
-// ActorShadow_DrawFoot's alpha, term for term, for `lights shadow` (#250).
+// #region SOH [sturdy-bassoon#250] ActorShadow_DrawFoot's alpha, term for term, for `lights shadow`.
 static u8 ActorShadow_FootAlpha(s32 lightNum, f32 shadowAlpha) {
     return (u32)(((lightNum * 0.00005f) > 1.0f ? 1.0f : (lightNum * 0.00005f)) * shadowAlpha) & 0xFF;
 }
+// #endregion
 
 void ActorShadow_DrawFoot(PlayState* play, Light* light, MtxF* arg2, s32 arg3, f32 arg4, f32 arg5, f32 arg6) {
     s32 pad1;
@@ -219,11 +220,13 @@ void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
         Light* firstLightPtr = &lights->l.l[0];
         Vec3f* feetPosPtr = actor->shape.feetPos;
         f32* floorHeightPtr = floorHeight;
-        // `lights shadow` records Link's (#250).
+        // #region SOH [sturdy-bassoon#250] Smoothed feet shadows in grid-tool scenes (LightsBudget.h). A
+        // numCasts of -1 draws vanilla's shadows: its two loops below run only then. `lights shadow`
+        // records Link's.
         s32 isLink = (GET_PLAYER(play) != NULL) && (actor == &GET_PLAYER(play)->actor);
-        // Smoothed in grid-tool scenes (#250, LightsBudget.h): -1 draws vanilla's shadows below.
         LightsShadowCast casts[LIGHTS_SHADOW_CASTS_MAX];
         s32 numCasts = Lights_ShadowCasts(actor, lights, casts);
+        // #endregion
 
         OPEN_DISPS(play->state.gfxCtx);
 
@@ -250,7 +253,8 @@ void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
                 lightNumMax = 0;
                 lightPtr = firstLightPtr;
 
-                // The smoothed casts: the point lights (fading ones too), then the sun's two, already cut.
+                // #region SOH [sturdy-bassoon#250] The smoothed casts: the point lights (fading ones too),
+                // then the sun's two, already cut.
                 for (j = 0; j < numCasts; j++) {
                     if (casts[j].lightNum > 0) {
                         ActorShadow_DrawFoot(play, &casts[j].light, &floorMtx, casts[j].lightNum, shadowAlpha,
@@ -261,6 +265,7 @@ void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
                         }
                     }
                 }
+                // #endregion
 
                 for (j = 0; numCasts < 0 && j < numLights; j++) {
                     if (lightPtr->l.dir[1] > 0) {
