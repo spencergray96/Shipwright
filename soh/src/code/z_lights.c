@@ -45,6 +45,7 @@ static s32 sLightsTickStarted;
 // costliest thing in the bind. Kept apart from the stats so a report change cannot change a bind.
 static s32 sLightsCountThisTick;    // a grid-tool scene: count what wants a slot before binding
 static s32 sLightsSunFirstThisTick; // and the setting is on: bind the sun first when it overflows
+static s32 sLightsShadowSmoothThisTick; // a grid-tool scene and the setting on: smooth the feet shadows (#250)
 
 // Lights_FindSlot's cap: the slots in a Lights group (`Lights.l.l`).
 #define LIGHTS_BIND_SLOTS 7
@@ -73,9 +74,30 @@ static void Lights_OpenShadowRecord(void) {
     sShadowRecordOpen = rec;
 }
 
-// The slot a bind just filled, if it filled one: `before` is numLights before the bind.
-static void Lights_NoteShadowSlot(Lights* lights, s32 before, LightNode* node) {
-    if (sShadowRecordOpen == NULL || lights->numLights <= before) {
+// The last bind's node per slot, so the feet shadow can tell its lights apart from tick to tick (#250).
+// Lights_ShadowCasts trusts it only for the Lights group it was taken from.
+static Lights* sBindLights;
+static LightNode* sBindNode[LIGHTS_BIND_SLOTS];
+
+static void Lights_OpenBindNodes(Lights* lights) {
+    s32 i;
+
+    sBindLights = lights;
+    for (i = 0; i < LIGHTS_BIND_SLOTS; i++) {
+        sBindNode[i] = NULL;
+    }
+}
+
+// The slot a bind just filled, if it filled one: `before` is numLights before the bind. `isLink` also
+// writes it into the tick's shadow record.
+static void Lights_NoteShadowSlot(Lights* lights, s32 before, LightNode* node, s32 isLink) {
+    if (lights->numLights <= before || before >= LIGHTS_BIND_SLOTS) {
+        return;
+    }
+    if (lights == sBindLights) {
+        sBindNode[before] = node;
+    }
+    if (!isLink || sShadowRecordOpen == NULL) {
         return;
     }
     sShadowRecordOpen->node[before] =
@@ -84,7 +106,7 @@ static void Lights_NoteShadowSlot(Lights* lights, s32 before, LightNode* node) {
 }
 
 void Lights_RecordLinkShadow(s32 foot, s32 slot, s32 lightNum, u8 alpha) {
-    if (sShadowRecordOpen == NULL || foot < 0 || foot > 1 || slot < 0 || slot >= LIGHTS_BIND_SLOTS) {
+    if (sShadowRecordOpen == NULL || foot < 0 || foot > 1 || slot < 0 || slot >= LIGHTS_SHADOW_CASTS_MAX) {
         return;
     }
     sShadowRecordOpen->alpha[foot][slot] = alpha;
@@ -110,6 +132,258 @@ void Lights_ClearShadowRecord(void) {
     sShadowRecordOpen = NULL;
 }
 
+// The feet shadows' smoothing (LightsBudget.h, #250). One slot per actor drawn with smoothed shadows,
+// each holding up to LIGHTS_SHADOW_LIGHTS lights by node. A slot is free once its actor has missed a
+// tick (died, culled, or a scene ended), so a dead actor's slot is free a tick later; an actor that takes
+// it, or any actor that reappears after a missed tick, starts fresh and snaps. The one way to inherit is
+// an actor dying and another of the same id and params taking its address in the same tick, within
+// LIGHTS_SHADOW_SNAP_DIST of it: that one would fade from the dead one's values rather than snap.
+typedef struct {
+    LightNode* node; // NULL: free
+    f32 strength;    // the smoothed lightNum
+    s8 dir[3];       // the last direction it was bound at with the light above the feet
+    s8 bound;        // bound this tick
+} LightsShadowLight;
+
+typedef struct {
+    Actor* actor; // NULL: free
+    s16 id;
+    s16 params;
+    u32 frame; // the tick it was last advanced
+    Vec3f pos; // the actor's position then
+    LightsShadowLight lights[LIGHTS_SHADOW_LIGHTS];
+    f32 sun[2]; // the sun slots' smoothed strength, after the cut-off
+
+} LightsShadowActor;
+
+static LightsShadowActor sShadowActors[LIGHTS_SHADOW_ACTORS];
+static f32 sShadowRate = LIGHTS_SHADOW_RATE_DEFAULT;
+static LightsShadowStats sShadowStats;
+
+// Below this a fading light's shadow is under an alpha of 1 (0.00005 x 255 x 78 < 1): drop it.
+#define LIGHTS_SHADOW_FREE 78.0f
+// ActorShadow_DrawFoot's clamp: a strength of 1 / 0.00005 or more draws at the full alpha.
+#define LIGHTS_SHADOW_FULL 20000.0f
+
+static void Lights_ResetShadowTable(void) {
+    memset(sShadowActors, 0, sizeof(sShadowActors));
+    sShadowStats.snaps = sShadowStats.full = sShadowStats.nobind = sShadowStats.cut = 0;
+}
+
+void Lights_GetShadowStats(LightsShadowStats* out) {
+    u32 frame = (gPlayState != NULL) ? gPlayState->state.frames : 0;
+    s32 i;
+
+    *out = sShadowStats;
+    out->gate = sLightsShadowSmoothThisTick;
+    out->rate = sShadowRate;
+    out->actors = 0;
+    for (i = 0; i < LIGHTS_SHADOW_ACTORS; i++) {
+        if (sShadowActors[i].actor != NULL && sShadowActors[i].frame + 1 >= frame) {
+            out->actors++;
+        }
+    }
+}
+
+f32 Lights_SetShadowRate(f32 rate) {
+    sShadowRate = CLAMP(rate, 0.01f, 1.0f);
+    return sShadowRate;
+}
+
+// The actor's slot, claiming a free one if it has none. `*fresh` is set when it must snap.
+static LightsShadowActor* Lights_ShadowActorSlot(Actor* actor, u32 frame, s32* fresh) {
+    LightsShadowActor* free = NULL;
+    LightsShadowActor* e;
+    s32 i;
+
+    *fresh = 0;
+    for (i = 0; i < LIGHTS_SHADOW_ACTORS; i++) {
+        e = &sShadowActors[i];
+        // Live: advanced this tick or the last. Anything older, or from before a frames restart, is free.
+        if (e->actor != NULL && (e->frame == frame || e->frame + 1 == frame)) {
+            if (e->actor == actor && e->id == actor->id && e->params == actor->params) {
+                if (e->frame + 1 == frame &&
+                    Math_Vec3f_DistXYZ(&e->pos, &actor->world.pos) > LIGHTS_SHADOW_SNAP_DIST) {
+                    *fresh = 1;
+                }
+                return e;
+            }
+        } else if (free == NULL) {
+            free = e;
+        }
+    }
+    if (free == NULL) {
+        return NULL;
+    }
+    memset(free, 0, sizeof(*free));
+    free->actor = actor;
+    free->id = actor->id;
+    free->params = actor->params;
+    free->frame = frame - 1; // so the caller advances it this tick
+    *fresh = 1;
+    return free;
+}
+
+// A light's strength term, as ActorShadow_DrawFeet reads it: its colour sum times its height above the feet.
+static s32 Lights_ShadowStrength(Light* light) {
+    if (light->l.dir[1] <= 0) {
+        return 0;
+    }
+    return (light->l.col[0] + light->l.col[1] + light->l.col[2]) * ABS(light->l.dir[1]);
+}
+
+// Moves the actor's lights one tick: the bound ones toward their strength now, the rest toward 0.
+static void Lights_AdvanceShadowLights(LightsShadowActor* e, Lights* lights, s32 numPoints, s32 fresh) {
+    LightsShadowLight* sl;
+    LightsShadowLight* weakest;
+    Light* light;
+    s32 target;
+    s32 i;
+    s32 j;
+
+    for (i = 0; i < LIGHTS_SHADOW_LIGHTS; i++) {
+        e->lights[i].bound = 0;
+    }
+    for (j = 0; j < numPoints; j++) {
+        light = &lights->l.l[j];
+        target = Lights_ShadowStrength(light);
+        sl = NULL;
+        for (i = 0; i < LIGHTS_SHADOW_LIGHTS; i++) {
+            if (e->lights[i].node == sBindNode[j]) {
+                sl = &e->lights[i];
+                break;
+            }
+        }
+        if (sl == NULL) {
+            // A joining light takes a free entry, or else the weakest fading one, which is cut short. At
+            // most 5 lights are bound beside the sun's 2 slots, so a fading entry is always there to take.
+            weakest = NULL;
+            for (i = 0; i < LIGHTS_SHADOW_LIGHTS; i++) {
+                if (e->lights[i].node == NULL) {
+                    weakest = &e->lights[i];
+                    break;
+                }
+                if (!e->lights[i].bound && (weakest == NULL || e->lights[i].strength < weakest->strength)) {
+                    weakest = &e->lights[i];
+                }
+            }
+            if (weakest->node != NULL) {
+                sShadowStats.cut++;
+            }
+            sl = weakest;
+            sl->node = sBindNode[j];
+            sl->strength = fresh ? target : 0.0f;
+        } else {
+            sl->strength = fresh ? target : sl->strength + sShadowRate * (target - sl->strength);
+        }
+        if (light->l.dir[1] > 0) {
+            sl->dir[0] = light->l.dir[0];
+            sl->dir[1] = light->l.dir[1];
+            sl->dir[2] = light->l.dir[2];
+        }
+        sl->bound = 1;
+    }
+    for (i = 0; i < LIGHTS_SHADOW_LIGHTS; i++) {
+        sl = &e->lights[i];
+        if (sl->node == NULL || sl->bound) {
+            continue;
+        }
+        sl->strength = fresh ? 0.0f : sl->strength * (1.0f - sShadowRate);
+        if (sl->strength < LIGHTS_SHADOW_FREE) {
+            sl->node = NULL;
+        }
+    }
+}
+
+s32 Lights_ShadowCasts(Actor* actor, Lights* lights, LightsShadowCast* casts) {
+    LightsShadowActor* e;
+    LightsShadowLight* sl;
+    LightsShadowTick* rec = NULL;
+    Light* sun;
+    u32 frame;
+    s32 numPoints = lights->numLights - 2;
+    s32 fresh;
+    s32 n = 0;
+    s32 sum = 0;
+    s32 i;
+
+    if (!sLightsShadowSmoothThisTick || gPlayState == NULL) {
+        return -1;
+    }
+    // The bind must be this group's, every point slot's node known, and the sun's two slots after them.
+    if (lights != sBindLights || numPoints < 0) {
+        sShadowStats.nobind++;
+        return -1;
+    }
+    for (i = 0; i < numPoints; i++) {
+        if (sBindNode[i] == NULL) {
+            sShadowStats.nobind++;
+            return -1;
+        }
+    }
+    frame = gPlayState->state.frames;
+    e = Lights_ShadowActorSlot(actor, frame, &fresh);
+    if (e == NULL) {
+        sShadowStats.full++;
+        return -1;
+    }
+    // Once a tick: a second draw of the actor in the same tick reads the same values.
+    if (e->frame != frame || fresh) {
+        sShadowStats.snaps += fresh;
+        Lights_AdvanceShadowLights(e, lights, numPoints, fresh);
+        // The sun: vanilla's cut-off by 8x the point lights' strength, from the smoothed sum, and then
+        // smoothed itself. The x8 turns a point light's steady change as the actor walks into a swing of
+        // the sun shadow several times as fast; smoothing the result fades that too. Held to the range
+        // the draw can show (0 to the clamp at 1), so a saturated sun does not lag on its way down.
+        for (i = 0; i < LIGHTS_SHADOW_LIGHTS; i++) {
+            if (e->lights[i].node != NULL && e->lights[i].dir[1] > 0) {
+                sum += (s32)e->lights[i].strength;
+            }
+        }
+        for (i = 0; i < 2; i++) {
+            f32 target = CLAMP(Lights_ShadowStrength(&lights->l.l[numPoints + i]) - sum * 8, 0, LIGHTS_SHADOW_FULL);
+
+            e->sun[i] = fresh ? target : e->sun[i] + sShadowRate * (target - e->sun[i]);
+        }
+        e->frame = frame;
+        e->pos = actor->world.pos;
+    }
+
+    if (GET_PLAYER(gPlayState) != NULL && actor == &GET_PLAYER(gPlayState)->actor) {
+        rec = sShadowRecordOpen;
+    }
+    for (i = 0; i < LIGHTS_SHADOW_LIGHTS; i++) {
+        sl = &e->lights[i];
+        if (sl->node == NULL) {
+            continue;
+        }
+        memset(&casts[n], 0, sizeof(casts[n]));
+        casts[n].light.l.dir[0] = sl->dir[0];
+        casts[n].light.l.dir[1] = sl->dir[1];
+        casts[n].light.l.dir[2] = sl->dir[2];
+        casts[n].lightNum = (sl->dir[1] > 0) ? (s32)sl->strength : 0;
+        if (rec != NULL) {
+            rec->node[n] = (s16)(sl->node - sLightsBuffer.buf);
+        }
+        n++;
+    }
+    // The sun's two slots, on their bound direction at the smoothed strength.
+    for (i = 0; i < 2; i++) {
+        sun = &lights->l.l[numPoints + i];
+        casts[n].light = *sun;
+        casts[n].lightNum = (sun->l.dir[1] > 0) ? (s32)e->sun[i] : 0;
+        if (rec != NULL) {
+            rec->node[n] = LIGHTS_SHADOW_NODE_DIR;
+        }
+        n++;
+    }
+    if (rec != NULL) {
+        rec->numLights = n;
+        rec->smoothed = 1;
+    }
+    return n;
+}
+
 static void Lights_RollTick(void) {
     u32 frame;
     LightsStats fresh = { 0 };
@@ -130,6 +404,8 @@ static void Lights_RollTick(void) {
     fresh.linkInRange = fresh.linkPoints = fresh.linkDirs = -1;
     sLightsCountThisTick = GridToolSceneRegistry_IsCustomScene(gPlayState->sceneNum);
     sLightsSunFirstThisTick = sLightsCountThisTick && CVarGetInteger(CVAR_LIGHTS_SUN_FIRST, LIGHTS_SUN_FIRST_DEFAULT);
+    sLightsShadowSmoothThisTick =
+        sLightsCountThisTick && CVarGetInteger(CVAR_LIGHTS_SHADOW_SMOOTH, LIGHTS_SHADOW_SMOOTH_DEFAULT);
     fresh.sunFirstGate = sLightsSunFirstThisTick;
     sLightsTick = fresh;
     sLightsTickFrame = frame;
@@ -365,12 +641,16 @@ void Lights_BindAll(Lights* lights, LightNode* listHead, Vec3f* vec) {
             before = lights->numLights;
             bindFuncs[info->type](lights, &info->params, vec);
             if (isLink) {
-                Lights_NoteShadowSlot(lights, before, listHead);
+                Lights_NoteShadowSlot(lights, before, listHead, 1);
             }
             listHead = listHead->next;
             sLightsTick.walked++;
         }
         return;
+    }
+
+    if (sLightsShadowSmoothThisTick) {
+        Lights_OpenBindNodes(lights);
     }
 
     for (node = listStart; node != NULL; node = node->next, index++) {
@@ -406,9 +686,7 @@ void Lights_BindAll(Lights* lights, LightNode* listHead, Vec3f* vec) {
             info = listHead->info;
             before = lights->numLights;
             bindFuncs[info->type](lights, &info->params, vec);
-            if (isLink) {
-                Lights_NoteShadowSlot(lights, before, listHead);
-            }
+            Lights_NoteShadowSlot(lights, before, listHead, isLink);
             listHead = listHead->next;
             sLightsTick.walked++;
         }
@@ -436,17 +714,13 @@ void Lights_BindAll(Lights* lights, LightNode* listHead, Vec3f* vec) {
     for (i = 0; i < numNear; i++) {
         before = lights->numLights;
         Lights_BindPoint(lights, &nearest[i]->info->params, vec);
-        if (isLink) {
-            Lights_NoteShadowSlot(lights, before, nearest[i]);
-        }
+        Lights_NoteShadowSlot(lights, before, nearest[i], isLink);
     }
     for (node = listStart; node != NULL; node = node->next) {
         if (node->info->type == LIGHT_DIRECTIONAL) {
             before = lights->numLights;
             Lights_BindDirectional(lights, &node->info->params, vec);
-            if (isLink) {
-                Lights_NoteShadowSlot(lights, before, node);
-            }
+            Lights_NoteShadowSlot(lights, before, node, isLink);
         }
         sLightsTick.walked++;
     }
@@ -504,6 +778,8 @@ void LightContext_Init(PlayState* play, LightContext* lightCtx) {
     sLightsRefused = 0;
     // A new scene restarts state.frames, so its first tick could share the last one's number.
     sLightsTickStarted = 0;
+    // And every actor arrives fresh: their shadows snap, and the nodes the table knew are gone (#250).
+    Lights_ResetShadowTable();
 }
 
 void LightContext_SetAmbientColor(LightContext* lightCtx, u8 r, u8 g, u8 b) {

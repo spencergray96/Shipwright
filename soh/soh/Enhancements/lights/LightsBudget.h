@@ -28,6 +28,34 @@
 #define LIGHTS_BUFFER_SIZE 256
 #define LIGHTS_POOL_CAP_VANILLA 32
 
+// Smoothed feet shadows (sturdy-bassoon#250). A fire's light re-rolls its brightness every tick (En_Light's
+// flicker, which Rs_Fire copies; vanilla's torches do the same), and ActorShadow_DrawFeet draws a shadow per
+// bound point light at that brightness, so each shadow jumped by about a quarter of its strength every tick.
+// The sun shadow is cut by 8x the point lights' summed strength, so near the cut-off the flicker blinked it
+// on and off; and when the nearest five changed, a shadow popped in or out of the bound set.
+//
+// With the setting on, in grid-tool scenes, the feet shadow reads a SMOOTHED strength per actor and per
+// light instead (Lights_ShadowCasts in z_lights.c):
+//   - each tick, each bound light's strength moves a fraction `rate` of the way to its current one;
+//   - a light that leaves the bound set fades out at the same rate on its last direction, and one that
+//     joins fades in from 0;
+//   - the sun's cut-off reads the smoothed sum, and its result is smoothed too, so the sun shadow fades
+//     instead of blinking (the x8 makes a walk's steady change swing it several times as fast);
+//   - a fresh start SNAPS instead of fading: a new or re-used table slot, a tick missed, a new scene, or
+//     the actor moving more than LIGHTS_SHADOW_SNAP_DIST in one tick (a goto, a warp, a void-out).
+// The flame and the actor's own lighting still flicker: only the shadow reads the smoothed value. The
+// shadows' shape and direction are vanilla's. Vanilla scenes are untouched.
+#define CVAR_LIGHTS_SHADOW_SMOOTH CVAR_ENHANCEMENT("LightsShadowSmooth")
+#define LIGHTS_SHADOW_SMOOTH_DEFAULT 1
+// The fraction a tick. 0.12 settles a change to 63% in 8 ticks (0.4 s) and 90% in 18 (0.9 s), and turns
+// the flicker's re-roll of about +-25% into about +-4%. `lights shadowrate` changes it for one session.
+#define LIGHTS_SHADOW_RATE_DEFAULT 0.12f
+#define LIGHTS_SHADOW_ACTORS 16    // actors smoothed at once; past it, an actor draws unsmoothed (counted)
+// Lights per actor: up to 5 bound point lights and the rest fading. Walking a path between 14 fires cut 8
+// fades short at 8; when one must be cut, it is the weakest fading light (counted).
+#define LIGHTS_SHADOW_LIGHTS 12
+#define LIGHTS_SHADOW_SNAP_DIST 100.0f
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -55,15 +83,36 @@ typedef struct LightsStats {
 // the tick's record when it binds Link (which node each slot took); ActorShadow_DrawFeet fills in the
 // alpha each slot's foot shadow drew at. SoH records one display list per tick and replays it for the
 // interpolated frames, and frame interpolation moves matrices only, so a tick's alpha IS every frame's.
+// Smoothed, the record lists the casts (the smoothed lights, fading ones included, then the two sun slots)
+// rather than the bound slots.
 #define LIGHTS_SHADOW_RECORD_TICKS 120
+#define LIGHTS_SHADOW_CASTS_MAX (LIGHTS_SHADOW_LIGHTS + 2)
 #define LIGHTS_SHADOW_NODE_DIR (-2) // a slot bound to a directional light (the sun)
 typedef struct LightsShadowTick {
-    u32 frame;       // state.frames of the tick
-    s32 numLights;   // slots bound
-    s16 node[7];     // each slot's node: its index in the pool, or LIGHTS_SHADOW_NODE_DIR
-    u8 alpha[2][7];  // [foot][slot]: the alpha that slot's shadow drew at; 0 when it drew none
-    s32 lightNum[7]; // foot 0's strength term per slot, before the 0.00005 scale and the clamp at 1
+    u32 frame;                                // state.frames of the tick
+    s32 numLights;                            // slots bound, or casts when smoothed
+    s32 smoothed;                             // 1 when the shadow read the smoothed strengths
+    s16 node[LIGHTS_SHADOW_CASTS_MAX];        // each slot's node: its pool index, or LIGHTS_SHADOW_NODE_DIR
+    u8 alpha[2][LIGHTS_SHADOW_CASTS_MAX];     // [foot][slot]: the alpha its shadow drew at; 0 when none
+    s32 lightNum[LIGHTS_SHADOW_CASTS_MAX];    // foot 0's strength term, before the 0.00005 scale and clamp
 } LightsShadowTick;
+
+// One shadow for ActorShadow_DrawFeet to draw: the light's direction (in `light`) and its strength.
+typedef struct LightsShadowCast {
+    Light light;
+    s32 lightNum;
+} LightsShadowCast;
+
+// `lights shadowsmooth`'s counters, since the scene began.
+typedef struct LightsShadowStats {
+    s32 gate;    // 1 when this tick's feet shadows are smoothed (the setting AND a grid-tool scene)
+    f32 rate;    // the fraction a tick in force
+    s32 actors;  // table slots held by an actor drawn last tick
+    s32 snaps;   // fresh starts: snapped rather than faded
+    s32 full;    // draws left unsmoothed because the table was full
+    s32 nobind;  // draws left unsmoothed because the bind's lights could not be identified
+    s32 cut;     // fading lights dropped early to make room for a joining one
+} LightsShadowStats;
 
 void Lights_GetStats(LightsStats* out);
 // From ActorShadow_DrawFeet, for Link only: the shadow `slot` drew under `foot` at `alpha`.
@@ -71,6 +120,13 @@ void Lights_RecordLinkShadow(s32 foot, s32 slot, s32 lightNum, u8 alpha);
 // Oldest first, at most `max`; returns the count. `Lights_ClearShadowRecord` starts a trial afresh.
 s32 Lights_GetShadowRecord(LightsShadowTick* out, s32 max);
 void Lights_ClearShadowRecord(void);
+// The smoothed shadows for `actor` drawn with `lights` (its bind this tick), into `casts`
+// (LIGHTS_SHADOW_CASTS_MAX). Returns the count, or -1 to draw vanilla's unsmoothed shadows: the setting
+// off, a vanilla scene, or a draw the table cannot hold (counted).
+s32 Lights_ShadowCasts(Actor* actor, Lights* lights, LightsShadowCast* casts);
+void Lights_GetShadowStats(LightsShadowStats* out);
+// For this session only; clamped to 0.01..1 (1 is unsmoothed). Returns the rate applied.
+f32 Lights_SetShadowRate(f32 rate);
 // Clamps to 1..LIGHTS_BUFFER_SIZE and returns the cap applied. Holders over the cap keep their nodes;
 // only new inserts are refused until the count drops below it.
 s32 Lights_SetPoolCap(s32 cap);

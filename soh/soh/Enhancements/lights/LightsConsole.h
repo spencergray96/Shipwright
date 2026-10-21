@@ -36,12 +36,23 @@
 //                   cap keep their nodes
 //   shadow [clear]  Link's feet shadows over the last LIGHTS_SHADOW_RECORD_TICKS ticks (#250), oldest first:
 //                   `op=shadow result=ok ticks=<n> scene=0x<hex>`, then one line a tick:
-//                   `t=<frame> n=<slots> ids=<7> f0=<7> f1=<7> num=<7>`, each a comma list over the 7 slots
-//                   (`-` past the bound ones). ids: the node each slot bound, its pool index, or `s` for a
-//                   directional light; f0/f1: the alpha that slot's shadow drew at under each foot (0 for
-//                   none); num: foot 0's strength term before the scale and clamp. The last two bound slots
-//                   are the ones ActorShadow_DrawFeet treats as the sun. `clear` empties the record and
-//                   prints `op=shadow result=ok cleared=1`
+//                   `t=<frame> sm=<0|1> n=<n> ids=<10> f0=<10> f1=<10> num=<10>`, each a comma list over
+//                   LIGHTS_SHADOW_CASTS_MAX entries (`-` past the n used). sm=0: the entries are the bound
+//                   slots, as vanilla draws them; sm=1: the smoothed casts, fading lights included, then the
+//                   sun's two. ids: each entry's node, its pool index, or `s` for a directional light;
+//                   f0/f1: the alpha its shadow drew at under each foot (0 for none); num: foot 0's strength
+//                   term before the scale and clamp. The last two entries are the ones ActorShadow_DrawFeet
+//                   treats as the sun. `clear` empties the record: `op=shadow result=ok cleared=1`
+//   shadowsmooth [on|off|default]
+//                   sets the smoothed feet shadows (saved; default on; grid-tool scenes only), then, or bare,
+//                   `op=shadowsmooth result=ok shadowsmooth=on|off default=on override=0|1 gate=<0|1>
+//                   rate=<k> actors=<n> snaps=<n> full=<n> nobind=<n> cut=<n>`: gate is the last tick's;
+//                   actors the table slots in use; since the scene began, snaps counts fresh starts, full the
+//                   draws left unsmoothed for a full table, nobind those whose bind could not be identified,
+//                   cut the fading lights dropped early to make room
+//   shadowrate [<k>|default]
+//                   the fraction a tick each shadow moves toward its light's strength, 0.01..1, for THIS
+//                   SESSION ONLY (1 is unsmoothed); then, or bare, `op=shadowrate result=ok rate=<k> default=<k>`
 //
 // Returns 0 on success (and for the reads), 1 for a refused operation: an unknown subcommand, an extra
 // argument or a bad value (`op=<sub> result=error error=bad_value`).

@@ -221,6 +221,9 @@ void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
         f32* floorHeightPtr = floorHeight;
         // `lights shadow` records Link's (#250).
         s32 isLink = (GET_PLAYER(play) != NULL) && (actor == &GET_PLAYER(play)->actor);
+        // Smoothed in grid-tool scenes (#250, LightsBudget.h): -1 draws vanilla's shadows below.
+        LightsShadowCast casts[LIGHTS_SHADOW_CASTS_MAX];
+        s32 numCasts = Lights_ShadowCasts(actor, lights, casts);
 
         OPEN_DISPS(play->state.gfxCtx);
 
@@ -247,7 +250,19 @@ void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
                 lightNumMax = 0;
                 lightPtr = firstLightPtr;
 
-                for (j = 0; j < numLights; j++) {
+                // The smoothed casts: the point lights (fading ones too), then the sun's two, already cut.
+                for (j = 0; j < numCasts; j++) {
+                    if (casts[j].lightNum > 0) {
+                        ActorShadow_DrawFoot(play, &casts[j].light, &floorMtx, casts[j].lightNum, shadowAlpha,
+                                             shadowScaleX, shadowScaleZ);
+                        if (isLink) {
+                            Lights_RecordLinkShadow(i, j, casts[j].lightNum,
+                                                    ActorShadow_FootAlpha(casts[j].lightNum, shadowAlpha));
+                        }
+                    }
+                }
+
+                for (j = 0; numCasts < 0 && j < numLights; j++) {
                     if (lightPtr->l.dir[1] > 0) {
                         lightNum =
                             (lightPtr->l.col[0] + lightPtr->l.col[1] + lightPtr->l.col[2]) * ABS(lightPtr->l.dir[1]);
@@ -263,7 +278,7 @@ void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
                     lightPtr++;
                 }
 
-                for (j = 0; j < 2; j++) {
+                for (j = 0; numCasts < 0 && j < 2; j++) {
                     if (lightPtr->l.dir[1] > 0) {
                         lightNum =
                             ((lightPtr->l.col[0] + lightPtr->l.col[1] + lightPtr->l.col[2]) * ABS(lightPtr->l.dir[1])) -

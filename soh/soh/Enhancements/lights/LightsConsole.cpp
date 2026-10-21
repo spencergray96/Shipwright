@@ -24,10 +24,15 @@ namespace {
 using ConsoleSink::Addf;
 
 const char* kUsage =
-    "op=usage result=error usage=\"lights [status] | sunfirst [on|off|default] | pool [<n>|default] | shadow [clear]\"";
+    "op=usage result=error usage=\"lights [status] | sunfirst [on|off|default] | pool [<n>|default] | shadow [clear] | "
+    "shadowsmooth [on|off|default] | shadowrate [<k>|default]\"";
 
 bool SunFirstOn() {
     return CVarGetInteger(CVAR_LIGHTS_SUN_FIRST, LIGHTS_SUN_FIRST_DEFAULT) != 0;
+}
+
+bool ShadowSmoothOn() {
+    return CVarGetInteger(CVAR_LIGHTS_SHADOW_SMOOTH, LIGHTS_SHADOW_SMOOTH_DEFAULT) != 0;
 }
 
 int32_t Status(std::vector<std::string>& lines) {
@@ -115,12 +120,56 @@ int32_t Shadow(const std::vector<std::string>& args, std::vector<std::string>& l
     static LightsShadowTick ticks[LIGHTS_SHADOW_RECORD_TICKS];
     const int32_t n = Lights_GetShadowRecord(ticks, LIGHTS_SHADOW_RECORD_TICKS);
     Addf(lines, "op=shadow result=ok ticks=%d scene=0x%X", n, gPlayState != nullptr ? gPlayState->sceneNum : -1);
+    const int32_t w = LIGHTS_SHADOW_CASTS_MAX;
     for (int32_t i = 0; i < n; i++) {
         const LightsShadowTick& t = ticks[i];
-        Addf(lines, "t=%u n=%d ids=%s f0=%s f1=%s num=%s", t.frame, t.numLights,
-             SlotList(t.node, 7, t.numLights, true).c_str(), SlotList(t.alpha[0], 7, t.numLights, false).c_str(),
-             SlotList(t.alpha[1], 7, t.numLights, false).c_str(), SlotList(t.lightNum, 7, t.numLights, false).c_str());
+        Addf(lines, "t=%u sm=%d n=%d ids=%s f0=%s f1=%s num=%s", t.frame, t.smoothed, t.numLights,
+             SlotList(t.node, w, t.numLights, true).c_str(), SlotList(t.alpha[0], w, t.numLights, false).c_str(),
+             SlotList(t.alpha[1], w, t.numLights, false).c_str(), SlotList(t.lightNum, w, t.numLights, false).c_str());
     }
+    return 0;
+}
+
+int32_t ShadowSmooth(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() == 2) {
+        if (args[1] == "default") {
+            CVarClear(CVAR_LIGHTS_SHADOW_SMOOTH);
+        } else if (args[1] == "on" || args[1] == "off") {
+            CVarSetInteger(CVAR_LIGHTS_SHADOW_SMOOTH, args[1] == "on" ? 1 : 0);
+        } else {
+            Addf(lines, "op=shadowsmooth result=error error=bad_value expects=on|off|default");
+            return 1;
+        }
+        CVarSave();
+    }
+    LightsShadowStats s;
+    Lights_GetShadowStats(&s);
+    Addf(lines,
+         "op=shadowsmooth result=ok shadowsmooth=%s default=%s override=%d gate=%d rate=%.3f actors=%d snaps=%d "
+         "full=%d nobind=%d cut=%d",
+         ShadowSmoothOn() ? "on" : "off", LIGHTS_SHADOW_SMOOTH_DEFAULT ? "on" : "off",
+         CVarGetInteger(CVAR_LIGHTS_SHADOW_SMOOTH, -1) != -1 ? 1 : 0, s.gate, s.rate, s.actors, s.snaps, s.full,
+         s.nobind, s.cut);
+    return 0;
+}
+
+int32_t ShadowRate(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() == 2) {
+        if (args[1] == "default") {
+            Lights_SetShadowRate(LIGHTS_SHADOW_RATE_DEFAULT);
+        } else {
+            char* end = nullptr;
+            const double value = strtod(args[1].c_str(), &end);
+            if (end == args[1].c_str() || *end != '\0' || value < 0.01 || value > 1.0) {
+                Addf(lines, "op=shadowrate result=error error=bad_value min=0.01 max=1");
+                return 1;
+            }
+            Lights_SetShadowRate((f32)value);
+        }
+    }
+    LightsShadowStats s;
+    Lights_GetShadowStats(&s);
+    Addf(lines, "op=shadowrate result=ok rate=%.3f default=%.3f", s.rate, LIGHTS_SHADOW_RATE_DEFAULT);
     return 0;
 }
 
@@ -140,6 +189,12 @@ int32_t LightsConsole_Run(const std::vector<std::string>& args, std::vector<std:
     }
     if (sub == "shadow") {
         return Shadow(args, lines);
+    }
+    if (sub == "shadowsmooth") {
+        return ShadowSmooth(args, lines);
+    }
+    if (sub == "shadowrate") {
+        return ShadowRate(args, lines);
     }
     if (sub == "status" && args.size() <= 1) {
         return Status(lines);
@@ -163,7 +218,11 @@ const ConsoleSink::Command lightsCommand(
     "7 slots, the scene's directional lights keep theirs and the nearest point lights take the rest, "
     "instead of the newest seven crowding the sun out. pool holds new lights to n nodes for this session "
     "only, so `pool 32` plants vanilla's starvation beside the raised pool. shadow lists Link's feet shadows "
-    "over the last 120 ticks (#250): each slot's light and the alpha it drew at; `shadow clear` starts afresh.",
-    { { "status|sunfirst|pool|shadow", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } });
+    "over the last 120 ticks (#250): each slot's light and the alpha it drew at; `shadow clear` starts afresh. "
+    "shadowsmooth switches the grid-tool scenes' smoothed feet shadows: each light's shadow fades toward its "
+    "strength instead of jumping with the flame's flicker, and fades in and out as it joins or leaves the bound "
+    "lights. shadowrate sets the fraction a tick for this session only (default 0.12; 1 is unsmoothed).",
+    { { "status|sunfirst|pool|shadow|shadowsmooth|shadowrate", Ship::ArgumentType::TEXT },
+      { "value", Ship::ArgumentType::TEXT, true } });
 
 } // namespace
