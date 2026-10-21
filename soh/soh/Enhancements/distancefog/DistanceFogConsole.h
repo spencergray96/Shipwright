@@ -80,15 +80,19 @@
 //                       frame's band drew with and where (sturdy-bassoon#229); color= reads auto while it drew with
 //                       the sky's colour
 //                       Refusals: error=bad_argument and error=unknown_subcommand
-//   sky ...             sky-colour fog (sturdy-bassoon#226; WorldFog.h, an experiment, DX11 only): fogged pixels blend
-//                       toward the sky behind them, a copy of the frame taken before the rooms draw, instead of the fog
-//                       colour. Only the colour changes. Its own setting, kept across scene loads (unlike the band
-//                       and the edge), off at launch:
+//   sky ...             sky-colour fog (sturdy-bassoon#226, #230; WorldFog.h, DX11 only): fogged pixels blend toward the
+//                       sky behind them, a copy of the frame taken before the rooms draw, instead of the fog colour.
+//                       Only the colour changes. The edge layer (#230) sends only boundary fog's share there; `all`
+//                       sends all of it. Its own setting, kept across scene loads (unlike the band and the edge),
+//                       auto at launch:
 //     sky [status]                read it
-//     sky on | sky off            switch it, on with the last method (mirror at launch)
-//     sky mirror | sky clamp      choose the method and switch it on: mirror reads the copy as it is, so fogged ground
-//                                 below the horizon takes the skybox's mirrored sky; clamp gives it the sky just above
-//                                 the horizon in its column
+//     sky auto                    the default: the edge layer wherever world-unit fog draws with a boundary, off
+//                                 everywhere else (vanilla scenes, scenes without a boundary, `fog edge off`)
+//     sky edge | sky all          the edge layer, or all fog toward the sky, wherever world-unit fog draws
+//     sky on | sky off            on is all (#226's word for it); off takes no copy for sky fog
+//     sky mirror | sky clamp      choose the method only, without switching anything on: mirror reads the copy as it
+//                                 is, so fogged ground below the horizon takes the skybox's mirrored sky; clamp gives
+//                                 it the sky just above the horizon in its column (mirror at launch)
 //     sky dump [<path-prefix>]    at the end of the next frame that copied the sky, write <prefix>-copy.ppm and
 //                                 <prefix>-frame.ppm: the copy and the finished frame (before ImGui), same frame, 8-bit
 //                                 RGB, pixel for pixel. Default prefix <TEMP>/skyfog-<n>. With the sky's colour live
@@ -99,13 +103,18 @@
 //     sky hold on|off             a measurement aid: keep fogging toward the copy already taken instead of a fresh one
 //                                 each frame, so captures a moment apart see the same sky in their fog (the sky itself
 //                                 still drifts). For a camera that does not move: the horizon is the held copy's
-//                       Each prints `op=sky result=ok action=... sky=off|mirror|clamp method=mirror|clamp fb=<n>
-//                       copies=<n> armed=0|1 size=<w>x<h> origin=<x>,<y> msaa=<n> horizon_row=<row|none>
-//                       horizon=<a>,<b>,<c> dumps=<n> dump_ok=0|1 dump_pending=0|1 hold=0|1`: armed=1 when the last
-//                       rendered frame armed sky fog (with hold=1, from the held copy), size= the copy (the internal
-//                       resolution), origin= where it came from in the render target, horizon_row= clamp's horizon
-//                       in the copy at its centre column, horizon= the line a x + b y + c over render-target pixels
-//                       (above it > 0). `status` adds it as op=status.
+//                       Each prints `op=sky result=ok action=... live=edge|all|off choice=auto|edge|all|off
+//                       why=console|world_and_boundary|no_world_fog|no_boundary sky=off|mirror|clamp
+//                       method=mirror|clamp fb=<n> copies=<n> armed=0|1 size=<w>x<h> origin=<x>,<y> msaa=<n>
+//                       horizon_row=<row|none> horizon=<a>,<b>,<c> dumps=<n> dump_ok=0|1 dump_pending=0|1 hold=0|1
+//                       edge_tris=<n> edge_baked=<n> drawn=<x0>,<y0>,<x1>,<y1>`: live= what draws, from choice= for
+//                       the reason why=; armed=1 when the last rendered frame took the copy (with hold=1, the held
+//                       one), size= the copy (the internal resolution), origin= where it came from in the render
+//                       target, horizon_row= clamp's horizon in the copy at its centre column, horizon= the line
+//                       a x + b y + c over render-target pixels (above it > 0), edge_tris= and edge_baked= the
+//                       interpreted triangles and baked draws the last frame drew with the edge layer, drawn= the
+//                       copy texels the sky drew, which every read of the copy stays inside (a letterbox's bars are
+//                       left out, sturdy-bassoon#241). `status` adds it as op=status.
 //                       Refusals: error=sky_off (a dump with it off), error=bad_argument, error=unknown_subcommand
 //   colour ...          the sky's colour (sturdy-bassoon#229; WorldFog.h, DX11): depth fog toward the live sky's colour
 //                       just above the horizon - the sky copy's band lo..hi degrees above it, averaged across the view
@@ -117,16 +126,20 @@
 //     colour band <lo> <hi>       the band, degrees above the horizon, 0 <= lo < hi <= 15 (0.5 3 at launch)
 //     colour smooth <s>           the time constant, 0..5 seconds (0.25 at launch; 0 none)
 //     colour snap                 start the smoothing again from the next frame's average
+//     colour reset                what a scene load does (sturdy-bassoon#241): like snap, but with none of the band on
+//                                 screen the colour starts from the scene's fog colour instead of holding the last one
 //     colour log on [<path>] | colour log off
 //                                 one line a rendered frame, `run= colour=r,g,b raw=r,g,b samples= k=` (0..255), a few
 //                                 frames late and never waiting for the GPU. Default <TEMP>/skycolour-<n>.txt
 //                       Each prints `op=colour result=ok action=... live=auto|scene choice=auto|scene why=world_fog|
 //                       console|no_world_fog|pinned|sky_all|unsupported drawn=0|1 rgb=r,g,b raw=r,g,b samples=<n>
-//                       held=0|1 readout_run=<n> run=<n> scene_rgb=r,g,b band=lo,hi band_px=lo,hi smooth=<s> k= dt=
-//                       reductions=<n> fb=<n> log=on|off logged=<n>`: drawn= whether the last rendered frame's depth
-//                       fog took it; rgb= (what fog draws with) raw= (that frame's average) samples= (0: held) are the
-//                       last readback, taken at the end of the next rendered frame after each line - read twice for a
-//                       fresh one. `status` adds it as op=status.
+//                       held=0|1 readout_run=<n> run=<n> scene_rgb=r,g,b band=lo,hi band_px=lo,hi
+//                       rect=<x0>,<y0>,<x1>,<y1> smooth=<s> k= dt= reductions=<n> fb=<n> log=on|off logged=<n>`:
+//                       drawn= whether the last rendered frame's depth fog took it; rgb= (what fog draws with) raw=
+//                       (that frame's average) samples= (0: held) are the last readback, taken at the end of the next
+//                       rendered frame after each line - read twice for a fresh one. rect= the copy texels the last
+//                       reduction read: the 3D viewport cut to the scissor, so a letterbox's bars are left out
+//                       (sturdy-bassoon#241). `status` adds it as op=status.
 //                       Refusals: error=bad_argument, error=log_open, error=unknown_subcommand
 //   rows <start> <end> <clip>
 //                       a test aid (sturdy-bassoon#227; WorldFog_SetSceneRows): every world-unit row of the loaded
