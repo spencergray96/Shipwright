@@ -29,9 +29,9 @@
 //                   then, or bare, `op=cap result=ok arena=<name> words=<n> size=<n>`. Never saved: a
 //                   planted control
 //   failsafe [on|off]
-//                   switches the guard and the backstop for this session only, and lays the arenas out as
-//                   OoT does (flush, no guard band) while off; then, or bare, `op=failsafe result=ok
-//                   failsafe=on|off`. `cap xlu 4096` + `failsafe off` is the pre-#247 game, which hangs at
+//                   switches the guard and the backstop for this session only, and while off puts the
+//                   translucent arena flush against the overlay list, as OoT does; then, or bare, `op=failsafe
+//                   result=ok failsafe=on|off`. `cap xlu 4096` + `failsafe off` is the pre-#247 game, which hangs at
 //                   about 160 fires in view
 //
 // Returns 0 on success (and for the reads), 1 for a refused operation: an unknown subcommand, an extra

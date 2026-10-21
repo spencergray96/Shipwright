@@ -113,7 +113,7 @@ typedef struct {
 // the figures and the fail-safe are in soh/soh/Enhancements/graph/GraphBudget.h. The translucent and
 // overlay arrays carry a guard band past their arena, so an overrun lands in its own array, never in
 // the next list.
-#define GFXPOOL_POLY_OPA_WORDS 0x6000
+#define GFXPOOL_POLY_OPA_WORDS 0x8000
 #define GFXPOOL_POLY_XLU_WORDS 0x5000
 #define GFXPOOL_OVERLAY_WORDS 0x800
 #define GFXPOOL_GUARD_WORDS 0x400

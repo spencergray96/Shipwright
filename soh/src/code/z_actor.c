@@ -3092,8 +3092,11 @@ void Actor_DrawAll(PlayState* play, ActorContext* actorCtx) {
             // #endregion
             char* actorName = ActorDB_Retrieve(actor->id)->name;
 
-            gDPNoOpString(POLY_OPA_DISP++, actorName, i);
-            gDPNoOpString(POLY_XLU_DISP++, actorName, i);
+            // SOH [sturdy-bassoon#247] Not once the display lists are nearly full (graph/GraphBudget.h).
+            if (Graph_ActorNamesWanted(play->state.gfxCtx)) {
+                gDPNoOpString(POLY_OPA_DISP++, actorName, i);
+                gDPNoOpString(POLY_XLU_DISP++, actorName, i);
+            }
 
             HREG(66) = i;
 

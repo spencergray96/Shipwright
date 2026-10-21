@@ -175,13 +175,23 @@ void Graph_SetFailsafe(s32 on) {
     sGraphFailsafe = on != 0;
 }
 
+// Under the reserve in either arena the guard is stopping draws, and the loop's per-actor name strings
+// (one word in each list for every resident actor, drawn or culled) would spend the reserve the frame
+// still needs.
+static s32 Graph_ArenasShort(GraphicsContext* gfxCtx) {
+    return THGA_GetSize(&gfxCtx->polyOpa) < GRAPH_ACTOR_RESERVE_WORDS * (s32)sizeof(Gfx) ||
+           THGA_GetSize(&gfxCtx->polyXlu) < GRAPH_ACTOR_RESERVE_WORDS * (s32)sizeof(Gfx);
+}
+
+s32 Graph_ActorNamesWanted(GraphicsContext* gfxCtx) {
+    return !sGraphFailsafe || !Graph_ArenasShort(gfxCtx);
+}
+
 s32 Graph_ActorDrawBegin(GraphicsContext* gfxCtx, Actor* actor) {
     sGraphActorStart[GRAPH_ARENA_OPA] = Graph_ArenaUsed(&gfxCtx->polyOpa);
     sGraphActorStart[GRAPH_ARENA_XLU] = Graph_ArenaUsed(&gfxCtx->polyXlu);
 
-    if (sGraphFailsafe && actor->category != ACTORCAT_PLAYER &&
-        (THGA_GetSize(&gfxCtx->polyOpa) < GRAPH_ACTOR_RESERVE_WORDS * (s32)sizeof(Gfx) ||
-         THGA_GetSize(&gfxCtx->polyXlu) < GRAPH_ACTOR_RESERVE_WORDS * (s32)sizeof(Gfx))) {
+    if (sGraphFailsafe && actor->category != ACTORCAT_PLAYER && Graph_ArenasShort(gfxCtx)) {
         sGraphActorsSkipped++;
         if (!sGraphWarnedSkip) {
             sGraphWarnedSkip = true;
@@ -289,10 +299,13 @@ void Graph_InitTHGA(GraphicsContext* gfxCtx) {
     Gfx* start[GRAPH_ARENA_COUNT];
 
     // An arena starts at its array's start, with the rest of the array (the guard band, and whatever a
-    // cap freed) after it. With the fail-safe off it sits flush against the next list instead: OoT's own
-    // layout, for the planted control.
+    // cap freed) after it. With the fail-safe off the translucent arena moves to its array's end instead,
+    // flush against the overlay list it branches into: OoT's own layout, for the planted control.
     for (s32 i = 0; i < GRAPH_ARENA_COUNT; i++) {
-        start[i] = sGraphFailsafe ? base[i] : base[i] + (sGraphArenaPhysical[i] - Graph_ArenaWords(i));
+        start[i] = base[i];
+    }
+    if (!sGraphFailsafe) {
+        start[GRAPH_ARENA_XLU] += sGraphArenaPhysical[GRAPH_ARENA_XLU] - Graph_ArenaWords(GRAPH_ARENA_XLU);
     }
 
     pool->headMagic = GFXPOOL_HEAD_MAGIC;

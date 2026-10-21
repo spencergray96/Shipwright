@@ -68,14 +68,16 @@ void Graph_GetStats(GraphStats* out);
 void Graph_ResetStats(void);
 
 // For a planted control, this session only: shrink an arena to `words` (clamped to 64..its size), or
-// pass 0 for its size. With the fail-safe off the arena sits flush against the next list, with no guard
-// band - OoT's own layout - so `cap xlu 4096` + `failsafe off` is the pre-#247 game.
+// pass 0 for its size. With the fail-safe off the translucent arena sits flush against the overlay list,
+// with no guard band - OoT's own layout - so `cap xlu 4096` + `failsafe off` is the pre-#247 game.
 s32 Graph_SetArenaCap(GraphArena arena, s32 words);
 void Graph_SetFailsafe(s32 on);
 
 // Actor_DrawAll's guard. Begin returns 0 when the actor must not be drawn this frame; End records what
 // a drawn actor wrote. The pair costs two pointer reads and compares a draw.
 s32 Graph_ActorDrawBegin(GraphicsContext* gfxCtx, Actor* actor);
+// Whether the loop writes its per-actor name strings: not while the guard is stopping draws.
+s32 Graph_ActorNamesWanted(GraphicsContext* gfxCtx);
 void Graph_ActorDrawEnd(GraphicsContext* gfxCtx, Actor* actor);
 
 #ifdef __cplusplus
