@@ -69,7 +69,7 @@ static EntranceEntry sKindBenchEntrances[] = {
 // mode 0 is PLAYER_START_MODE_NOTHING, which leaves Player's update/draw entirely inert), low
 // byte 0xFF = "no start bg-camera override" (we don't author per-scene camera data).
 static ActorEntry sKindBenchPlayerSpawn = {
-    ACTOR_PLAYER, { 0, 0, -560 }, { 0, 0, 0 }, 0xDFF
+    ACTOR_PLAYER, { 0, 0, -420 }, { 0, 0, 0 }, 0xDFF
 };
 
 static RomFile sKindBenchRoomList[] = {
