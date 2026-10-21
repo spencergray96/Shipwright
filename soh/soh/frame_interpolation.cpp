@@ -493,6 +493,21 @@ struct InterpolateCtx {
                                 res->mf[3][1] += actor_mtx.mf[3][1];
                                 res->mf[3][2] += actor_mtx.mf[3][2];
                                 // #endregion
+                            } else if (old_op.matrix_to_mtx.has_anchored != new_op.matrix_to_mtx.has_anchored) {
+                                // #region SOH [sturdy-bassoon#254] One tick recorded each way (the switch flipped
+                                // between them): the two cannot be lerped, so draw the new tick's, unlerped.
+                                MtxF* res = new_replacement(new_op.matrix_to_mtx.dest);
+                                if (new_op.matrix_to_mtx.has_anchored) {
+                                    *res = new_op.matrix_to_mtx.src;
+                                    res->mf[3][0] += actor_mtx.mf[3][0];
+                                    res->mf[3][1] += actor_mtx.mf[3][1];
+                                    res->mf[3][2] += actor_mtx.mf[3][2];
+                                } else if (new_op.matrix_to_mtx.has_adjusted) {
+                                    SkinMatrix_MtxFMtxFMult(&actor_mtx, &new_op.matrix_to_mtx.src, res);
+                                } else {
+                                    *res = new_op.matrix_to_mtx.src;
+                                }
+                                // #endregion
                             } else {
                                 interpolate_mtxf(new_replacement(new_op.matrix_to_mtx.dest), &old_op.matrix_to_mtx.src,
                                                  &new_op.matrix_to_mtx.src);

@@ -290,15 +290,13 @@ int32_t ShadowInterp(const std::vector<std::string>& args, std::vector<std::stri
     const int32_t n = FrameInterpolation_GetProbeRecord(ticks, LIGHTS_SHADOW_RECORD_TICKS);
     float minSize = 1.0f;
     float minCos = 1.0f;
+    float maxSlide = 0.0f;
     int32_t dips = 0;
     for (int32_t i = 0; i < n; i++) {
         minSize = fminf(minSize, ticks[i].minSize);
         minCos = fminf(minCos, ticks[i].minCos);
-        dips += ticks[i].minSize < 0.9f ? 1 : 0;
-    }
-    float maxSlide = 0.0f;
-    for (int32_t i = 0; i < n; i++) {
         maxSlide = fmaxf(maxSlide, ticks[i].maxSlide);
+        dips += ticks[i].minSize < 0.9f ? 1 : 0;
     }
     Addf(lines,
          "op=shadowinterp result=ok ticks=%d min_size=%.3f min_cos=%.3f dips=%d max_slide=%.1f world=%s pair=%s "

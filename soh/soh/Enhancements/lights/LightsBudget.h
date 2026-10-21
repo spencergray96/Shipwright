@@ -85,8 +85,8 @@
 // before. DrawFeet draws foot 0's shadows and then foot 1's, so when a light joins or leaves, every later
 // shadow is lerped against another light's, often the other foot's: it shrinks, swings or crosses over for
 // a tick. With the setting on, each foot shadow is drawn in an interpolation child keyed by its light and
-// foot: smoothed casts by their LightInfo and pool node, the sun's two and vanilla's unsmoothed slots (whose
-// lights are copies with no identity) by their slot. A shadow new this tick draws where it is, unlerped.
+// foot: by the light's LightInfo and pool node (a smoothed cast's, or the bind's for vanilla's unsmoothed
+// slots, Lights_BoundSlotKey), and the sun's two by their slot. A shadow new this tick draws where it is.
 #define CVAR_SHADOW_INTERP_PAIR CVAR_ENHANCEMENT("ShadowInterpPair")
 #define SHADOW_INTERP_PAIR_DEFAULT 1
 
@@ -165,6 +165,9 @@ void Lights_ClearShadowRecord(void);
 // (LIGHTS_SHADOW_CASTS_MAX). Returns the count, or -1 to draw vanilla's unsmoothed shadows: the setting
 // off, a vanilla scene, a full table (counted as `full`), or a bind it cannot identify (counted as `nobind`).
 s32 Lights_ShadowCasts(Actor* actor, Lights* lights, LightsShadowCast* casts);
+// The identity of the light the last bind of `lights` put in `slot` (sturdy-bassoon#254): its holder's LightInfo
+// and its pool node, as a smoothed cast's key. Returns 0 when unknown: another group was bound since.
+s32 Lights_BoundSlotKey(Lights* lights, s32 slot, const void** key, s32* node);
 void Lights_GetShadowStats(LightsShadowStats* out);
 // For this session only; clamped to 0.01..1 (1 is unsmoothed). Returns the rate applied.
 f32 Lights_SetShadowRate(f32 rate);

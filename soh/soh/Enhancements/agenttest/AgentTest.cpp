@@ -590,11 +590,14 @@
  *                                          the pool's cap; and (#243) the fires' draw distance and glow
  *                                          halo, set live for every fire.
  *                                          RsFireConsole.h documents every line
- *   agenttest lights [status]|sunfirst [on|off|default]|pool [<n>|default]
+ *   agenttest lights [status]|sunfirst [on|off|default]|pool [<n>|default]|shadow [clear]|shadowsmooth ...|
+ *                    shadowrate ...|shadowpulse ...|shadowinterp [clear|on|off|default|pair <..>|probe <..>]
  *                                          the scene's point lights (sturdy-bassoon#233): nodes held against
  *                                          the cap, inserts refused, the last tick's bind walk, Link's bound
  *                                          lights by kind; the sun-first bind switch; a session-only pool cap
- *                                          for the vanilla-32 control. LightsConsole.h documents every line
+ *                                          for the vanilla-32 control; Link's feet shadows a tick at a time and
+ *                                          their smoothing (#250); the shadows' frame interpolation, its probe
+ *                                          and switches (#254). LightsConsole.h documents every line
  *   agenttest graph [status]|reset|cap <opa|xlu|overlay> [<words>|default]|failsafe [on|off]
  *                                          the frame's display-list arenas (sturdy-bassoon#247): each arena's
  *                                          use, peak and largest actor draw; actors the guard skipped and
@@ -3068,7 +3071,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "warps list|dump|where|status|badcheck | "
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
-              "lights [status]|sunfirst [on|off|default]|pool [<n>|default] | "
+              "lights [status]|sunfirst [on|off|default]|pool [<n>|default]|shadow|shadowsmooth|shadowrate|"
+              "shadowpulse|shadowinterp | "
               "graph [status]|reset|cap <opa|xlu|overlay> [<words>|default]|failsafe [on|off] | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
@@ -3120,7 +3124,8 @@ void RegisterAgentTest() {
               "warps list|dump|where|status|badcheck | "
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
-              "lights [status]|sunfirst [on|off|default]|pool [<n>|default] | "
+              "lights [status]|sunfirst [on|off|default]|pool [<n>|default]|shadow|shadowsmooth|shadowrate|"
+              "shadowpulse|shadowinterp | "
               "graph [status]|reset|cap <opa|xlu|overlay> [<words>|default]|failsafe [on|off] | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
