@@ -107,15 +107,27 @@ typedef struct {
     /* 0x14 */ s16  data[REG_GROUPS * REG_PER_GROUP]; // 0xAE0 entries
 } GameInfo; // size = 0x15D4
 
+// #region SOH [sturdy-bassoon#247] The frame's display-list arenas, in Gfx words. OoT's were opaque
+// 0x2FC0 and translucent 0x1000: about 160 Rs_Fire torches in view filled the translucent one, and its
+// overrun wrote over the overlay list it branches into (a hang). Both are sized for 600 fires in view;
+// the figures and the fail-safe are in soh/soh/Enhancements/graph/GraphBudget.h. The translucent and
+// overlay arrays carry a guard band past their arena, so an overrun lands in its own array, never in
+// the next list.
+#define GFXPOOL_POLY_OPA_WORDS 0x8000
+#define GFXPOOL_POLY_XLU_WORDS 0x5000
+#define GFXPOOL_OVERLAY_WORDS 0x800
+#define GFXPOOL_GUARD_WORDS 0x400
+
 typedef struct {
-    /* 0x00000 */ u16 headMagic; // GFXPOOL_HEAD_MAGIC
-    /* 0x00008 */ Gfx polyOpaBuffer[0x2FC0];
-    /* 0x0BF08 */ Gfx polyXluBuffer[0x1000];
-    /* 0x0FF08 */ Gfx overlayBuffer[0x800];
-    /* 0x11F08 */ Gfx workBuffer[0x100];
-    /* 0x11308 */ Gfx unusedBuffer[0x40];
-    /* 0x12408 */ u16 tailMagic; // GFXPOOL_TAIL_MAGIC
-} GfxPool; // size = 0x24820
+    u16 headMagic; // GFXPOOL_HEAD_MAGIC
+    Gfx polyOpaBuffer[GFXPOOL_POLY_OPA_WORDS];
+    Gfx polyXluBuffer[GFXPOOL_POLY_XLU_WORDS + GFXPOOL_GUARD_WORDS];
+    Gfx overlayBuffer[GFXPOOL_OVERLAY_WORDS + GFXPOOL_GUARD_WORDS];
+    Gfx workBuffer[0x100];
+    Gfx unusedBuffer[0x40];
+    u16 tailMagic; // GFXPOOL_TAIL_MAGIC
+} GfxPool;
+// #endregion
 
 typedef struct {
     /* 0x0000 */ u32    size;
