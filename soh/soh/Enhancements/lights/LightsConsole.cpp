@@ -12,6 +12,7 @@
 #include <ship/debug/Console.h>
 
 #include "LightsBudget.h"
+#include "soh/frame_interpolation.h"
 #include "soh/Enhancements/console/ConsoleSink.h"
 
 extern "C" {
@@ -25,7 +26,8 @@ using ConsoleSink::Addf;
 
 const char* kUsage =
     "op=usage result=error usage=\"lights [status] | sunfirst [on|off|default] | pool [<n>|default] | shadow [clear] | "
-    "shadowsmooth [on|off|default] | shadowrate [<k>|default] | shadowpulse [on|off|default|<amount> <seconds>]\"";
+    "shadowsmooth [on|off|default] | shadowrate [<k>|default] | shadowpulse [on|off|default|<amount> <seconds>] | "
+    "shadowinterp [clear]\"";
 
 bool SunFirstOn() {
     return CVarGetInteger(CVAR_LIGHTS_SUN_FIRST, LIGHTS_SUN_FIRST_DEFAULT) != 0;
@@ -211,6 +213,42 @@ int32_t ShadowRate(const std::vector<std::string>& args, std::vector<std::string
     return 0;
 }
 
+// #region SOH [sturdy-bassoon#254] The frame-interpolation probe on Link's shadow matrices.
+int32_t ShadowInterp(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() == 2) {
+        if (args[1] != "clear") {
+            Addf(lines, "op=shadowinterp result=error error=bad_value expects=clear");
+            return 1;
+        }
+        FrameInterpolation_ClearProbeRecord();
+        Addf(lines, "op=shadowinterp result=ok cleared=1");
+        return 0;
+    }
+    static FrameInterpolationProbeTick ticks[LIGHTS_SHADOW_RECORD_TICKS];
+    const int32_t n = FrameInterpolation_GetProbeRecord(ticks, LIGHTS_SHADOW_RECORD_TICKS);
+    float minSize = 1.0f;
+    float minCos = 1.0f;
+    int32_t dips = 0;
+    for (int32_t i = 0; i < n; i++) {
+        minSize = fminf(minSize, ticks[i].minSize);
+        minCos = fminf(minCos, ticks[i].minCos);
+        dips += ticks[i].minSize < 0.9f ? 1 : 0;
+    }
+    Addf(lines, "op=shadowinterp result=ok ticks=%d min_size=%.3f min_cos=%.3f dips=%d scene=0x%X", n, minSize, minCos,
+         dips, gPlayState != nullptr ? gPlayState->sceneNum : -1);
+    for (int32_t i = 0; i < n; i++) {
+        const FrameInterpolationProbeTick& t = ticks[i];
+        char dyaw[16] = "-";
+        if (i > 0 && ticks[i - 1].frame + 1 == t.frame) {
+            snprintf(dyaw, sizeof(dyaw), "%.1f", (s16)(t.yaw - ticks[i - 1].yaw) * (360.0f / 65536.0f));
+        }
+        Addf(lines, "t=%u yaw=0x%04X dyaw=%s m=%d fr=%d cmp=%d size=%.3f cos=%.3f", t.frame, (u16)t.yaw, dyaw,
+             t.matrices, t.frames, t.measured, t.minSize, t.minCos);
+    }
+    return 0;
+}
+// #endregion
+
 } // namespace
 
 int32_t LightsConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines) {
@@ -237,6 +275,9 @@ int32_t LightsConsole_Run(const std::vector<std::string>& args, std::vector<std:
     }
     if (sub == "shadowrate") {
         return ShadowRate(args, lines);
+    }
+    if (sub == "shadowinterp") {
+        return ShadowInterp(args, lines);
     }
     if (sub == "status" && args.size() <= 1) {
         return Status(lines);
@@ -265,8 +306,10 @@ const ConsoleSink::Command lightsCommand(
     "strength instead of jumping with the flame's flicker, and fades in and out as it joins or leaves the bound "
     "lights. shadowrate sets the fraction a tick for this session only (default 0.12; 1 is unsmoothed). "
     "shadowpulse switches a slow breathing of each smoothed shadow, each fire out of step (off is the plain "
-    "fade); `shadowpulse <amount> <seconds>` tunes its depth and period for this session.",
-    { { "status|sunfirst|pool|shadow|shadowsmooth|shadowrate", Ship::ArgumentType::TEXT },
+    "fade); `shadowpulse <amount> <seconds>` tunes its depth and period for this session. "
+    "shadowinterp (#254) lists, over the last 120 ticks, how far frame interpolation shrank or turned Link's "
+    "shadow matrices in the frames between ticks (size 1 and cos 1 is untouched); `shadowinterp clear` starts afresh.",
+    { { "status|sunfirst|pool|shadow|shadowsmooth|shadowrate|shadowpulse|shadowinterp", Ship::ArgumentType::TEXT },
       { "value", Ship::ArgumentType::TEXT, true } });
 
 } // namespace

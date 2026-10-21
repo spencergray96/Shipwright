@@ -8,6 +8,26 @@
 
 std::unordered_map<Mtx*, MtxF> FrameInterpolation_Interpolate(float step);
 
+// #region SOH [sturdy-bassoon#254] The shadow probe, for `lights shadowinterp`. Between two 20 Hz ticks
+// the interpolated frames replace each matrix with a lerp of the two ticks' recordings; for each matrix
+// recorded inside RecordProbeBegin/End (Link's shadowDraw), the probe compares every in-between frame's
+// replacement with the matrix the tick itself drew. One entry a tick that recorded any; none at 20 fps,
+// where nothing is interpolated.
+struct FrameInterpolationProbeTick {
+    u32 frame;    // state.frames of the tick
+    s16 yaw;      // the actor's shape.rot.y as it drew
+    s32 matrices; // matrices probed
+    s32 frames;   // interpolated frames drawn between the last tick and this one
+    s32 measured; // matrix-frames compared (an in-between frame with no replacement for one is skipped)
+    f32 minSize;  // the smallest in-between size against the drawn one (1 = unchanged); see probe_measure
+    f32 minCos;   // the smallest cosine between an in-between long axis and the drawn one (-1 = reversed)
+};
+
+// Oldest first, at most `max`; returns the count.
+int FrameInterpolation_GetProbeRecord(FrameInterpolationProbeTick* out, int max);
+void FrameInterpolation_ClearProbeRecord(void);
+// #endregion
+
 extern "C" {
 
 #endif
@@ -55,6 +75,11 @@ void FrameInterpolation_RecordMatrixReplaceRotation(MtxF* mf);
 void FrameInterpolation_RecordMatrixRotateAxis(f32 angle, Vec3f* axis, u8 mode);
 
 void FrameInterpolation_RecordSkinMatrixMtxFToMtx(MtxF* src, Mtx* dest);
+
+// sturdy-bassoon#254: opens and closes the shadow probe's scope (Link's shadowDraw in Actor_Draw).
+void FrameInterpolation_RecordProbeBegin(u32 frame, s16 yaw);
+
+void FrameInterpolation_RecordProbeEnd(void);
 
 #ifdef __cplusplus
 }

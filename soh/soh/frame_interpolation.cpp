@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <vector>
 #include <map>
 #include <unordered_map>
@@ -194,6 +195,44 @@ bool next_is_actor_pos_rot_matrix;
 bool has_inv_actor_mtx;
 MtxF inv_actor_mtx;
 size_t inv_actor_mtx_path_index;
+
+// #region SOH [sturdy-bassoon#254] The shadow probe: the matrices recorded between RecordProbeBegin and
+// RecordProbeEnd (Link's shadowDraw), each with its world matrix as this tick drew it, and how far the
+// interpolated frames between the last tick and this one shrank or turned them.
+#define PROBE_RECORD_TICKS 120
+bool probe_open;
+bool probe_has_tick;
+vector<pair<Mtx*, MtxF>> probe_mtx;
+FrameInterpolationProbeTick probe_tick;
+FrameInterpolationProbeTick probe_ring[PROBE_RECORD_TICKS];
+size_t probe_ring_head;  // the next slot written
+size_t probe_ring_count; // filled slots, at most PROBE_RECORD_TICKS
+
+float det3(const MtxF* m) {
+    return m->mf[0][0] * (m->mf[1][1] * m->mf[2][2] - m->mf[1][2] * m->mf[2][1]) -
+           m->mf[0][1] * (m->mf[1][0] * m->mf[2][2] - m->mf[1][2] * m->mf[2][0]) +
+           m->mf[0][2] * (m->mf[1][0] * m->mf[2][1] - m->mf[1][1] * m->mf[2][0]);
+}
+
+// One interpolated frame's replacement for a probed matrix against the matrix its tick drew: size is the
+// square root of their volume ratio, which for a shadow (flat, and scaled 1 in y) is its footprint's linear
+// scale (0.33 when x and z are a third); cos is the angle between their z axes (a shadow's long axis).
+void probe_measure(const MtxF* interp, const MtxF* drawn) {
+    const float d = det3(drawn);
+    if (d == 0.0f) {
+        return;
+    }
+    const float size = sqrtf(fabsf(det3(interp) / d));
+    const float* a = interp->mf[2];
+    const float* b = drawn->mf[2];
+    const float la = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+    const float lb = sqrtf(b[0] * b[0] + b[1] * b[1] + b[2] * b[2]);
+    const float cosine = (la > 0.0f && lb > 0.0f) ? (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / (la * lb) : 1.0f;
+    probe_tick.minSize = fminf(probe_tick.minSize, size);
+    probe_tick.minCos = fminf(probe_tick.minCos, cosine);
+    probe_tick.measured++;
+}
+// #endregion
 
 Data& append(Op op) {
     auto& m = current_path.back()->ops[op];
@@ -446,10 +485,30 @@ unordered_map<Mtx*, MtxF> FrameInterpolation_Interpolate(float step) {
     ctx.step = step;
     ctx.w = 1.0f - step;
     ctx.interpolate_branch(&previous_recording.root_path, &current_recording.root_path);
+    // #region SOH [sturdy-bassoon#254] The probe: this frame's replacements for the probed matrices.
+    if (probe_has_tick) {
+        probe_tick.frames++;
+        for (auto& p : probe_mtx) {
+            if (auto it = ctx.mtx_replacements.find(p.first); it != ctx.mtx_replacements.end()) {
+                probe_measure(&it->second, &p.second);
+            }
+        }
+    }
+    // #endregion
     return ctx.mtx_replacements;
 }
 
 void FrameInterpolation_StartRecord(void) {
+    // #region SOH [sturdy-bassoon#254] The last tick's probe is complete: its frames have all been drawn.
+    if (probe_has_tick) {
+        probe_ring[probe_ring_head] = probe_tick;
+        probe_ring_head = (probe_ring_head + 1) % PROBE_RECORD_TICKS;
+        probe_ring_count = std::min<size_t>(probe_ring_count + 1, PROBE_RECORD_TICKS);
+    }
+    probe_has_tick = false;
+    probe_open = false;
+    probe_mtx.clear();
+    // #endregion
     previous_recording = std::move(current_recording);
     current_recording = {};
     current_path.clear();
@@ -582,7 +641,50 @@ void FrameInterpolation_RecordMatrixToMtx(Mtx* dest, char* file, s32 line) {
     } else {
         d.src = *Matrix_GetCurrent();
     }
+    // #region SOH [sturdy-bassoon#254]
+    if (probe_open) {
+        probe_mtx.emplace_back(dest, *Matrix_GetCurrent());
+    }
+    // #endregion
 }
+
+// #region SOH [sturdy-bassoon#254] The shadow probe's scope and record.
+void FrameInterpolation_RecordProbeBegin(u32 frame, s16 yaw) {
+    if (!is_recording)
+        return;
+    probe_open = true;
+    if (!probe_has_tick) {
+        probe_has_tick = true;
+        probe_tick = {};
+        probe_tick.frame = frame;
+        probe_tick.yaw = yaw;
+        probe_tick.minSize = 1.0f;
+        probe_tick.minCos = 1.0f;
+    }
+}
+
+void FrameInterpolation_RecordProbeEnd(void) {
+    if (!is_recording)
+        return;
+    probe_open = false;
+    probe_tick.matrices = (s32)probe_mtx.size();
+}
+
+int FrameInterpolation_GetProbeRecord(FrameInterpolationProbeTick* out, int max) {
+    const size_t n = std::min<size_t>(probe_ring_count, (size_t)max);
+    const size_t first = (probe_ring_head + PROBE_RECORD_TICKS - probe_ring_count) % PROBE_RECORD_TICKS;
+    const size_t skip = probe_ring_count - n;
+    for (size_t i = 0; i < n; i++) {
+        out[i] = probe_ring[(first + skip + i) % PROBE_RECORD_TICKS];
+    }
+    return (int)n;
+}
+
+void FrameInterpolation_ClearProbeRecord(void) {
+    probe_ring_head = 0;
+    probe_ring_count = 0;
+}
+// #endregion
 
 void FrameInterpolation_RecordMatrixReplaceRotation(MtxF* mf) {
     if (!is_recording)

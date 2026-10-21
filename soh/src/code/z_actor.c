@@ -2866,7 +2866,17 @@ void Actor_Draw(PlayState* play, Actor* actor) {
     }
 
     if (actor->shape.shadowDraw != NULL) {
+        // #region SOH [sturdy-bassoon#254] Link's shadow matrices are probed for `lights shadowinterp`.
+        s32 probe = (GET_PLAYER(play) != NULL) && (actor == &GET_PLAYER(play)->actor);
+
+        if (probe) {
+            FrameInterpolation_RecordProbeBegin(play->state.frames, actor->shape.rot.y);
+        }
         actor->shape.shadowDraw(actor, lights, play);
+        if (probe) {
+            FrameInterpolation_RecordProbeEnd();
+        }
+        // #endregion
     }
 
     CLOSE_DISPS(play->state.gfxCtx);
