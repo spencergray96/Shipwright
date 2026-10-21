@@ -108,13 +108,17 @@ void Graph_UCodeFaultClient(Gfx* workBuf) {
 // backstop. What each does and why is in GraphBudget.h.
 static const s32 sGraphArenaWords[GRAPH_ARENA_COUNT] = { GFXPOOL_POLY_OPA_WORDS, GFXPOOL_POLY_XLU_WORDS,
                                                          GFXPOOL_OVERLAY_WORDS };
-// The opaque arena is two-headed and branches into nothing, so it needs no guard band: its head runs
-// into its own tail first.
+// The opaque arena needs no guard band: it is two-headed, so its head meets its own tail first (the
+// matrices and lists allocated there), and any overrun of it, past its end or not, ends the chain at its
+// first word.
 static const s32 sGraphArenaPhysical[GRAPH_ARENA_COUNT] = { GFXPOOL_POLY_OPA_WORDS,
                                                             GFXPOOL_POLY_XLU_WORDS + GFXPOOL_GUARD_WORDS,
                                                             GFXPOOL_OVERLAY_WORDS + GFXPOOL_GUARD_WORDS };
 static s32 sGraphArenaCap[GRAPH_ARENA_COUNT]; // 0: the arena's own size
 static s32 sGraphFailsafe = true;
+// The switch as this frame was laid out with: a toggle from the console lands mid-frame, and the guard
+// and the backstop must match the layout the frame was written into.
+static s32 sGraphFrameFailsafe = true;
 static GraphStats sGraphStats;
 // This frame's guard state: the arenas' use at the current actor's start, and at the last drawn actor's end.
 static s32 sGraphActorStart[GRAPH_ARENA_COUNT];
@@ -142,6 +146,7 @@ void Graph_GetStats(GraphStats* out) {
     out->failsafe = sGraphFailsafe;
     for (s32 i = 0; i < GRAPH_ARENA_COUNT; i++) {
         out->arena[i].words = Graph_ArenaWords(i);
+        out->arena[i].size = sGraphArenaWords[i];
         out->arena[i].physical = sGraphArenaPhysical[i];
     }
 }
@@ -184,14 +189,14 @@ static s32 Graph_ArenasShort(GraphicsContext* gfxCtx) {
 }
 
 s32 Graph_ActorNamesWanted(GraphicsContext* gfxCtx) {
-    return !sGraphFailsafe || !Graph_ArenasShort(gfxCtx);
+    return !sGraphFrameFailsafe || !Graph_ArenasShort(gfxCtx);
 }
 
 s32 Graph_ActorDrawBegin(GraphicsContext* gfxCtx, Actor* actor) {
     sGraphActorStart[GRAPH_ARENA_OPA] = Graph_ArenaUsed(&gfxCtx->polyOpa);
     sGraphActorStart[GRAPH_ARENA_XLU] = Graph_ArenaUsed(&gfxCtx->polyXlu);
 
-    if (sGraphFailsafe && actor->category != ACTORCAT_PLAYER && Graph_ArenasShort(gfxCtx)) {
+    if (sGraphFrameFailsafe && actor->category != ACTORCAT_PLAYER && Graph_ArenasShort(gfxCtx)) {
         sGraphActorsSkipped++;
         if (!sGraphWarnedSkip) {
             sGraphWarnedSkip = true;
@@ -243,16 +248,26 @@ static void Graph_EndList(Gfx* gfx) {
     gSPEndDisplayList(gfx++);
 }
 
+// Words the head ran past its arena's end. Up to the rest of its array (the guard band, and whatever a cap
+// freed), they are still in its own array.
+static s32 Graph_ArenaSpill(TwoHeadGfxArena* thga) {
+    return (s32)((Gfx*)thga->p - (Gfx*)((u8*)thga->bufp + thga->size));
+}
+
+// The rest of an arena's array after it, in the fail-safe's layout (the arena at the array's start).
+static s32 Graph_ArenaSlack(TwoHeadGfxArena* thga, GraphArena arena) {
+    return sGraphArenaPhysical[arena] - (s32)(thga->size / sizeof(Gfx));
+}
+
 // The backstop, after the chain is written. Returns the arenas cut out (1 << GraphArena each), and
 // leaves the work list a valid one in every case.
-static s32 Graph_RepairOverrun(GraphicsContext* gfxCtx) {
-    s32 mask = 0;
-    // Words the head ran past its arena's end: up to the guard band, they are still in its own array.
-    s32 xluSpill = (s32)((Gfx*)gfxCtx->polyXlu.p - (Gfx*)((u8*)gfxCtx->polyXlu.bufp + gfxCtx->polyXlu.size));
-    s32 ovlSpill = (s32)((Gfx*)gfxCtx->overlay.p - (Gfx*)((u8*)gfxCtx->overlay.bufp + gfxCtx->overlay.size));
+static u32 Graph_RepairOverrun(GraphicsContext* gfxCtx) {
+    u32 mask = 0;
 
-    if (ovlSpill > GFXPOOL_GUARD_WORDS) {
-        // Past its guard band into the work list: nothing left to branch to. The frame draws nothing.
+    if ((Gfx*)gfxCtx->polyOpa.p > gfxCtx->workBuffer || (Gfx*)gfxCtx->polyXlu.p > gfxCtx->workBuffer ||
+        (Gfx*)gfxCtx->overlay.p > gfxCtx->workBuffer) {
+        // A head ran on into the work list, which every array comes before: nothing left to branch to. The
+        // frame draws nothing.
         Graph_EndList(gfxCtx->workBuffer);
         return (1 << GRAPH_ARENA_COUNT) - 1;
     }
@@ -262,7 +277,8 @@ static s32 Graph_RepairOverrun(GraphicsContext* gfxCtx) {
         Graph_EndList(gfxCtx->polyOpaBuffer);
         return (1 << GRAPH_ARENA_COUNT) - 1;
     }
-    if (THGA_IsCrash(&gfxCtx->overlay) || xluSpill > GFXPOOL_GUARD_WORDS) {
+    if (THGA_IsCrash(&gfxCtx->overlay) ||
+        Graph_ArenaSpill(&gfxCtx->polyXlu) > Graph_ArenaSlack(&gfxCtx->polyXlu, GRAPH_ARENA_XLU)) {
         Graph_EndList(gfxCtx->overlayBuffer);
         mask |= 1 << GRAPH_ARENA_OVERLAY;
     }
@@ -293,8 +309,11 @@ static void Graph_RecordFrame(GraphicsContext* gfxCtx, u32 frame) {
     }
 }
 
+// #endregion
+
 void Graph_InitTHGA(GraphicsContext* gfxCtx) {
     GfxPool* pool = &gGfxPools[gfxCtx->gfxPoolIdx & 1];
+    // #region SOH [sturdy-bassoon#247] The arenas' sizes and places (GraphBudget.h)
     Gfx* base[GRAPH_ARENA_COUNT] = { pool->polyOpaBuffer, pool->polyXluBuffer, pool->overlayBuffer };
     Gfx* start[GRAPH_ARENA_COUNT];
 
@@ -304,7 +323,8 @@ void Graph_InitTHGA(GraphicsContext* gfxCtx) {
     for (s32 i = 0; i < GRAPH_ARENA_COUNT; i++) {
         start[i] = base[i];
     }
-    if (!sGraphFailsafe) {
+    sGraphFrameFailsafe = sGraphFailsafe;
+    if (!sGraphFrameFailsafe) {
         start[GRAPH_ARENA_XLU] += sGraphArenaPhysical[GRAPH_ARENA_XLU] - Graph_ArenaWords(GRAPH_ARENA_XLU);
     }
 
@@ -482,7 +502,7 @@ void Graph_TaskSet00(GraphicsContext* gfxCtx) {
 void Graph_Update(GraphicsContext* gfxCtx, GameState* gameState) {
     u32 problem;
     u32 poolProblem; // SOH [sturdy-bassoon#247] the pool's magic alone, without the arenas
-    s32 overran;
+    s32 overran;     // SOH [sturdy-bassoon#247]
 
     // Skip game frame updates while gfx debugger is active, and execute with the last frame's DL buffer
     if (GfxDebuggerIsDebugging()) {
@@ -573,7 +593,7 @@ void Graph_Update(GraphicsContext* gfxCtx, GameState* gameState) {
         }
     }
 
-    poolProblem = problem;
+    poolProblem = problem; // SOH [sturdy-bassoon#247]
     if (THGA_IsCrash(&gfxCtx->polyOpa)) {
         problem = true;
         osSyncPrintf("%c", BEL);
@@ -601,8 +621,8 @@ void Graph_Update(GraphicsContext* gfxCtx, GameState* gameState) {
     if (overran) {
         sGraphStats.overrunFrames++;
     }
-    if (overran && sGraphFailsafe) {
-        s32 mask = Graph_RepairOverrun(gfxCtx);
+    if (overran && sGraphFrameFailsafe) {
+        u32 mask = Graph_RepairOverrun(gfxCtx);
 
         sGraphStats.repairedFrames++;
         sGraphStats.lastRepairMask = mask;

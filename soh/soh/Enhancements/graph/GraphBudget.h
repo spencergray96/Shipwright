@@ -13,11 +13,16 @@
 // a translucent overrun - which wrote over the overlay list it branches into - looped the interpreter
 // forever. About 160 Rs_Fire torches in view did it: 25 translucent words each in Debug.
 //
+// The arrays grew in GfxPool: the opaque and translucent arenas for 600 fires in view, and a guard band
+// after the translucent and overlay arenas (the overlay arena itself stays OoT's 0x800). Every later
+// field's offset moved with them; nothing outside graph.c reads those offsets.
+//
 // The fail-safe, in two layers:
 //   - the guard: Actor_DrawAll asks Graph_ActorDrawBegin before each actor. With less than
 //     GRAPH_ACTOR_RESERVE_WORDS left in the opaque or the translucent arena, the actor is not drawn
-//     that frame (warned once a session). The player is never skipped. While there is room this changes
-//     nothing at all;
+//     that frame (warned once a session). The player is never skipped (ACTORCAT_PLAYER: Link, not Dark
+//     Link or Epona). Actor_DrawLensActors, after the loop, is not guarded, and the reserve was not
+//     measured with the Lens of Truth on. While there is room this changes nothing at all;
 //   - the backstop: anything that still overruns (one draw bigger than the reserve, or a writer outside
 //     the actor loop) lands in its array's guard band (GFXPOOL_GUARD_WORDS), and Graph_Update cuts the
 //     overrun arena out of the chain: its first word becomes a branch to the next list, so the frame
@@ -26,7 +31,7 @@
 // The reserve must cover the largest single actor draw plus everything written into the two arenas after
 // the actor loop (effects, particles, the rest of Play_Draw), so a frame the guard stops still finishes
 // inside its arena. Measured in Debug (`graph status`'s max_actor and after_peak): the largest actor draw
-// is Link's, 233 opaque words (a fire's 28 is the largest translucent one). After the loop a quiet frame
+// is Link's, 233 opaque and 28 translucent words (a fire's is 23). After the loop a quiet frame
 // writes about 150 opaque and 36 translucent words; bombs bursting round Link, at most 1,185 and 1,383
 // (12 bombs on the kind bench; Kakariko read 958 and 1,244 at 8 bombs and at 24, the effect tables'
 // ceiling). So about 1,420 of each; 0x800 leaves about 45% over both. A frame that still overruns falls
@@ -46,6 +51,7 @@ typedef enum GraphArena {
 
 typedef struct GraphArenaStats {
     s32 words;    // the arena's size in force (its GFXPOOL_* size unless capped for a test)
+    s32 size;     // its GFXPOOL_* size: the largest cap
     s32 physical; // the array's size, guard band included
     s32 used;     // words used in the last complete frame: head and tail together
     s32 peak;     // most used in one frame since the last `graph reset`
@@ -64,7 +70,7 @@ typedef struct GraphStats {
     u32 skippedTotal;   // since the reset
     u32 skippedFrames;  // frames with any actor skipped, since the reset
     u32 repairedFrames; // frames the backstop cut an arena out of, since the reset
-    s32 lastRepairMask; // 1 << GraphArena for each arena cut out of the last repaired frame
+    u32 lastRepairMask; // 1 << GraphArena for each arena cut out of the last repaired frame
     u32 overrunFrames;  // frames any arena overran, failsafe on or off, since the reset
     GraphArenaStats arena[GRAPH_ARENA_COUNT];
 } GraphStats;

@@ -63,10 +63,8 @@ int32_t Cap(const std::vector<std::string>& args, std::vector<std::string>& line
     GraphStats s;
     Graph_GetStats(&s);
     int32_t words = s.arena[arena].words;
+    const int32_t size = s.arena[arena].size;
     if (args.size() == 3) {
-        int32_t size = arena == GRAPH_ARENA_OPA   ? GFXPOOL_POLY_OPA_WORDS
-                       : arena == GRAPH_ARENA_XLU ? GFXPOOL_POLY_XLU_WORDS
-                                                  : GFXPOOL_OVERLAY_WORDS;
         if (args[2] == "default") {
             words = Graph_SetArenaCap(arena, 0);
         } else {
@@ -79,7 +77,7 @@ int32_t Cap(const std::vector<std::string>& args, std::vector<std::string>& line
             words = Graph_SetArenaCap(arena, (int32_t)value);
         }
     }
-    Addf(lines, "op=cap result=ok arena=%s words=%d size=%d", kArenaNames[arena], words, s.arena[arena].physical);
+    Addf(lines, "op=cap result=ok arena=%s words=%d size=%d", kArenaNames[arena], words, size);
     return 0;
 }
 

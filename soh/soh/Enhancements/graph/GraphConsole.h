@@ -20,14 +20,14 @@
 //                   then one per arena, `arena name=opa|xlu|overlay used=<n> words=<n> physical=<n> peak=<n>
 //                   max_actor=<n> max_actor_id=0x<hex> after_actors=<n> after_peak=<n> markers=<n>`: words
 //                   used (head and tail), the arena's size in force and its array's, the peak, the largest
-//                   single actor draw and whose, what was written after the actor loop's last draw (-1 for
-//                   the overlay, which the loop does not track), and Debug's open/close markers. The peaks
-//                   and maxima run since the last `reset`
+//                   single actor draw and whose (0xFFFF: none since the reset), what was written after the actor loop's
+//                   last draw (-1 for the overlay, which the loop does not track), and Debug's open/close markers. The
+//                   peaks and maxima run since the last `reset`
 //   reset           zeroes the peaks, maxima and totals; prints `op=reset result=ok`
 //   cap <opa|xlu|overlay> [<words>|default]
 //                   shrinks an arena to `words` (64..its size) for THIS SESSION ONLY, from the next frame;
-//                   then, or bare, `op=cap result=ok arena=<name> words=<n> size=<n>`. Never saved: a
-//                   planted control
+//                   then, or bare, `op=cap result=ok arena=<name> words=<n> size=<n>` (size: the arena's own, the
+//                   largest cap). Never saved: a planted control
 //   failsafe [on|off]
 //                   switches the guard and the backstop for this session only, and while off puts the
 //                   translucent arena flush against the overlay list, as OoT does; then, or bare, `op=failsafe
