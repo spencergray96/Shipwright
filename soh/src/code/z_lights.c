@@ -224,14 +224,16 @@ void Lights_SetShadowPulse(f32 amount, f32 seconds) {
     sShadowPulseSeconds = CLAMP(seconds, 0.5f, 30.0f);
 }
 
-// The pulse's factor for one light this tick: 1 + amount x sin(phase). The phase runs with state.frames (20 a
-// second) and is offset by the light's pool node times the golden angle, so neighbouring nodes spread evenly
-// round the cycle and a light keeps its place in it whichever slot it binds to.
+// The pulse's factor for one light this tick: from 1 (the shadow at its full strength) down to 1 - amount and
+// back, on a sine. Lightening only, and applied after the draw's clamp (LIGHTS_SHADOW_FULL), so a shadow already
+// at full dark breathes too: a pulse round the clamped value would be clamped flat. The phase runs with
+// state.frames (20 a second) and is offset by the light's pool node times the golden angle, so neighbouring
+// nodes spread evenly round the cycle and a light keeps its place in it whichever slot it binds to.
 static f32 Lights_ShadowPulse(LightNode* node, u32 frame) {
     f32 cycle = (f32)frame / (20.0f * sShadowPulseSeconds);
     f32 phase = 2.0f * M_PI * (cycle - floorf(cycle)) + 2.3999632f * (f32)(node - sLightsBuffer.buf);
 
-    return 1.0f + sShadowPulseAmount * sinf(phase);
+    return 1.0f - sShadowPulseAmount * (0.5f + 0.5f * sinf(phase));
 }
 
 f32 Lights_SetShadowRate(f32 rate) {
@@ -447,7 +449,8 @@ s32 Lights_ShadowCasts(Actor* actor, Lights* lights, LightsShadowCast* casts) {
         casts[n].light.l.dir[2] = sl->dir[2];
         casts[n].lightNum = (sl->dir[1] > 0) ? (s32)sl->strength : 0;
         if (sLightsShadowPulseThisTick) {
-            casts[n].lightNum = (s32)(casts[n].lightNum * Lights_ShadowPulse(sl->node, frame));
+            casts[n].lightNum =
+                (s32)(MIN(casts[n].lightNum, LIGHTS_SHADOW_FULL) * Lights_ShadowPulse(sl->node, frame));
         }
         if (rec != NULL) {
             rec->node[n] = (s16)(sl->node - sLightsBuffer.buf);

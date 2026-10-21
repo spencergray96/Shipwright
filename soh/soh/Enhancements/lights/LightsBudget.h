@@ -36,7 +36,9 @@
 //
 // With the setting on, in grid-tool scenes, the feet shadow reads a SMOOTHED strength per actor and per
 // light instead (Lights_ShadowCasts in z_lights.c):
-//   - each tick, each bound light's strength moves a fraction `rate` of the way to its current one;
+//   - the light's flicker is divided out: its strength is read at its colour averaged over seconds, not
+//     this tick's roll, so only distance and the slot changes move it;
+//   - each tick, each bound light's strength moves a fraction `rate` of the way to that;
 //   - a light that leaves the bound set fades out at the same rate on its last direction, and one that
 //     joins fades in from 0;
 //   - the sun's cut-off reads the smoothed sum, and its result is smoothed too, so the sun shadow fades
@@ -47,19 +49,20 @@
 // shadows' shape and direction are vanilla's. Vanilla scenes are untouched.
 #define CVAR_LIGHTS_SHADOW_SMOOTH CVAR_ENHANCEMENT("LightsShadowSmooth")
 #define LIGHTS_SHADOW_SMOOTH_DEFAULT 1
-// The fraction a tick. 0.12 settles a change to 63% in 8 ticks (0.4 s) and 90% in 18 (0.9 s). Measured
-// standing near fires, it takes the shadow's mean jump a tick from about 23% of its strength to about 2%.
-// `lights shadowrate` changes it for one session.
+// The fraction a tick. 0.12 settles a change to 63% in 8 ticks (0.4 s) and 90% in 18 (0.9 s): how fast a
+// shadow follows the actor walking toward or away from a fire, and how fast a light joining or leaving the
+// bound set fades. The owner's pick at the look, over 0.06. `lights shadowrate` changes it for one session.
 #define LIGHTS_SHADOW_RATE_DEFAULT 0.12f
 // The pulse (the owner's ask at #250's look): on top of the smoothed strength, each light's shadow breathes on a
-// slow sine, darkening and lightening by `amount` of its strength over `seconds`. Each light keeps one phase
-// for as long as it holds its pool node, so several fires breathe out of step and a light re-bound into another
-// slot, or snapped in after a warp, carries on where it was. The sun's cut-off reads the strength before the
+// slow sine, from its full strength to `amount` lighter and back over `seconds`, after the draw's clamp so a
+// shadow at full dark breathes too. 25% over 2 s is the owner's pick at the look. Each light keeps one phase
+// for as long as it holds its pool node, so several fires breathe out of step and a light re-bound into
+// another slot, or snapped in after a warp, carries on where it was. The sun's cut-off reads the strength before the
 // pulse, so the sun shadow stays steady. `lights shadowpulse off` is the plain fade.
 #define CVAR_LIGHTS_SHADOW_PULSE CVAR_ENHANCEMENT("LightsShadowPulse")
 #define LIGHTS_SHADOW_PULSE_DEFAULT 1
-#define LIGHTS_SHADOW_PULSE_AMOUNT_DEFAULT 0.10f
-#define LIGHTS_SHADOW_PULSE_SECONDS_DEFAULT 3.0f
+#define LIGHTS_SHADOW_PULSE_AMOUNT_DEFAULT 0.25f
+#define LIGHTS_SHADOW_PULSE_SECONDS_DEFAULT 2.0f
 #define LIGHTS_SHADOW_ACTORS 16    // actors smoothed at once; past it, an actor draws unsmoothed (counted)
 // Lights per actor: up to 5 bound point lights and the rest fading. With 8, walking a path between 14
 // fires cut 8 fades short; with 12, none. When one must be cut, it is the weakest fading light (counted).
