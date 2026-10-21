@@ -25,6 +25,7 @@
 #include "overlays/actors/ovl_En_Arrow/z_en_arrow.h"
 #include "soh/Enhancements/rs/quest/WorldFlagIds.h"
 #include "soh/Enhancements/worldstate/WorldFlags.h"
+#include "soh/Enhancements/lights/LightsBudget.h"
 
 // En_Light params 4's scale: the fire the owner picked, and what rot.x is a percentage of.
 #define RS_FIRE_BASE_SCALE 0.004f
@@ -164,6 +165,8 @@ static void RsFire_TakeLight(RsFire* this, PlayState* play) {
         Lights_PointNoGlowSetInfo(&this->lightInfo, x, y, z, 255, 255, 180, -1);
     }
     this->lightNode = LightContext_InsertLight(play, &play->lightCtx, &this->lightInfo);
+    // The flicker in RsFire_Update rolls 255 and 200 by 0.5-1.0, so its mean colour sum is 455 x 0.75 (#250).
+    Lights_SetShadowMeanColor(this->lightNode, &this->lightInfo, (255.0f + 200.0f) * 0.75f);
 }
 
 static void RsFire_Light(RsFire* this, PlayState* play, int32_t by) {

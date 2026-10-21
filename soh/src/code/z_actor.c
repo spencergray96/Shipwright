@@ -10,6 +10,7 @@
 #include "soh/ObjectExtension/ObjectExtension.h"
 #include "soh/ObjectExtension/ActorListIndex.h"
 #include "soh/frame_interpolation.h"
+#include "soh/Enhancements/lights/LightsBudget.h"
 #include "soh/Enhancements/cosmetics/cosmeticsTypes.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
@@ -158,6 +159,12 @@ void ActorShadow_DrawHorse(Actor* actor, Lights* lights, PlayState* play) {
     ActorShadow_Draw(actor, lights, play, gHorseShadowDL, NULL);
 }
 
+// #region SOH [sturdy-bassoon#250] ActorShadow_DrawFoot's alpha, term for term, for `lights shadow`.
+static u8 ActorShadow_FootAlpha(s32 lightNum, f32 shadowAlpha) {
+    return (u32)(((lightNum * 0.00005f) > 1.0f ? 1.0f : (lightNum * 0.00005f)) * shadowAlpha) & 0xFF;
+}
+// #endregion
+
 void ActorShadow_DrawFoot(PlayState* play, Light* light, MtxF* arg2, s32 arg3, f32 arg4, f32 arg5, f32 arg6) {
     s32 pad1;
     f32 sp58;
@@ -213,6 +220,13 @@ void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
         Light* firstLightPtr = &lights->l.l[0];
         Vec3f* feetPosPtr = actor->shape.feetPos;
         f32* floorHeightPtr = floorHeight;
+        // #region SOH [sturdy-bassoon#250] Smoothed feet shadows in grid-tool scenes (LightsBudget.h). A
+        // numCasts of -1 draws vanilla's shadows: its two loops below run only then. `lights shadow`
+        // records Link's.
+        s32 isLink = (GET_PLAYER(play) != NULL) && (actor == &GET_PLAYER(play)->actor);
+        LightsShadowCast casts[LIGHTS_SHADOW_CASTS_MAX];
+        s32 numCasts = Lights_ShadowCasts(actor, lights, casts);
+        // #endregion
 
         OPEN_DISPS(play->state.gfxCtx);
 
@@ -239,7 +253,21 @@ void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
                 lightNumMax = 0;
                 lightPtr = firstLightPtr;
 
-                for (j = 0; j < numLights; j++) {
+                // #region SOH [sturdy-bassoon#250] The smoothed casts: the point lights (fading ones too),
+                // then the sun's two, already cut.
+                for (j = 0; j < numCasts; j++) {
+                    if (casts[j].lightNum > 0) {
+                        ActorShadow_DrawFoot(play, &casts[j].light, &floorMtx, casts[j].lightNum, shadowAlpha,
+                                             shadowScaleX, shadowScaleZ);
+                        if (isLink) {
+                            Lights_RecordLinkShadow(i, j, casts[j].lightNum,
+                                                    ActorShadow_FootAlpha(casts[j].lightNum, shadowAlpha));
+                        }
+                    }
+                }
+                // #endregion
+
+                for (j = 0; numCasts < 0 && j < numLights; j++) {
                     if (lightPtr->l.dir[1] > 0) {
                         lightNum =
                             (lightPtr->l.col[0] + lightPtr->l.col[1] + lightPtr->l.col[2]) * ABS(lightPtr->l.dir[1]);
@@ -247,12 +275,15 @@ void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
                             lightNumMax += lightNum;
                             ActorShadow_DrawFoot(play, lightPtr, &floorMtx, lightNum, shadowAlpha, shadowScaleX,
                                                  shadowScaleZ);
+                            if (isLink) {
+                                Lights_RecordLinkShadow(i, j, lightNum, ActorShadow_FootAlpha(lightNum, shadowAlpha));
+                            }
                         }
                     }
                     lightPtr++;
                 }
 
-                for (j = 0; j < 2; j++) {
+                for (j = 0; numCasts < 0 && j < 2; j++) {
                     if (lightPtr->l.dir[1] > 0) {
                         lightNum =
                             ((lightPtr->l.col[0] + lightPtr->l.col[1] + lightPtr->l.col[2]) * ABS(lightPtr->l.dir[1])) -
@@ -260,6 +291,10 @@ void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
                         if (lightNum > 0) {
                             ActorShadow_DrawFoot(play, lightPtr, &floorMtx, lightNum, shadowAlpha, shadowScaleX,
                                                  shadowScaleZ);
+                            if (isLink) {
+                                Lights_RecordLinkShadow(i, numLights + j, lightNum,
+                                                        ActorShadow_FootAlpha(lightNum, shadowAlpha));
+                            }
                         }
                     }
                     lightPtr++;

@@ -5,6 +5,7 @@
 
 #include "LightsConsole.h"
 
+#include <cstdio>
 #include <cstdlib>
 
 #include <libultraship/bridge/consolevariablebridge.h>
@@ -22,10 +23,20 @@ namespace {
 
 using ConsoleSink::Addf;
 
-const char* kUsage = "op=usage result=error usage=\"lights [status] | sunfirst [on|off|default] | pool [<n>|default]\"";
+const char* kUsage =
+    "op=usage result=error usage=\"lights [status] | sunfirst [on|off|default] | pool [<n>|default] | shadow [clear] | "
+    "shadowsmooth [on|off|default] | shadowrate [<k>|default] | shadowpulse [on|off|default|<amount> <seconds>]\"";
 
 bool SunFirstOn() {
     return CVarGetInteger(CVAR_LIGHTS_SUN_FIRST, LIGHTS_SUN_FIRST_DEFAULT) != 0;
+}
+
+bool ShadowSmoothOn() {
+    return CVarGetInteger(CVAR_LIGHTS_SHADOW_SMOOTH, LIGHTS_SHADOW_SMOOTH_DEFAULT) != 0;
+}
+
+bool ShadowPulseOn() {
+    return CVarGetInteger(CVAR_LIGHTS_SHADOW_PULSE, LIGHTS_SHADOW_PULSE_DEFAULT) != 0;
 }
 
 int32_t Status(std::vector<std::string>& lines) {
@@ -80,10 +91,131 @@ int32_t Pool(const std::vector<std::string>& args, std::vector<std::string>& lin
     return 0;
 }
 
+// A comma list of n values, `-` for a slot that is not there.
+template <typename T> std::string SlotList(const T* values, int32_t n, int32_t bound, bool nodes) {
+    std::string out;
+    char buf[16];
+    for (int32_t i = 0; i < n; i++) {
+        if (i > 0) {
+            out += ',';
+        }
+        if (i >= bound) {
+            out += '-';
+        } else if (nodes && values[i] == LIGHTS_SHADOW_NODE_DIR) {
+            out += 's';
+        } else {
+            snprintf(buf, sizeof(buf), "%d", (int)values[i]);
+            out += buf;
+        }
+    }
+    return out;
+}
+
+int32_t Shadow(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() == 2) {
+        if (args[1] != "clear") {
+            Addf(lines, "op=shadow result=error error=bad_value expects=clear");
+            return 1;
+        }
+        Lights_ClearShadowRecord();
+        Addf(lines, "op=shadow result=ok cleared=1");
+        return 0;
+    }
+    static LightsShadowTick ticks[LIGHTS_SHADOW_RECORD_TICKS];
+    const int32_t n = Lights_GetShadowRecord(ticks, LIGHTS_SHADOW_RECORD_TICKS);
+    Addf(lines, "op=shadow result=ok ticks=%d scene=0x%X", n, gPlayState != nullptr ? gPlayState->sceneNum : -1);
+    const int32_t width = LIGHTS_SHADOW_CASTS_MAX;
+    for (int32_t i = 0; i < n; i++) {
+        const LightsShadowTick& t = ticks[i];
+        Addf(lines, "t=%u sm=%d n=%d ids=%s f0=%s f1=%s num=%s", t.frame, t.smoothed, t.numLights,
+             SlotList(t.node, width, t.numLights, true).c_str(),
+             SlotList(t.alpha[0], width, t.numLights, false).c_str(),
+             SlotList(t.alpha[1], width, t.numLights, false).c_str(),
+             SlotList(t.lightNum, width, t.numLights, false).c_str());
+    }
+    return 0;
+}
+
+int32_t ShadowSmooth(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() == 2) {
+        if (args[1] == "default") {
+            CVarClear(CVAR_LIGHTS_SHADOW_SMOOTH);
+        } else if (args[1] == "on" || args[1] == "off") {
+            CVarSetInteger(CVAR_LIGHTS_SHADOW_SMOOTH, args[1] == "on" ? 1 : 0);
+        } else {
+            Addf(lines, "op=shadowsmooth result=error error=bad_value expects=on|off|default");
+            return 1;
+        }
+        CVarSave();
+    }
+    LightsShadowStats s;
+    Lights_GetShadowStats(&s);
+    Addf(lines,
+         "op=shadowsmooth result=ok shadowsmooth=%s default=%s override=%d gate=%d rate=%.3f actors=%d snaps=%d "
+         "full=%d nobind=%d cut=%d",
+         ShadowSmoothOn() ? "on" : "off", LIGHTS_SHADOW_SMOOTH_DEFAULT ? "on" : "off",
+         CVarGetInteger(CVAR_LIGHTS_SHADOW_SMOOTH, -1) != -1 ? 1 : 0, s.gate, s.rate, s.actors, s.snaps, s.full,
+         s.nobind, s.cut);
+    return 0;
+}
+
+int32_t ShadowPulse(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() == 3) {
+        char* end1 = nullptr;
+        char* end2 = nullptr;
+        const double amount = strtod(args[1].c_str(), &end1);
+        const double seconds = strtod(args[2].c_str(), &end2);
+        if (end1 == args[1].c_str() || *end1 != '\0' || end2 == args[2].c_str() || *end2 != '\0' || amount < 0.0 ||
+            amount > 0.9 || seconds < 0.5 || seconds > 30.0) {
+            Addf(lines, "op=shadowpulse result=error error=bad_value amount=0..0.9 seconds=0.5..30");
+            return 1;
+        }
+        Lights_SetShadowPulse((f32)amount, (f32)seconds);
+    } else if (args.size() == 2) {
+        if (args[1] == "default") {
+            CVarClear(CVAR_LIGHTS_SHADOW_PULSE);
+            Lights_SetShadowPulse(LIGHTS_SHADOW_PULSE_AMOUNT_DEFAULT, LIGHTS_SHADOW_PULSE_SECONDS_DEFAULT);
+        } else if (args[1] == "on" || args[1] == "off") {
+            CVarSetInteger(CVAR_LIGHTS_SHADOW_PULSE, args[1] == "on" ? 1 : 0);
+        } else {
+            Addf(lines, "op=shadowpulse result=error error=bad_value expects=on|off|default|<amount> <seconds>");
+            return 1;
+        }
+        CVarSave();
+    }
+    LightsShadowStats s;
+    Lights_GetShadowStats(&s);
+    Addf(lines, "op=shadowpulse result=ok shadowpulse=%s default=%s override=%d gate=%d amount=%.3f seconds=%.2f",
+         ShadowPulseOn() ? "on" : "off", LIGHTS_SHADOW_PULSE_DEFAULT ? "on" : "off",
+         CVarGetInteger(CVAR_LIGHTS_SHADOW_PULSE, -1) != -1 ? 1 : 0, s.pulseGate, s.pulseAmount, s.pulseSeconds);
+    return 0;
+}
+
+int32_t ShadowRate(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() == 2) {
+        if (args[1] == "default") {
+            Lights_SetShadowRate(LIGHTS_SHADOW_RATE_DEFAULT);
+        } else {
+            char* end = nullptr;
+            const double value = strtod(args[1].c_str(), &end);
+            if (end == args[1].c_str() || *end != '\0' || value < 0.01 || value > 1.0) {
+                Addf(lines, "op=shadowrate result=error error=bad_value min=0.01 max=1");
+                return 1;
+            }
+            Lights_SetShadowRate((f32)value);
+        }
+    }
+    LightsShadowStats s;
+    Lights_GetShadowStats(&s);
+    Addf(lines, "op=shadowrate result=ok rate=%.3f default=%.3f", s.rate, LIGHTS_SHADOW_RATE_DEFAULT);
+    return 0;
+}
+
 } // namespace
 
 int32_t LightsConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines) {
-    if (args.size() > 2) {
+    // Only `shadowpulse <amount> <seconds>` takes two values.
+    if (args.size() > 3 || (args.size() == 3 && args[0] != "shadowpulse")) {
         lines.push_back(kUsage);
         return 1;
     }
@@ -93,6 +225,18 @@ int32_t LightsConsole_Run(const std::vector<std::string>& args, std::vector<std:
     }
     if (sub == "pool") {
         return Pool(args, lines);
+    }
+    if (sub == "shadow") {
+        return Shadow(args, lines);
+    }
+    if (sub == "shadowsmooth") {
+        return ShadowSmooth(args, lines);
+    }
+    if (sub == "shadowpulse") {
+        return ShadowPulse(args, lines);
+    }
+    if (sub == "shadowrate") {
+        return ShadowRate(args, lines);
     }
     if (sub == "status" && args.size() <= 1) {
         return Status(lines);
@@ -115,7 +259,14 @@ const ConsoleSink::Command lightsCommand(
     "sunfirst switches the grid-tool scenes' bind rule: when an actor has more lights in range than its "
     "7 slots, the scene's directional lights keep theirs and the nearest point lights take the rest, "
     "instead of the newest seven crowding the sun out. pool holds new lights to n nodes for this session "
-    "only, so `pool 32` plants vanilla's starvation beside the raised pool.",
-    { { "status|sunfirst|pool", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } });
+    "only, so `pool 32` plants vanilla's starvation beside the raised pool. shadow lists Link's feet shadows "
+    "over the last 120 ticks (#250): each slot's light and the alpha it drew at; `shadow clear` starts afresh. "
+    "shadowsmooth switches the grid-tool scenes' smoothed feet shadows: each light's shadow fades toward its "
+    "strength instead of jumping with the flame's flicker, and fades in and out as it joins or leaves the bound "
+    "lights. shadowrate sets the fraction a tick for this session only (default 0.12; 1 is unsmoothed). "
+    "shadowpulse switches a slow breathing of each smoothed shadow, each fire out of step (off is the plain "
+    "fade); `shadowpulse <amount> <seconds>` tunes its depth and period for this session.",
+    { { "status|sunfirst|pool|shadow|shadowsmooth|shadowrate", Ship::ArgumentType::TEXT },
+      { "value", Ship::ArgumentType::TEXT, true } });
 
 } // namespace
