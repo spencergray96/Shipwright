@@ -135,10 +135,10 @@ void Lights_ClearShadowRecord(void) {
 // The feet shadows' smoothing (LightsBudget.h, #250). One slot per actor drawn with smoothed shadows,
 // each holding up to LIGHTS_SHADOW_LIGHTS lights. A slot is free once its actor has missed a tick (died,
 // culled, or a scene ended), so a dead actor's slot is free a tick later; an actor that takes it, or any
-// actor that reappears after a missed tick, starts fresh and snaps. An actor is known by its address, id,
-// params and home, so the one way to inherit is an actor dying and another spawned from the same entry
-// (same id, params and home) taking its address in the same tick: it would fade on from the dead one's
-// values, which were the same actor's at the same spot.
+// actor that reappears after a missed tick, starts fresh and snaps. An actor is known by its address, id
+// and params: not its home, which the player rewrites as Link moves (z_player.c). So the one way to
+// inherit is an actor dying and another of the same id and params taking its address in the same tick,
+// within LIGHTS_SHADOW_SNAP_DIST of it: that one would fade on from the dead one's values.
 typedef struct {
     LightNode* node;  // NULL: free
     LightInfo* info;  // the node's holder's info: a node freed and re-taken by another light is another light
@@ -151,7 +151,6 @@ typedef struct {
     Actor* actor; // NULL: free
     s16 id;
     s16 params;
-    Vec3s home;
     u32 frame; // the tick it was last advanced
     Vec3f pos; // the actor's position then
     LightsShadowLight lights[LIGHTS_SHADOW_LIGHTS];
@@ -206,9 +205,7 @@ static LightsShadowActor* Lights_ShadowActorSlot(Actor* actor, u32 frame, s32* s
     for (i = 0; i < LIGHTS_SHADOW_ACTORS; i++) {
         e = &sShadowActors[i];
         if (Lights_ShadowSlotLive(e, frame)) {
-            if (e->actor == actor && e->id == actor->id && e->params == actor->params &&
-                e->home.x == (s16)actor->home.pos.x && e->home.y == (s16)actor->home.pos.y &&
-                e->home.z == (s16)actor->home.pos.z) {
+            if (e->actor == actor && e->id == actor->id && e->params == actor->params) {
                 if (e->frame + 1 == frame &&
                     Math_Vec3f_DistXYZ(&e->pos, &actor->world.pos) > LIGHTS_SHADOW_SNAP_DIST) {
                     *snap = 1;
@@ -226,9 +223,6 @@ static LightsShadowActor* Lights_ShadowActorSlot(Actor* actor, u32 frame, s32* s
     free->actor = actor;
     free->id = actor->id;
     free->params = actor->params;
-    free->home.x = (s16)actor->home.pos.x;
-    free->home.y = (s16)actor->home.pos.y;
-    free->home.z = (s16)actor->home.pos.z;
     free->frame = frame - 1; // so the caller advances it this tick
     *snap = 1;
     return free;
