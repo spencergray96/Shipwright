@@ -303,6 +303,8 @@
  *   lights <line>                        one line of LightsConsole_Run output per marker, from
  *                                        `agenttest lights ...` (sturdy-bassoon#233) - `op=...`, `tick ...`
  *                                        or `link ...`
+ *   graph <line>                         one line of GraphConsole_Run output per marker, from
+ *                                        `agenttest graph ...` (sturdy-bassoon#247) - `op=...` or `arena ...`
  *   rs_stairs <line>                     one line of RsStairConsole_Run output per marker, from
  *                                        `agenttest stairs ...` - always `op=...`, an indexed row or
  *                                        `last="..."`, never a line that starts `stair=... event=...`,
@@ -593,6 +595,12 @@
  *                                          the cap, inserts refused, the last tick's bind walk, Link's bound
  *                                          lights by kind; the sun-first bind switch; a session-only pool cap
  *                                          for the vanilla-32 control. LightsConsole.h documents every line
+ *   agenttest graph [status]|reset|cap <opa|xlu|overlay> [<words>|default]|failsafe [on|off]
+ *                                          the frame's display-list arenas (sturdy-bassoon#247): each arena's
+ *                                          use, peak and largest actor draw; actors the guard skipped and
+ *                                          frames the backstop repaired; session-only caps and a fail-safe
+ *                                          switch for the planted pre-#247 layout. GraphConsole.h documents
+ *                                          every line
  *   agenttest warps list|dump|where|status|badcheck
  *                                          step warps (sturdy-bassoon#154). `dump` is every warp tile
  *                                          in this scene as the scan found it - where it is, where it
@@ -673,6 +681,7 @@
 #include "soh/Enhancements/rs/prefs/RegionConsole.h"
 #include "soh/Enhancements/rs/actors/RsFireConsole.h"
 #include "soh/Enhancements/lights/LightsConsole.h"
+#include "soh/Enhancements/graph/GraphConsole.h"
 #include "soh/Enhancements/rs/maps/WorldConsole.h"
 #include "soh/Enhancements/rs/stairs/StairConsole.h"
 #include "soh/Enhancements/rs/interactions/InteractionConsole.h"
@@ -2979,6 +2988,11 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(LightsConsole_Run, sub, "lights ", output, WriteMarker);
     }
+    // >= 2: a bare `agenttest graph` is `status` (#247).
+    if (args.size() >= 2 && args[1] == "graph") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(GraphConsole_Run, sub, "graph ", output, WriteMarker);
+    }
     // Step warps (sturdy-bassoon#154). Same prefix as the tiles' own event markers, for the stairs'
     // reason: `rs_warp op=…` is an answer, `rs_warp tile=<n> event=…` is a tile reporting itself.
     if (args.size() >= 3 && args[1] == "warps") {
@@ -3055,6 +3069,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
               "lights [status]|sunfirst [on|off|default]|pool [<n>|default] | "
+              "graph [status]|reset|cap <opa|xlu|overlay> [<words>|default]|failsafe [on|off] | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
@@ -3106,6 +3121,7 @@ void RegisterAgentTest() {
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
               "lights [status]|sunfirst [on|off|default]|pool [<n>|default] | "
+              "graph [status]|reset|cap <opa|xlu|overlay> [<words>|default]|failsafe [on|off] | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "

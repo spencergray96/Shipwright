@@ -10,6 +10,7 @@
 #include <libultraship/bridge/windowbridge.h>
 #include "soh/Enhancements/gameconsole.h"
 #include "soh/OTRGlobals.h"
+#include "soh/Enhancements/graph/GraphBudget.h"
 
 #define GFXPOOL_HEAD_MAGIC 0x1234
 #define GFXPOOL_TAIL_MAGIC 0x5678
@@ -103,20 +104,212 @@ void Graph_UCodeFaultClient(Gfx* workBuf) {
 #endif
 }
 
+// #region SOH [sturdy-bassoon#247] The arenas' fail-safe: Actor_DrawAll's guard and Graph_Update's
+// backstop. What each does and why is in GraphBudget.h.
+static const s32 sGraphArenaWords[GRAPH_ARENA_COUNT] = { GFXPOOL_POLY_OPA_WORDS, GFXPOOL_POLY_XLU_WORDS,
+                                                         GFXPOOL_OVERLAY_WORDS };
+// The opaque arena is two-headed and branches into nothing, so it needs no guard band: its head runs
+// into its own tail first.
+static const s32 sGraphArenaPhysical[GRAPH_ARENA_COUNT] = { GFXPOOL_POLY_OPA_WORDS,
+                                                            GFXPOOL_POLY_XLU_WORDS + GFXPOOL_GUARD_WORDS,
+                                                            GFXPOOL_OVERLAY_WORDS + GFXPOOL_GUARD_WORDS };
+static s32 sGraphArenaCap[GRAPH_ARENA_COUNT]; // 0: the arena's own size
+static s32 sGraphFailsafe = true;
+static GraphStats sGraphStats;
+// This frame's guard state: the arenas' use at the current actor's start, and at the last drawn actor's end.
+static s32 sGraphActorStart[GRAPH_ARENA_COUNT];
+static s32 sGraphLastActorEnd[GRAPH_ARENA_COUNT];
+static s32 sGraphActorsDrawn;
+static s32 sGraphActorsSkipped;
+static s32 sGraphWarnedSkip;
+static s32 sGraphWarnedRepair;
+
+static TwoHeadGfxArena* Graph_Arena(GraphicsContext* gfxCtx, GraphArena arena) {
+    return arena == GRAPH_ARENA_OPA ? &gfxCtx->polyOpa : arena == GRAPH_ARENA_XLU ? &gfxCtx->polyXlu : &gfxCtx->overlay;
+}
+
+// Words used, head and tail together. Past the arena's size when it has overrun.
+static s32 Graph_ArenaUsed(TwoHeadGfxArena* thga) {
+    return (s32)(((s32)thga->size - THGA_GetSize(thga)) / (s32)sizeof(Gfx));
+}
+
+static s32 Graph_ArenaWords(GraphArena arena) {
+    return sGraphArenaCap[arena] != 0 ? sGraphArenaCap[arena] : sGraphArenaWords[arena];
+}
+
+void Graph_GetStats(GraphStats* out) {
+    *out = sGraphStats;
+    out->failsafe = sGraphFailsafe;
+    for (s32 i = 0; i < GRAPH_ARENA_COUNT; i++) {
+        out->arena[i].words = Graph_ArenaWords(i);
+        out->arena[i].physical = sGraphArenaPhysical[i];
+    }
+}
+
+void Graph_ResetStats(void) {
+    sGraphStats.skippedTotal = 0;
+    sGraphStats.skippedFrames = 0;
+    sGraphStats.repairedFrames = 0;
+    sGraphStats.overrunFrames = 0;
+    sGraphStats.lastRepairMask = 0;
+    for (s32 i = 0; i < GRAPH_ARENA_COUNT; i++) {
+        sGraphStats.arena[i].peak = 0;
+        sGraphStats.arena[i].maxActor = 0;
+        sGraphStats.arena[i].maxActorId = -1;
+        sGraphStats.arena[i].afterPeak = 0;
+    }
+}
+
+s32 Graph_SetArenaCap(GraphArena arena, s32 words) {
+    if (words != 0) {
+        words = CLAMP(words, 64, sGraphArenaWords[arena]);
+        if (words == sGraphArenaWords[arena]) {
+            words = 0;
+        }
+    }
+    sGraphArenaCap[arena] = words;
+    return Graph_ArenaWords(arena);
+}
+
+void Graph_SetFailsafe(s32 on) {
+    sGraphFailsafe = on != 0;
+}
+
+s32 Graph_ActorDrawBegin(GraphicsContext* gfxCtx, Actor* actor) {
+    sGraphActorStart[GRAPH_ARENA_OPA] = Graph_ArenaUsed(&gfxCtx->polyOpa);
+    sGraphActorStart[GRAPH_ARENA_XLU] = Graph_ArenaUsed(&gfxCtx->polyXlu);
+
+    if (sGraphFailsafe && actor->category != ACTORCAT_PLAYER &&
+        (THGA_GetSize(&gfxCtx->polyOpa) < GRAPH_ACTOR_RESERVE_WORDS * (s32)sizeof(Gfx) ||
+         THGA_GetSize(&gfxCtx->polyXlu) < GRAPH_ACTOR_RESERVE_WORDS * (s32)sizeof(Gfx))) {
+        sGraphActorsSkipped++;
+        if (!sGraphWarnedSkip) {
+            sGraphWarnedSkip = true;
+            LUSLOG_WARN("Display lists nearly full: skipping actor draws this frame (opaque %d of %d words, "
+                        "translucent %d of %d; sturdy-bassoon#247). Warned once a session; `graph status` counts.",
+                        sGraphActorStart[GRAPH_ARENA_OPA], Graph_ArenaWords(GRAPH_ARENA_OPA),
+                        sGraphActorStart[GRAPH_ARENA_XLU], Graph_ArenaWords(GRAPH_ARENA_XLU));
+        }
+        return false;
+    }
+    return true;
+}
+
+void Graph_ActorDrawEnd(GraphicsContext* gfxCtx, Actor* actor) {
+    for (s32 i = GRAPH_ARENA_OPA; i <= GRAPH_ARENA_XLU; i++) {
+        s32 used = Graph_ArenaUsed(Graph_Arena(gfxCtx, i));
+        s32 words = used - sGraphActorStart[i];
+
+        if (words > sGraphStats.arena[i].maxActor) {
+            sGraphStats.arena[i].maxActor = words;
+            sGraphStats.arena[i].maxActorId = actor->id;
+        }
+        sGraphLastActorEnd[i] = used;
+    }
+    sGraphActorsDrawn++;
+}
+
+// Debug's OPEN_DISPS/CLOSE_DISPS markers on an arena's head side: what a Release build does not write.
+static s32 Graph_CountMarkers(TwoHeadGfxArena* thga) {
+    s32 count = 0;
+#ifndef NDEBUG
+    Gfx* end = (Gfx*)thga->p;
+
+    for (Gfx* gfx = (Gfx*)thga->bufp; gfx < end; gfx++) {
+        u32 op = (u32)((gfx->words.w0 >> 24) & 0xFF);
+        u32 type = (u32)((gfx->words.w0 >> 16) & 0xFF);
+
+        if (op == G_NOOP && (type == 7 || type == 8)) {
+            count++;
+        }
+    }
+#endif
+    return count;
+}
+
+static void Graph_EndList(Gfx* gfx) {
+    gDPPipeSync(gfx++);
+    gDPFullSync(gfx++);
+    gSPEndDisplayList(gfx++);
+}
+
+// The backstop, after the chain is written. Returns the arenas cut out (1 << GraphArena each), and
+// leaves the work list a valid one in every case.
+static s32 Graph_RepairOverrun(GraphicsContext* gfxCtx) {
+    s32 mask = 0;
+    // Words the head ran past its arena's end: up to the guard band, they are still in its own array.
+    s32 xluSpill = (s32)((Gfx*)gfxCtx->polyXlu.p - (Gfx*)((u8*)gfxCtx->polyXlu.bufp + gfxCtx->polyXlu.size));
+    s32 ovlSpill = (s32)((Gfx*)gfxCtx->overlay.p - (Gfx*)((u8*)gfxCtx->overlay.bufp + gfxCtx->overlay.size));
+
+    if (ovlSpill > GFXPOOL_GUARD_WORDS) {
+        // Past its guard band into the work list: nothing left to branch to. The frame draws nothing.
+        Graph_EndList(gfxCtx->workBuffer);
+        return (1 << GRAPH_ARENA_COUNT) - 1;
+    }
+    if (THGA_IsCrash(&gfxCtx->polyOpa)) {
+        // The opaque head ran into its own tail, which holds the matrices and the scrolled-texture lists
+        // the other two lists point into. End the chain at its first list.
+        Graph_EndList(gfxCtx->polyOpaBuffer);
+        return (1 << GRAPH_ARENA_COUNT) - 1;
+    }
+    if (THGA_IsCrash(&gfxCtx->overlay) || xluSpill > GFXPOOL_GUARD_WORDS) {
+        Graph_EndList(gfxCtx->overlayBuffer);
+        mask |= 1 << GRAPH_ARENA_OVERLAY;
+    }
+    if (THGA_IsCrash(&gfxCtx->polyXlu)) {
+        gSPBranchList(gfxCtx->polyXluBuffer, gfxCtx->overlayBuffer);
+        mask |= 1 << GRAPH_ARENA_XLU;
+    }
+    return mask;
+}
+
+static void Graph_RecordFrame(GraphicsContext* gfxCtx, u32 frame) {
+    sGraphStats.frame = frame;
+    sGraphStats.actorsDrawn = sGraphActorsDrawn;
+    sGraphStats.actorsSkipped = sGraphActorsSkipped;
+    sGraphStats.skippedTotal += sGraphActorsSkipped;
+    if (sGraphActorsSkipped > 0) {
+        sGraphStats.skippedFrames++;
+    }
+    for (s32 i = 0; i < GRAPH_ARENA_COUNT; i++) {
+        TwoHeadGfxArena* thga = Graph_Arena(gfxCtx, i);
+        GraphArenaStats* a = &sGraphStats.arena[i];
+
+        a->used = Graph_ArenaUsed(thga);
+        a->peak = MAX(a->peak, a->used);
+        a->afterActors = (i != GRAPH_ARENA_OVERLAY && sGraphActorsDrawn > 0) ? a->used - sGraphLastActorEnd[i] : -1;
+        a->afterPeak = MAX(a->afterPeak, a->afterActors);
+        a->markers = Graph_CountMarkers(thga);
+    }
+}
+
 void Graph_InitTHGA(GraphicsContext* gfxCtx) {
     GfxPool* pool = &gGfxPools[gfxCtx->gfxPoolIdx & 1];
+    Gfx* base[GRAPH_ARENA_COUNT] = { pool->polyOpaBuffer, pool->polyXluBuffer, pool->overlayBuffer };
+    Gfx* start[GRAPH_ARENA_COUNT];
+
+    // An arena starts at its array's start, with the rest of the array (the guard band, and whatever a
+    // cap freed) after it. With the fail-safe off it sits flush against the next list instead: OoT's own
+    // layout, for the planted control.
+    for (s32 i = 0; i < GRAPH_ARENA_COUNT; i++) {
+        start[i] = sGraphFailsafe ? base[i] : base[i] + (sGraphArenaPhysical[i] - Graph_ArenaWords(i));
+    }
 
     pool->headMagic = GFXPOOL_HEAD_MAGIC;
     pool->tailMagic = GFXPOOL_TAIL_MAGIC;
-    THGA_Ct(&gfxCtx->polyOpa, pool->polyOpaBuffer, sizeof(pool->polyOpaBuffer));
-    THGA_Ct(&gfxCtx->polyXlu, pool->polyXluBuffer, sizeof(pool->polyXluBuffer));
-    THGA_Ct(&gfxCtx->overlay, pool->overlayBuffer, sizeof(pool->overlayBuffer));
+    THGA_Ct(&gfxCtx->polyOpa, start[GRAPH_ARENA_OPA], Graph_ArenaWords(GRAPH_ARENA_OPA) * sizeof(Gfx));
+    THGA_Ct(&gfxCtx->polyXlu, start[GRAPH_ARENA_XLU], Graph_ArenaWords(GRAPH_ARENA_XLU) * sizeof(Gfx));
+    THGA_Ct(&gfxCtx->overlay, start[GRAPH_ARENA_OVERLAY], Graph_ArenaWords(GRAPH_ARENA_OVERLAY) * sizeof(Gfx));
     THGA_Ct(&gfxCtx->work, pool->workBuffer, sizeof(pool->workBuffer));
 
-    gfxCtx->polyOpaBuffer = pool->polyOpaBuffer;
-    gfxCtx->polyXluBuffer = pool->polyXluBuffer;
-    gfxCtx->overlayBuffer = pool->overlayBuffer;
+    gfxCtx->polyOpaBuffer = start[GRAPH_ARENA_OPA];
+    gfxCtx->polyXluBuffer = start[GRAPH_ARENA_XLU];
+    gfxCtx->overlayBuffer = start[GRAPH_ARENA_OVERLAY];
     gfxCtx->workBuffer = pool->workBuffer;
+
+    sGraphActorsDrawn = 0;
+    sGraphActorsSkipped = 0;
+    // #endregion
 
     gfxCtx->curFrameBuffer = (u16*)SysCfb_GetFbPtr(gfxCtx->fbIdx % 2);
     gfxCtx->unk_014 = 0;
@@ -159,6 +352,7 @@ void Graph_Init(GraphicsContext* gfxCtx) {
     osCreateMesgQueue(&gfxCtx->queue, gfxCtx->msgBuff, ARRAY_COUNT(gfxCtx->msgBuff));
     func_800D31F0();
     Fault_AddClient(&sGraphFaultClient, Graph_FaultClient, 0, 0);
+    Graph_ResetStats(); // SOH [sturdy-bassoon#247]
 }
 
 void Graph_Destroy(GraphicsContext* gfxCtx) {
@@ -274,6 +468,8 @@ void Graph_TaskSet00(GraphicsContext* gfxCtx) {
 
 void Graph_Update(GraphicsContext* gfxCtx, GameState* gameState) {
     u32 problem;
+    u32 poolProblem; // SOH [sturdy-bassoon#247] the pool's magic alone, without the arenas
+    s32 overran;
 
     // Skip game frame updates while gfx debugger is active, and execute with the last frame's DL buffer
     if (GfxDebuggerIsDebugging()) {
@@ -364,6 +560,7 @@ void Graph_Update(GraphicsContext* gfxCtx, GameState* gameState) {
         }
     }
 
+    poolProblem = problem;
     if (THGA_IsCrash(&gfxCtx->polyOpa)) {
         problem = true;
         osSyncPrintf("%c", BEL);
@@ -382,6 +579,30 @@ void Graph_Update(GraphicsContext* gfxCtx, GameState* gameState) {
         // "Zelda 4 is dead"
         osSyncPrintf(VT_COL(RED, WHITE) "ゼルダ4は死んでしまった(graph_alloc is empty)\n" VT_RST);
     }
+
+    // #region SOH [sturdy-bassoon#247] OoT stops at `problem` and never submits the frame, but SoH hands the
+    // work list to the interpreter whatever happens below (RunFrame), so a frame with an overrun arena
+    // used to loop it forever. Cut the overrun arena out of the chain and submit the rest instead.
+    Graph_RecordFrame(gfxCtx, gameState->frames);
+    overran = THGA_IsCrash(&gfxCtx->polyOpa) || THGA_IsCrash(&gfxCtx->polyXlu) || THGA_IsCrash(&gfxCtx->overlay);
+    if (overran) {
+        sGraphStats.overrunFrames++;
+    }
+    if (overran && sGraphFailsafe) {
+        s32 mask = Graph_RepairOverrun(gfxCtx);
+
+        sGraphStats.repairedFrames++;
+        sGraphStats.lastRepairMask = mask;
+        if (!sGraphWarnedRepair) {
+            sGraphWarnedRepair = true;
+            LUSLOG_WARN("Display list overran its arena: drew the frame without it (cut mask 0x%X: 1 opaque, "
+                        "2 translucent, 4 overlay; sturdy-bassoon#247). Warned once a session; `graph status` "
+                        "counts.",
+                        mask);
+        }
+        problem = poolProblem;
+    }
+    // #endregion
 
     if (!problem) {
         Graph_TaskSet00(gfxCtx);

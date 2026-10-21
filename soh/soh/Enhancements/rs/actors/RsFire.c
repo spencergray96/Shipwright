@@ -547,7 +547,9 @@ void RsFire_Draw(Actor* thisx, PlayState* play) {
 
     OPEN_DISPS(play->state.gfxCtx);
 
-    Gfx_SetupDL_25Xlu(play->state.gfxCtx);
+    // The same setup list as Gfx_SetupDL_25Xlu, written inline: a Debug build's open/close markers around
+    // that call were two of a fire's 25 translucent words (sturdy-bassoon#247).
+    POLY_XLU_DISP = Gfx_SetupDL(POLY_XLU_DISP, SETUPDL_25);
     // En_Light's two scrolling layers (params >= 0), with its prim and env colours for index 4.
     gSPSegment(POLY_XLU_DISP++, 0x08,
                (uintptr_t)Gfx_TwoTexScrollEx(play->state.gfxCtx, 0, 0, 0, 32, 64, 1, 0, (this->timer * -20) & 511, 32,

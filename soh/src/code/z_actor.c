@@ -13,6 +13,7 @@
 #include "soh/Enhancements/cosmetics/cosmeticsTypes.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
+#include "soh/Enhancements/graph/GraphBudget.h"
 #include "soh/Enhancements/nametag.h"
 #include "soh/Enhancements/actortiers/ActorTiers.h"
 
@@ -3145,8 +3146,15 @@ void Actor_DrawAll(PlayState* play, ActorContext* actorCtx) {
                         invisibleActorCounter++;
                     } else {
                         if ((HREG(64) != 1) || ((HREG(65) != -1) && (HREG(65) != HREG(66))) || (HREG(72) == 0)) {
-                            Actor_Draw(play, actor);
-                            actor->isDrawn = true;
+                            // #region SOH [sturdy-bassoon#247] Not drawn when the display lists are nearly
+                            // full, so the frame ends inside its arenas (graph/GraphBudget.h). The player
+                            // always draws.
+                            if (Graph_ActorDrawBegin(play->state.gfxCtx, actor)) {
+                                Actor_Draw(play, actor);
+                                actor->isDrawn = true;
+                                Graph_ActorDrawEnd(play->state.gfxCtx, actor);
+                            }
+                            // #endregion
                         }
                     }
                 }
