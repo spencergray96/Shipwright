@@ -904,8 +904,9 @@ int32_t RunHaze(const std::vector<std::string>& args, std::vector<std::string>& 
         DescribeHaze("haze", "scene", gPlayState, lines);
         return 0;
     }
-    // Where the band draws under the sky's colour (sturdy-bassoon#229): after the copy (the default), or before the
-    // sun and moon with the previous frame's colour, the colour then sampled above the band (ApplyColour).
+    // Where the band draws under the sky's colour (sturdy-bassoon#229): before the sun and moon with the previous
+    // frame's colour, the colour then sampled above the band (the default, sHazeSiteBefore; ApplyColour), or after
+    // the copy.
     if (action == "site") {
         if (args.size() != 3 || (args[2] != "after" && args[2] != "before")) {
             Addf(lines, "op=haze result=error error=bad_argument %s", kHazeUsage);
