@@ -10,6 +10,7 @@
 #include "soh/ObjectExtension/ObjectExtension.h"
 #include "soh/ObjectExtension/ActorListIndex.h"
 #include "soh/frame_interpolation.h"
+#include "soh/Enhancements/lights/LightsBudget.h"
 #include "soh/Enhancements/cosmetics/cosmeticsTypes.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
@@ -158,6 +159,11 @@ void ActorShadow_DrawHorse(Actor* actor, Lights* lights, PlayState* play) {
     ActorShadow_Draw(actor, lights, play, gHorseShadowDL, NULL);
 }
 
+// ActorShadow_DrawFoot's alpha, term for term, for `lights shadow` (#250).
+static u8 ActorShadow_FootAlpha(s32 lightNum, f32 shadowAlpha) {
+    return (u32)(((lightNum * 0.00005f) > 1.0f ? 1.0f : (lightNum * 0.00005f)) * shadowAlpha) & 0xFF;
+}
+
 void ActorShadow_DrawFoot(PlayState* play, Light* light, MtxF* arg2, s32 arg3, f32 arg4, f32 arg5, f32 arg6) {
     s32 pad1;
     f32 sp58;
@@ -213,6 +219,8 @@ void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
         Light* firstLightPtr = &lights->l.l[0];
         Vec3f* feetPosPtr = actor->shape.feetPos;
         f32* floorHeightPtr = floorHeight;
+        // `lights shadow` records Link's (#250).
+        s32 isLink = (GET_PLAYER(play) != NULL) && (actor == &GET_PLAYER(play)->actor);
 
         OPEN_DISPS(play->state.gfxCtx);
 
@@ -247,6 +255,9 @@ void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
                             lightNumMax += lightNum;
                             ActorShadow_DrawFoot(play, lightPtr, &floorMtx, lightNum, shadowAlpha, shadowScaleX,
                                                  shadowScaleZ);
+                            if (isLink) {
+                                Lights_RecordLinkShadow(i, j, lightNum, ActorShadow_FootAlpha(lightNum, shadowAlpha));
+                            }
                         }
                     }
                     lightPtr++;
@@ -260,6 +271,10 @@ void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
                         if (lightNum > 0) {
                             ActorShadow_DrawFoot(play, lightPtr, &floorMtx, lightNum, shadowAlpha, shadowScaleX,
                                                  shadowScaleZ);
+                            if (isLink) {
+                                Lights_RecordLinkShadow(i, numLights + j, lightNum,
+                                                        ActorShadow_FootAlpha(lightNum, shadowAlpha));
+                            }
                         }
                     }
                     lightPtr++;

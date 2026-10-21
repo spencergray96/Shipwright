@@ -49,6 +49,67 @@ static s32 sLightsSunFirstThisTick; // and the setting is on: bind the sun first
 // Lights_FindSlot's cap: the slots in a Lights group (`Lights.l.l`).
 #define LIGHTS_BIND_SLOTS 7
 
+// `lights shadow`'s ring (LightsBudget.h, #250): Link's last LIGHTS_SHADOW_RECORD_TICKS feet shadows.
+static LightsShadowTick sShadowRecord[LIGHTS_SHADOW_RECORD_TICKS];
+static s32 sShadowRecordHead;  // the slot the next tick takes
+static s32 sShadowRecordCount; // ticks held, up to the ring's size
+static LightsShadowTick* sShadowRecordOpen; // this tick's, between Link's bind and his shadow
+
+// Link's bind opens the tick's record. A second bind of Link in one tick (none is known) overwrites it.
+static void Lights_OpenShadowRecord(void) {
+    u32 frame = gPlayState->state.frames;
+    LightsShadowTick* rec;
+    s32 last = (sShadowRecordHead + LIGHTS_SHADOW_RECORD_TICKS - 1) % LIGHTS_SHADOW_RECORD_TICKS;
+
+    if (sShadowRecordCount > 0 && sShadowRecord[last].frame == frame) {
+        rec = &sShadowRecord[last];
+    } else {
+        rec = &sShadowRecord[sShadowRecordHead];
+        sShadowRecordHead = (sShadowRecordHead + 1) % LIGHTS_SHADOW_RECORD_TICKS;
+        sShadowRecordCount = MIN(sShadowRecordCount + 1, LIGHTS_SHADOW_RECORD_TICKS);
+    }
+    memset(rec, 0, sizeof(*rec));
+    rec->frame = frame;
+    sShadowRecordOpen = rec;
+}
+
+// The slot a bind just filled, if it filled one: `before` is numLights before the bind.
+static void Lights_NoteShadowSlot(Lights* lights, s32 before, LightNode* node) {
+    if (sShadowRecordOpen == NULL || lights->numLights <= before) {
+        return;
+    }
+    sShadowRecordOpen->node[before] =
+        (node->info->type == LIGHT_DIRECTIONAL) ? LIGHTS_SHADOW_NODE_DIR : (s16)(node - sLightsBuffer.buf);
+    sShadowRecordOpen->numLights = lights->numLights;
+}
+
+void Lights_RecordLinkShadow(s32 foot, s32 slot, s32 lightNum, u8 alpha) {
+    if (sShadowRecordOpen == NULL || foot < 0 || foot > 1 || slot < 0 || slot >= LIGHTS_BIND_SLOTS) {
+        return;
+    }
+    sShadowRecordOpen->alpha[foot][slot] = alpha;
+    if (foot == 0) {
+        sShadowRecordOpen->lightNum[slot] = lightNum;
+    }
+}
+
+s32 Lights_GetShadowRecord(LightsShadowTick* out, s32 max) {
+    s32 n = MIN(max, sShadowRecordCount);
+    s32 start = (sShadowRecordHead + LIGHTS_SHADOW_RECORD_TICKS - n) % LIGHTS_SHADOW_RECORD_TICKS;
+    s32 i;
+
+    for (i = 0; i < n; i++) {
+        out[i] = sShadowRecord[(start + i) % LIGHTS_SHADOW_RECORD_TICKS];
+    }
+    return n;
+}
+
+void Lights_ClearShadowRecord(void) {
+    sShadowRecordHead = 0;
+    sShadowRecordCount = 0;
+    sShadowRecordOpen = NULL;
+}
+
 static void Lights_RollTick(void) {
     u32 frame;
     LightsStats fresh = { 0 };
@@ -283,6 +344,7 @@ void Lights_BindAll(Lights* lights, LightNode* listHead, Vec3f* vec) {
     s32 slotsForPoints;
     s32 overflow;
     s32 isLink;
+    s32 before;
     f32 distSq;
     s32 i;
     s32 j;
@@ -290,11 +352,21 @@ void Lights_BindAll(Lights* lights, LightNode* listHead, Vec3f* vec) {
     Lights_RollTick();
     sLightsTick.binds++;
 
+    isLink = (vec != NULL) && (gPlayState != NULL) && (GET_PLAYER(gPlayState) != NULL) &&
+             (vec == &GET_PLAYER(gPlayState)->actor.world.pos);
+    if (isLink) {
+        Lights_OpenShadowRecord();
+    }
+
     if (!sLightsCountThisTick) {
         // A vanilla scene: vanilla's loop.
         while (listHead != NULL) {
             info = listHead->info;
+            before = lights->numLights;
             bindFuncs[info->type](lights, &info->params, vec);
+            if (isLink) {
+                Lights_NoteShadowSlot(lights, before, listHead);
+            }
             listHead = listHead->next;
             sLightsTick.walked++;
         }
@@ -326,15 +398,17 @@ void Lights_BindAll(Lights* lights, LightNode* listHead, Vec3f* vec) {
     sLightsTick.walked += index;
 
     overflow = (numInRange + numDirs) > slotsFree;
-    isLink = (vec != NULL) && (gPlayState != NULL) && (GET_PLAYER(gPlayState) != NULL) &&
-             (vec == &GET_PLAYER(gPlayState)->actor.world.pos);
     sLightsTick.overflowed += overflow;
     sLightsTick.maxInRange = MAX(sLightsTick.maxInRange, numInRange);
 
     if (!overflow || !sLightsSunFirstThisTick) {
         while (listHead != NULL) {
             info = listHead->info;
+            before = lights->numLights;
             bindFuncs[info->type](lights, &info->params, vec);
+            if (isLink) {
+                Lights_NoteShadowSlot(lights, before, listHead);
+            }
             listHead = listHead->next;
             sLightsTick.walked++;
         }
@@ -360,11 +434,19 @@ void Lights_BindAll(Lights* lights, LightNode* listHead, Vec3f* vec) {
         nearIndex[j] = k;
     }
     for (i = 0; i < numNear; i++) {
+        before = lights->numLights;
         Lights_BindPoint(lights, &nearest[i]->info->params, vec);
+        if (isLink) {
+            Lights_NoteShadowSlot(lights, before, nearest[i]);
+        }
     }
     for (node = listStart; node != NULL; node = node->next) {
         if (node->info->type == LIGHT_DIRECTIONAL) {
+            before = lights->numLights;
             Lights_BindDirectional(lights, &node->info->params, vec);
+            if (isLink) {
+                Lights_NoteShadowSlot(lights, before, node);
+            }
         }
         sLightsTick.walked++;
     }

@@ -51,7 +51,26 @@ typedef struct LightsStats {
     s32 linkDirs;    // directional lights bound
 } LightsStats;
 
+// Link's feet shadows, one record a tick, for `lights shadow` (sturdy-bassoon#250). Lights_BindAll opens
+// the tick's record when it binds Link (which node each slot took); ActorShadow_DrawFeet fills in the
+// alpha each slot's foot shadow drew at. SoH records one display list per tick and replays it for the
+// interpolated frames, and frame interpolation moves matrices only, so a tick's alpha IS every frame's.
+#define LIGHTS_SHADOW_RECORD_TICKS 120
+#define LIGHTS_SHADOW_NODE_DIR (-2) // a slot bound to a directional light (the sun)
+typedef struct LightsShadowTick {
+    u32 frame;       // state.frames of the tick
+    s32 numLights;   // slots bound
+    s16 node[7];     // each slot's node: its index in the pool, or LIGHTS_SHADOW_NODE_DIR
+    u8 alpha[2][7];  // [foot][slot]: the alpha that slot's shadow drew at; 0 when it drew none
+    s32 lightNum[7]; // foot 0's strength term per slot, before the 0.00005 scale and the clamp at 1
+} LightsShadowTick;
+
 void Lights_GetStats(LightsStats* out);
+// From ActorShadow_DrawFeet, for Link only: the shadow `slot` drew under `foot` at `alpha`.
+void Lights_RecordLinkShadow(s32 foot, s32 slot, s32 lightNum, u8 alpha);
+// Oldest first, at most `max`; returns the count. `Lights_ClearShadowRecord` starts a trial afresh.
+s32 Lights_GetShadowRecord(LightsShadowTick* out, s32 max);
+void Lights_ClearShadowRecord(void);
 // Clamps to 1..LIGHTS_BUFFER_SIZE and returns the cap applied. Holders over the cap keep their nodes;
 // only new inserts are refused until the count drops below it.
 s32 Lights_SetPoolCap(s32 cap);

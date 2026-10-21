@@ -34,6 +34,14 @@
 //                   bare, `op=pool result=ok cap=<n> size=<n> occupied=<n>`. Never saved: `pool 32` plants
 //                   vanilla's starvation for a control and cannot outlive the run. Holders over a lowered
 //                   cap keep their nodes
+//   shadow [clear]  Link's feet shadows over the last LIGHTS_SHADOW_RECORD_TICKS ticks (#250), oldest first:
+//                   `op=shadow result=ok ticks=<n> scene=0x<hex>`, then one line a tick:
+//                   `t=<frame> n=<slots> ids=<7> f0=<7> f1=<7> num=<7>`, each a comma list over the 7 slots
+//                   (`-` past the bound ones). ids: the node each slot bound, its pool index, or `s` for a
+//                   directional light; f0/f1: the alpha that slot's shadow drew at under each foot (0 for
+//                   none); num: foot 0's strength term before the scale and clamp. The last two bound slots
+//                   are the ones ActorShadow_DrawFeet treats as the sun. `clear` empties the record and
+//                   prints `op=shadow result=ok cleared=1`
 //
 // Returns 0 on success (and for the reads), 1 for a refused operation: an unknown subcommand, an extra
 // argument or a bad value (`op=<sub> result=error error=bad_value`).

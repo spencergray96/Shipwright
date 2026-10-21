@@ -301,8 +301,8 @@
  *                                        `agenttest rsfire ...` - `fire idx=...` or `op=...`, never
  *                                        `event=...`
  *   lights <line>                        one line of LightsConsole_Run output per marker, from
- *                                        `agenttest lights ...` (sturdy-bassoon#233) - `op=...`, `tick ...`
- *                                        or `link ...`
+ *                                        `agenttest lights ...` (sturdy-bassoon#233) - `op=...`, `tick ...`,
+ *                                        `link ...` or a shadow tick `t=...` (#250)
  *   graph <line>                         one line of GraphConsole_Run output per marker, from
  *                                        `agenttest graph ...` (sturdy-bassoon#247) - `op=...` or `arena ...`
  *   rs_stairs <line>                     one line of RsStairConsole_Run output per marker, from

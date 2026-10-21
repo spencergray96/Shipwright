@@ -5,6 +5,7 @@
 
 #include "LightsConsole.h"
 
+#include <cstdio>
 #include <cstdlib>
 
 #include <libultraship/bridge/consolevariablebridge.h>
@@ -22,7 +23,8 @@ namespace {
 
 using ConsoleSink::Addf;
 
-const char* kUsage = "op=usage result=error usage=\"lights [status] | sunfirst [on|off|default] | pool [<n>|default]\"";
+const char* kUsage =
+    "op=usage result=error usage=\"lights [status] | sunfirst [on|off|default] | pool [<n>|default] | shadow [clear]\"";
 
 bool SunFirstOn() {
     return CVarGetInteger(CVAR_LIGHTS_SUN_FIRST, LIGHTS_SUN_FIRST_DEFAULT) != 0;
@@ -80,6 +82,48 @@ int32_t Pool(const std::vector<std::string>& args, std::vector<std::string>& lin
     return 0;
 }
 
+// A comma list of n values, `-` for a slot that is not there.
+template <typename T> std::string SlotList(const T* values, int32_t n, int32_t bound, bool nodes) {
+    std::string out;
+    char buf[16];
+    for (int32_t i = 0; i < n; i++) {
+        if (i > 0) {
+            out += ',';
+        }
+        if (i >= bound) {
+            out += '-';
+        } else if (nodes && values[i] == LIGHTS_SHADOW_NODE_DIR) {
+            out += 's';
+        } else {
+            snprintf(buf, sizeof(buf), "%d", (int)values[i]);
+            out += buf;
+        }
+    }
+    return out;
+}
+
+int32_t Shadow(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() == 2) {
+        if (args[1] != "clear") {
+            Addf(lines, "op=shadow result=error error=bad_value expects=clear");
+            return 1;
+        }
+        Lights_ClearShadowRecord();
+        Addf(lines, "op=shadow result=ok cleared=1");
+        return 0;
+    }
+    static LightsShadowTick ticks[LIGHTS_SHADOW_RECORD_TICKS];
+    const int32_t n = Lights_GetShadowRecord(ticks, LIGHTS_SHADOW_RECORD_TICKS);
+    Addf(lines, "op=shadow result=ok ticks=%d scene=0x%X", n, gPlayState != nullptr ? gPlayState->sceneNum : -1);
+    for (int32_t i = 0; i < n; i++) {
+        const LightsShadowTick& t = ticks[i];
+        Addf(lines, "t=%u n=%d ids=%s f0=%s f1=%s num=%s", t.frame, t.numLights,
+             SlotList(t.node, 7, t.numLights, true).c_str(), SlotList(t.alpha[0], 7, t.numLights, false).c_str(),
+             SlotList(t.alpha[1], 7, t.numLights, false).c_str(), SlotList(t.lightNum, 7, t.numLights, false).c_str());
+    }
+    return 0;
+}
+
 } // namespace
 
 int32_t LightsConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines) {
@@ -93,6 +137,9 @@ int32_t LightsConsole_Run(const std::vector<std::string>& args, std::vector<std:
     }
     if (sub == "pool") {
         return Pool(args, lines);
+    }
+    if (sub == "shadow") {
+        return Shadow(args, lines);
     }
     if (sub == "status" && args.size() <= 1) {
         return Status(lines);
@@ -115,7 +162,8 @@ const ConsoleSink::Command lightsCommand(
     "sunfirst switches the grid-tool scenes' bind rule: when an actor has more lights in range than its "
     "7 slots, the scene's directional lights keep theirs and the nearest point lights take the rest, "
     "instead of the newest seven crowding the sun out. pool holds new lights to n nodes for this session "
-    "only, so `pool 32` plants vanilla's starvation beside the raised pool.",
-    { { "status|sunfirst|pool", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } });
+    "only, so `pool 32` plants vanilla's starvation beside the raised pool. shadow lists Link's feet shadows "
+    "over the last 120 ticks (#250): each slot's light and the alpha it drew at; `shadow clear` starts afresh.",
+    { { "status|sunfirst|pool|shadow", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } });
 
 } // namespace
