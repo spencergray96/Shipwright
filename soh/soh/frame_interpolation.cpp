@@ -156,7 +156,8 @@ union Data {
         Mtx* dest;
         MtxF src;
         bool has_adjusted;
-        bool probe; // sturdy-bassoon#254: recorded inside the shadow probe's scope
+        bool has_anchored; // sturdy-bassoon#254: src is world-space, its translation relative to the actor's
+        bool probe;        // sturdy-bassoon#254: recorded inside the shadow probe's scope
     } matrix_to_mtx;
 
     struct {
@@ -198,12 +199,17 @@ MtxF inv_actor_mtx;
 size_t inv_actor_mtx_path_index;
 
 // #region SOH [sturdy-bassoon#254] Shadows interpolated in world space. Between RecordWorldSpaceBegin and
-// RecordWorldSpaceEnd, matrices are recorded as drawn rather than in the actor's model space, so the frames
-// between two ticks lerp them in world space. For a shadow that is fixed in world direction: in model space
-// it turns the other way whenever the actor turns, and a component-wise lerp across a sharp turn shrinks it
-// (to cos(turn/2) at the midpoint) and, past 90 degrees, reverses it through zero.
-bool world_space_saved;
+// RecordWorldSpaceEnd, matrices are recorded in world orientation rather than in the actor's model space, so
+// the frames between two ticks lerp them unturned. For a shadow that is fixed in world direction: in model
+// space it turns the other way whenever the actor turns, and a component-wise lerp across a sharp turn shrinks
+// it (to cos(turn/2) at the midpoint) and, past 90 degrees, reverses it through zero.
+// Inside an actor the translation stays anchored to it: it is recorded relative to the actor's position and
+// the actor's interpolated position is added back. SoH interpolates an actor across any jump, a goto's
+// included, and a shadow lerped in plain world space would part from its actor there (measured: 389 units on
+// a 400-unit goto), or sit at the destination while the actor slides when the last tick drew no shadow.
+bool world_space_saved; // has_inv_actor_mtx as the scope opened: inside an actor's draw
 int world_space_depth;
+Vec3f actor_translation; // the open actor's position, as its pos/rot matrix was recorded
 
 // The shadow probe: the matrices recorded between RecordProbeBegin and RecordProbeEnd (one actor's
 // shadowDraw a tick), each with its world matrix and the actor's position as this tick drew them, and how
@@ -479,6 +485,14 @@ struct InterpolateCtx {
                                 interpolate_mtxf(&tmp_mtxf, &old_op.matrix_to_mtx.src, &new_op.matrix_to_mtx.src);
                                 SkinMatrix_MtxFMtxFMult(&actor_mtx, &tmp_mtxf,
                                                         new_replacement(new_op.matrix_to_mtx.dest));
+                            } else if (old_op.matrix_to_mtx.has_anchored && new_op.matrix_to_mtx.has_anchored) {
+                                // #region SOH [sturdy-bassoon#254] Lerped unturned, then put back on the actor.
+                                MtxF* res = new_replacement(new_op.matrix_to_mtx.dest);
+                                interpolate_mtxf(res, &old_op.matrix_to_mtx.src, &new_op.matrix_to_mtx.src);
+                                res->mf[3][0] += actor_mtx.mf[3][0];
+                                res->mf[3][1] += actor_mtx.mf[3][1];
+                                res->mf[3][2] += actor_mtx.mf[3][2];
+                                // #endregion
                             } else {
                                 interpolate_mtxf(new_replacement(new_op.matrix_to_mtx.dest), &old_op.matrix_to_mtx.src,
                                                  &new_op.matrix_to_mtx.src);
@@ -655,6 +669,7 @@ void FrameInterpolation_RecordMatrixSetTranslateRotateYXZ(f32 translateX, f32 tr
     auto& d = append(Op::MatrixSetTranslateRotateYXZ).matrix_set_translate_rotate_yxz = { translateX, translateY,
                                                                                           translateZ, *rot };
     if (next_is_actor_pos_rot_matrix) {
+        actor_translation = { translateX, translateY, translateZ }; // sturdy-bassoon#254
         d.has_mtx = true;
         // d.mtx = *Matrix_GetCurrent();
         invert_matrix((const float*)Matrix_GetCurrent()->mf, (float*)inv_actor_mtx.mf);
@@ -677,6 +692,14 @@ void FrameInterpolation_RecordMatrixToMtx(Mtx* dest, char* file, s32 line) {
     if (has_inv_actor_mtx) {
         d.has_adjusted = true;
         SkinMatrix_MtxFMtxFMult(&inv_actor_mtx, Matrix_GetCurrent(), &d.src);
+    } else if (world_space_depth > 0 && world_space_saved) {
+        // #region SOH [sturdy-bassoon#254] World orientation, anchored to the actor.
+        d.has_anchored = true;
+        d.src = *Matrix_GetCurrent();
+        d.src.mf[3][0] -= actor_translation.x;
+        d.src.mf[3][1] -= actor_translation.y;
+        d.src.mf[3][2] -= actor_translation.z;
+        // #endregion
     } else {
         d.src = *Matrix_GetCurrent();
     }

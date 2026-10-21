@@ -81,9 +81,10 @@ void FrameInterpolation_RecordMatrixRotateAxis(f32 angle, Vec3f* axis, u8 mode);
 
 void FrameInterpolation_RecordSkinMatrixMtxFToMtx(MtxF* src, Mtx* dest);
 
-// sturdy-bassoon#254: matrices recorded between these two are interpolated in world space instead of the
-// open actor's model space: for a draw fixed in world direction (a feet or circle shadow), which a sharp
-// turn would otherwise shrink and reverse in the frames between ticks. Nests; inert at 20 fps.
+// sturdy-bassoon#254: matrices recorded between these two are interpolated in world orientation instead of
+// the open actor's model space, their translation still anchored to the actor: for a draw fixed in world
+// direction (a feet or circle shadow), which a sharp turn would otherwise shrink and reverse in the frames
+// between ticks. Nests; inert at 20 fps.
 void FrameInterpolation_RecordWorldSpaceBegin(void);
 
 void FrameInterpolation_RecordWorldSpaceEnd(void);

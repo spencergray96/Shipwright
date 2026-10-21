@@ -75,7 +75,8 @@
 // actor turns; across a sharp turn the lerp shrinks it to cos(turn/2) at the midpoint and, past 90 degrees,
 // reverses it through zero: a feet shadow vanishes for a frame or two when Link snaps round. With the setting
 // on, ActorShadow_DrawFoot and the circle shadow (ActorShadow_DrawCircle, DrawWhiteCircle, and DrawFeet's
-// airborne circle) record their matrices in world space instead (FrameInterpolation_RecordWorldSpaceBegin).
+// airborne circle) record their matrices in world orientation instead, still anchored to the actor's
+// interpolated position (FrameInterpolation_RecordWorldSpaceBegin).
 // The horse shadow turns with its horse and stays in model space. Every scene; inert at 20 fps.
 #define CVAR_SHADOW_INTERP_WORLD CVAR_ENHANCEMENT("ShadowInterpWorld")
 #define SHADOW_INTERP_WORLD_DEFAULT 1
