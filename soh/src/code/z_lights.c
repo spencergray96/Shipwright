@@ -7,20 +7,86 @@
 #include "soh/frame_interpolation.h"
 #include "soh/OTRGlobals.h"
 #include "soh/Enhancements/savestate_serialize.h"
+#include "soh/Enhancements/lights/LightsBudget.h"
+#include "soh/custom/scenes/grid_tool/GridToolSceneRegistry.h"
 
-#define LIGHTS_BUFFER_SIZE 32
-//#define LIGHTS_BUFFER_SIZE 1024 // Kill me
+// LIGHTS_BUFFER_SIZE is 256 (vanilla 32), in LightsBudget.h with the reasons (sturdy-bassoon#233).
 
 typedef struct {
     /* 0x000 */ s32 numOccupied;
     /* 0x004 */ s32 searchIndex;
     /* 0x008 */ LightNode buf[LIGHTS_BUFFER_SIZE];
-} LightsBuffer; // size = 0x188
+} LightsBuffer; // size = 0x188 at vanilla's 32
 
 static LightsBuffer sLightsBuffer;
 
+// The whole buffer is the savestate field, so a state's size follows LIGHTS_BUFFER_SIZE. Savestates
+// live in memory only (savestates.cpp writes no file), so one taken by a build with another size can
+// never reach this one (#233).
 #define LIGHTS_SHIP_SAVESTATE_FIELDS(F) F(sLightsBuffer)
 SHIP_SAVESTATE_DEFINE(Lights, LIGHTS_SHIP_SAVESTATE_FIELDS)
+
+extern PlayState* gPlayState;
+
+// The cap new inserts are held to (#233). LIGHTS_BUFFER_SIZE unless `lights pool <n>` lowered it for
+// this session; never saved, so a planted 32 cannot outlive the run that planted it.
+static s32 sLightsPoolCap = LIGHTS_BUFFER_SIZE;
+
+// `lights status`'s counters (LightsBudget.h). `sLightsTick` is the tick being counted, rolled into
+// `sLightsLastTick` by the first bind of the next one.
+static s32 sLightsPeak;
+static s32 sLightsRefused;
+static LightsStats sLightsTick;
+static LightsStats sLightsLastTick;
+static u32 sLightsTickFrame;
+static s32 sLightsTickStarted;
+
+// Read once a tick, not once a bind: a CVar read and a registry lookup per drawn actor would be the
+// costliest thing in the bind. Kept apart from the stats so a report change cannot change a bind.
+static s32 sLightsCountThisTick;    // a grid-tool scene: count what wants a slot before binding
+static s32 sLightsSunFirstThisTick; // and the setting is on: bind the sun first when it overflows
+
+// Lights_FindSlot's cap: the slots in a Lights group (`Lights.l.l`).
+#define LIGHTS_BIND_SLOTS 7
+
+static void Lights_RollTick(void) {
+    u32 frame;
+    LightsStats fresh = { 0 };
+
+    if (gPlayState == NULL) {
+        return;
+    }
+    // state.frames, not gameplayFrames: the latter stands still while the game is paused or held by
+    // IREG(72), and a frozen key would freeze the report with it.
+    frame = gPlayState->state.frames;
+    if (sLightsTickStarted && frame == sLightsTickFrame) {
+        return;
+    }
+    if (sLightsTickStarted) {
+        sLightsLastTick = sLightsTick;
+    }
+    fresh.tick = frame;
+    fresh.linkInRange = fresh.linkPoints = fresh.linkDirs = -1;
+    sLightsCountThisTick = GridToolSceneRegistry_IsCustomScene(gPlayState->sceneNum);
+    sLightsSunFirstThisTick = sLightsCountThisTick && CVarGetInteger(CVAR_LIGHTS_SUN_FIRST, LIGHTS_SUN_FIRST_DEFAULT);
+    fresh.sunFirstGate = sLightsSunFirstThisTick;
+    sLightsTick = fresh;
+    sLightsTickFrame = frame;
+    sLightsTickStarted = 1;
+}
+
+void Lights_GetStats(LightsStats* out) {
+    *out = sLightsLastTick;
+    out->occupied = sLightsBuffer.numOccupied;
+    out->cap = sLightsPoolCap;
+    out->peak = sLightsPeak;
+    out->refused = sLightsRefused;
+}
+
+s32 Lights_SetPoolCap(s32 cap) {
+    sLightsPoolCap = CLAMP(cap, 1, LIGHTS_BUFFER_SIZE);
+    return sLightsPoolCap;
+}
 
 void Lights_PointSetInfo(LightInfo* info, s16 x, s16 y, s16 z, u8 r, u8 g, u8 b, s16 radius, s32 type) {
     info->type = type;
@@ -96,7 +162,7 @@ void Lights_Draw(Lights* lights, GraphicsContext* gfxCtx) {
 }
 
 Light* Lights_FindSlot(Lights* lights) {
-    if (lights->numLights >= 7) {
+    if (lights->numLights >= LIGHTS_BIND_SLOTS) {
         return NULL;
     } else {
         return &lights->l.l[lights->numLights++];
@@ -153,6 +219,37 @@ void Lights_BindDirectional(Lights* lights, LightParams* params, Vec3f* vec) {
     }
 }
 
+// Lights_BindPoint's range test, term for term, so "in range" here is exactly what vanilla binds (#233).
+static s32 Lights_PointInRange(LightParams* params, Vec3f* vec, f32* distSq) {
+    f32 xDiff = params->point.x - vec->x;
+    f32 yDiff = params->point.y - vec->y;
+    f32 zDiff = params->point.z - vec->z;
+    f32 scale = params->point.radius;
+
+    *distSq = SQ(xDiff) + SQ(yDiff) + SQ(zDiff);
+    return *distSq < SQ(scale);
+}
+
+// Link's own bind under vanilla's rule, for `lights status`: each light in list order takes a slot while
+// one is free, so this is what vanilla's loop bound, not what it would ideally bind. Returns the nodes visited.
+static s32 Lights_CountVanillaBind(LightNode* node, Vec3f* vec, s32 slotsFree) {
+    s32 visited = 0;
+    f32 distSq;
+
+    sLightsTick.linkPoints = 0;
+    sLightsTick.linkDirs = 0;
+    for (; node != NULL && slotsFree > 0; node = node->next, visited++) {
+        if (node->info->type == LIGHT_DIRECTIONAL) {
+            sLightsTick.linkDirs++;
+            slotsFree--;
+        } else if (Lights_PointInRange(&node->info->params, vec, &distSq)) {
+            sLightsTick.linkPoints++;
+            slotsFree--;
+        }
+    }
+    return visited;
+}
+
 /**
  * For every light in a provided list, try to find a free slot in the provided Lights group and bind
  * a light to it. Then apply color and positional/directional info for each light
@@ -160,22 +257,131 @@ void Lights_BindDirectional(Lights* lights, LightParams* params, Vec3f* vec) {
  *
  * Note: Lights in a given list can only be binded to however many free slots are
  * available in the Lights group. This is at most 7 slots for a new group, but could be less.
+ *
+ * #233: in grid-tool scenes the list is walked once more first, to count what wants a slot. When it
+ * all fits, or sun first is off, vanilla's loop binds as it always has. When it does not fit and sun
+ * first is on, the directional lights' slots are reserved, the NEAREST point lights take the rest, and
+ * the layout stays vanilla's: point lights first, in list order, then the directional lights.
+ * ActorShadow_DrawFeet reads the last two slots as the sun, so the sun must stay last. Vanilla scenes
+ * run vanilla's loop and nothing else but two counters.
  */
 void Lights_BindAll(Lights* lights, LightNode* listHead, Vec3f* vec) {
     LightsBindFunc bindFuncs[] = { Lights_BindPoint, Lights_BindDirectional, Lights_BindPoint };
     LightInfo* info;
+    LightNode* listStart = listHead;
+    LightNode* node;
+    // The nearest point lights in range, sorted by distance, with their list positions.
+    LightNode* nearest[LIGHTS_BIND_SLOTS];
+    f32 nearDistSq[LIGHTS_BIND_SLOTS];
+    s32 nearIndex[LIGHTS_BIND_SLOTS];
+    s32 numNear = 0;
+    s32 numInRange = 0;
+    s32 numDirs = 0;
+    s32 index = 0;
+    // Callers pass a fresh group, so this is all 7, but the bind has never assumed it.
+    s32 slotsFree = MAX(LIGHTS_BIND_SLOTS - lights->numLights, 0);
+    s32 slotsForPoints;
+    s32 overflow;
+    s32 isLink;
+    f32 distSq;
+    s32 i;
+    s32 j;
 
-    while (listHead != NULL) {
-        info = listHead->info;
-        bindFuncs[info->type](lights, &info->params, vec);
-        listHead = listHead->next;
+    Lights_RollTick();
+    sLightsTick.binds++;
+
+    if (!sLightsCountThisTick) {
+        // A vanilla scene: vanilla's loop.
+        while (listHead != NULL) {
+            info = listHead->info;
+            bindFuncs[info->type](lights, &info->params, vec);
+            listHead = listHead->next;
+            sLightsTick.walked++;
+        }
+        return;
+    }
+
+    for (node = listStart; node != NULL; node = node->next, index++) {
+        info = node->info;
+        if (info->type == LIGHT_DIRECTIONAL) {
+            numDirs++;
+        } else if (vec != NULL && Lights_PointInRange(&info->params, vec, &distSq)) {
+            numInRange++;
+            // Insert into the sorted nearest. A tie keeps the earlier (newer) light, as vanilla would.
+            for (i = numNear; i > 0 && nearDistSq[i - 1] > distSq; i--) {
+                if (i < LIGHTS_BIND_SLOTS) {
+                    nearest[i] = nearest[i - 1];
+                    nearDistSq[i] = nearDistSq[i - 1];
+                    nearIndex[i] = nearIndex[i - 1];
+                }
+            }
+            if (i < LIGHTS_BIND_SLOTS) {
+                nearest[i] = node;
+                nearDistSq[i] = distSq;
+                nearIndex[i] = index;
+                numNear = MIN(numNear + 1, LIGHTS_BIND_SLOTS);
+            }
+        }
+    }
+    sLightsTick.walked += index;
+
+    overflow = (numInRange + numDirs) > slotsFree;
+    isLink = (vec != NULL) && (gPlayState != NULL) && (GET_PLAYER(gPlayState) != NULL) &&
+             (vec == &GET_PLAYER(gPlayState)->actor.world.pos);
+    sLightsTick.overflowed += overflow;
+    sLightsTick.maxInRange = MAX(sLightsTick.maxInRange, numInRange);
+
+    if (!overflow || !sLightsSunFirstThisTick) {
+        while (listHead != NULL) {
+            info = listHead->info;
+            bindFuncs[info->type](lights, &info->params, vec);
+            listHead = listHead->next;
+            sLightsTick.walked++;
+        }
+        if (isLink) {
+            sLightsTick.linkInRange = numInRange;
+            sLightsTick.walked += Lights_CountVanillaBind(listStart, vec, slotsFree);
+        }
+        return;
+    }
+
+    // Sun first.
+    slotsForPoints = MAX(slotsFree - numDirs, 0);
+    numNear = MIN(numNear, slotsForPoints);
+    // The chosen few back into list order (at most 7, so a plain insertion sort).
+    for (i = 1; i < numNear; i++) {
+        LightNode* n = nearest[i];
+        s32 k = nearIndex[i];
+        for (j = i; j > 0 && nearIndex[j - 1] > k; j--) {
+            nearest[j] = nearest[j - 1];
+            nearIndex[j] = nearIndex[j - 1];
+        }
+        nearest[j] = n;
+        nearIndex[j] = k;
+    }
+    for (i = 0; i < numNear; i++) {
+        Lights_BindPoint(lights, &nearest[i]->info->params, vec);
+    }
+    for (node = listStart; node != NULL; node = node->next) {
+        if (node->info->type == LIGHT_DIRECTIONAL) {
+            Lights_BindDirectional(lights, &node->info->params, vec);
+        }
+        sLightsTick.walked++;
+    }
+    if (isLink) {
+        sLightsTick.linkInRange = numInRange;
+        sLightsTick.linkPoints = numNear;
+        sLightsTick.linkDirs = MIN(numDirs, slotsFree);
     }
 }
 
 LightNode* Lights_FindBufSlot() {
     LightNode* node;
 
-    if (sLightsBuffer.numOccupied >= LIGHTS_BUFFER_SIZE) {
+    // The cap, not the buffer's size (#233): `lights pool <n>` can hold a session below it. A state
+    // loaded over a lowered cap may hold more than it; inserts are refused until the count drops.
+    if (sLightsBuffer.numOccupied >= sLightsPoolCap) {
+        sLightsRefused++;
         return NULL;
     }
 
@@ -193,6 +399,7 @@ LightNode* Lights_FindBufSlot() {
     }
 
     sLightsBuffer.numOccupied++;
+    sLightsPeak = MAX(sLightsPeak, sLightsBuffer.numOccupied);
 
     return node;
 }
@@ -211,6 +418,10 @@ void LightContext_Init(PlayState* play, LightContext* lightCtx) {
     LightContext_SetAmbientColor(lightCtx, 80, 80, 80);
     LightContext_SetFog(lightCtx, 0, 0, 0, 996, 12800);
     memset(&sLightsBuffer, 0, sizeof(sLightsBuffer));
+    sLightsPeak = 0;
+    sLightsRefused = 0;
+    // A new scene restarts state.frames, so its first tick could share the last one's number.
+    sLightsTickStarted = 0;
 }
 
 void LightContext_SetAmbientColor(LightContext* lightCtx, u8 r, u8 g, u8 b) {

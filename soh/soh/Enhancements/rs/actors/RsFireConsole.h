@@ -30,9 +30,9 @@
 //                   the same for the glow halo (RS_FIRE_GLOW_DEFAULT): `op=glow result=ok glow=on|off
 //                   default=on|off override=0|1 lights=<n> applied=<n>`. lights counts the fires holding
 //                   a light node, applied those whose light matches the setting
-//   pool            `op=pool result=ok nodes=<n> of=32 fires=<k>`: the light nodes in the scene's list (every
-//                   holder, vanilla's too) and how many of them are fires'. 32 is LIGHTS_BUFFER_SIZE
-//                   in z_lights.c, which #233 may raise
+//   pool            `op=pool result=ok nodes=<n> of=<cap> fires=<k>`: the light nodes in the scene's list
+//                   (every holder, vanilla's too) and how many of them are fires'. `of` is the pool's cap
+//                   in force (lights/LightsBudget.h, #233): 256, unless `lights pool <n>` lowered it
 //
 // Returns 0 on success (and for the reads), 1 for a refused operation: no scene, an unknown
 // subcommand, an extra argument or a bad value (`op=<sub> result=error error=bad_value`).

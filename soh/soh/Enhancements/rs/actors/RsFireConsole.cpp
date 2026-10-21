@@ -8,6 +8,7 @@
 
 #include "RsFire.h"
 #include "soh/Enhancements/console/ConsoleSink.h"
+#include "soh/Enhancements/lights/LightsBudget.h"
 #include "soh/cvar_prefixes.h"
 
 extern "C" {
@@ -25,9 +26,6 @@ using ConsoleSink::Addf;
 
 const char* kUsage =
     "op=usage result=error usage=\"rsfire list | pool | distance [<n>|default] | glow [on|off|default]\"";
-
-// LIGHTS_BUFFER_SIZE is static to z_lights.c; this mirrors it for the report only (#233 may change it).
-constexpr int32_t kLightPool = 32;
 
 // The live fires, in the prop list's order.
 template <typename Fn> void ForEachFire(Fn fn) {
@@ -90,7 +88,10 @@ int32_t Pool(std::vector<std::string>& lines) {
         nodes++;
     }
     ForEachFire([&](const Actor*, const RsFire* fire) { fires += fire->lightNode != nullptr ? 1 : 0; });
-    Addf(lines, "op=pool result=ok nodes=%d of=%d fires=%d", nodes, kLightPool, fires);
+    // `of` is the cap in force (#233): LIGHTS_BUFFER_SIZE, or what `lights pool <n>` lowered it to.
+    LightsStats stats;
+    Lights_GetStats(&stats);
+    Addf(lines, "op=pool result=ok nodes=%d of=%d fires=%d", nodes, stats.cap, fires);
     return 0;
 }
 
@@ -196,9 +197,9 @@ const ConsoleSink::Command rsFireCommand(
     "The RS torch fires in this scene (sturdy-bassoon#232, #243): list | pool | distance [<n>|default] | "
     "glow [on|off|default]. list says where each fire is, its size, whether it is lit and by what, its "
     "world flag, whether it holds a light node, and whether it is awake and drawn; pool counts the scene's "
-    "light nodes against the 32 the engine has. distance sets how far in front of the camera flames draw "
-    "(and so how far off an arrow can light one); glow switches the halo round each lit fire. Both apply "
-    "to every fire at once and are saved; default goes back to the built-in value.",
+    "light nodes against the pool's cap (`lights` for the rest). distance sets how far in front of the "
+    "camera flames draw (and so how far off an arrow can light one); glow switches the halo round each lit "
+    "fire. Both apply to every fire at once and are saved; default goes back to the built-in value.",
     { { "list|pool|distance|glow", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } });
 
 } // namespace

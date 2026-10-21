@@ -300,6 +300,9 @@
  *   rs_fire <line>                       one line of RsFireConsole_Run output per marker, from
  *                                        `agenttest rsfire ...` - `fire idx=...` or `op=...`, never
  *                                        `event=...`
+ *   lights <line>                        one line of LightsConsole_Run output per marker, from
+ *                                        `agenttest lights ...` (sturdy-bassoon#233) - `op=...`, `tick ...`
+ *                                        or `link ...`
  *   rs_stairs <line>                     one line of RsStairConsole_Run output per marker, from
  *                                        `agenttest stairs ...` - always `op=...`, an indexed row or
  *                                        `last="..."`, never a line that starts `stair=... event=...`,
@@ -582,9 +585,14 @@
  *                                          the RS torch fires (sturdy-bassoon#232): where each is, its size,
  *                                          lit and by what, its world flag, whether it holds a light node,
  *                                          whether it is awake and drawn; the scene's light nodes against
- *                                          the engine's 32; and (#243) the fires' draw distance and glow
+ *                                          the pool's cap; and (#243) the fires' draw distance and glow
  *                                          halo, set live for every fire.
  *                                          RsFireConsole.h documents every line
+ *   agenttest lights [status]|sunfirst [on|off|default]|pool [<n>|default]
+ *                                          the scene's point lights (sturdy-bassoon#233): nodes held against
+ *                                          the cap, inserts refused, the last tick's bind walk, Link's bound
+ *                                          lights by kind; the sun-first bind switch; a session-only pool cap
+ *                                          for the vanilla-32 control. LightsConsole.h documents every line
  *   agenttest warps list|dump|where|status|badcheck
  *                                          step warps (sturdy-bassoon#154). `dump` is every warp tile
  *                                          in this scene as the scan found it - where it is, where it
@@ -664,6 +672,7 @@
 #include "soh/Enhancements/rs/dialogue/NpcConsole.h"
 #include "soh/Enhancements/rs/prefs/RegionConsole.h"
 #include "soh/Enhancements/rs/actors/RsFireConsole.h"
+#include "soh/Enhancements/lights/LightsConsole.h"
 #include "soh/Enhancements/rs/maps/WorldConsole.h"
 #include "soh/Enhancements/rs/stairs/StairConsole.h"
 #include "soh/Enhancements/rs/interactions/InteractionConsole.h"
@@ -2965,6 +2974,11 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(RsFireConsole_Run, sub, "rs_fire ", output, WriteMarker);
     }
+    // >= 2: a bare `agenttest lights` is `status` (#233).
+    if (args.size() >= 2 && args[1] == "lights") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(LightsConsole_Run, sub, "lights ", output, WriteMarker);
+    }
     // Step warps (sturdy-bassoon#154). Same prefix as the tiles' own event markers, for the stairs'
     // reason: `rs_warp op=…` is an answer, `rs_warp tile=<n> event=…` is a tile reporting itself.
     if (args.size() >= 3 && args[1] == "warps") {
@@ -3040,6 +3054,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "warps list|dump|where|status|badcheck | "
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
+              "lights [status]|sunfirst [on|off|default]|pool [<n>|default] | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
@@ -3090,6 +3105,7 @@ void RegisterAgentTest() {
               "warps list|dump|where|status|badcheck | "
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
+              "lights [status]|sunfirst [on|off|default]|pool [<n>|default] | "
               "menu open|close|page <n>|primary [custom|vanilla]|sweep [l|r]|level [down|up]|filler [n]|"
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "

@@ -1,0 +1,121 @@
+/*
+ * The console surface for the scene's point lights (sturdy-bassoon#233). See LightsConsole.h for the
+ * subcommands and LightsBudget.h for the limits and why they moved.
+ */
+
+#include "LightsConsole.h"
+
+#include <cstdlib>
+
+#include <libultraship/bridge/consolevariablebridge.h>
+#include <ship/debug/Console.h>
+
+#include "LightsBudget.h"
+#include "soh/Enhancements/console/ConsoleSink.h"
+
+extern "C" {
+#include <z64.h>
+extern PlayState* gPlayState;
+}
+
+namespace {
+
+using ConsoleSink::Addf;
+
+const char* kUsage = "op=usage result=error usage=\"lights [status] | sunfirst [on|off|default] | pool [<n>|default]\"";
+
+bool SunFirstOn() {
+    return CVarGetInteger(CVAR_LIGHTS_SUN_FIRST, LIGHTS_SUN_FIRST_DEFAULT) != 0;
+}
+
+int32_t Status(std::vector<std::string>& lines) {
+    LightsStats s;
+    Lights_GetStats(&s);
+    Addf(lines, "op=status result=ok occupied=%d cap=%d size=%d peak=%d refused=%d sunfirst=%s gate=%d scene=0x%X",
+         s.occupied, s.cap, LIGHTS_BUFFER_SIZE, s.peak, s.refused, SunFirstOn() ? "on" : "off", s.sunFirstGate,
+         gPlayState != nullptr ? gPlayState->sceneNum : -1);
+    Addf(lines, "tick frame=%u binds=%d walked=%d overflowed=%d max_in_range=%d", s.tick, s.binds, s.walked,
+         s.overflowed, s.maxInRange);
+    Addf(lines, "link in_range=%d points=%d dirs=%d", s.linkInRange, s.linkPoints, s.linkDirs);
+    return 0;
+}
+
+int32_t SunFirst(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() == 2) {
+        if (args[1] == "default") {
+            CVarClear(CVAR_LIGHTS_SUN_FIRST);
+        } else if (args[1] == "on" || args[1] == "off") {
+            CVarSetInteger(CVAR_LIGHTS_SUN_FIRST, args[1] == "on" ? 1 : 0);
+        } else {
+            Addf(lines, "op=sunfirst result=error error=bad_value expects=on|off|default");
+            return 1;
+        }
+        CVarSave();
+    }
+    LightsStats s;
+    Lights_GetStats(&s);
+    Addf(lines, "op=sunfirst result=ok sunfirst=%s default=%s override=%d gate=%d", SunFirstOn() ? "on" : "off",
+         LIGHTS_SUN_FIRST_DEFAULT ? "on" : "off", CVarGetInteger(CVAR_LIGHTS_SUN_FIRST, -1) != -1 ? 1 : 0,
+         s.sunFirstGate);
+    return 0;
+}
+
+int32_t Pool(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() == 2) {
+        if (args[1] == "default") {
+            Lights_SetPoolCap(LIGHTS_BUFFER_SIZE);
+        } else {
+            char* end = nullptr;
+            const long value = strtol(args[1].c_str(), &end, 10);
+            if (end == args[1].c_str() || *end != '\0' || value < 1 || value > LIGHTS_BUFFER_SIZE) {
+                Addf(lines, "op=pool result=error error=bad_value min=1 max=%d", LIGHTS_BUFFER_SIZE);
+                return 1;
+            }
+            Lights_SetPoolCap((s32)value);
+        }
+    }
+    LightsStats s;
+    Lights_GetStats(&s);
+    Addf(lines, "op=pool result=ok cap=%d size=%d occupied=%d", s.cap, LIGHTS_BUFFER_SIZE, s.occupied);
+    return 0;
+}
+
+} // namespace
+
+int32_t LightsConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() > 2) {
+        lines.push_back(kUsage);
+        return 1;
+    }
+    const std::string sub = args.empty() ? std::string("status") : args[0];
+    if (sub == "sunfirst") {
+        return SunFirst(args, lines);
+    }
+    if (sub == "pool") {
+        return Pool(args, lines);
+    }
+    if (sub == "status" && args.size() <= 1) {
+        return Status(lines);
+    }
+    lines.push_back(kUsage);
+    return 1;
+}
+
+// --- the human sink: the `lights` console command -----------------------------------------------
+//
+// The mechanical half is ConsoleSink (sturdy-bassoon#112).
+
+namespace {
+
+const ConsoleSink::Command lightsCommand(
+    "lights", LightsConsole_Run,
+    "The scene's point lights (sturdy-bassoon#233): status | sunfirst [on|off|default] | pool [<n>|default]. "
+    "status counts the light nodes held against the pool's cap, the inserts refused, what the last tick's "
+    "binds walked, and how many lights Link bound and of which kind (dirs=2 means he keeps the sun). "
+    "sunfirst switches the grid-tool scenes' bind rule: when an actor has more lights in range than its "
+    "7 slots, the scene's directional lights keep theirs and the nearest point lights take the rest, "
+    "instead of the newest seven crowding the sun out. pool holds new lights to n nodes for this session "
+    "only, so `pool 32` plants vanilla's starvation beside the raised pool.",
+    { { "status|sunfirst|pool", Ship::ArgumentType::TEXT }, { "value", Ship::ArgumentType::TEXT, true } });
+
+} // namespace
