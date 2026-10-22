@@ -76,7 +76,8 @@ static void Lights_OpenShadowRecord(void) {
 }
 
 // The last bind's node per slot, so the feet shadow can tell its lights apart from tick to tick (#250).
-// Lights_ShadowCasts trusts it only for the Lights group it was taken from.
+// Lights_ShadowCasts trusts it only for the Lights group it was taken from. Every bind records it since
+// #254, vanilla scenes' too, for pairing each foot shadow with its own light's (Lights_BoundSlotKey).
 static Lights* sBindLights;
 static LightNode* sBindNode[LIGHTS_BIND_SLOTS];
 
@@ -115,6 +116,17 @@ void Lights_RecordLinkShadow(s32 foot, s32 slot, s32 lightNum, u8 alpha) {
         sShadowRecordOpen->lightNum[slot] = lightNum;
     }
 }
+
+// #region SOH [sturdy-bassoon#254]
+s32 Lights_BoundSlotKey(Lights* lights, s32 slot, const void** key, s32* node) {
+    if (lights != sBindLights || slot < 0 || slot >= LIGHTS_BIND_SLOTS || sBindNode[slot] == NULL) {
+        return 0;
+    }
+    *key = sBindNode[slot]->info;
+    *node = (s32)(sBindNode[slot] - sLightsBuffer.buf);
+    return 1;
+}
+// #endregion
 
 s32 Lights_GetShadowRecord(LightsShadowTick* out, s32 max) {
     s32 n = MIN(max, sShadowRecordCount);
@@ -448,6 +460,8 @@ s32 Lights_ShadowCasts(Actor* actor, Lights* lights, LightsShadowCast* casts) {
         casts[n].light.l.dir[1] = sl->dir[1];
         casts[n].light.l.dir[2] = sl->dir[2];
         casts[n].lightNum = (sl->dir[1] > 0) ? (s32)sl->strength : 0;
+        casts[n].key = sl->info; // #254
+        casts[n].keyNode = (s32)(sl->node - sLightsBuffer.buf);
         if (sLightsShadowPulseThisTick) {
             casts[n].lightNum =
                 (s32)(MIN(casts[n].lightNum, LIGHTS_SHADOW_FULL) * Lights_ShadowPulse(sl->node, frame));
@@ -462,6 +476,8 @@ s32 Lights_ShadowCasts(Actor* actor, Lights* lights, LightsShadowCast* casts) {
         sun = &lights->l.l[numPoints + i];
         casts[n].light = *sun;
         casts[n].lightNum = (sun->l.dir[1] > 0) ? (s32)e->sun[i] : 0;
+        casts[n].key = NULL; // #254: the sun's two are paired by their place, not a light
+        casts[n].keyNode = 0;
         if (rec != NULL && sBindNode[numPoints + i] != NULL) {
             // Vanilla's layout puts the sun last; only a sun-first-off overflow puts a point light here.
             rec->node[n] = (sBindNode[numPoints + i]->info->type == LIGHT_DIRECTIONAL)
@@ -729,23 +745,20 @@ void Lights_BindAll(Lights* lights, LightNode* listHead, Vec3f* vec) {
         Lights_OpenShadowRecord();
     }
 
+    // #254: which node fills each slot, for every bind (it was only for the smoothing, #250).
+    Lights_OpenBindNodes(lights);
+
     if (!sLightsCountThisTick) {
         // A vanilla scene: vanilla's loop.
         while (listHead != NULL) {
             info = listHead->info;
             before = lights->numLights;
             bindFuncs[info->type](lights, &info->params, vec);
-            if (isLink) {
-                Lights_NoteShadowSlot(lights, before, listHead, 1);
-            }
+            Lights_NoteShadowSlot(lights, before, listHead, isLink); // #254: every actor's slots, not only Link's
             listHead = listHead->next;
             sLightsTick.walked++;
         }
         return;
-    }
-
-    if (sLightsShadowSmoothThisTick) {
-        Lights_OpenBindNodes(lights);
     }
 
     for (node = listStart; node != NULL; node = node->next, index++) {

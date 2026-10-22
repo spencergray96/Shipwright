@@ -69,6 +69,27 @@
 #define LIGHTS_SHADOW_LIGHTS 12
 #define LIGHTS_SHADOW_SNAP_DIST 100.0f
 
+// Shadows interpolated in world space (sturdy-bassoon#254). SoH draws a 20 Hz tick and interpolates the frames
+// between two ticks, and a matrix drawn inside an actor's draw is interpolated in that actor's model space. A
+// feet or circle shadow is fixed in world direction, so in model space it turns the other way whenever the
+// actor turns; across a sharp turn the lerp shrinks it to cos(turn/2) at the midpoint and, past 90 degrees,
+// reverses it through zero: a feet shadow vanishes for a frame or two when Link snaps round. With the setting
+// on, ActorShadow_DrawFoot and the circle shadow (ActorShadow_DrawCircle, DrawWhiteCircle, and DrawFeet's
+// airborne circle) record their matrices in world orientation instead, still anchored to the actor's
+// interpolated position (FrameInterpolation_RecordWorldSpaceBegin).
+// The horse shadow turns with its horse and stays in model space. Every scene; inert at 20 fps.
+#define CVAR_SHADOW_INTERP_WORLD CVAR_ENHANCEMENT("ShadowInterpWorld")
+#define SHADOW_INTERP_WORLD_DEFAULT 1
+// Each foot shadow paired with its own light's (sturdy-bassoon#254). Frame interpolation matches a matrix
+// to the last tick's by its place in the draw: ActorShadow_DrawFoot's OPEN_DISPS and how many times it ran
+// before. DrawFeet draws foot 0's shadows and then foot 1's, so when a light joins or leaves, every later
+// shadow is lerped against another light's, often the other foot's: it shrinks, swings or crosses over for
+// a tick. With the setting on, each foot shadow is drawn in an interpolation child keyed by its light and
+// foot: by the light's LightInfo and pool node (a smoothed cast's, or the bind's for vanilla's unsmoothed
+// slots, Lights_BoundSlotKey), and the sun's two by their slot. A shadow new this tick draws where it is.
+#define CVAR_SHADOW_INTERP_PAIR CVAR_ENHANCEMENT("ShadowInterpPair")
+#define SHADOW_INTERP_PAIR_DEFAULT 1
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -114,6 +135,10 @@ typedef struct LightsShadowTick {
 typedef struct LightsShadowCast {
     Light light;
     s32 lightNum;
+    // The light's identity from tick to tick, for frame interpolation (sturdy-bassoon#254): its holder's
+    // LightInfo and its pool node, so a node re-taken by another fire is another light. NULL for the sun's two.
+    const void* key;
+    s32 keyNode;
 } LightsShadowCast;
 
 // `lights shadowsmooth`'s counters, since the scene began.
@@ -140,6 +165,9 @@ void Lights_ClearShadowRecord(void);
 // (LIGHTS_SHADOW_CASTS_MAX). Returns the count, or -1 to draw vanilla's unsmoothed shadows: the setting
 // off, a vanilla scene, a full table (counted as `full`), or a bind it cannot identify (counted as `nobind`).
 s32 Lights_ShadowCasts(Actor* actor, Lights* lights, LightsShadowCast* casts);
+// The identity of the light the last bind of `lights` put in `slot` (sturdy-bassoon#254): its holder's LightInfo
+// and its pool node, as a smoothed cast's key. Returns 0 when unknown: another group was bound since.
+s32 Lights_BoundSlotKey(Lights* lights, s32 slot, const void** key, s32* node);
 void Lights_GetShadowStats(LightsShadowStats* out);
 // For this session only; clamped to 0.01..1 (1 is unsmoothed). Returns the rate applied.
 f32 Lights_SetShadowRate(f32 rate);

@@ -101,6 +101,22 @@ void ActorShape_Init(ActorShape* shape, f32 yOffset, ActorShadowFunc shadowDraw,
     shape->shadowAlpha = 255;
 }
 
+// #region SOH [sturdy-bassoon#254] A shadow's matrix, recorded for frame interpolation in world orientation when
+// `worldSpace` (anchored to the actor; FrameInterpolation_RecordWorldSpaceBegin), else in the actor's model space.
+static Mtx* ActorShadow_NewMtx(PlayState* play, s32 worldSpace) {
+    Mtx* mtx;
+
+    if (worldSpace) {
+        FrameInterpolation_RecordWorldSpaceBegin();
+    }
+    mtx = MATRIX_NEWMTX(play->state.gfxCtx);
+    if (worldSpace) {
+        FrameInterpolation_RecordWorldSpaceEnd();
+    }
+    return mtx;
+}
+// #endregion
+
 void ActorShadow_Draw(Actor* actor, Lights* lights, PlayState* play, Gfx* dlist, Color_RGBA8* color) {
     f32 temp1;
     f32 temp2;
@@ -137,7 +153,14 @@ void ActorShadow_Draw(Actor* actor, Lights* lights, PlayState* play, Gfx* dlist,
             temp2 = (1.0f - (temp1 * (1.0f / 350))) * actor->shape.shadowScale;
             Matrix_Scale(actor->scale.x * temp2, 1.0f, actor->scale.z * temp2, MTXMODE_APPLY);
 
-            gSPMatrix(POLY_OPA_DISP++, MATRIX_NEWMTX(play->state.gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
+            // #region SOH [sturdy-bassoon#254] The circle is fixed in world direction: interpolate it in world
+            // space. The horse shadow turns with its horse and stays in the actor's model space.
+            gSPMatrix(
+                POLY_OPA_DISP++,
+                ActorShadow_NewMtx(play, (dlist == gCircleShadowDL) &&
+                                             CVarGetInteger(CVAR_SHADOW_INTERP_WORLD, SHADOW_INTERP_WORLD_DEFAULT)),
+                G_MTX_MODELVIEW | G_MTX_LOAD);
+            // #endregion
             gSPDisplayList(POLY_OPA_DISP++, dlist);
 
             CLOSE_DISPS(play->state.gfxCtx);
@@ -182,11 +205,38 @@ void ActorShadow_DrawFoot(PlayState* play, Light* light, MtxF* arg2, s32 arg3, f
     Matrix_RotateY(sp58, MTXMODE_APPLY);
     Matrix_Scale(arg5, 1.0f, arg5 * arg6, MTXMODE_APPLY);
 
-    gSPMatrix(POLY_OPA_DISP++, MATRIX_NEWMTX(play->state.gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
+    // #region SOH [sturdy-bassoon#254] The shadow points away from its light, not with the actor: interpolate
+    // it in world space.
+    gSPMatrix(POLY_OPA_DISP++,
+              ActorShadow_NewMtx(play, CVarGetInteger(CVAR_SHADOW_INTERP_WORLD, SHADOW_INTERP_WORLD_DEFAULT)),
+              G_MTX_MODELVIEW | G_MTX_LOAD);
+    // #endregion
     gSPDisplayList(POLY_OPA_DISP++, gFootShadowDL);
 
     CLOSE_DISPS(play->state.gfxCtx);
 }
+
+// #region SOH [sturdy-bassoon#254] A foot shadow in its own interpolation child, keyed by its light and foot
+// (LightsBudget.h, CVAR_SHADOW_INTERP_PAIR), so the frames between two ticks lerp it against the same light's
+// shadow. `key` is the light's identity (its LightInfo, with its pool node as `id`), or the slot marker below
+// with the slot's index (the sun's two from FOOT_SHADOW_SUN_ID, and a slot whose light is not known). Not
+// const, so the linker cannot fold it with another.
+static u8 sFootShadowSlotKey;
+#define FOOT_SHADOW_SUN_ID 0x100
+
+static void ActorShadow_DrawFootPaired(PlayState* play, const void* key, s32 id, s32 foot, Light* light, MtxF* floorMtx,
+                                       s32 lightNum, f32 shadowAlpha, f32 shadowScaleX, f32 shadowScaleZ) {
+    s32 paired = CVarGetInteger(CVAR_SHADOW_INTERP_PAIR, SHADOW_INTERP_PAIR_DEFAULT);
+
+    if (paired) {
+        FrameInterpolation_RecordOpenChild(key, (id << 1) | foot);
+    }
+    ActorShadow_DrawFoot(play, light, floorMtx, lightNum, shadowAlpha, shadowScaleX, shadowScaleZ);
+    if (paired) {
+        FrameInterpolation_RecordCloseChild();
+    }
+}
+// #endregion
 
 void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
     f32 distToFloor = actor->world.pos.y - actor->floorHeight;
@@ -257,8 +307,20 @@ void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
                 // then the sun's two, already cut.
                 for (j = 0; j < numCasts; j++) {
                     if (casts[j].lightNum > 0) {
-                        ActorShadow_DrawFoot(play, &casts[j].light, &floorMtx, casts[j].lightNum, shadowAlpha,
-                                             shadowScaleX, shadowScaleZ);
+                        // #region SOH [sturdy-bassoon#254] Keyed by the cast's light; the sun's two (no key) are
+                        // the last two casts, keyed by their place among them.
+                        if (casts[j].key != NULL) {
+                            ActorShadow_DrawFootPaired(play, casts[j].key, casts[j].keyNode, i, &casts[j].light,
+                                                       &floorMtx, casts[j].lightNum, shadowAlpha, shadowScaleX,
+                                                       shadowScaleZ);
+                        } else {
+                            s32 sunIndex = j - (numCasts - 2);
+
+                            ActorShadow_DrawFootPaired(play, &sFootShadowSlotKey, FOOT_SHADOW_SUN_ID + sunIndex, i,
+                                                       &casts[j].light, &floorMtx, casts[j].lightNum, shadowAlpha,
+                                                       shadowScaleX, shadowScaleZ);
+                        }
+                        // #endregion
                         if (isLink) {
                             Lights_RecordLinkShadow(i, j, casts[j].lightNum,
                                                     ActorShadow_FootAlpha(casts[j].lightNum, shadowAlpha));
@@ -272,9 +334,19 @@ void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
                         lightNum =
                             (lightPtr->l.col[0] + lightPtr->l.col[1] + lightPtr->l.col[2]) * ABS(lightPtr->l.dir[1]);
                         if (lightNum > 0) {
+                            // #region SOH [sturdy-bassoon#254] Keyed by the bound light, or by its slot when the
+                            // bind's light is not known.
+                            const void* key;
+                            s32 id;
+
+                            if (!Lights_BoundSlotKey(lights, j, &key, &id)) {
+                                key = &sFootShadowSlotKey;
+                                id = j;
+                            }
                             lightNumMax += lightNum;
-                            ActorShadow_DrawFoot(play, lightPtr, &floorMtx, lightNum, shadowAlpha, shadowScaleX,
-                                                 shadowScaleZ);
+                            ActorShadow_DrawFootPaired(play, key, id, i, lightPtr, &floorMtx, lightNum, shadowAlpha,
+                                                       shadowScaleX, shadowScaleZ);
+                            // #endregion
                             if (isLink) {
                                 Lights_RecordLinkShadow(i, j, lightNum, ActorShadow_FootAlpha(lightNum, shadowAlpha));
                             }
@@ -289,8 +361,9 @@ void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
                             ((lightPtr->l.col[0] + lightPtr->l.col[1] + lightPtr->l.col[2]) * ABS(lightPtr->l.dir[1])) -
                             (lightNumMax * 8);
                         if (lightNum > 0) {
-                            ActorShadow_DrawFoot(play, lightPtr, &floorMtx, lightNum, shadowAlpha, shadowScaleX,
-                                                 shadowScaleZ);
+                            // SOH [sturdy-bassoon#254] The sun's two, keyed by their slot.
+                            ActorShadow_DrawFootPaired(play, &sFootShadowSlotKey, FOOT_SHADOW_SUN_ID + j, i, lightPtr,
+                                                       &floorMtx, lightNum, shadowAlpha, shadowScaleX, shadowScaleZ);
                             if (isLink) {
                                 Lights_RecordLinkShadow(i, numLights + j, lightNum,
                                                         ActorShadow_FootAlpha(lightNum, shadowAlpha));
@@ -2866,7 +2939,21 @@ void Actor_Draw(PlayState* play, Actor* actor) {
     }
 
     if (actor->shape.shadowDraw != NULL) {
+        // #region SOH [sturdy-bassoon#254] One actor's shadow matrices are probed for `lights shadowinterp`:
+        // Link's, or the first of the id `shadowinterp probe <id>` names.
+        s16 probeId = FrameInterpolation_GetProbeActor();
+        s32 probe = (probeId < 0) ? ((GET_PLAYER(play) != NULL) && (actor == &GET_PLAYER(play)->actor))
+                                  : (actor->id == probeId);
+
+        if (probe) {
+            FrameInterpolation_RecordProbeBegin(actor, actor->id, play->state.frames, actor->shape.rot.y,
+                                                actor->world.pos.x, actor->world.pos.y, actor->world.pos.z);
+        }
         actor->shape.shadowDraw(actor, lights, play);
+        if (probe) {
+            FrameInterpolation_RecordProbeEnd();
+        }
+        // #endregion
     }
 
     CLOSE_DISPS(play->state.gfxCtx);

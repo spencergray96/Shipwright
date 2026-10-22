@@ -12,6 +12,7 @@
 #include <ship/debug/Console.h>
 
 #include "LightsBudget.h"
+#include "soh/frame_interpolation.h"
 #include "soh/Enhancements/console/ConsoleSink.h"
 
 extern "C" {
@@ -25,7 +26,8 @@ using ConsoleSink::Addf;
 
 const char* kUsage =
     "op=usage result=error usage=\"lights [status] | sunfirst [on|off|default] | pool [<n>|default] | shadow [clear] | "
-    "shadowsmooth [on|off|default] | shadowrate [<k>|default] | shadowpulse [on|off|default|<amount> <seconds>]\"";
+    "shadowsmooth [on|off|default] | shadowrate [<k>|default] | shadowpulse [on|off|default|<amount> <seconds>] | "
+    "shadowinterp [clear|on|off|default|pair <on|off|default>|probe <link|id>]\"";
 
 bool SunFirstOn() {
     return CVarGetInteger(CVAR_LIGHTS_SUN_FIRST, LIGHTS_SUN_FIRST_DEFAULT) != 0;
@@ -211,11 +213,115 @@ int32_t ShadowRate(const std::vector<std::string>& args, std::vector<std::string
     return 0;
 }
 
+// #region SOH [sturdy-bassoon#254] Shadows interpolated in world space, and the probe on one actor's.
+bool ShadowInterpWorldOn() {
+    return CVarGetInteger(CVAR_SHADOW_INTERP_WORLD, SHADOW_INTERP_WORLD_DEFAULT) != 0;
+}
+
+bool ShadowInterpPairOn() {
+    return CVarGetInteger(CVAR_SHADOW_INTERP_PAIR, SHADOW_INTERP_PAIR_DEFAULT) != 0;
+}
+
+std::string ProbeName() {
+    const s16 id = FrameInterpolation_GetProbeActor();
+    char buf[16];
+    if (id < 0) {
+        return "link";
+    }
+    snprintf(buf, sizeof(buf), "0x%X", (u16)id);
+    return buf;
+}
+
+int32_t ShadowInterp(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() == 3 && args[1] == "pair") {
+        if (args[2] == "default") {
+            CVarClear(CVAR_SHADOW_INTERP_PAIR);
+        } else if (args[2] == "on" || args[2] == "off") {
+            CVarSetInteger(CVAR_SHADOW_INTERP_PAIR, args[2] == "on" ? 1 : 0);
+        } else {
+            Addf(lines, "op=shadowinterp result=error error=bad_value expects=pair_on|pair_off|pair_default");
+            return 1;
+        }
+        CVarSave();
+    } else if (args.size() == 3) {
+        if (args[1] != "probe") {
+            lines.push_back(kUsage);
+            return 1;
+        }
+        if (args[2] == "link") {
+            FrameInterpolation_SetProbeActor(-1);
+        } else {
+            char* end = nullptr;
+            const long value = strtol(args[2].c_str(), &end, 0);
+            if (end == args[2].c_str() || *end != '\0' || value < 0 || value > 0x7FFF) {
+                Addf(lines, "op=shadowinterp result=error error=bad_value expects=probe_link|probe_<actor_id>");
+                return 1;
+            }
+            FrameInterpolation_SetProbeActor((s16)value);
+        }
+        FrameInterpolation_ClearProbeRecord();
+    } else if (args.size() == 2) {
+        if (args[1] == "clear") {
+            FrameInterpolation_ClearProbeRecord();
+            Addf(lines, "op=shadowinterp result=ok cleared=1");
+            return 0;
+        }
+        if (args[1] == "default") {
+            CVarClear(CVAR_SHADOW_INTERP_WORLD);
+        } else if (args[1] == "on" || args[1] == "off") {
+            CVarSetInteger(CVAR_SHADOW_INTERP_WORLD, args[1] == "on" ? 1 : 0);
+        } else {
+            Addf(lines, "op=shadowinterp result=error error=bad_value expects=clear|on|off|default|probe");
+            return 1;
+        }
+        CVarSave();
+    }
+    if (args.size() >= 2) {
+        Addf(lines,
+             "op=shadowinterp result=ok world=%s default=%s override=%d pair=%s pair_default=%s pair_override=%d "
+             "probe=%s",
+             ShadowInterpWorldOn() ? "on" : "off", SHADOW_INTERP_WORLD_DEFAULT ? "on" : "off",
+             CVarGetInteger(CVAR_SHADOW_INTERP_WORLD, -1) != -1 ? 1 : 0, ShadowInterpPairOn() ? "on" : "off",
+             SHADOW_INTERP_PAIR_DEFAULT ? "on" : "off", CVarGetInteger(CVAR_SHADOW_INTERP_PAIR, -1) != -1 ? 1 : 0,
+             ProbeName().c_str());
+        return 0;
+    }
+    static FrameInterpolationProbeTick ticks[LIGHTS_SHADOW_RECORD_TICKS];
+    const int32_t n = FrameInterpolation_GetProbeRecord(ticks, LIGHTS_SHADOW_RECORD_TICKS);
+    float minSize = 1.0f;
+    float minCos = 1.0f;
+    float maxSlide = 0.0f;
+    int32_t dips = 0;
+    for (int32_t i = 0; i < n; i++) {
+        minSize = fminf(minSize, ticks[i].minSize);
+        minCos = fminf(minCos, ticks[i].minCos);
+        maxSlide = fmaxf(maxSlide, ticks[i].maxSlide);
+        dips += ticks[i].minSize < 0.9f ? 1 : 0;
+    }
+    Addf(lines,
+         "op=shadowinterp result=ok ticks=%d min_size=%.3f min_cos=%.3f dips=%d max_slide=%.1f world=%s pair=%s "
+         "probe=%s scene=0x%X",
+         n, minSize, minCos, dips, maxSlide, ShadowInterpWorldOn() ? "on" : "off", ShadowInterpPairOn() ? "on" : "off",
+         ProbeName().c_str(), gPlayState != nullptr ? gPlayState->sceneNum : -1);
+    for (int32_t i = 0; i < n; i++) {
+        const FrameInterpolationProbeTick& t = ticks[i];
+        char dyaw[16] = "-";
+        if (i > 0 && ticks[i - 1].frame + 1 == t.frame) {
+            snprintf(dyaw, sizeof(dyaw), "%.1f", (s16)(t.yaw - ticks[i - 1].yaw) * (360.0f / 65536.0f));
+        }
+        Addf(lines, "t=%u id=0x%X yaw=0x%04X dyaw=%s m=%d ws=%d fr=%d cmp=%d size=%.3f cos=%.3f slide=%.1f jump=%.1f",
+             t.frame, (u16)t.id, (u16)t.yaw, dyaw, t.matrices, t.worldSpace, t.frames, t.measured, t.minSize, t.minCos,
+             t.maxSlide, t.maxJump);
+    }
+    return 0;
+}
+// #endregion
+
 } // namespace
 
 int32_t LightsConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines) {
-    // Only `shadowpulse <amount> <seconds>` takes two values.
-    if (args.size() > 3 || (args.size() == 3 && args[0] != "shadowpulse")) {
+    // Only `shadowpulse <amount> <seconds>` and `shadowinterp probe <id>` take two values.
+    if (args.size() > 3 || (args.size() == 3 && args[0] != "shadowpulse" && args[0] != "shadowinterp")) {
         lines.push_back(kUsage);
         return 1;
     }
@@ -237,6 +343,9 @@ int32_t LightsConsole_Run(const std::vector<std::string>& args, std::vector<std:
     }
     if (sub == "shadowrate") {
         return ShadowRate(args, lines);
+    }
+    if (sub == "shadowinterp") {
+        return ShadowInterp(args, lines);
     }
     if (sub == "status" && args.size() <= 1) {
         return Status(lines);
@@ -265,8 +374,14 @@ const ConsoleSink::Command lightsCommand(
     "strength instead of jumping with the flame's flicker, and fades in and out as it joins or leaves the bound "
     "lights. shadowrate sets the fraction a tick for this session only (default 0.12; 1 is unsmoothed). "
     "shadowpulse switches a slow breathing of each smoothed shadow, each fire out of step (off is the plain "
-    "fade); `shadowpulse <amount> <seconds>` tunes its depth and period for this session.",
-    { { "status|sunfirst|pool|shadow|shadowsmooth|shadowrate", Ship::ArgumentType::TEXT },
+    "fade); `shadowpulse <amount> <seconds>` tunes its depth and period for this session. "
+    "shadowinterp (#254) lists, over the last 120 ticks, how far frame interpolation shrank, turned or slid one "
+    "actor's shadow matrices in the frames between ticks (size 1, cos 1 and slide 0 is untouched): Link's, or "
+    "`shadowinterp probe <id>`'s for this session; `shadowinterp clear` starts afresh. `shadowinterp on|off` "
+    "switches the feet and circle shadows to world-space interpolation, which stops them shrinking and reversing "
+    "when their actor turns sharply; `shadowinterp pair on|off` pairs each foot shadow with its own light's from "
+    "tick to tick, so one joining or leaving does not swing the others.",
+    { { "status|sunfirst|pool|shadow|shadowsmooth|shadowrate|shadowpulse|shadowinterp", Ship::ArgumentType::TEXT },
       { "value", Ship::ArgumentType::TEXT, true } });
 
 } // namespace

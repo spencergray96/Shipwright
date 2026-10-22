@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <vector>
 #include <map>
 #include <unordered_map>
@@ -155,6 +156,8 @@ union Data {
         Mtx* dest;
         MtxF src;
         bool has_adjusted;
+        bool has_anchored; // sturdy-bassoon#254: src is world-space, its translation relative to the actor's
+        bool probe;        // sturdy-bassoon#254: recorded inside the shadow probe's scope
     } matrix_to_mtx;
 
     struct {
@@ -195,6 +198,77 @@ bool has_inv_actor_mtx;
 MtxF inv_actor_mtx;
 size_t inv_actor_mtx_path_index;
 
+// #region SOH [sturdy-bassoon#254] Shadows interpolated in world space. Between RecordWorldSpaceBegin and
+// RecordWorldSpaceEnd, matrices are recorded in world orientation rather than in the actor's model space, so
+// the frames between two ticks lerp them unturned. For a shadow that is fixed in world direction: in model
+// space it turns the other way whenever the actor turns, and a component-wise lerp across a sharp turn shrinks
+// it (to cos(turn/2) at the midpoint) and, past 90 degrees, reverses it through zero.
+// Inside an actor the translation stays anchored to it: it is recorded relative to the actor's position and
+// the actor's interpolated position is added back. SoH interpolates an actor across any jump, a goto's
+// included, and a shadow lerped in plain world space would part from its actor there (measured: 389 units on
+// a 400-unit goto), or sit at the destination while the actor slides when the last tick drew no shadow.
+bool world_space_saved; // has_inv_actor_mtx as the scope opened: inside an actor's draw
+int world_space_depth;
+Vec3f actor_translation; // the open actor's position, as its pos/rot matrix was recorded
+
+// The shadow probe: the matrices recorded between RecordProbeBegin and RecordProbeEnd (one actor's
+// shadowDraw a tick), each with its world matrix and the actor's position as this tick drew them, and how
+// far the interpolated frames between the last tick and this one shrank, turned or moved them.
+#define PROBE_RECORD_TICKS 120
+struct ProbeMtx {
+    Mtx* dest;
+    MtxF drawn;
+    Vec3f actor; // the actor's world.pos as it drew
+};
+bool probe_open;
+bool probe_has_tick;
+const void* probe_key;   // the actor probed this tick; the first to open the scope keeps it
+s16 probe_actor_id = -1; // -1 is Link
+Vec3f probe_actor;
+vector<ProbeMtx> probe_mtx;
+FrameInterpolationProbeTick probe_tick;
+FrameInterpolationProbeTick probe_ring[PROBE_RECORD_TICKS];
+size_t probe_ring_head;  // the next slot written
+size_t probe_ring_count; // filled slots, at most PROBE_RECORD_TICKS
+
+float det3(const MtxF* m) {
+    return m->mf[0][0] * (m->mf[1][1] * m->mf[2][2] - m->mf[1][2] * m->mf[2][1]) -
+           m->mf[0][1] * (m->mf[1][0] * m->mf[2][2] - m->mf[1][2] * m->mf[2][0]) +
+           m->mf[0][2] * (m->mf[1][0] * m->mf[2][1] - m->mf[1][1] * m->mf[2][0]);
+}
+
+// One interpolated frame's replacement for a probed matrix against the matrix its tick drew: size is the
+// square root of their volume ratio, which for a shadow (flat, and scaled 1 in y) is its footprint's linear
+// scale (0.33 when x and z are a third); cos is the angle between their z axes (a shadow's long axis).
+// `at` is where the frame drew the actor (its interpolated matrix): slide is how far, across the floor, the
+// shadow's offset from the actor differs from the tick's own, and jump how far the actor itself is from
+// where the tick drew it.
+void probe_measure(const MtxF* interp, const ProbeMtx& p, const Vec3f* at) {
+    const MtxF* drawn = &p.drawn;
+    if (at != nullptr) {
+        const float sx = (interp->mf[3][0] - at->x) - (drawn->mf[3][0] - p.actor.x);
+        const float sz = (interp->mf[3][2] - at->z) - (drawn->mf[3][2] - p.actor.z);
+        const float jx = at->x - p.actor.x;
+        const float jz = at->z - p.actor.z;
+        probe_tick.maxSlide = fmaxf(probe_tick.maxSlide, sqrtf(sx * sx + sz * sz));
+        probe_tick.maxJump = fmaxf(probe_tick.maxJump, sqrtf(jx * jx + jz * jz));
+    }
+    const float d = det3(drawn);
+    if (d == 0.0f) {
+        return;
+    }
+    const float size = sqrtf(fabsf(det3(interp) / d));
+    const float* a = interp->mf[2];
+    const float* b = drawn->mf[2];
+    const float la = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+    const float lb = sqrtf(b[0] * b[0] + b[1] * b[1] + b[2] * b[2]);
+    const float cosine = (la > 0.0f && lb > 0.0f) ? (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / (la * lb) : 1.0f;
+    probe_tick.minSize = fminf(probe_tick.minSize, size);
+    probe_tick.minCos = fminf(probe_tick.minCos, cosine);
+    probe_tick.measured++;
+}
+// #endregion
+
 Data& append(Op op) {
     auto& m = current_path.back()->ops[op];
     current_path.back()->items.emplace_back(op, m.size());
@@ -209,6 +283,7 @@ struct InterpolateCtx {
     Vec3f tmp_vec3f;
     Vec3s tmp_vec3s;
     MtxF actor_mtx;
+    unordered_map<Mtx*, Vec3f> probe_actor_at; // sturdy-bassoon#254: where each probed matrix's frame drew its actor
 
     MtxF* new_replacement(Mtx* addr) {
         return &mtx_replacements[addr];
@@ -410,10 +485,39 @@ struct InterpolateCtx {
                                 interpolate_mtxf(&tmp_mtxf, &old_op.matrix_to_mtx.src, &new_op.matrix_to_mtx.src);
                                 SkinMatrix_MtxFMtxFMult(&actor_mtx, &tmp_mtxf,
                                                         new_replacement(new_op.matrix_to_mtx.dest));
+                            } else if (old_op.matrix_to_mtx.has_anchored && new_op.matrix_to_mtx.has_anchored) {
+                                // #region SOH [sturdy-bassoon#254] Lerped unturned, then put back on the actor.
+                                MtxF* res = new_replacement(new_op.matrix_to_mtx.dest);
+                                interpolate_mtxf(res, &old_op.matrix_to_mtx.src, &new_op.matrix_to_mtx.src);
+                                res->mf[3][0] += actor_mtx.mf[3][0];
+                                res->mf[3][1] += actor_mtx.mf[3][1];
+                                res->mf[3][2] += actor_mtx.mf[3][2];
+                                // #endregion
+                            } else if (old_op.matrix_to_mtx.has_anchored != new_op.matrix_to_mtx.has_anchored) {
+                                // #region SOH [sturdy-bassoon#254] One tick recorded each way (the switch flipped
+                                // between them): the two cannot be lerped, so draw the new tick's, unlerped.
+                                MtxF* res = new_replacement(new_op.matrix_to_mtx.dest);
+                                if (new_op.matrix_to_mtx.has_anchored) {
+                                    *res = new_op.matrix_to_mtx.src;
+                                    res->mf[3][0] += actor_mtx.mf[3][0];
+                                    res->mf[3][1] += actor_mtx.mf[3][1];
+                                    res->mf[3][2] += actor_mtx.mf[3][2];
+                                } else if (new_op.matrix_to_mtx.has_adjusted) {
+                                    SkinMatrix_MtxFMtxFMult(&actor_mtx, &new_op.matrix_to_mtx.src, res);
+                                } else {
+                                    *res = new_op.matrix_to_mtx.src;
+                                }
+                                // #endregion
                             } else {
                                 interpolate_mtxf(new_replacement(new_op.matrix_to_mtx.dest), &old_op.matrix_to_mtx.src,
                                                  &new_op.matrix_to_mtx.src);
                             }
+                            // #region SOH [sturdy-bassoon#254] Where this frame drew the probed actor.
+                            if (new_op.matrix_to_mtx.probe) {
+                                probe_actor_at[new_op.matrix_to_mtx.dest] = { actor_mtx.mf[3][0], actor_mtx.mf[3][1],
+                                                                              actor_mtx.mf[3][2] };
+                            }
+                            // #endregion
                             break;
                         }
 
@@ -446,10 +550,33 @@ unordered_map<Mtx*, MtxF> FrameInterpolation_Interpolate(float step) {
     ctx.step = step;
     ctx.w = 1.0f - step;
     ctx.interpolate_branch(&previous_recording.root_path, &current_recording.root_path);
+    // #region SOH [sturdy-bassoon#254] The probe: this frame's replacements for the probed matrices.
+    if (probe_has_tick) {
+        probe_tick.frames++;
+        for (auto& p : probe_mtx) {
+            if (auto it = ctx.mtx_replacements.find(p.dest); it != ctx.mtx_replacements.end()) {
+                auto at = ctx.probe_actor_at.find(p.dest);
+                probe_measure(&it->second, p, at != ctx.probe_actor_at.end() ? &at->second : nullptr);
+            }
+        }
+    }
+    // #endregion
     return ctx.mtx_replacements;
 }
 
 void FrameInterpolation_StartRecord(void) {
+    // #region SOH [sturdy-bassoon#254] The last tick's probe is complete: its frames have all been drawn.
+    if (probe_has_tick) {
+        probe_ring[probe_ring_head] = probe_tick;
+        probe_ring_head = (probe_ring_head + 1) % PROBE_RECORD_TICKS;
+        probe_ring_count = std::min<size_t>(probe_ring_count + 1, PROBE_RECORD_TICKS);
+    }
+    probe_has_tick = false;
+    probe_open = false;
+    probe_key = nullptr;
+    probe_mtx.clear();
+    world_space_depth = 0;
+    // #endregion
     previous_recording = std::move(current_recording);
     current_recording = {};
     current_path.clear();
@@ -557,6 +684,7 @@ void FrameInterpolation_RecordMatrixSetTranslateRotateYXZ(f32 translateX, f32 tr
     auto& d = append(Op::MatrixSetTranslateRotateYXZ).matrix_set_translate_rotate_yxz = { translateX, translateY,
                                                                                           translateZ, *rot };
     if (next_is_actor_pos_rot_matrix) {
+        actor_translation = { translateX, translateY, translateZ }; // sturdy-bassoon#254
         d.has_mtx = true;
         // d.mtx = *Matrix_GetCurrent();
         invert_matrix((const float*)Matrix_GetCurrent()->mf, (float*)inv_actor_mtx.mf);
@@ -579,10 +707,91 @@ void FrameInterpolation_RecordMatrixToMtx(Mtx* dest, char* file, s32 line) {
     if (has_inv_actor_mtx) {
         d.has_adjusted = true;
         SkinMatrix_MtxFMtxFMult(&inv_actor_mtx, Matrix_GetCurrent(), &d.src);
+    } else if (world_space_depth > 0 && world_space_saved) {
+        // #region SOH [sturdy-bassoon#254] World orientation, anchored to the actor.
+        d.has_anchored = true;
+        d.src = *Matrix_GetCurrent();
+        d.src.mf[3][0] -= actor_translation.x;
+        d.src.mf[3][1] -= actor_translation.y;
+        d.src.mf[3][2] -= actor_translation.z;
+        // #endregion
     } else {
         d.src = *Matrix_GetCurrent();
     }
+    // #region SOH [sturdy-bassoon#254]
+    if (probe_open) {
+        d.probe = true;
+        probe_mtx.push_back({ dest, *Matrix_GetCurrent(), probe_actor });
+        probe_tick.worldSpace += d.has_adjusted ? 0 : 1;
+    }
+    // #endregion
 }
+
+// #region SOH [sturdy-bassoon#254] The world-space scope, and the shadow probe's scope and record.
+void FrameInterpolation_RecordWorldSpaceBegin(void) {
+    if (!is_recording)
+        return;
+    if (world_space_depth++ == 0) {
+        world_space_saved = has_inv_actor_mtx;
+        has_inv_actor_mtx = false;
+    }
+}
+
+void FrameInterpolation_RecordWorldSpaceEnd(void) {
+    if (!is_recording || world_space_depth == 0)
+        return;
+    if (--world_space_depth == 0) {
+        has_inv_actor_mtx = world_space_saved;
+    }
+}
+
+void FrameInterpolation_SetProbeActor(s16 id) {
+    probe_actor_id = id;
+}
+
+s16 FrameInterpolation_GetProbeActor(void) {
+    return probe_actor_id;
+}
+
+void FrameInterpolation_RecordProbeBegin(const void* actor, s16 id, u32 frame, s16 yaw, f32 x, f32 y, f32 z) {
+    if (!is_recording || (probe_has_tick && actor != probe_key))
+        return;
+    probe_open = true;
+    probe_actor = { x, y, z };
+    if (!probe_has_tick) {
+        probe_has_tick = true;
+        probe_key = actor;
+        probe_tick = {};
+        probe_tick.frame = frame;
+        probe_tick.id = id;
+        probe_tick.yaw = yaw;
+        probe_tick.minSize = 1.0f;
+        probe_tick.minCos = 1.0f;
+    }
+}
+
+void FrameInterpolation_RecordProbeEnd(void) {
+    if (!is_recording || !probe_open)
+        return;
+    probe_open = false;
+    probe_tick.matrices = (s32)probe_mtx.size();
+}
+
+int FrameInterpolation_GetProbeRecord(FrameInterpolationProbeTick* out, int max) {
+    const size_t n = std::min<size_t>(probe_ring_count, (size_t)max);
+    const size_t first = (probe_ring_head + PROBE_RECORD_TICKS - probe_ring_count) % PROBE_RECORD_TICKS;
+    const size_t skip = probe_ring_count - n;
+    for (size_t i = 0; i < n; i++) {
+        out[i] = probe_ring[(first + skip + i) % PROBE_RECORD_TICKS];
+    }
+    return (int)n;
+}
+
+void FrameInterpolation_ClearProbeRecord(void) {
+    probe_ring_head = 0;
+    probe_ring_count = 0;
+}
+// #endregion
 
 void FrameInterpolation_RecordMatrixReplaceRotation(MtxF* mf) {
     if (!is_recording)
