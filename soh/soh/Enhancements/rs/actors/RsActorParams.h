@@ -98,6 +98,22 @@ RS_STATIC_ASSERT(RS_FIRE_PARAMS_FIELDS_SUM == RS_FIRE_PARAMS_FIELDS_UNION, "fire
 RS_STATIC_ASSERT(RS_FIRE_PARAMS_FIELDS_UNION <= 0x7FFF, "bit 15 stays zero: params is a signed s16");
 RS_STATIC_ASSERT(RS_FIRE_PARAMS_FLAG_MASK + 1 <= WORLD_FLAG_MAX, "every flag a fire can name is in the store");
 
+// --- flipbook prop (sturdy-bassoon#204 C4a) ------------------------------------------------------
+//
+// One flipbook placement, drawn by its own actor (RsAnimProp.h). Params is the copy's index in its list's
+// `.anim` table; rot.x names the list and rot.z carries the id's check bits.
+//
+// THE THIRD EXCEPTION TO RULE 1, the interaction trigger's reason: the whole word is the index, every row is
+// written by the grid tool's export (src/shared/flipbooks.ts), and a later packing ships with its own
+// re-export. Rule 2 holds - the index stops at 0x7FFF.
+
+#define RS_ANIMPROP_PARAMS_COPY_MASK 0x7FFF
+#define RS_ANIMPROP_PARAMS(copy) ((int16_t)((copy) & RS_ANIMPROP_PARAMS_COPY_MASK))
+#define RS_ANIMPROP_PARAMS_GET_COPY(params) ((int32_t)((uint16_t)(params) & RS_ANIMPROP_PARAMS_COPY_MASK))
+RS_STATIC_ASSERT(RS_ANIMPROP_PARAMS_GET_COPY(RS_ANIMPROP_PARAMS(0x7FFF)) == 0x7FFF &&
+                     (uint16_t)RS_ANIMPROP_PARAMS(0x7FFF) == 0x7FFF,
+                 "the top copy index survives a round trip, and bit 15 stays zero");
+
 // --- quest item --------------------------------------------------------------------------------
 //
 // A quest item is fully described by the (quest, step) pair it sets - there is deliberately no

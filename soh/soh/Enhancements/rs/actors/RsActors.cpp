@@ -5,6 +5,7 @@
 #include "RsStairs.h"
 #include "RsInteraction.h"
 #include "RsFire.h"
+#include "RsAnimProp.h"
 
 #include <cstdio>
 #include <string>
@@ -56,6 +57,11 @@ void RsFire_Init(Actor* thisx, PlayState* play);
 void RsFire_Destroy(Actor* thisx, PlayState* play);
 void RsFire_Update(Actor* thisx, PlayState* play);
 void RsFire_Draw(Actor* thisx, PlayState* play);
+
+void RsAnimProp_Init(Actor* thisx, PlayState* play);
+void RsAnimProp_Destroy(Actor* thisx, PlayState* play);
+void RsAnimProp_Update(Actor* thisx, PlayState* play);
+void RsAnimProp_Draw(Actor* thisx, PlayState* play);
 }
 
 // The C++ half of the mod's actors (sturdy-bassoon#58 P3 / #64):
@@ -608,6 +614,25 @@ void RegisterRsActors() {
             nullptr,
         };
         ActorDB::Instance->AddEntry(fire);
+
+        // A flipbook prop (#204 C4a): one a placement, drawing its own pose lists. IGNORE_POINTLIGHTS binds the
+        // scene's lights as the room's are bound, so it is lit as its baked twin is; otherwise flags 0, so a
+        // copy out of view neither updates nor draws (RsAnimProp.h).
+        ActorDBInit animProp = {
+            "Rs_AnimProp",
+            "RS flipbook prop (its own pose lists, on RS's clock)",
+            ACTOR_RS_ANIMPROP,
+            ACTORCAT_PROP,
+            (u32)(ACTOR_FLAG_IGNORE_POINTLIGHTS),
+            OBJECT_GAMEPLAY_KEEP,
+            sizeof(RsAnimProp),
+            (ActorFunc)RsAnimProp_Init,
+            (ActorFunc)RsAnimProp_Destroy,
+            (ActorFunc)RsAnimProp_Update,
+            (ActorFunc)RsAnimProp_Draw,
+            nullptr,
+        };
+        ActorDB::Instance->AddEntry(animProp);
 
         sAddedToActorDB = true;
     }
