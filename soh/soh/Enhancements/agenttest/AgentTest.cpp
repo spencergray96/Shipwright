@@ -297,6 +297,14 @@
  *                                        an RS torch fire (sturdy-bassoon#232): `lit` names what lit it
  *                                        (by=stick|fire), `arrow_lit` an arrow it set burning, `stick_lit`
  *                                        a Deku stick it lit. Gameplay markers
+ *   rs_animprop event=spawn copy= list= state=<ok|no_list|no_table|no_line|check|no_pose> poses= x= y= z=
+ *   rs_animprop event=tex_evict frames= evictions=
+ *                                        a flipbook prop (sturdy-bassoon#204 C4a): each copy once it spawns,
+ *                                        with whether it found its pose lists; and the #172 texture-cache
+ *                                        tripwire, once a scene. Gameplay markers
+ *   rs_animprop <line>                   one line of RsAnimPropConsole_Run output per marker, from
+ *                                        `agenttest animprop ...` - `copy idx=...` or `op=...`, never
+ *                                        `event=...`
  *   rs_fire <line>                       one line of RsFireConsole_Run output per marker, from
  *                                        `agenttest rsfire ...` - `fire idx=...` or `op=...`, never
  *                                        `event=...`
@@ -583,6 +591,11 @@
  *                                          the code table, one interaction's resolved rule, the registry's
  *                                          planted refusals, and #117's cost bench laid out with real
  *                                          triggers. InteractionConsole.h documents every line
+ *   agenttest animprop status|list|pose <k|rest|clock>|reset
+ *                                          the flipbook props (sturdy-bassoon#204 C4a): copies, found or not,
+ *                                          drawn and culled, pose changes; each copy's clock and last pose;
+ *                                          every copy held on one pose for a planted control.
+ *                                          RsAnimPropConsole.h documents every line
  *   agenttest rsfire list|pool|distance [<n>|default]|glow [on|off|default]
  *                                          the RS torch fires (sturdy-bassoon#232): where each is, its size,
  *                                          lit and by what, its world flag, whether it holds a light node,
@@ -683,6 +696,7 @@
 #include "soh/Enhancements/rs/dialogue/NpcConsole.h"
 #include "soh/Enhancements/rs/prefs/RegionConsole.h"
 #include "soh/Enhancements/rs/actors/RsFireConsole.h"
+#include "soh/Enhancements/rs/actors/RsAnimPropConsole.h"
 #include "soh/Enhancements/lights/LightsConsole.h"
 #include "soh/Enhancements/graph/GraphConsole.h"
 #include "soh/Enhancements/rs/maps/WorldConsole.h"
@@ -2986,6 +3000,10 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(RsFireConsole_Run, sub, "rs_fire ", output, WriteMarker);
     }
+    if (args.size() >= 3 && args[1] == "animprop") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(RsAnimPropConsole_Run, sub, "rs_animprop ", output, WriteMarker);
+    }
     // >= 2: a bare `agenttest lights` is `status` (#233).
     if (args.size() >= 2 && args[1] == "lights") {
         const std::vector<std::string> sub(args.begin() + 2, args.end());
@@ -3071,6 +3089,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "warps list|dump|where|status|badcheck | "
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
+              "animprop status|list|pose <k|rest|clock>|reset | "
               "lights [status]|sunfirst [on|off|default]|pool [<n>|default]|shadow|shadowsmooth|shadowrate|"
               "shadowpulse|shadowinterp | "
               "graph [status]|reset|cap <opa|xlu|overlay> [<words>|default]|failsafe [on|off] | "
@@ -3124,6 +3143,7 @@ void RegisterAgentTest() {
               "warps list|dump|where|status|badcheck | "
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
+              "animprop status|list|pose <k|rest|clock>|reset | "
               "lights [status]|sunfirst [on|off|default]|pool [<n>|default]|shadow|shadowsmooth|shadowrate|"
               "shadowpulse|shadowinterp | "
               "graph [status]|reset|cap <opa|xlu|overlay> [<words>|default]|failsafe [on|off] | "

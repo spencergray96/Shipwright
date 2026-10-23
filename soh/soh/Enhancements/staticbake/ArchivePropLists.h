@@ -55,9 +55,22 @@
 //   - the translucent submission can be switched off for a same-session A/B: `staticbake xlu off`
 //     (CVAR_STATIC_BAKE_PROPS_XLU, read at every draw; on by default).
 //
-// An ACTOR-drawn kind (a #204 flipbook) would hook the same way, but in its own Draw: its opaque list
-// into POLY_OPA_DISP and its `.xlu` into POLY_XLU_DISP, both under its own matrix, the two resolved and
-// held as here (so a third ArchiveProps entry point taking a path, not a room). Nothing builds one yet.
+// ACTOR-DRAWN COPIES (sturdy-bassoon#204 C3/C4a, the animated-props ADR's decision 52): a flipbook placement
+// is drawn by its own Rs_AnimProp, not by the room. The generator writes each such copy's pose lists, in
+// world space, and a table beside the path, `<path>.anim` (generate_props.py, FLIPBOOKS):
+//
+//   # flipbook copies for <path> (#204 C3): <id> <check> <frameStep> <startPose> <startCycle> <frame>:<cycles> ...
+//   p7f3a 12345 2 1 3 0:5 1:4
+//
+// one line a copy, the line's index being the copy's (its row's params). The copy's lists are found by
+// convention beside the path: `<dir>/copies/<id>/f<frame>` for each pose and `<dir>/copies/<id>/rest`, each
+// with an optional `.xlu`, exactly as a room's. ArchiveProps_AnimCopy resolves and holds them as a room's are
+// (registered with the bake and the mips, released with the bake group), and the actor submits them in its
+// own Draw, under gMtxClear: the opaque list into POLY_OPA_DISP, its `.xlu` into POLY_XLU_DISP.
+//   - a path with an `.anim` registers its scroll files even when its own list is empty: a map whose only
+//     scrolling texture is drawn by actors still scrolls it;
+//   - no `.anim`, no such line, a line whose check is not the row's (a row and an archive from two exports),
+//     or a missing pose list: no copy, and one log line a cause. The actor draws nothing and says so.
 // Only a ROOM_SHAPE_TYPE_NORMAL room draws them (func_80095AB4); any other shape's declaration is
 // ignored. Every grid-tool room is that shape.
 
@@ -65,6 +78,30 @@
 #define ARCHIVE_PROPS_PASS_OPA 0
 #define ARCHIVE_PROPS_PASS_XLU 1
 #define ARCHIVE_PROPS_PASSES 2
+
+// An actor-drawn copy (ACTOR-DRAWN COPIES above): its clock, from its `.anim` line, and its lists.
+#define ARCHIVE_PROPS_ANIM_POSES_MAX 16
+typedef struct ArchivePropsAnimCopy {
+    s32 poseCount; // its poses, 2..ARCHIVE_PROPS_ANIM_POSES_MAX; rest is not one of them
+    s32 frameStep; // RS's: past the last pose step back this many; out of range (RS's -1), stop on rest
+    s32 startPose; // where RS's random start puts it: a pose, and a cycle within it
+    s32 startCycle;
+    s32 frames[ARCHIVE_PROPS_ANIM_POSES_MAX]; // each pose's RS frame, for reports
+    s32 cycles[ARCHIVE_PROPS_ANIM_POSES_MAX]; // each pose's length, 20 ms client cycles
+    // [pose][pass], pose poseCount being rest; NULL where the copy has no such list (an empty opaque list, or
+    // no `.xlu`): nothing to submit.
+    Gfx* lists[ARCHIVE_PROPS_ANIM_POSES_MAX + 1][ARCHIVE_PROPS_PASSES];
+} ArchivePropsAnimCopy;
+
+// Why ArchiveProps_AnimCopy found no copy (it returns NULL and writes one of these).
+typedef enum ArchivePropsAnimMiss {
+    ARCHIVE_PROPS_ANIM_OK,
+    ARCHIVE_PROPS_ANIM_NO_LIST,  // the room declares no list at that index
+    ARCHIVE_PROPS_ANIM_NO_TABLE, // the list has no `.anim`, or it does not read
+    ARCHIVE_PROPS_ANIM_NO_LINE,  // the table has no line at that index
+    ARCHIVE_PROPS_ANIM_CHECK,    // the line's check is not the row's
+    ARCHIVE_PROPS_ANIM_NO_POSE,  // a pose's opaque list is missing or not a display list
+} ArchivePropsAnimMiss;
 
 #ifdef __cplusplus
 extern "C" {
@@ -78,6 +115,18 @@ void ArchiveProps_DeclareRoom(PlayState* play, RoomContext* roomCtx, const char*
 // after that pass's gMtxClear load, in world space. NULL with *count = 0 when there are none - always,
 // in a vanilla scene, and in the translucent pass while `staticbake xlu off` holds.
 Gfx* const* ArchiveProps_RoomLists(PlayState* play, s32 roomNum, s32 pass, s32* count);
+
+// From an actor-drawn copy (Rs_AnimProp): copy `copy` of the room's declared list `list`, whose row carries
+// `check`. The copy, held until the bake group goes (its address stable until then), or NULL with *miss
+// saying why. Resolves on the first ask; later asks are a lookup.
+const ArchivePropsAnimCopy* ArchiveProps_AnimCopy(PlayState* play, s32 roomNum, s32 list, s32 copy, s32 check,
+                                                  s32* miss);
+// Bumped whenever held lists are released (a new bake group, `staticbake reset`): a copy fetched under an
+// older generation is gone - freed - and its holder must fetch it again before reading it, drawn or not.
+u32 ArchiveProps_Generation(void);
+// Whether the translucent halves are submitted (`staticbake xlu`): the room's gate, which a copy keeps too.
+s32 ArchiveProps_XluSubmitted(void);
+const char* ArchiveProps_AnimMissName(s32 miss);
 
 #ifdef __cplusplus
 }
@@ -110,6 +159,10 @@ void ReleaseHeld();
 bool XluSubmitted();
 void SetXluSubmitted(bool on, bool save);
 uint32_t XluLists();
+
+// Actor-drawn copies (#204): the lists they hold, and one copy's lists by the bake's state (for `animprop`).
+uint32_t AnimLists();
+void AnimEntryStates(const ArchivePropsAnimCopy& copy, uint32_t* baked, uint32_t* rejected, uint32_t* unbaked);
 
 // `staticbake props`: one line per held list, after the caller's status line - a path's own, and its
 // `<path>.xlu` when the archive has one; `scrolls=` is how many textures its scroll file registered

@@ -19,9 +19,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <map>
 #include <memory>
 #include <sstream>
+#include <string>
 #include <utility>
 
 #include <fast/StaticMeshCache.h>
@@ -71,6 +73,27 @@ std::map<std::string, Held> sHeld;
 
 // The lists each room draws, one vector per pass, rebuilt every time the room is offered.
 std::map<RoomKey, std::vector<Gfx*>> sDrawn[ARCHIVE_PROPS_PASSES];
+
+// Actor-drawn copies (ArchivePropLists.h, ACTOR-DRAWN COPIES). A declared path's `.anim` table, read once a
+// bake group; each copy's lists once it is asked for; both released with the rest in ReleaseHeld.
+struct AnimLine {
+    std::string id;
+    s32 check = 0;
+    s32 frameStep = 0;
+    s32 startPose = 0;
+    s32 startCycle = 0;
+    std::vector<std::pair<s32, s32>> poses; // (frame, cycles)
+};
+struct AnimTable {
+    bool read = false;
+    bool ok = false;
+    std::vector<AnimLine> lines;
+};
+std::map<std::string, AnimTable> sAnimTables;                            // by declared path
+std::map<std::pair<std::string, s32>, ArchivePropsAnimCopy> sAnimCopies; // by (declared path, copy)
+std::map<std::string, ArchiveList> sAnimLists;                           // every list a copy holds, by path
+u32 sGeneration = 1;
+constexpr const char* ANIM_SUFFIX = ".anim";
 
 // `<path>.xlu`: where the generator writes a list's translucent pairs (generate_props.py, "THE
 // TRANSLUCENT LIST"). Found by this convention so a scene's C declares one path per list, as before.
@@ -187,12 +210,101 @@ Held Resolve(const char* path) {
     h.lists[ARCHIVE_PROPS_PASS_XLU] = ResolveList(std::string(path) + XLU_SUFFIX, true);
     // Before OfferRoom hands either list to the bake (StaticBakeRegister), so before its first draw. One
     // scroll file (and one `.scroll1`, #231) for the two: the registry binds a rate to an image path's
-    // tile, whichever list draws it.
+    // tile, whichever list draws it. A path with actor-drawn copies (`.anim`, #204) registers them too,
+    // even when its own lists are empty: the copies' textures are the same image paths.
+    auto archives = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
     if (h.lists[ARCHIVE_PROPS_PASS_OPA].state == Resolved::Listed ||
-        h.lists[ARCHIVE_PROPS_PASS_XLU].state == Resolved::Listed) {
+        h.lists[ARCHIVE_PROPS_PASS_XLU].state == Resolved::Listed ||
+        archives->HasFile(std::string(path) + ANIM_SUFFIX)) {
         h.scrolls = RegisterScrolls(path);
     }
     return h;
+}
+
+// `<path>.anim`'s lines, or false when one does not read (ArchivePropLists.h's form). '#' lines skipped.
+bool ParseAnimTable(const std::vector<char>& bytes, size_t offset, std::vector<AnimLine>& out) {
+    std::istringstream in(std::string(bytes.begin() + (std::ptrdiff_t)std::min(offset, bytes.size()), bytes.end()));
+    std::string line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        if (line.empty() || line[0] == '#') {
+            continue;
+        }
+        std::istringstream fields(line);
+        AnimLine a;
+        if (!(fields >> a.id >> a.check >> a.frameStep >> a.startPose >> a.startCycle)) {
+            return false;
+        }
+        std::string pose;
+        while (fields >> pose) {
+            const size_t colon = pose.find(':');
+            if (colon == std::string::npos) {
+                return false;
+            }
+            char* end = nullptr;
+            const long frame = std::strtol(pose.c_str(), &end, 10);
+            if (end != pose.c_str() + colon || colon == 0) {
+                return false;
+            }
+            const long cycles = std::strtol(pose.c_str() + colon + 1, &end, 10);
+            if (frame < 0 || cycles < 1 || *end != '\0') {
+                return false;
+            }
+            a.poses.emplace_back((s32)frame, (s32)cycles);
+        }
+        if (a.poses.size() < 2 || a.poses.size() > ARCHIVE_PROPS_ANIM_POSES_MAX || a.startPose < 0 ||
+            a.startPose >= (s32)a.poses.size() || a.startCycle < 0 || a.startCycle >= a.poses[a.startPose].second) {
+            return false;
+        }
+        out.push_back(std::move(a));
+    }
+    return true;
+}
+
+const AnimTable& TableFor(const std::string& path) {
+    AnimTable& t = sAnimTables[path];
+    if (t.read) {
+        return t;
+    }
+    t.read = true;
+    auto archives = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
+    const std::string tablePath = path + ANIM_SUFFIX;
+    if (!archives->HasFile(tablePath)) {
+        return t;
+    }
+    std::shared_ptr<Ship::File> file = archives->LoadFile(tablePath);
+    if (file == nullptr || file->Buffer == nullptr || !ParseAnimTable(*file->Buffer, file->BufferOffset, t.lines)) {
+        SPDLOG_WARN(
+            "[staticbake] archive prop list {}: its flipbook table {} does not read, so none of its copies draw "
+            "(sturdy-bassoon#204)",
+            path, tablePath);
+        t.lines.clear();
+        return t;
+    }
+    t.ok = true;
+    SPDLOG_INFO("[staticbake] archive prop list {}: {} flipbook copies in its table (sturdy-bassoon#204)", path,
+                t.lines.size());
+    return t;
+}
+
+// One of a copy's lists, held for the bake group and offered to the bake and the mips as a room's are. NULL
+// for a list with nothing to submit; `missing` set when an opaque one is not in the archive at all.
+Gfx* HoldAnimList(const std::string& path, bool optional, bool* missing) {
+    auto it = sAnimLists.find(path);
+    if (it == sAnimLists.end()) {
+        it = sAnimLists.emplace(path, ResolveList(path, optional)).first;
+        if (it->second.state == Resolved::Listed) {
+            Fast::StaticBakeRegister(it->second.key);
+            Fast::TextureMipsRegisterDisplayList(it->second.key);
+        }
+    }
+    const ArchiveList& l = it->second;
+    if (!optional && (l.state == Resolved::Missing || l.state == Resolved::NotDisplayList)) {
+        *missing = true;
+    }
+    return l.state == Resolved::Listed ? l.key : nullptr;
 }
 
 const char* StateName(const ArchiveList& list, const Fast::StaticBakeEntryInfo& entry) {
@@ -253,6 +365,97 @@ extern "C" Gfx* const* ArchiveProps_RoomLists(PlayState* play, s32 roomNum, s32 
     return it->second.data();
 }
 
+extern "C" const ArchivePropsAnimCopy* ArchiveProps_AnimCopy(PlayState* play, s32 roomNum, s32 list, s32 copy,
+                                                             s32 check, s32* miss) {
+    *miss = ARCHIVE_PROPS_ANIM_NO_LIST;
+    if (play == nullptr) {
+        return nullptr;
+    }
+    auto declared = sDeclared.find({ play->sceneNum, roomNum });
+    if (declared == sDeclared.end() || list < 0 || list >= (s32)declared->second.size()) {
+        return nullptr;
+    }
+    const std::string path = declared->second[list];
+    auto held = sAnimCopies.find({ path, copy });
+    if (held != sAnimCopies.end()) {
+        *miss = ARCHIVE_PROPS_ANIM_OK;
+        return &held->second;
+    }
+    // The path's own lists and scrolls first, as its room would: an actor may ask before the room offers.
+    if (sHeld.find(path) == sHeld.end()) {
+        sHeld.emplace(path, Resolve(path.c_str()));
+    }
+    const AnimTable& table = TableFor(path);
+    if (!table.ok) {
+        *miss = ARCHIVE_PROPS_ANIM_NO_TABLE;
+        return nullptr;
+    }
+    if (copy < 0 || copy >= (s32)table.lines.size()) {
+        *miss = ARCHIVE_PROPS_ANIM_NO_LINE;
+        return nullptr;
+    }
+    const AnimLine& line = table.lines[copy];
+    if (line.check != check) {
+        *miss = ARCHIVE_PROPS_ANIM_CHECK;
+        SPDLOG_WARN("[staticbake] archive prop list {}: copy {} ({}) has check {}, its row {}: the scene and the "
+                    "archive are from two exports, so it draws nothing (sturdy-bassoon#204)",
+                    path, copy, line.id, line.check, check);
+        return nullptr;
+    }
+    ArchivePropsAnimCopy c = {};
+    c.poseCount = (s32)line.poses.size();
+    c.frameStep = line.frameStep;
+    c.startPose = line.startPose;
+    c.startCycle = line.startCycle;
+    const std::string dir = path.substr(0, path.rfind('/')) + "/copies/" + line.id + "/";
+    bool missing = false;
+    for (s32 k = 0; k <= c.poseCount; k++) {
+        const std::string name = k < c.poseCount ? "f" + std::to_string(line.poses[k].first) : std::string("rest");
+        if (k < c.poseCount) {
+            c.frames[k] = line.poses[k].first;
+            c.cycles[k] = line.poses[k].second;
+        }
+        c.lists[k][ARCHIVE_PROPS_PASS_OPA] = HoldAnimList(dir + name, false, &missing);
+        c.lists[k][ARCHIVE_PROPS_PASS_XLU] = HoldAnimList(dir + name + XLU_SUFFIX, true, &missing);
+    }
+    if (missing) {
+        *miss = ARCHIVE_PROPS_ANIM_NO_POSE;
+        SPDLOG_WARN("[staticbake] archive prop list {}: copy {} ({}) is missing a pose list under {}, so it draws "
+                    "nothing (sturdy-bassoon#204)",
+                    path, copy, line.id, dir);
+        return nullptr;
+    }
+    *miss = ARCHIVE_PROPS_ANIM_OK;
+    return &sAnimCopies.emplace(std::make_pair(path, copy), c).first->second;
+}
+
+extern "C" u32 ArchiveProps_Generation(void) {
+    return sGeneration;
+}
+
+extern "C" s32 ArchiveProps_XluSubmitted(void) {
+    return ArchiveProps::XluSubmitted() ? 1 : 0;
+}
+
+extern "C" const char* ArchiveProps_AnimMissName(s32 miss) {
+    switch (miss) {
+        case ARCHIVE_PROPS_ANIM_OK:
+            return "ok";
+        case ARCHIVE_PROPS_ANIM_NO_LIST:
+            return "no_list";
+        case ARCHIVE_PROPS_ANIM_NO_TABLE:
+            return "no_table";
+        case ARCHIVE_PROPS_ANIM_NO_LINE:
+            return "no_line";
+        case ARCHIVE_PROPS_ANIM_CHECK:
+            return "check";
+        case ARCHIVE_PROPS_ANIM_NO_POSE:
+            return "no_pose";
+        default:
+            return "unknown";
+    }
+}
+
 namespace ArchiveProps {
 
 uint32_t OfferRoom(s32 sceneNum, s32 roomNum) {
@@ -302,10 +505,49 @@ void ReleaseHeld() {
             }
         }
     }
+    for (const auto& kv : sAnimLists) {
+        if (kv.second.key != nullptr) {
+            Fast::TextureMipsUnregisterDisplayList(kv.second.key);
+        }
+    }
     for (auto& drawn : sDrawn) {
         drawn.clear();
     }
     sHeld.clear();
+    // The actor-drawn copies' too (#204): a live Rs_AnimProp sees the generation move and asks again.
+    sAnimCopies.clear();
+    sAnimLists.clear();
+    sAnimTables.clear();
+    sGeneration++;
+}
+
+uint32_t AnimLists() {
+    uint32_t n = 0;
+    for (const auto& kv : sAnimLists) {
+        n += kv.second.state == Resolved::Listed ? 1 : 0;
+    }
+    return n;
+}
+
+void AnimEntryStates(const ArchivePropsAnimCopy& copy, uint32_t* baked, uint32_t* rejected, uint32_t* unbaked) {
+    for (s32 k = 0; k <= copy.poseCount; k++) {
+        for (s32 pass = 0; pass < ARCHIVE_PROPS_PASSES; pass++) {
+            if (copy.lists[k][pass] == nullptr) {
+                continue;
+            }
+            switch (Fast::StaticBakeGetEntry(copy.lists[k][pass]).state) {
+                case Fast::StaticBakeEntryState::Baked:
+                    (*baked)++;
+                    break;
+                case Fast::StaticBakeEntryState::Rejected:
+                    (*rejected)++;
+                    break;
+                default:
+                    (*unbaked)++;
+                    break;
+            }
+        }
+    }
 }
 
 namespace {
