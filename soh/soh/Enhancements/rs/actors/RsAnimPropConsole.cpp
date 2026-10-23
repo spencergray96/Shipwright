@@ -49,6 +49,12 @@ struct Tripwire {
     bool primed = false;
 } sTrip;
 
+// A copy's lists as the console may read them: NULL when it has none, or when they were released since it fetched
+// them (ArchiveProps_Generation moved) - a culled copy never draws, so never fetches again, and its pointer is freed.
+const ArchivePropsAnimCopy* LiveCopy(const RsAnimProp* p) {
+    return p->generation == ArchiveProps_Generation() ? p->copy : nullptr;
+}
+
 template <typename Fn> void ForEachCopy(Fn fn) {
     for (Actor* a = gPlayState->actorCtx.actorLists[ACTORCAT_PROP].head; a != nullptr; a = a->next) {
         if (a->id == ACTOR_RS_ANIMPROP) {
@@ -74,13 +80,13 @@ int32_t Status(std::vector<std::string>& lines) {
     uint32_t baked = 0, rejected = 0, unbaked = 0;
     ForEachCopy([&](const Actor* a, const RsAnimProp* p) {
         copies++;
-        ok += p->copy != nullptr ? 1 : 0;
+        ok += LiveCopy(p) != nullptr ? 1 : 0;
         awake += (a->flags & ACTOR_FLAG_INSIDE_CULLING_VOLUME) != 0 ? 1 : 0;
         drawn += a->isDrawn ? 1 : 0;
         changes += p->changes;
         draws += p->draws;
-        if (p->copy != nullptr) {
-            ArchiveProps::AnimEntryStates(*p->copy, &baked, &rejected, &unbaked);
+        if (LiveCopy(p) != nullptr) {
+            ArchiveProps::AnimEntryStates(*LiveCopy(p), &baked, &rejected, &unbaked);
         }
     });
     char buf[16];
@@ -107,12 +113,14 @@ std::string Joined(const int32_t* v, int32_t n) {
 int32_t List(std::vector<std::string>& lines) {
     int32_t count = 0;
     ForEachCopy([&](const Actor* a, const RsAnimProp* p) {
-        const ArchivePropsAnimCopy* c = p->copy;
-        std::string pose = p->pose < 0 ? "-" : (c != nullptr && p->pose == c->poseCount ? "rest" : std::to_string(p->pose));
+        const ArchivePropsAnimCopy* c = LiveCopy(p);
+        const char* state = p->copy != nullptr && c == nullptr ? "stale" : ArchiveProps_AnimMissName(p->miss);
+        std::string pose =
+            p->pose < 0 ? "-" : (c != nullptr && p->pose == c->poseCount ? "rest" : std::to_string(p->pose));
         Addf(lines,
              "copy idx=%d list=%d copy=%d check=%d state=%s poses=%d frames=%s cycles=%s step=%d start=%d:%d pose=%s "
              "changes=%u draws=%u awake=%d drawn=%d x=%d y=%d z=%d",
-             count, (int)p->list, (int)p->copyIndex, (int)p->check, ArchiveProps_AnimMissName(p->miss),
+             count, (int)p->list, (int)p->copyIndex, (int)p->check, state,
              c != nullptr ? (int)c->poseCount : 0, c != nullptr ? Joined(c->frames, c->poseCount).c_str() : "-",
              c != nullptr ? Joined(c->cycles, c->poseCount).c_str() : "-", c != nullptr ? (int)c->frameStep : 0,
              c != nullptr ? (int)c->startPose : 0, c != nullptr ? (int)c->startCycle : 0, pose.c_str(),
@@ -138,7 +146,8 @@ int32_t Pose(const std::vector<std::string>& args, std::vector<std::string>& lin
         char* end = nullptr;
         const long k = strtol(args[1].c_str(), &end, 10);
         if (end == args[1].c_str() || *end != '\0' || k < 0 || k >= ARCHIVE_PROPS_ANIM_POSES_MAX) {
-            Addf(lines, "op=pose result=error error=bad_value expects=0..%d|rest|clock", ARCHIVE_PROPS_ANIM_POSES_MAX - 1);
+            Addf(lines, "op=pose result=error error=bad_value expects=0..%d|rest|clock",
+                 ARCHIVE_PROPS_ANIM_POSES_MAX - 1);
             return 1;
         }
         sForced = (int32_t)k;

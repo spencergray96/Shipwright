@@ -89,9 +89,9 @@ struct AnimTable {
     bool ok = false;
     std::vector<AnimLine> lines;
 };
-std::map<std::string, AnimTable> sAnimTables;                         // by declared path
+std::map<std::string, AnimTable> sAnimTables;                            // by declared path
 std::map<std::pair<std::string, s32>, ArchivePropsAnimCopy> sAnimCopies; // by (declared path, copy)
-std::map<std::string, ArchiveList> sAnimLists;                         // every list a copy holds, by path
+std::map<std::string, ArchiveList> sAnimLists;                           // every list a copy holds, by path
 u32 sGeneration = 1;
 constexpr const char* ANIM_SUFFIX = ".anim";
 
@@ -214,7 +214,8 @@ Held Resolve(const char* path) {
     // even when its own lists are empty: the copies' textures are the same image paths.
     auto archives = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
     if (h.lists[ARCHIVE_PROPS_PASS_OPA].state == Resolved::Listed ||
-        h.lists[ARCHIVE_PROPS_PASS_XLU].state == Resolved::Listed || archives->HasFile(std::string(path) + ANIM_SUFFIX)) {
+        h.lists[ARCHIVE_PROPS_PASS_XLU].state == Resolved::Listed ||
+        archives->HasFile(std::string(path) + ANIM_SUFFIX)) {
         h.scrolls = RegisterScrolls(path);
     }
     return h;
@@ -275,9 +276,10 @@ const AnimTable& TableFor(const std::string& path) {
     }
     std::shared_ptr<Ship::File> file = archives->LoadFile(tablePath);
     if (file == nullptr || file->Buffer == nullptr || !ParseAnimTable(*file->Buffer, file->BufferOffset, t.lines)) {
-        SPDLOG_WARN("[staticbake] archive prop list {}: its flipbook table {} does not read, so none of its copies draw "
-                    "(sturdy-bassoon#204)",
-                    path, tablePath);
+        SPDLOG_WARN(
+            "[staticbake] archive prop list {}: its flipbook table {} does not read, so none of its copies draw "
+            "(sturdy-bassoon#204)",
+            path, tablePath);
         t.lines.clear();
         return t;
     }
@@ -364,7 +366,7 @@ extern "C" Gfx* const* ArchiveProps_RoomLists(PlayState* play, s32 roomNum, s32 
 }
 
 extern "C" const ArchivePropsAnimCopy* ArchiveProps_AnimCopy(PlayState* play, s32 roomNum, s32 list, s32 copy,
-                                                              s32 check, s32* miss) {
+                                                             s32 check, s32* miss) {
     *miss = ARCHIVE_PROPS_ANIM_NO_LIST;
     if (play == nullptr) {
         return nullptr;

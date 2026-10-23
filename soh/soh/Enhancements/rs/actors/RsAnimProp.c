@@ -130,7 +130,10 @@ void RsAnimProp_Draw(Actor* thisx, PlayState* play) {
     int32_t pose;
 
     RsAnimProp_FrameTick(play);
-    if (this->generation != ArchiveProps_Generation()) {
+    // Again after a release (the generation moved), and while its room had not declared its lists yet (an actor
+    // may initialise before its room's InitRoom runs): a lookup, which logs nothing on that miss.
+    if (this->generation != ArchiveProps_Generation() ||
+        (this->copy == NULL && this->miss == ARCHIVE_PROPS_ANIM_NO_LIST)) {
         RsAnimProp_Fetch(this, play);
     }
     if (this->copy == NULL) {

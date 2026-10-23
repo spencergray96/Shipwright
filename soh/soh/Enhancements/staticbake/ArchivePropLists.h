@@ -73,8 +73,6 @@
 //     or a missing pose list: no copy, and one log line a cause. The actor draws nothing and says so.
 // Only a ROOM_SHAPE_TYPE_NORMAL room draws them (func_80095AB4); any other shape's declaration is
 // ignored. Every grid-tool room is that shape.
-// Only a ROOM_SHAPE_TYPE_NORMAL room draws them (func_80095AB4); any other shape's declaration is
-// ignored. Every grid-tool room is that shape.
 
 // The two passes a room submits archive prop lists in: its opaque pass, and its translucent pass.
 #define ARCHIVE_PROPS_PASS_OPA 0
@@ -84,27 +82,25 @@
 // An actor-drawn copy (ACTOR-DRAWN COPIES above): its clock, from its `.anim` line, and its lists.
 #define ARCHIVE_PROPS_ANIM_POSES_MAX 16
 typedef struct ArchivePropsAnimCopy {
-    s32 poseCount;   // its poses, 2..ARCHIVE_PROPS_ANIM_POSES_MAX; rest is not one of them
-    s32 frameStep;   // RS's: past the last pose step back this many; out of range (RS's -1), stop on rest
-    s32 startPose;   // where RS's random start puts it: a pose, and a cycle within it
+    s32 poseCount; // its poses, 2..ARCHIVE_PROPS_ANIM_POSES_MAX; rest is not one of them
+    s32 frameStep; // RS's: past the last pose step back this many; out of range (RS's -1), stop on rest
+    s32 startPose; // where RS's random start puts it: a pose, and a cycle within it
     s32 startCycle;
     s32 frames[ARCHIVE_PROPS_ANIM_POSES_MAX]; // each pose's RS frame, for reports
     s32 cycles[ARCHIVE_PROPS_ANIM_POSES_MAX]; // each pose's length, 20 ms client cycles
     // [pose][pass], pose poseCount being rest; NULL where the copy has no such list (an empty opaque list, or
     // no `.xlu`): nothing to submit.
     Gfx* lists[ARCHIVE_PROPS_ANIM_POSES_MAX + 1][ARCHIVE_PROPS_PASSES];
-    u32 baked;       // of its listed lists, how many the bake holds baked / refused, as of the last report
-    u32 rejected;
 } ArchivePropsAnimCopy;
 
 // Why ArchiveProps_AnimCopy found no copy (it returns NULL and writes one of these).
 typedef enum ArchivePropsAnimMiss {
     ARCHIVE_PROPS_ANIM_OK,
-    ARCHIVE_PROPS_ANIM_NO_LIST,   // the room declares no list at that index
-    ARCHIVE_PROPS_ANIM_NO_TABLE,  // the list has no `.anim`, or it does not read
-    ARCHIVE_PROPS_ANIM_NO_LINE,   // the table has no line at that index
-    ARCHIVE_PROPS_ANIM_CHECK,     // the line's check is not the row's
-    ARCHIVE_PROPS_ANIM_NO_POSE,   // a pose's opaque list is missing or not a display list
+    ARCHIVE_PROPS_ANIM_NO_LIST,  // the room declares no list at that index
+    ARCHIVE_PROPS_ANIM_NO_TABLE, // the list has no `.anim`, or it does not read
+    ARCHIVE_PROPS_ANIM_NO_LINE,  // the table has no line at that index
+    ARCHIVE_PROPS_ANIM_CHECK,    // the line's check is not the row's
+    ARCHIVE_PROPS_ANIM_NO_POSE,  // a pose's opaque list is missing or not a display list
 } ArchivePropsAnimMiss;
 
 #ifdef __cplusplus
@@ -126,7 +122,7 @@ Gfx* const* ArchiveProps_RoomLists(PlayState* play, s32 roomNum, s32 pass, s32* 
 const ArchivePropsAnimCopy* ArchiveProps_AnimCopy(PlayState* play, s32 roomNum, s32 list, s32 copy, s32 check,
                                                   s32* miss);
 // Bumped whenever held lists are released (a new bake group, `staticbake reset`): a copy fetched under an
-// older generation is gone, and its holder fetches it again.
+// older generation is gone - freed - and its holder must fetch it again before reading it, drawn or not.
 u32 ArchiveProps_Generation(void);
 // Whether the translucent halves are submitted (`staticbake xlu`): the room's gate, which a copy keeps too.
 s32 ArchiveProps_XluSubmitted(void);

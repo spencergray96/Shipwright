@@ -23,10 +23,12 @@
 //                   sizeof(ArchivePropsAnimCopy), the two per-copy structs; tex_evict: texture-cache evictions
 //                   counted on frames a copy drew, streak: consecutive such frames with the camera still, and
 //                   tripped: the #172 tripwire fired (a log warning, once a scene)
-//   list            one `copy idx=<i> list=<n> copy=<n> check=<n> state=<ok|miss> poses=<n> frames=<f>,<f>
+//   list            one `copy idx=<i> list=<n> copy=<n> check=<n>
+//                   state=<ok|no_list|no_table|no_line|check|no_pose|stale> poses=<n> frames=<f>,<f>
 //                   cycles=<c>,<c> step=<n> start=<pose>:<cycle> pose=<k|rest|-> changes=<n> draws=<n> awake=0|1
 //                   drawn=0|1 x= y= z=` line per live copy, in the actor list's order, then `op=list result=ok
-//                   count=<n>`
+//                   count=<n>`. `stale`: its copy was released (a new bake group, `staticbake reset`) and
+//                   is fetched again when it next draws; until then it is reported, never read
 //   pose <k|rest|clock>
 //                   forces every copy to pose k (its index, clamped to the copy's last), or rest, or back to the
 //                   clock, for this session only; `op=pose result=ok forced=<k|rest|clock>`. For the planted
