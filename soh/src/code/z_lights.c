@@ -751,6 +751,41 @@ static s32 Lights_RefreshDirNodes(LightNode* head) {
     return sLightsDirCount >= 0;
 }
 
+// `lights nullbind verify` (#253): beside every fast bind, the walk it replaced binds a copy of the group as it
+// came in, and any difference in what bound - the count, or a slot's colour or direction - is counted. `plant`
+// drops the fast bind's last light first, so the check is seen to catch one. Session-only.
+static s32 sLightsNullVerify = LIGHTS_NULL_VERIFY_OFF;
+
+void Lights_SetNullBindVerify(s32 mode) {
+    sLightsNullVerify = mode;
+}
+
+s32 Lights_GetNullBindVerify(void) {
+    return sLightsNullVerify;
+}
+
+static void Lights_VerifyNullBind(Lights* fast, Lights* ref, LightNode* listHead) {
+    LightsBindFunc bindFuncs[] = { Lights_BindPoint, Lights_BindDirectional, Lights_BindPoint };
+    LightNode* node;
+    s32 i;
+    s32 same;
+
+    if (sLightsNullVerify == LIGHTS_NULL_VERIFY_PLANT && fast->numLights > 0) {
+        fast->numLights--;
+    }
+    for (node = listHead; node != NULL; node = node->next) {
+        bindFuncs[node->info->type](ref, &node->info->params, NULL);
+    }
+    same = ref->numLights == fast->numLights;
+    for (i = 0; same && i < fast->numLights; i++) {
+        same = memcmp(fast->l.l[i].l.col, ref->l.l[i].l.col, 3) == 0 &&
+               memcmp(fast->l.l[i].l.colc, ref->l.l[i].l.colc, 3) == 0 &&
+               memcmp(fast->l.l[i].l.dir, ref->l.l[i].l.dir, 3) == 0;
+    }
+    sLightsTick.nullVerified++;
+    sLightsTick.nullMismatch += same ? 0 : 1;
+}
+
 /**
  * For every light in a provided list, try to find a free slot in the provided Lights group and bind
  * a light to it. Then apply color and positional/directional info for each light
@@ -806,10 +841,18 @@ void Lights_BindAll(Lights* lights, LightNode* listHead, Vec3f* vec) {
     if (vec == NULL) {
         sLightsTick.nullBinds++;
         if (sLightsNullFastThisTick && Lights_RefreshDirNodes(listStart)) {
+            Lights ref;
+
+            if (sLightsNullVerify != LIGHTS_NULL_VERIFY_OFF) {
+                ref = *lights;
+            }
             for (i = 0; i < sLightsDirCount; i++) {
                 before = lights->numLights;
                 Lights_BindDirectional(lights, &sLightsDirNodes[i]->info->params, vec);
                 Lights_NoteShadowSlot(lights, before, sLightsDirNodes[i], 0);
+            }
+            if (sLightsNullVerify != LIGHTS_NULL_VERIFY_OFF) {
+                Lights_VerifyNullBind(lights, &ref, listStart);
             }
             sLightsTick.walked += sLightsDirCount;
             sLightsTick.nullFast++;

@@ -26,6 +26,7 @@
 #include "soh/Enhancements/rs/quest/WorldFlagIds.h"
 #include "soh/Enhancements/worldstate/WorldFlags.h"
 #include "soh/Enhancements/lights/LightsBudget.h"
+#include "soh/ResourceManagerHelpers.h"
 
 // En_Light params 4's scale: the fire the owner picked, and what rot.x is a percentage of.
 #define RS_FIRE_BASE_SCALE 0.004f
@@ -139,6 +140,20 @@ int32_t RsFire_GlowOn(void) {
     return CVarGetInteger(CVAR_RS_FIRE_GLOW, RS_FIRE_GLOW_DEFAULT) != 0 ? 1 : 0;
 }
 
+int32_t RsFire_PointLightsOn(void) {
+    return CVarGetInteger(CVAR_RS_FIRE_POINT_LIGHTS, RS_FIRE_POINT_LIGHTS_DEFAULT) != 0 ? 1 : 0;
+}
+
+int32_t RsFire_DirectDrawOn(void) {
+    return CVarGetInteger(CVAR_RS_FIRE_DIRECT_DRAW, RS_FIRE_DIRECT_DRAW_DEFAULT) != 0 ? 1 : 0;
+}
+
+int32_t RsFire_ColliderReach(void) {
+    int32_t reach = CVarGetInteger(CVAR_RS_FIRE_COLLIDER_REACH, RS_FIRE_COLLIDER_REACH_DEFAULT);
+
+    return CLAMP(reach, 0, RS_FIRE_COLLIDER_REACH_MAX);
+}
+
 // The planted probes (RsFire.h, #253): session-only, all off at launch.
 static uint32_t sRsFireProbes = 0;
 
@@ -155,10 +170,11 @@ void RsFire_SetProbes(uint32_t probes) {
 void RsFire_ApplySettings(RsFire* this) {
     this->actor.uncullZoneForward = (f32)RsFire_DrawDistance();
     this->lightInfo.type = RsFire_GlowOn() ? LIGHT_POINT_GLOW : LIGHT_POINT_NOGLOW;
-    if (sRsFireProbes & RS_FIRE_PROBE_NO_POINTLIGHTS) {
-        this->actor.flags |= ACTOR_FLAG_IGNORE_POINTLIGHTS;
-    } else {
+    // #253: the flame draws unlit, so its own bind needs no point light (RsFire.h).
+    if (RsFire_PointLightsOn()) {
         this->actor.flags &= ~ACTOR_FLAG_IGNORE_POINTLIGHTS;
+    } else {
+        this->actor.flags |= ACTOR_FLAG_IGNORE_POINTLIGHTS;
     }
 }
 
@@ -528,6 +544,7 @@ static void RsFire_TakeStick(RsFire* this, PlayState* play) {
 void RsFire_Update(Actor* thisx, PlayState* play) {
     RsFire* this = (RsFire*)thisx;
     float intensity;
+    int32_t reach;
 
     if (!RsFire_TakeHit(this, play)) {
         RsFire_TakeStick(this, play);
@@ -553,11 +570,38 @@ void RsFire_Update(Actor* thisx, PlayState* play) {
     }
 
     // The flame's collider, every tick it updates - and it updates only while in view, so the culling
-    // (RsFire.h, the draw distance) is the range: an arrow can light any fire Link can see.
-    if (!(sRsFireProbes & RS_FIRE_PROBE_NO_COLLIDER)) {
+    // (RsFire.h, the draw distance) is the range: an arrow can light any fire Link can see. #253: and
+    // only within the collider reach of Link, past which no arrow flies (RsFire.h).
+    reach = RsFire_ColliderReach();
+    if (!(sRsFireProbes & RS_FIRE_PROBE_NO_COLLIDER) &&
+        (reach == 0 || Actor_WorldDistXYZToActor(&GET_PLAYER(play)->actor, thisx) < (f32)reach)) {
         Collider_UpdateCylinder(thisx, &this->collider);
         CollisionCheck_SetAC(play, &play->colChkCtx, &this->collider.base);
     }
+}
+
+// The flame's grow-in at ignition, 0..1 (Obj_Syokudai's 10 ticks).
+static float RsFire_Grow(RsFire* this) {
+    return (this->growTicks < RS_FIRE_GROW_TICKS) ? ((float)this->growTicks / (float)RS_FIRE_GROW_TICKS) : 1.0f;
+}
+
+// The camera-facing turn, in radians: the billboard. En_Light's, so the flame turns as vanilla's does.
+static f32 RsFire_FacingYaw(PlayState* play) {
+    return (f32)((s16)(Camera_GetCamDirYaw(GET_ACTIVE_CAM(play)) + 0x8000) * (M_PI / 32768.0));
+}
+
+// What both draws write before the flame's matrix: the setup, the two scrolling layers, the colours.
+static Gfx* RsFire_WriteFlameHead(RsFire* this, PlayState* play, Gfx* xlu) {
+    // The same setup list as Gfx_SetupDL_25Xlu, written inline: a Debug build's open/close markers around
+    // that call were two of a fire's 25 translucent words (sturdy-bassoon#247).
+    xlu = Gfx_SetupDL(xlu, SETUPDL_25);
+    // En_Light's two scrolling layers (params >= 0), with its prim and env colours for index 4.
+    gSPSegment(xlu++, 0x08,
+               (uintptr_t)Gfx_TwoTexScrollEx(play->state.gfxCtx, 0, 0, 0, 32, 64, 1, 0, (this->timer * -20) & 511, 32,
+                                             128, 0, 0, 0, -20));
+    gDPSetPrimColor(xlu++, 0x80, 0x80, 255, 200, 0, 255);
+    gDPSetEnvColor(xlu++, 255, 0, 0, 0);
+    return xlu;
 }
 
 void RsFire_Draw(Actor* thisx, PlayState* play) {
@@ -567,27 +611,86 @@ void RsFire_Draw(Actor* thisx, PlayState* play) {
     if (!this->lit || (sRsFireProbes & RS_FIRE_PROBE_NO_FLAME)) {
         return;
     }
-    grow = (this->growTicks < RS_FIRE_GROW_TICKS) ? ((float)this->growTicks / (float)RS_FIRE_GROW_TICKS) : 1.0f;
+    grow = RsFire_Grow(this);
 
     OPEN_DISPS(play->state.gfxCtx);
 
-    // The same setup list as Gfx_SetupDL_25Xlu, written inline: a Debug build's open/close markers around
-    // that call were two of a fire's 25 translucent words (sturdy-bassoon#247).
-    POLY_XLU_DISP = Gfx_SetupDL(POLY_XLU_DISP, SETUPDL_25);
-    // En_Light's two scrolling layers (params >= 0), with its prim and env colours for index 4.
-    gSPSegment(POLY_XLU_DISP++, 0x08,
-               (uintptr_t)Gfx_TwoTexScrollEx(play->state.gfxCtx, 0, 0, 0, 32, 64, 1, 0, (this->timer * -20) & 511, 32,
-                                             128, 0, 0, 0, -20));
-    gDPSetPrimColor(POLY_XLU_DISP++, 0x80, 0x80, 255, 200, 0, 255);
-    gDPSetEnvColor(POLY_XLU_DISP++, 255, 0, 0, 0);
-
+    POLY_XLU_DISP = RsFire_WriteFlameHead(this, play, POLY_XLU_DISP);
     // Billboarded: the actor's own matrix carries no turn, so this one faces the camera.
-    Matrix_RotateY((f32)((s16)(Camera_GetCamDirYaw(GET_ACTIVE_CAM(play)) + 0x8000) * (M_PI / 32768.0)),
-                   MTXMODE_APPLY);
+    Matrix_RotateY(RsFire_FacingYaw(play), MTXMODE_APPLY);
     Matrix_Scale(grow, grow, grow, MTXMODE_APPLY);
     gSPMatrix(POLY_XLU_DISP++, Matrix_NewMtx(play->state.gfxCtx, (char*)__FILE__, __LINE__),
               G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
     gSPDisplayList(POLY_XLU_DISP++, (Gfx*)gEffFire1DL);
 
     CLOSE_DISPS(play->state.gfxCtx);
+}
+
+// THE DIRECT DRAW (RsFire.h, #253). The flame alone, in place of Actor_Draw + RsFire_Draw:
+//   - no light bind: the flame draws unlit (gEffFire1DL clears G_LIGHTING), so the 9 commands Actor_Draw
+//     writes into each list bought nothing;
+//   - no segment 06, no fault client, no interpolation child;
+//   - the matrix is built here and NOT recorded for frame interpolation. Actor_Draw's is translate, rotate
+//     by shape.rot (always 0 for a fire) and scale; RsFire_Draw adds the facing turn and the grow. The
+//     product is written out directly: T(pos) x Ry(yaw) x S(scale x grow), the scales being uniform.
+//     A fire never moves, so the interpolated frames between two ticks lose only the facing turn's lerp.
+// The display list is resolved by name once a tick, not once a fire: gSPDisplayList looks a path up in the
+// resource manager on every call, 600 lookups a tick on #253's field.
+static Gfx* sRsFireFlameDL = NULL;
+static u32 sRsFireFlameDLFrame = 0;
+
+int32_t RsFire_DrawDirect(PlayState* play, Actor* thisx) {
+    RsFire* this = (RsFire*)thisx;
+    MtxF mf;
+    Mtx* mtx;
+    f32 s;
+    f32 yaw;
+    f32 sn;
+    f32 cs;
+
+    if (!RsFire_DirectDrawOn()) {
+        return 0;
+    }
+    if (!this->lit || (sRsFireProbes & RS_FIRE_PROBE_NO_FLAME)) {
+        return 1;
+    }
+    if (sRsFireFlameDL == NULL || sRsFireFlameDLFrame != play->state.frames) {
+        sRsFireFlameDL = ResourceMgr_LoadGfxByName(gEffFire1DL);
+        sRsFireFlameDLFrame = play->state.frames;
+    }
+    if (sRsFireFlameDL == NULL) {
+        return 0;
+    }
+    mtx = Graph_Alloc(play->state.gfxCtx, sizeof(Mtx));
+    s = thisx->scale.x * RsFire_Grow(this);
+    yaw = RsFire_FacingYaw(play);
+    sn = sinf(yaw);
+    cs = cosf(yaw);
+    // Matrix_RotateY's layout (sys_matrix.c): xx = zz = cos, xz = sin, zx = -sin; the translation in xw/yw/zw.
+    mf.xx = cs * s;
+    mf.yx = 0.0f;
+    mf.zx = -sn * s;
+    mf.wx = 0.0f;
+    mf.xy = 0.0f;
+    mf.yy = s;
+    mf.zy = 0.0f;
+    mf.wy = 0.0f;
+    mf.xz = sn * s;
+    mf.yz = 0.0f;
+    mf.zz = cs * s;
+    mf.wz = 0.0f;
+    mf.xw = thisx->world.pos.x;
+    mf.yw = thisx->world.pos.y + thisx->shape.yOffset * thisx->scale.y;
+    mf.zw = thisx->world.pos.z;
+    mf.ww = 1.0f;
+    guMtxF2L(mf.mf, mtx);
+
+    OPEN_DISPS(play->state.gfxCtx);
+
+    POLY_XLU_DISP = RsFire_WriteFlameHead(this, play, POLY_XLU_DISP);
+    gSPMatrix(POLY_XLU_DISP++, mtx, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    gSPDisplayList(POLY_XLU_DISP++, sRsFireFlameDL);
+
+    CLOSE_DISPS(play->state.gfxCtx);
+    return 1;
 }

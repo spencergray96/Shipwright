@@ -18,6 +18,12 @@ extern "C" {
 // contain a space; that is the contract every acceptance script depends on.
 void AgentTest_WriteMarker(const char* text);
 
+// One rendered frame has been submitted (RunCommands, OTRGlobals.cpp; sturdy-bassoon#253). The perf marker's
+// frame_max_ms= is the longest gap between two of these over its interval, and frame_late= how many gaps ran
+// past 1.2x the cap's frame: "does it hold the cap" needs the worst frame, which a mean fps cannot show (a
+// frame that also runs the 20 Hz tick costs the tick on top). One clock read a frame, in every session.
+void AgentTest_NoteFrameEnd(void);
+
 #ifdef __cplusplus
 }
 #endif
