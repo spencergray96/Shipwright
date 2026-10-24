@@ -308,6 +308,12 @@
  *   rs_animprop <line>                   one line of RsAnimPropConsole_Run output per marker, from
  *                                        `agenttest animprop ...` - `copy idx=...` or `op=...`, never
  *                                        `event=...`
+ *   rs_boat event=<spawn|helm_on|helm_off|blocked> x= y= z= yaw= speed= helm= blocked= surface=
+ *                                        the sailing prototype's boat (sturdy-bassoon#256): spawned, the helm
+ *                                        taken or let go, a move refused at the shore or a wall. Gameplay
+ *                                        markers
+ *   rs_boat <line>                       one line of RsBoatConsole_Run output per marker, from
+ *                                        `agenttest boat ...` - `boat idx=...` or `op=...`, never `event=...`
  *   rs_fire <line>                       one line of RsFireConsole_Run output per marker, from
  *                                        `agenttest rsfire ...` - `fire idx=...` or `op=...`, never
  *                                        `event=...`
@@ -602,6 +608,12 @@
  *                                          the pose is picked (this session only), a per-frame pose trace, the
  *                                          two picks' self-test and the recorder's planted refusal.
  *                                          RsAnimPropConsole.h documents every line
+ *   agenttest boat list|spawn [<x> <z> [<yaw>]]|probe <x> <z>|water <x0> <z0> <x1> <z1> <y>|water clear|board [<idx>]|helm on|off [<idx>]|drive <t> <turn> <ticks>|
+ *                  lakehylia [on|off]|clear
+ *                                          the sailing prototype's boats (sturdy-bassoon#256): where each is,
+ *                                          its speed, helm and why it last stopped; put one down, stand Link
+ *                                          at its tiller, take the helm, steer it without the pad.
+ *                                          RsBoatConsole.h documents every line
  *   agenttest rsfire list|pool|distance [<n>|default]|glow [on|off|default]
  *                                          the RS torch fires (sturdy-bassoon#232): where each is, its size,
  *                                          lit and by what, its world flag, whether it holds a light node,
@@ -701,6 +713,7 @@
 #include "soh/Enhancements/rs/quest/QuestConsole.h"
 #include "soh/Enhancements/rs/dialogue/NpcConsole.h"
 #include "soh/Enhancements/rs/prefs/RegionConsole.h"
+#include "soh/Enhancements/rs/actors/RsBoatConsole.h"
 #include "soh/Enhancements/rs/actors/RsFireConsole.h"
 #include "soh/Enhancements/rs/actors/RsAnimPropConsole.h"
 #include "soh/Enhancements/lights/LightsConsole.h"
@@ -3012,6 +3025,12 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(RsInteractionConsole_Run, sub, "rs_interaction ", output, WriteMarker);
     }
+    // The sailing prototype's boats (sturdy-bassoon#256). Same prefix as the boats' own event markers, for the
+    // interaction's reason: `rs_boat boat idx=...` is an answer, `rs_boat event=...` a boat reporting.
+    if (args.size() >= 3 && args[1] == "boat") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(RsBoatConsole_Run, sub, "rs_boat ", output, WriteMarker);
+    }
     // RS torch fires (sturdy-bassoon#232). Same prefix as the fires' own event markers, for the
     // interaction's reason: `rs_fire fire idx=...` is an answer, `rs_fire event=...` a fire reporting.
     if (args.size() >= 3 && args[1] == "rsfire") {
@@ -3107,6 +3126,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
               "warps list|dump|where|status|badcheck | "
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
+              "boat list|spawn [<x> <z> [<yaw>]]|probe <x> <z>|water <x0> <z0> <x1> <z1> <y>|water clear|board [<idx>]|helm on|off [<idx>]|drive <t> <turn> <ticks>|"
+              "lakehylia [on|off]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
               "animprop status|list|pose <k|rest|clock>|reset|pick <tick|frame|default>|trace [<idx> <frames>]|"
               "selftest [plant]|plant [off|unheld] | "
@@ -3162,6 +3183,8 @@ void RegisterAgentTest() {
               "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
               "warps list|dump|where|status|badcheck | "
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
+              "boat list|spawn [<x> <z> [<yaw>]]|probe <x> <z>|water <x0> <z0> <x1> <z1> <y>|water clear|board [<idx>]|helm on|off [<idx>]|drive <t> <turn> <ticks>|"
+              "lakehylia [on|off]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
               "animprop status|list|pose <k|rest|clock>|reset|pick <tick|frame|default>|trace [<idx> <frames>]|"
               "selftest [plant]|plant [off|unheld] | "
