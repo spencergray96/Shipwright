@@ -18,6 +18,7 @@
 #include "ArchivePropLists.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <cstdlib>
 #include <map>
@@ -26,6 +27,7 @@
 #include <string>
 #include <utility>
 
+#include <fast/FlipBook.h>
 #include <fast/StaticMeshCache.h>
 #include <fast/TextureMips.h>
 #include <fast/resource/type/DisplayList.h>
@@ -307,6 +309,41 @@ Gfx* HoldAnimList(const std::string& path, bool optional, bool* missing) {
     return l.state == Resolved::Listed ? l.key : nullptr;
 }
 
+// A held copy's flips (ArchivePropLists.h, FLIP HEADS): one a pass with a list in some pose, on the copy's own
+// clock - a loop from the clock's zero plus its random start, as Rs_AnimProp counts it; a play-once one from
+// the origin its actor sets.
+void RegisterFlips(ArchivePropsAnimCopy& c) {
+    const bool loops = c.frameStep >= 1 && c.frameStep <= c.poseCount;
+    Fast::FlipBookDesc d;
+    d.poseCount = c.poseCount;
+    d.frameStep = c.frameStep;
+    for (s32 k = 0; k < c.poseCount; k++) {
+        d.cycles[k] = c.cycles[k];
+    }
+    if (loops) {
+        for (s32 k = 0; k < c.startPose && k < c.poseCount; k++) {
+            d.cycleOffset += c.cycles[k];
+        }
+        d.cycleOffset += c.startCycle;
+    }
+    for (s32 pass = 0; pass < ARCHIVE_PROPS_PASSES; pass++) {
+        bool any = false;
+        for (s32 k = 0; k <= c.poseCount; k++) {
+            d.poses[k] = c.lists[k][pass];
+            any = any || d.poses[k] != nullptr;
+        }
+        c.flipSerial[pass] = any ? Fast::FlipBookRegister(&c.lists[0][pass], d) : 0;
+    }
+}
+
+void UnregisterFlips(const ArchivePropsAnimCopy& c) {
+    for (s32 pass = 0; pass < ARCHIVE_PROPS_PASSES; pass++) {
+        if (c.flipSerial[pass] != 0) {
+            Fast::FlipBookUnregister(&c.lists[0][pass]);
+        }
+    }
+}
+
 const char* StateName(const ArchiveList& list, const Fast::StaticBakeEntryInfo& entry) {
     switch (list.state) {
         case Resolved::Missing:
@@ -426,7 +463,20 @@ extern "C" const ArchivePropsAnimCopy* ArchiveProps_AnimCopy(PlayState* play, s3
         return nullptr;
     }
     *miss = ARCHIVE_PROPS_ANIM_OK;
-    return &sAnimCopies.emplace(std::make_pair(path, copy), c).first->second;
+    ArchivePropsAnimCopy& stored = sAnimCopies.emplace(std::make_pair(path, copy), c).first->second;
+    RegisterFlips(stored);
+    return &stored;
+}
+
+extern "C" void ArchiveProps_AnimSetOrigin(const ArchivePropsAnimCopy* copy, double origin) {
+    if (copy == nullptr) {
+        return;
+    }
+    for (s32 pass = 0; pass < ARCHIVE_PROPS_PASSES; pass++) {
+        if (copy->flipSerial[pass] != 0) {
+            Fast::FlipBookSetOrigin(&copy->lists[0][pass], origin);
+        }
+    }
 }
 
 extern "C" u32 ArchiveProps_Generation(void) {
@@ -513,6 +563,19 @@ void ReleaseHeld() {
     for (auto& drawn : sDrawn) {
         drawn.clear();
     }
+    // The flips name the copies' lists (#204 C4b): out of the registry before the lists go. Nothing else
+    // registers a flip, so the registry must be empty now; the clear makes it so if that ever stops being true.
+    for (const auto& kv : sAnimCopies) {
+        UnregisterFlips(kv.second);
+    }
+    const uint32_t leftover = Fast::FlipBookGetStats().registered;
+    if (leftover != 0) {
+        SPDLOG_ERROR("[staticbake] {} flip heads were still registered after the copies' release: cleared "
+                     "(sturdy-bassoon#204 C4b)",
+                     leftover);
+        assert(leftover == 0);
+    }
+    Fast::FlipBookClear();
     sHeld.clear();
     // The actor-drawn copies' too (#204): a live Rs_AnimProp sees the generation move and asks again.
     sAnimCopies.clear();
