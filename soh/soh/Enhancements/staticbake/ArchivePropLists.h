@@ -87,17 +87,26 @@
 #define ARCHIVE_PROPS_PASSES 2
 
 // An actor-drawn copy (ACTOR-DRAWN COPIES above): its clock, from its `.anim` line, and its lists.
-#define ARCHIVE_PROPS_ANIM_POSES_MAX 16
+//
+// SIZED PER COPY (sturdy-bassoon#204, in-between poses): `frames`, `cycles` and `lists` are the copy's own arrays,
+// as long as its own poses (a tweened torch 9, a stepped one 2), so a short loop never pays for a long one.
+// ArchivePropLists.cpp owns them with the copy: allocated when ArchiveProps_AnimCopy first resolves it, freed in
+// ReleaseHeld (a new bake group, `staticbake reset`, a scene's bake group ending) after its flips are unregistered.
+// An actor holding the pointer sees ArchiveProps_Generation move and fetches again, so it never reads them after.
+//
+// A `.anim` line of more poses than ARCHIVE_PROPS_ANIM_POSES_MAX does not read (no array is sized by it): the
+// prop pipeline refuses a tween past it (import-defaults.ts TWEEN_MAX_POSES), so a longer line is a broken table.
+#define ARCHIVE_PROPS_ANIM_POSES_MAX 128
 typedef struct ArchivePropsAnimCopy {
     s32 poseCount; // its poses, 2..ARCHIVE_PROPS_ANIM_POSES_MAX; rest is not one of them
     s32 frameStep; // RS's: past the last pose step back this many; out of range (RS's -1), stop on rest
     s32 startPose; // where RS's random start puts it: a pose, and a cycle within it
     s32 startCycle;
-    s32 frames[ARCHIVE_PROPS_ANIM_POSES_MAX]; // each pose's RS frame, for reports
-    s32 cycles[ARCHIVE_PROPS_ANIM_POSES_MAX]; // each pose's length, 20 ms client cycles
-    // [pose][pass], pose poseCount being rest; NULL where the copy has no such list (an empty opaque list, or
-    // no `.xlu`): nothing to submit.
-    Gfx* lists[ARCHIVE_PROPS_ANIM_POSES_MAX + 1][ARCHIVE_PROPS_PASSES];
+    const s32* frames; // [poseCount] each pose's RS frame (a tweened copy's: its first client cycle), for reports
+    const s32* cycles; // [poseCount] each pose's length, 20 ms client cycles
+    // [poseCount + 1][pass], pose poseCount being rest; NULL where the copy has no such list (an empty opaque
+    // list, or no `.xlu`): nothing to submit.
+    Gfx* (*lists)[ARCHIVE_PROPS_PASSES];
     // Each pass's flip-head serial (FLIP HEADS above); 0: that pass has no list in any pose, or no flip.
     u16 flipSerial[ARCHIVE_PROPS_PASSES];
 } ArchivePropsAnimCopy;
