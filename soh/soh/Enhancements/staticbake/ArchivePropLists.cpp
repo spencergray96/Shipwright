@@ -18,7 +18,6 @@
 #include "ArchivePropLists.h"
 
 #include <algorithm>
-#include <cassert>
 #include <cmath>
 #include <cstdlib>
 #include <map>
@@ -312,7 +311,8 @@ Gfx* HoldAnimList(const std::string& path, bool optional, bool* missing) {
 // A held copy's flips (ArchivePropLists.h, FLIP HEADS): one a pass with a list in some pose, on the copy's own
 // clock - a loop from the clock's zero plus its random start, as Rs_AnimProp counts it; a play-once one from
 // the origin its actor sets.
-void RegisterFlips(ArchivePropsAnimCopy& c) {
+void RegisterFlips(ArchivePropsAnimCopy& c, const std::string& path, s32 copy) {
+    static_assert(ARCHIVE_PROPS_ANIM_POSES_MAX <= Fast::FLIPBOOK_POSES_MAX, "a copy's poses must fit a flip");
     const bool loops = c.frameStep >= 1 && c.frameStep <= c.poseCount;
     Fast::FlipBookDesc d;
     d.poseCount = c.poseCount;
@@ -333,6 +333,12 @@ void RegisterFlips(ArchivePropsAnimCopy& c) {
             any = any || d.poses[k] != nullptr;
         }
         c.flipSerial[pass] = any ? Fast::FlipBookRegister(&c.lists[0][pass], d) : 0;
+        if (any && c.flipSerial[pass] == 0) {
+            // Its actor writes this pass's list per tick instead (RsAnimProp.c), so it still draws.
+            SPDLOG_WARN("[staticbake] archive prop list {}: copy {}'s {} flip was refused (its clock does not read), "
+                        "so it is picked per tick (sturdy-bassoon#204 C4b)",
+                        path, copy, pass == ARCHIVE_PROPS_PASS_OPA ? "opaque" : "translucent");
+        }
     }
 }
 
@@ -464,7 +470,7 @@ extern "C" const ArchivePropsAnimCopy* ArchiveProps_AnimCopy(PlayState* play, s3
     }
     *miss = ARCHIVE_PROPS_ANIM_OK;
     ArchivePropsAnimCopy& stored = sAnimCopies.emplace(std::make_pair(path, copy), c).first->second;
-    RegisterFlips(stored);
+    RegisterFlips(stored, path, copy);
     return &stored;
 }
 
@@ -564,16 +570,16 @@ void ReleaseHeld() {
         drawn.clear();
     }
     // The flips name the copies' lists (#204 C4b): out of the registry before the lists go. Nothing else
-    // registers a flip, so the registry must be empty now; the clear makes it so if that ever stops being true.
+    // registers a flip today, so this empties it; anything left is cleared too, with a line, since its lists may
+    // be about to go. (What checks a pointer at use is the registry's Debug `unheld` count.)
     for (const auto& kv : sAnimCopies) {
         UnregisterFlips(kv.second);
     }
     const uint32_t leftover = Fast::FlipBookGetStats().registered;
     if (leftover != 0) {
-        SPDLOG_ERROR("[staticbake] {} flip heads were still registered after the copies' release: cleared "
+        SPDLOG_ERROR("[staticbake] {} flip heads were still registered after the copies' release: clearing them "
                      "(sturdy-bassoon#204 C4b)",
                      leftover);
-        assert(leftover == 0);
     }
     Fast::FlipBookClear();
     sHeld.clear();

@@ -40,9 +40,12 @@
 //                   pick=<tick|frame> saved=0|1`. From the human command it is saved (CVAR_RS_ANIMPROP_PICK;
 //                   default clears it); from `agenttest animprop` it holds for this session only, as `staticbake
 //                   xlu` does. status also gains `pick=<tick|frame> flips=<n> flip_resolves=<n> flip_changes=<n>
-//                   flip_stale=<n> frames=<n>`: the flips registered, flip heads resolved and how many picked a new
-//                   pose, commands that found no flip (drawn as nothing: a release since they were built), and
-//                   rendered frames. list's lines gain `flip=<k|rest|-> flip_changes=<n> flip_resolves=<n>`
+//                   flip_stale=<n> flip_unheld=<n> frames=<n>`: the flips registered (one a copy's pass), flip
+//                   heads resolved and how many picked a new pose (both passes counted: not the actor's
+//                   `changes`), commands that found no flip (drawn as nothing: a release since they were built),
+//                   in a Debug build resolves to a list the bake does not know (a pointer that outlived its
+//                   resource; 0 in Release), and rendered frames. list's lines gain `flip=<k|rest|->
+//                   flip_changes=<n> flip_resolves=<n>`, of the copy's translucent flip (else its opaque one)
 //   trace <idx> <frames>
 //                   traces copy idx (list's order) for that many rendered frames it draws in: `op=trace result=ok
 //                   started=1`. `trace` alone reads it: one `trace frame=<n> clock=<s> pose=<k> via=head|dl` line a
@@ -50,11 +53,14 @@
 //                   changes_per_s= holds_ms=<ms>:<count>,...`, the holds being the clock between pose changes
 //   selftest [plant]
 //                   the actor's own pick against each copy's registered flip at every millisecond over two plays:
-//                   `op=selftest result=ok|fail plant=0|1 copies= skipped= checked= mismatched=`. plant shifts the
-//                   flip a client cycle, which must fail
-//   plant [off]     the first copy also draws a bake-registered list holding its flip head: `op=plant result=ok
-//                   planted=1 state=<unbaked|baked|rejected> reason="<the recorder's>"`. Must read rejected, "a flip
-//                   head inside a recorded list"
+//                   `op=selftest result=ok|fail plant=0|1 copies= skipped= checked= mismatched=`. plant lengthens the
+//                   actor side's first pose a client cycle, which must fail
+//   plant [off|unheld]
+//                   the first copy with a translucent flip also draws a bake-registered list holding its flip head:
+//                   `op=plant result=ok planted=1 state=<not_registered|unbaked|baked|rejected> reason="<the
+//                   recorder's>"`. Must read rejected, "a flip head inside a recorded list". Again after a reset
+//                   re-plants it. unheld instead draws a flip whose pose the bake never registered: `flip_unheld`
+//                   must climb (Debug). off stops either
 //
 // Returns 0 on success (and for the reads), 1 for a refused operation: no scene, an unknown subcommand, an
 // extra argument or a bad value (`op=<sub> result=error error=bad_value`).

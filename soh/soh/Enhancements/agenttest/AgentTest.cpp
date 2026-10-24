@@ -592,7 +592,7 @@
  *                                          planted refusals, and #117's cost bench laid out with real
  *                                          triggers. InteractionConsole.h documents every line
  *   agenttest animprop status|list|pose <k|rest|clock>|reset|pick <tick|frame|default>|
- *                      trace [<idx> <frames>]|selftest [plant]|plant [off]
+ *                      trace [<idx> <frames>]|selftest [plant]|plant [off|unheld]
  *                                          the flipbook props (sturdy-bassoon#204 C4a): copies, found or not,
  *                                          drawn and culled, pose changes; each copy's clock and last pose;
  *                                          every copy held on one pose for a planted control. Since C4b: where
@@ -3094,7 +3094,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
               "animprop status|list|pose <k|rest|clock>|reset|pick <tick|frame|default>|trace [<idx> <frames>]|"
-              "selftest [plant]|plant [off] | "
+              "selftest [plant]|plant [off|unheld] | "
               "lights [status]|sunfirst [on|off|default]|pool [<n>|default]|shadow|shadowsmooth|shadowrate|"
               "shadowpulse|shadowinterp | "
               "graph [status]|reset|cap <opa|xlu|overlay> [<words>|default]|failsafe [on|off] | "
@@ -3149,7 +3149,7 @@ void RegisterAgentTest() {
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
               "animprop status|list|pose <k|rest|clock>|reset|pick <tick|frame|default>|trace [<idx> <frames>]|"
-              "selftest [plant]|plant [off] | "
+              "selftest [plant]|plant [off|unheld] | "
               "lights [status]|sunfirst [on|off|default]|pool [<n>|default]|shadow|shadowsmooth|shadowrate|"
               "shadowpulse|shadowinterp | "
               "graph [status]|reset|cap <opa|xlu|overlay> [<words>|default]|failsafe [on|off] | "

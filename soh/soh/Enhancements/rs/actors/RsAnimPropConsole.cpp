@@ -32,7 +32,7 @@ namespace {
 using ConsoleSink::Addf;
 
 const char* kUsage = "op=usage result=error usage=\"animprop status | list | pose <k|rest|clock> | reset | pick "
-                     "<tick|frame|default> | trace [<idx> <frames>] | selftest [plant] | plant [off]\"";
+                     "<tick|frame|default> | trace [<idx> <frames>] | selftest [plant] | plant [off|unheld]\"";
 
 // The forced pose, this session only (RsAnimProp.h's RS_ANIMPROP_FORCE_*).
 int32_t sForced = RS_ANIMPROP_FORCE_CLOCK;
@@ -42,9 +42,13 @@ int32_t sForced = RS_ANIMPROP_FORCE_CLOCK;
 #define CVAR_RS_ANIMPROP_PICK CVAR_DEVELOPER_TOOLS("RsAnimPropPick")
 int32_t sPickSession = -1;
 
-// `plant`: a list holding a flip head, registered with the bake and drawn by one copy beside its own lists, so
-// the recorder must refuse it (#204 C4b). Built from that copy's flip when planted.
+// `plant`: a list holding a flip head, registered with the bake and drawn in the translucent pass of one copy
+// beside its own lists, so the recorder must refuse it (#204 C4b). Built from that copy's flip when planted, and
+// again by a `plant` that finds the bake forgot it (a reset). `plant unheld` instead draws a flip of its own
+// whose poses are a list the bake never registered, which the registry's Debug `unheld` count must catch.
+// sPlantCopy is only compared, never followed: a copy gone since is a pointer no live actor matches.
 Gfx sPlant[2];
+Gfx sPlantPose[1];
 const RsAnimProp* sPlantCopy = nullptr;
 bool sPlanted = false;
 
@@ -81,14 +85,19 @@ template <typename Fn> void ForEachCopy(Fn fn) {
 
 // The pass a copy's flip-head numbers are read from: its translucent one when it has a flip there (the torch's
 // flame), else its opaque one. nullptr when it has neither.
-const void* FlipHandle(const ArchivePropsAnimCopy* c) {
+s32 FlipPass(const ArchivePropsAnimCopy* c) {
     if (c == nullptr) {
-        return nullptr;
+        return -1;
     }
     if (c->flipSerial[ARCHIVE_PROPS_PASS_XLU] != 0) {
-        return &c->lists[0][ARCHIVE_PROPS_PASS_XLU];
+        return ARCHIVE_PROPS_PASS_XLU;
     }
-    return c->flipSerial[ARCHIVE_PROPS_PASS_OPA] != 0 ? &c->lists[0][ARCHIVE_PROPS_PASS_OPA] : nullptr;
+    return c->flipSerial[ARCHIVE_PROPS_PASS_OPA] != 0 ? ARCHIVE_PROPS_PASS_OPA : -1;
+}
+
+const void* FlipHandle(const ArchivePropsAnimCopy* c) {
+    const s32 pass = FlipPass(c);
+    return pass < 0 ? nullptr : &c->lists[0][pass];
 }
 
 std::string PoseName(int32_t pose, int32_t poseCount) {
@@ -134,14 +143,14 @@ int32_t Status(std::vector<std::string>& lines) {
          "op=status result=ok copies=%d ok=%d bad=%d awake=%d drawn=%d culled=%d changes=%llu draws=%llu "
          "clock=%.3f pinned=%d forced=%s lists=%u baked=%u unbaked=%u rejected=%u instance=%u copy_bytes=%u "
          "tex_evict=%llu streak=%d tripped=%d pick=%s flips=%u flip_resolves=%llu flip_changes=%llu flip_stale=%llu "
-         "frames=%llu",
+         "flip_unheld=%llu frames=%llu",
          copies, ok, copies - ok, awake, drawn, copies - drawn, (unsigned long long)changes,
          (unsigned long long)draws, Fast::StaticBakeClockSeconds(), Fast::StaticBakeClockIsPinned() ? 1 : 0,
          ForcedName(buf, sizeof(buf)), ArchiveProps::AnimLists(), baked, unbaked, rejected,
          (unsigned)sizeof(RsAnimProp), (unsigned)sizeof(ArchivePropsAnimCopy), (unsigned long long)sTrip.counted,
          sTrip.streak, sTrip.tripped ? 1 : 0, PickFrame() ? "frame" : "tick", flips.registered,
          (unsigned long long)flips.resolves, (unsigned long long)flips.changes, (unsigned long long)flips.stale,
-         (unsigned long long)flips.frames);
+         (unsigned long long)flips.unheld, (unsigned long long)flips.frames);
     return 0;
 }
 
@@ -158,8 +167,7 @@ int32_t List(std::vector<std::string>& lines) {
     ForEachCopy([&](const Actor* a, const RsAnimProp* p) {
         const ArchivePropsAnimCopy* c = LiveCopy(p);
         const char* state = p->copy != nullptr && c == nullptr ? "stale" : ArchiveProps_AnimMissName(p->miss);
-        std::string pose =
-            p->pose < 0 ? "-" : (c != nullptr && p->pose == c->poseCount ? "rest" : std::to_string(p->pose));
+        const std::string pose = PoseName(p->pose, c != nullptr ? c->poseCount : -1);
         Fast::FlipBookEntryInfo flip;
         const bool flipped = c != nullptr && Fast::FlipBookGetEntry(FlipHandle(c), &flip);
         const std::string flipPose = flipped ? PoseName(flip.last, c->poseCount) : "-";
@@ -292,7 +300,12 @@ int32_t TraceRun(const std::vector<std::string>& args, std::vector<std::string>&
     }
     std::string hist;
     for (const auto& kv : holds) {
-        hist += (hist.empty() ? "" : ",") + std::to_string(kv.first) + ":" + std::to_string(kv.second);
+        const std::string next = std::to_string(kv.first) + ":" + std::to_string(kv.second);
+        if (hist.size() + next.size() > 200) { // Addf's line is 512: the rest of the summary fits beside 200
+            hist += ",...";
+            break;
+        }
+        hist += (hist.empty() ? "" : ",") + next;
     }
     const double span = rows.size() > 1 ? rows.back().clock - rows.front().clock : 0.0;
     const uint64_t frameSpan = rows.size() > 1 ? rows.back().frame - rows.front().frame : 0;
@@ -307,14 +320,14 @@ int32_t TraceRun(const std::vector<std::string>& args, std::vector<std::string>&
 
 // `selftest [plant]`: every live copy's pose by the actor's own pick (RsAnimProp_PoseAt on RsAnimProp_CycleAt)
 // against its registered flip's (Fast::FlipBookPoseAtClock), at every millisecond over two whole plays from
-// two clock bases. `plant` shifts the flip's clock one client cycle, which a working test must catch.
+// two clock bases. `plant` lengthens the actor side's first pose by one client cycle - the lengths are what
+// differ between poses (the torch's 5 and 4) - which a working test must catch.
 int32_t SelfTest(const std::vector<std::string>& args, std::vector<std::string>& lines) {
     const bool plant = args.size() == 2 && args[1] == "plant";
     if (args.size() == 2 && !plant) {
         lines.push_back(kUsage);
         return 1;
     }
-    const double shift = plant ? 1.0 / Fast::FLIPBOOK_CYCLES_PER_SECOND : 0.0;
     int32_t copies = 0, skipped = 0;
     uint64_t checked = 0, mismatched = 0;
     ForEachCopy([&](Actor*, RsAnimProp* p) {
@@ -329,12 +342,15 @@ int32_t SelfTest(const std::vector<std::string>& args, std::vector<std::string>&
         for (int32_t k = 0; k < c->poseCount; k++) {
             total += c->cycles[k];
         }
-        const int32_t ms = (int32_t)(2 * total * 20 + 40);
+        ArchivePropsAnimCopy nudged = *c;
+        nudged.cycles[0] += plant ? 1 : 0;
+        const double cycleMs = 1000.0 / Fast::FLIPBOOK_CYCLES_PER_SECOND;
+        const int32_t ms = (int32_t)((2 * total + 2) * cycleMs);
         for (double base : { p->initClock, 1000.0 + p->initClock }) {
             for (int32_t t = 0; t <= ms; t++) {
                 const double now = base + t / 1000.0;
-                const int32_t mine = RsAnimProp_PoseAt(c, RsAnimProp_CycleAt(p, now));
-                const int32_t theirs = Fast::FlipBookPoseAtClock(handle, now + shift);
+                const int32_t mine = RsAnimProp_PoseAt(&nudged, RsAnimProp_CycleAt(p, now));
+                const int32_t theirs = Fast::FlipBookPoseAtClock(handle, now);
                 checked++;
                 mismatched += mine != theirs ? 1 : 0;
             }
@@ -352,18 +368,44 @@ int32_t Plant(const std::vector<std::string>& args, std::vector<std::string>& li
     if (args.size() == 2 && args[1] == "off") {
         sPlanted = false;
         sPlantCopy = nullptr;
+        Fast::FlipBookUnregister(sPlantPose);
         Addf(lines, "op=plant result=ok planted=0");
         return 0;
     }
-    if (args.size() != 1) {
+    const bool unheld = args.size() == 2 && args[1] == "unheld";
+    if (args.size() != 1 && !unheld) {
         lines.push_back(kUsage);
         return 1;
     }
-    if (!sPlanted) {
+    if (unheld) {
+        // A flip of the plant's own (keyed by sPlantPose) whose every pose is sPlantPose, a list the bake never
+        // registered: drawn, each resolve must count `unheld` in a Debug build.
         const RsAnimProp* first = nullptr;
         ForEachCopy([&](Actor*, RsAnimProp* p) {
-            if (first == nullptr && FlipHandle(LiveCopy(p)) != nullptr) {
-                first = p;
+            first = first == nullptr && LiveCopy(p) != nullptr ? p : first;
+        });
+        if (first == nullptr) {
+            Addf(lines, "op=plant result=error error=no_copy");
+            return 1;
+        }
+        gSPEndDisplayList(&sPlantPose[0]);
+        Fast::FlipBookDesc d;
+        d.poseCount = 1;
+        d.cycles[0] = 1;
+        d.frameStep = 1;
+        d.poses[0] = d.poses[1] = sPlantPose;
+        gSPFlipBook(&sPlant[0], sPlantPose, Fast::FlipBookRegister(sPlantPose, d));
+        gSPEndDisplayList(&sPlant[1]);
+        sPlantCopy = first;
+        sPlanted = true;
+        Addf(lines, "op=plant result=ok planted=1 kind=unheld");
+        return 0;
+    }
+    if (!sPlanted || Fast::StaticBakeGetEntry(sPlant).state == Fast::StaticBakeEntryState::NotRegistered) {
+        const RsAnimProp* first = nullptr;
+        ForEachCopy([&](Actor*, RsAnimProp* p) {
+            if (first == nullptr && FlipPass(LiveCopy(p)) == ARCHIVE_PROPS_PASS_XLU) {
+                first = p; // the plant is drawn in the translucent pass
             }
         });
         if (first == nullptr) {
@@ -371,9 +413,7 @@ int32_t Plant(const std::vector<std::string>& args, std::vector<std::string>& li
             return 1;
         }
         const ArchivePropsAnimCopy* c = LiveCopy(first);
-        const void* handle = FlipHandle(c);
-        const s32 pass = handle == &c->lists[0][ARCHIVE_PROPS_PASS_XLU] ? ARCHIVE_PROPS_PASS_XLU : ARCHIVE_PROPS_PASS_OPA;
-        gSPFlipBook(&sPlant[0], handle, c->flipSerial[pass]);
+        gSPFlipBook(&sPlant[0], FlipHandle(c), c->flipSerial[ARCHIVE_PROPS_PASS_XLU]);
         gSPEndDisplayList(&sPlant[1]);
         Fast::StaticBakeRegister(sPlant);
         sPlantCopy = first;

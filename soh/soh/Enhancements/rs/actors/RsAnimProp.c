@@ -132,6 +132,8 @@ void RsAnimProp_Draw(Actor* thisx, PlayState* play) {
     Gfx* opa;
     Gfx* xlu;
     int32_t pose;
+    int32_t headOpa;
+    int32_t headXlu;
     int32_t drawOpa;
     int32_t drawXlu;
 
@@ -159,10 +161,14 @@ void RsAnimProp_Draw(Actor* thisx, PlayState* play) {
     this->draws++;
     opa = this->copy->lists[pose][ARCHIVE_PROPS_PASS_OPA];
     xlu = ArchiveProps_XluSubmitted() ? this->copy->lists[pose][ARCHIVE_PROPS_PASS_XLU] : NULL;
-    // Per frame, a pass draws when some pose has a list in it (its flip is registered); per tick, when this one
-    // does. A flip head replaces exactly one gSPDisplayList, so a copy writes the same words either way.
-    drawOpa = frame ? this->copy->flipSerial[ARCHIVE_PROPS_PASS_OPA] != 0 : opa != NULL;
-    drawXlu = frame ? ArchiveProps_XluSubmitted() && this->copy->flipSerial[ARCHIVE_PROPS_PASS_XLU] != 0 : xlu != NULL;
+    // Per frame, a pass with a flip writes its head: it draws whenever some pose has a list in that pass, so its
+    // setup is written each tick even while the pose shown has none (a few words; the torch has an `.xlu` in every
+    // pose, so its stream is C4a's word for word). A pass without one - per tick, or a flip ArchiveProps could not
+    // register - writes this tick's list, C4a's way.
+    headOpa = frame && this->copy->flipSerial[ARCHIVE_PROPS_PASS_OPA] != 0;
+    headXlu = frame && ArchiveProps_XluSubmitted() && this->copy->flipSerial[ARCHIVE_PROPS_PASS_XLU] != 0;
+    drawOpa = headOpa || opa != NULL;
+    drawXlu = headXlu || xlu != NULL;
 
     OPEN_DISPS(play->state.gfxCtx);
 
@@ -172,7 +178,7 @@ void RsAnimProp_Draw(Actor* thisx, PlayState* play) {
         func_800342EC(&sRsAnimPropHiliteOrigin, play);
         func_80093C80(play);
         gSPMatrix(POLY_OPA_DISP++, &gMtxClear, G_MTX_MODELVIEW | G_MTX_LOAD);
-        if (frame) {
+        if (headOpa) {
             gSPFlipBook(POLY_OPA_DISP++, &this->copy->lists[0][ARCHIVE_PROPS_PASS_OPA],
                         this->copy->flipSerial[ARCHIVE_PROPS_PASS_OPA]);
         } else {
@@ -183,7 +189,7 @@ void RsAnimProp_Draw(Actor* thisx, PlayState* play) {
         func_8003435C(&sRsAnimPropHiliteOrigin, play);
         Gfx_SetupDL_25Xlu(play->state.gfxCtx);
         gSPMatrix(POLY_XLU_DISP++, &gMtxClear, G_MTX_MODELVIEW | G_MTX_LOAD);
-        if (frame) {
+        if (headXlu) {
             gSPFlipBook(POLY_XLU_DISP++, &this->copy->lists[0][ARCHIVE_PROPS_PASS_XLU],
                         this->copy->flipSerial[ARCHIVE_PROPS_PASS_XLU]);
         } else {
