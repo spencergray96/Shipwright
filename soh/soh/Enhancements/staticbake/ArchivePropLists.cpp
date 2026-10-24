@@ -25,6 +25,7 @@
 #include <sstream>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <fast/FlipBook.h>
 #include <fast/StaticMeshCache.h>
