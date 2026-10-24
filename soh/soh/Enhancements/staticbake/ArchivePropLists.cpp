@@ -91,7 +91,16 @@ struct AnimTable {
     std::vector<AnimLine> lines;
 };
 std::map<std::string, AnimTable> sAnimTables;                            // by declared path
-std::map<std::pair<std::string, s32>, ArchivePropsAnimCopy> sAnimCopies; // by (declared path, copy)
+// A held copy: the record the actor reads, and the arrays it points into, sized to the copy's own poses (#204,
+// in-between poses; ArchivePropLists.h, SIZED PER COPY). Moving one keeps the arrays where they are, so `c`'s
+// pointers stay good in the map; they go when the map clears (ReleaseHeld), after the copy's flips.
+struct HeldAnimCopy {
+    ArchivePropsAnimCopy c = {};
+    std::vector<s32> frames;
+    std::vector<s32> cycles;
+    std::unique_ptr<Gfx* [][ARCHIVE_PROPS_PASSES]> lists;
+};
+std::map<std::pair<std::string, s32>, HeldAnimCopy> sAnimCopies; // by (declared path, copy)
 std::map<std::string, ArchiveList> sAnimLists;                           // every list a copy holds, by path
 u32 sGeneration = 1;
 constexpr const char* ANIM_SUFFIX = ".anim";
@@ -312,14 +321,12 @@ Gfx* HoldAnimList(const std::string& path, bool optional, bool* missing) {
 // clock - a loop from the clock's zero plus its random start, as Rs_AnimProp counts it; a play-once one from
 // the origin its actor sets.
 void RegisterFlips(ArchivePropsAnimCopy& c, const std::string& path, s32 copy) {
-    static_assert(ARCHIVE_PROPS_ANIM_POSES_MAX <= Fast::FLIPBOOK_POSES_MAX, "a copy's poses must fit a flip");
     const bool loops = c.frameStep >= 1 && c.frameStep <= c.poseCount;
     Fast::FlipBookDesc d;
     d.poseCount = c.poseCount;
     d.frameStep = c.frameStep;
-    for (s32 k = 0; k < c.poseCount; k++) {
-        d.cycles[k] = c.cycles[k];
-    }
+    d.cycles.assign(c.cycles, c.cycles + c.poseCount);
+    d.poses.resize((size_t)c.poseCount + 1);
     if (loops) {
         for (s32 k = 0; k < c.startPose && k < c.poseCount; k++) {
             d.cycleOffset += c.cycles[k];
@@ -422,7 +429,7 @@ extern "C" const ArchivePropsAnimCopy* ArchiveProps_AnimCopy(PlayState* play, s3
     auto held = sAnimCopies.find({ path, copy });
     if (held != sAnimCopies.end()) {
         *miss = ARCHIVE_PROPS_ANIM_OK;
-        return &held->second;
+        return &held->second.c;
     }
     // The path's own lists and scrolls first, as its room would: an actor may ask before the room offers.
     if (sHeld.find(path) == sHeld.end()) {
@@ -445,18 +452,27 @@ extern "C" const ArchivePropsAnimCopy* ArchiveProps_AnimCopy(PlayState* play, s3
                     path, copy, line.id, line.check, check);
         return nullptr;
     }
-    ArchivePropsAnimCopy c = {};
-    c.poseCount = (s32)line.poses.size();
+    // Its arrays, as long as its own poses (SIZED PER COPY): built here, moved into the map whole on success.
+    HeldAnimCopy h;
+    const s32 poses = (s32)line.poses.size();
+    h.frames.resize(poses);
+    h.cycles.resize(poses);
+    h.lists.reset(new Gfx* [(size_t)poses + 1][ARCHIVE_PROPS_PASSES]());
+    ArchivePropsAnimCopy& c = h.c;
+    c.poseCount = poses;
     c.frameStep = line.frameStep;
     c.startPose = line.startPose;
     c.startCycle = line.startCycle;
+    c.frames = h.frames.data();
+    c.cycles = h.cycles.data();
+    c.lists = h.lists.get();
     const std::string dir = path.substr(0, path.rfind('/')) + "/copies/" + line.id + "/";
     bool missing = false;
     for (s32 k = 0; k <= c.poseCount; k++) {
         const std::string name = k < c.poseCount ? "f" + std::to_string(line.poses[k].first) : std::string("rest");
         if (k < c.poseCount) {
-            c.frames[k] = line.poses[k].first;
-            c.cycles[k] = line.poses[k].second;
+            h.frames[k] = line.poses[k].first;
+            h.cycles[k] = line.poses[k].second;
         }
         c.lists[k][ARCHIVE_PROPS_PASS_OPA] = HoldAnimList(dir + name, false, &missing);
         c.lists[k][ARCHIVE_PROPS_PASS_XLU] = HoldAnimList(dir + name + XLU_SUFFIX, true, &missing);
@@ -469,7 +485,7 @@ extern "C" const ArchivePropsAnimCopy* ArchiveProps_AnimCopy(PlayState* play, s3
         return nullptr;
     }
     *miss = ARCHIVE_PROPS_ANIM_OK;
-    ArchivePropsAnimCopy& stored = sAnimCopies.emplace(std::make_pair(path, copy), c).first->second;
+    ArchivePropsAnimCopy& stored = sAnimCopies.emplace(std::make_pair(path, copy), std::move(h)).first->second.c;
     RegisterFlips(stored, path, copy);
     return &stored;
 }
@@ -573,7 +589,7 @@ void ReleaseHeld() {
     // registers a flip today, so this empties it; anything left is cleared too, with a line, since its lists may
     // be about to go. (What checks a pointer at use is the registry's Debug `unheld` count.)
     for (const auto& kv : sAnimCopies) {
-        UnregisterFlips(kv.second);
+        UnregisterFlips(kv.second.c);
     }
     const uint32_t leftover = Fast::FlipBookGetStats().registered;
     if (leftover != 0) {

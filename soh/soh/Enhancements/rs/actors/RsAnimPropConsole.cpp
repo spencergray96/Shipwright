@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <map>
+#include <vector>
 
 #include <fast/FlipBook.h>
 #include <fast/PerfCounters.h>
@@ -342,8 +343,11 @@ int32_t SelfTest(const std::vector<std::string>& args, std::vector<std::string>&
         for (int32_t k = 0; k < c->poseCount; k++) {
             total += c->cycles[k];
         }
+        // Its own lengths (#204: a copy's arrays are the held copy's, so a nudge on a shallow copy would move it).
+        std::vector<s32> cycles(c->cycles, c->cycles + c->poseCount);
+        cycles[0] += plant ? 1 : 0;
         ArchivePropsAnimCopy nudged = *c;
-        nudged.cycles[0] += plant ? 1 : 0;
+        nudged.cycles = cycles.data();
         const double cycleMs = 1000.0 / Fast::FLIPBOOK_CYCLES_PER_SECOND;
         const int32_t ms = (int32_t)((2 * total + 2) * cycleMs);
         for (double base : { p->initClock, 1000.0 + p->initClock }) {
@@ -391,9 +395,9 @@ int32_t Plant(const std::vector<std::string>& args, std::vector<std::string>& li
         gSPEndDisplayList(&sPlantPose[0]);
         Fast::FlipBookDesc d;
         d.poseCount = 1;
-        d.cycles[0] = 1;
+        d.cycles = { 1 };
         d.frameStep = 1;
-        d.poses[0] = d.poses[1] = sPlantPose;
+        d.poses = { sPlantPose, sPlantPose };
         gSPFlipBook(&sPlant[0], sPlantPose, Fast::FlipBookRegister(sPlantPose, d));
         gSPEndDisplayList(&sPlant[1]);
         sPlantCopy = first;
