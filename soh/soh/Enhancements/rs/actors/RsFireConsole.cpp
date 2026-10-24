@@ -25,7 +25,8 @@ namespace {
 using ConsoleSink::Addf;
 
 const char* kUsage =
-    "op=usage result=error usage=\"rsfire list | pool | distance [<n>|default] | glow [on|off|default]\"";
+    "op=usage result=error usage=\"rsfire list | pool | distance [<n>|default] | glow [on|off|default] | "
+    "probe [<name> on|off|clear]\"";
 
 // The live fires, in the prop list's order.
 template <typename Fn> void ForEachFire(Fn fn) {
@@ -154,10 +155,59 @@ int32_t Glow(const std::vector<std::string>& args, std::vector<std::string>& lin
     return 0;
 }
 
+// The planted probes (RsFire.h, #253), by name.
+struct ProbeName {
+    const char* name;
+    uint32_t bit;
+};
+const ProbeName kProbes[] = {
+    { "nopointlights", RS_FIRE_PROBE_NO_POINTLIGHTS },
+    { "nosound", RS_FIRE_PROBE_NO_SOUND },
+    { "nocollider", RS_FIRE_PROBE_NO_COLLIDER },
+    { "noflame", RS_FIRE_PROBE_NO_FLAME },
+};
+
+// probe [<name> on|off | clear]: sets one if given, then reports them all. Session-only, never saved.
+int32_t Probe(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    uint32_t probes = RsFire_GetProbes();
+
+    if (args.size() == 2 && args[1] == "clear") {
+        probes = 0;
+    } else if (args.size() == 3) {
+        const ProbeName* found = nullptr;
+        for (const ProbeName& p : kProbes) {
+            if (args[1] == p.name) {
+                found = &p;
+            }
+        }
+        if (found == nullptr || (args[2] != "on" && args[2] != "off")) {
+            Addf(lines,
+                 "op=probe result=error error=bad_value expects=nopointlights|nosound|nocollider|noflame_on|off");
+            return 1;
+        }
+        probes = (args[2] == "on") ? (probes | found->bit) : (probes & ~found->bit);
+    } else if (args.size() != 1) {
+        Addf(lines, "op=probe result=error error=bad_value expects=<name>_on|off|clear");
+        return 1;
+    }
+    RsFire_SetProbes(probes);
+    ApplyToAll();
+    int32_t fires = 0;
+    int32_t ignoring = 0;
+    ForEachFire([&](const Actor* a, const RsFire*) {
+        fires++;
+        ignoring += (a->flags & ACTOR_FLAG_IGNORE_POINTLIGHTS) != 0 ? 1 : 0;
+    });
+    Addf(lines, "op=probe result=ok nopointlights=%d nosound=%d nocollider=%d noflame=%d fires=%d ignoring=%d",
+         (probes & RS_FIRE_PROBE_NO_POINTLIGHTS) ? 1 : 0, (probes & RS_FIRE_PROBE_NO_SOUND) ? 1 : 0,
+         (probes & RS_FIRE_PROBE_NO_COLLIDER) ? 1 : 0, (probes & RS_FIRE_PROBE_NO_FLAME) ? 1 : 0, fires, ignoring);
+    return 0;
+}
+
 } // namespace
 
 int32_t RsFireConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines) {
-    if (args.empty() || args.size() > 2) {
+    if (args.empty() || args.size() > 3 || (args.size() == 3 && args[0] != "probe")) {
         lines.push_back(kUsage);
         return 1;
     }
@@ -166,6 +216,9 @@ int32_t RsFireConsole_Run(const std::vector<std::string>& args, std::vector<std:
         return 1;
     }
     const std::string& sub = args[0];
+    if (sub == "probe") {
+        return Probe(args, lines);
+    }
     if (sub == "distance") {
         return Distance(args, lines);
     }

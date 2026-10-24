@@ -25,12 +25,17 @@ namespace {
 using ConsoleSink::Addf;
 
 const char* kUsage =
-    "op=usage result=error usage=\"lights [status] | sunfirst [on|off|default] | pool [<n>|default] | shadow [clear] | "
+    "op=usage result=error usage=\"lights [status] | sunfirst [on|off|default] | nullbind [on|off|default] | "
+    "pool [<n>|default] | shadow [clear] | "
     "shadowsmooth [on|off|default] | shadowrate [<k>|default] | shadowpulse [on|off|default|<amount> <seconds>] | "
     "shadowinterp [clear|on|off|default|pair <on|off|default>|probe <link|id>]\"";
 
 bool SunFirstOn() {
     return CVarGetInteger(CVAR_LIGHTS_SUN_FIRST, LIGHTS_SUN_FIRST_DEFAULT) != 0;
+}
+
+bool NullBindFastOn() {
+    return CVarGetInteger(CVAR_LIGHTS_NULL_BIND_FAST, LIGHTS_NULL_BIND_FAST_DEFAULT) != 0;
 }
 
 bool ShadowSmoothOn() {
@@ -47,8 +52,9 @@ int32_t Status(std::vector<std::string>& lines) {
     Addf(lines, "op=status result=ok occupied=%d cap=%d size=%d peak=%d refused=%d sunfirst=%s gate=%d scene=0x%X",
          s.occupied, s.cap, LIGHTS_BUFFER_SIZE, s.peak, s.refused, SunFirstOn() ? "on" : "off", s.sunFirstGate,
          gPlayState != nullptr ? gPlayState->sceneNum : -1);
-    Addf(lines, "tick frame=%u binds=%d walked=%d overflowed=%d max_in_range=%d", s.tick, s.binds, s.walked,
-         s.overflowed, s.maxInRange);
+    Addf(lines, "tick frame=%u binds=%d walked=%d overflowed=%d max_in_range=%d null_binds=%d null_fast=%d nullbind=%s",
+         s.tick, s.binds, s.walked, s.overflowed, s.maxInRange, s.nullBinds, s.nullFast,
+         NullBindFastOn() ? "on" : "off");
     Addf(lines, "link in_range=%d points=%d dirs=%d", s.linkInRange, s.linkPoints, s.linkDirs);
     return 0;
 }
@@ -70,6 +76,24 @@ int32_t SunFirst(const std::vector<std::string>& args, std::vector<std::string>&
     Addf(lines, "op=sunfirst result=ok sunfirst=%s default=%s override=%d gate=%d", SunFirstOn() ? "on" : "off",
          LIGHTS_SUN_FIRST_DEFAULT ? "on" : "off", CVarGetInteger(CVAR_LIGHTS_SUN_FIRST, -1) != -1 ? 1 : 0,
          s.sunFirstGate);
+    return 0;
+}
+
+// nullbind [on|off|default] (#253): a no-position bind visits only the directional lights. Saved, as sunfirst.
+int32_t NullBind(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() == 2) {
+        if (args[1] == "default") {
+            CVarClear(CVAR_LIGHTS_NULL_BIND_FAST);
+        } else if (args[1] == "on" || args[1] == "off") {
+            CVarSetInteger(CVAR_LIGHTS_NULL_BIND_FAST, args[1] == "on" ? 1 : 0);
+        } else {
+            Addf(lines, "op=nullbind result=error error=bad_value expects=on|off|default");
+            return 1;
+        }
+        CVarSave();
+    }
+    Addf(lines, "op=nullbind result=ok nullbind=%s default=%s override=%d", NullBindFastOn() ? "on" : "off",
+         LIGHTS_NULL_BIND_FAST_DEFAULT ? "on" : "off", CVarGetInteger(CVAR_LIGHTS_NULL_BIND_FAST, -1) != -1 ? 1 : 0);
     return 0;
 }
 
@@ -329,6 +353,9 @@ int32_t LightsConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "sunfirst") {
         return SunFirst(args, lines);
     }
+    if (sub == "nullbind") {
+        return NullBind(args, lines);
+    }
     if (sub == "pool") {
         return Pool(args, lines);
     }
@@ -380,8 +407,11 @@ const ConsoleSink::Command lightsCommand(
     "`shadowinterp probe <id>`'s for this session; `shadowinterp clear` starts afresh. `shadowinterp on|off` "
     "switches the feet and circle shadows to world-space interpolation, which stops them shrinking and reversing "
     "when their actor turns sharply; `shadowinterp pair on|off` pairs each foot shadow with its own light's from "
-    "tick to tick, so one joining or leaving does not swing the others.",
-    { { "status|sunfirst|pool|shadow|shadowsmooth|shadowrate|shadowpulse|shadowinterp", Ship::ArgumentType::TEXT },
+    "tick to tick, so one joining or leaving does not swing the others. nullbind (#253) switches the "
+    "no-position bind (IGNORE_POINTLIGHTS actors, the room, soft sprites) to visit only the directional lights "
+    "instead of walking every node; it binds the same lights either way.",
+    { { "status|sunfirst|nullbind|pool|shadow|shadowsmooth|shadowrate|shadowpulse|shadowinterp",
+        Ship::ArgumentType::TEXT },
       { "value", Ship::ArgumentType::TEXT, true } });
 
 } // namespace

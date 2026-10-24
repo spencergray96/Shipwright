@@ -47,6 +47,20 @@ static s32 sLightsCountThisTick;    // a grid-tool scene: count what wants a slo
 static s32 sLightsSunFirstThisTick; // and the setting is on: bind the sun first when it overflows
 static s32 sLightsShadowSmoothThisTick; // a grid-tool scene and the setting on: smooth the feet shadows (#250)
 static s32 sLightsShadowPulseThisTick;  // and the pulse setting on: the smoothed shadows breathe (#250)
+static s32 sLightsNullFastThisTick;     // a no-position bind takes the directional list (#253)
+
+// The no-position bind's directional list (LightsBudget.h, #253): the list's directional nodes, in list order.
+// Rebuilt when the list changes (sLightsListGen, bumped by every insert and remove), when a bind passes another
+// head, or when a new tick starts; a node no longer directional when used rebuilds it too. -1 when the list
+// holds more than fit, and the bind walks instead.
+#define LIGHTS_DIR_LIST_MAX 16
+static LightNode* sLightsDirNodes[LIGHTS_DIR_LIST_MAX];
+static s32 sLightsDirCount;
+static s32 sLightsDirValid;
+static u32 sLightsListGen;
+static u32 sLightsDirGen;
+static u32 sLightsDirFrame;
+static LightNode* sLightsDirHead;
 
 // Lights_FindSlot's cap: the slots in a Lights group (`Lights.l.l`).
 #define LIGHTS_BIND_SLOTS 7
@@ -517,6 +531,7 @@ static void Lights_RollTick(void) {
         sLightsCountThisTick && CVarGetInteger(CVAR_LIGHTS_SHADOW_SMOOTH, LIGHTS_SHADOW_SMOOTH_DEFAULT);
     sLightsShadowPulseThisTick =
         sLightsShadowSmoothThisTick && CVarGetInteger(CVAR_LIGHTS_SHADOW_PULSE, LIGHTS_SHADOW_PULSE_DEFAULT);
+    sLightsNullFastThisTick = CVarGetInteger(CVAR_LIGHTS_NULL_BIND_FAST, LIGHTS_NULL_BIND_FAST_DEFAULT) != 0;
     fresh.sunFirstGate = sLightsSunFirstThisTick;
     sLightsTick = fresh;
     sLightsTickFrame = frame;
@@ -698,6 +713,44 @@ static s32 Lights_CountVanillaBind(LightNode* node, Vec3f* vec, s32 slotsFree) {
     return visited;
 }
 
+// The directional list for `head`, rebuilt if stale (#253). False when the list holds more directional
+// lights than it keeps: the caller walks.
+static s32 Lights_RefreshDirNodes(LightNode* head) {
+    LightNode* node;
+    s32 i;
+
+    if (sLightsDirValid && sLightsDirGen == sLightsListGen && sLightsDirHead == head &&
+        sLightsDirFrame == sLightsTickFrame) {
+        if (sLightsDirCount < 0) {
+            return 0;
+        }
+        for (i = 0; i < sLightsDirCount; i++) {
+            if (sLightsDirNodes[i]->info == NULL || sLightsDirNodes[i]->info->type != LIGHT_DIRECTIONAL) {
+                break;
+            }
+        }
+        if (i == sLightsDirCount) {
+            return sLightsDirCount >= 0;
+        }
+    }
+    sLightsDirCount = 0;
+    for (node = head; node != NULL; node = node->next) {
+        if (node->info->type == LIGHT_DIRECTIONAL) {
+            if (sLightsDirCount >= LIGHTS_DIR_LIST_MAX) {
+                sLightsDirCount = -1;
+                break;
+            }
+            sLightsDirNodes[sLightsDirCount++] = node;
+        }
+        sLightsTick.walked++;
+    }
+    sLightsDirValid = 1;
+    sLightsDirGen = sLightsListGen;
+    sLightsDirHead = head;
+    sLightsDirFrame = sLightsTickFrame;
+    return sLightsDirCount >= 0;
+}
+
 /**
  * For every light in a provided list, try to find a free slot in the provided Lights group and bind
  * a light to it. Then apply color and positional/directional info for each light
@@ -747,6 +800,25 @@ void Lights_BindAll(Lights* lights, LightNode* listHead, Vec3f* vec) {
 
     // #254: which node fills each slot, for every bind (it was only for the smoothing, #250).
     Lights_OpenBindNodes(lights);
+
+    // #253: no position, so only the directional lights can bind, in list order, as either walk below would bind
+    // them. The count's overflow is the one figure it would have changed, so it is kept.
+    if (vec == NULL) {
+        sLightsTick.nullBinds++;
+        if (sLightsNullFastThisTick && Lights_RefreshDirNodes(listStart)) {
+            for (i = 0; i < sLightsDirCount; i++) {
+                before = lights->numLights;
+                Lights_BindDirectional(lights, &sLightsDirNodes[i]->info->params, vec);
+                Lights_NoteShadowSlot(lights, before, sLightsDirNodes[i], 0);
+            }
+            sLightsTick.walked += sLightsDirCount;
+            sLightsTick.nullFast++;
+            if (sLightsCountThisTick) {
+                sLightsTick.overflowed += sLightsDirCount > slotsFree;
+            }
+            return;
+        }
+    }
 
     if (!sLightsCountThisTick) {
         // A vanilla scene: vanilla's loop.
@@ -882,6 +954,7 @@ void LightContext_Init(PlayState* play, LightContext* lightCtx) {
     LightContext_SetAmbientColor(lightCtx, 80, 80, 80);
     LightContext_SetFog(lightCtx, 0, 0, 0, 996, 12800);
     memset(&sLightsBuffer, 0, sizeof(sLightsBuffer));
+    sLightsDirValid = 0; // #253: every node is gone
     sLightsPeak = 0;
     sLightsRefused = 0;
     // A new scene restarts state.frames, so its first tick could share the last one's number.
@@ -943,6 +1016,7 @@ LightNode* LightContext_InsertLight(PlayState* play, LightContext* lightCtx, Lig
         }
 
         lightCtx->listHead = node;
+        sLightsListGen++; // #253: the directional list is stale
     }
 
     return node;
@@ -961,6 +1035,7 @@ void LightContext_RemoveLight(PlayState* play, LightContext* lightCtx, LightNode
         }
 
         Lights_FreeNode(node);
+        sLightsListGen++; // #253: the directional list is stale
     }
 }
 

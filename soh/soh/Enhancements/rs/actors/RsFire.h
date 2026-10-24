@@ -112,6 +112,20 @@ int32_t RsFire_GlowOn(void);
 // Writes both settings into one live fire, as its next update would.
 void RsFire_ApplySettings(RsFire* fire);
 
+// PLANTED PROBES (sturdy-bassoon#253): session-only switches that each take one of a fire's costs away, so
+// one session can split the frame between them. Never saved, all off at launch; `rsfire probe`. They change
+// what a fire does, so they are measurement controls, not settings.
+typedef enum RsFireProbe {
+    RS_FIRE_PROBE_NO_POINTLIGHTS = 1 << 0, // ACTOR_FLAG_IGNORE_POINTLIGHTS: Actor_Draw binds with no position
+    RS_FIRE_PROBE_NO_SOUND = 1 << 1,       // no NA_SE_EV_TORCH request a tick
+    RS_FIRE_PROBE_NO_COLLIDER = 1 << 2,    // no AC registration, so nothing can hit it
+    RS_FIRE_PROBE_NO_FLAME = 1 << 3,       // RsFire_Draw writes nothing; Actor_Draw's own work stays
+} RsFireProbe;
+uint32_t RsFire_GetProbes(void);
+// Read every tick and by every draw; the IGNORE_POINTLIGHTS flag is written by RsFire_ApplySettings, so
+// the caller applies it to every live fire (the console's ApplyToAll).
+void RsFire_SetProbes(uint32_t probes);
+
 #ifdef __cplusplus
 }
 #endif

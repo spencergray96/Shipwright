@@ -139,11 +139,27 @@ int32_t RsFire_GlowOn(void) {
     return CVarGetInteger(CVAR_RS_FIRE_GLOW, RS_FIRE_GLOW_DEFAULT) != 0 ? 1 : 0;
 }
 
+// The planted probes (RsFire.h, #253): session-only, all off at launch.
+static uint32_t sRsFireProbes = 0;
+
+uint32_t RsFire_GetProbes(void) {
+    return sRsFireProbes;
+}
+
+void RsFire_SetProbes(uint32_t probes) {
+    sRsFireProbes = probes;
+}
+
 // The two settings (RsFire.h, #243). The light's type is all the glow is: Lights_PointGlowSetInfo and
 // Lights_PointNoGlowSetInfo differ in nothing else, so switching it in place keeps the node.
 void RsFire_ApplySettings(RsFire* this) {
     this->actor.uncullZoneForward = (f32)RsFire_DrawDistance();
     this->lightInfo.type = RsFire_GlowOn() ? LIGHT_POINT_GLOW : LIGHT_POINT_NOGLOW;
+    if (sRsFireProbes & RS_FIRE_PROBE_NO_POINTLIGHTS) {
+        this->actor.flags |= ACTOR_FLAG_IGNORE_POINTLIGHTS;
+    } else {
+        this->actor.flags &= ~ACTOR_FLAG_IGNORE_POINTLIGHTS;
+    }
 }
 
 // Takes a node, once, if this fire wants a light and has none. A full pool returns NULL, and the fire
@@ -226,8 +242,9 @@ void RsFire_Init(Actor* thisx, PlayState* play) {
     this->collider.dim.radius = (s16)(RS_FIRE_CYL_RADIUS * hitRatio + 0.5f);
     this->collider.dim.height = (s16)(RS_FIRE_CYL_HEIGHT * hitRatio + 0.5f);
     this->collider.dim.yShift = (s16)(RS_FIRE_STICK_ABOVE * ratio - (float)this->collider.dim.height / 2.0f);
-    // The draw distance, before the first cull test (RsFire.h). The light takes its type in TakeLight.
-    thisx->uncullZoneForward = (f32)RsFire_DrawDistance();
+    // The draw distance, before the first cull test (RsFire.h), and the probes. The light's type is
+    // overwritten in TakeLight.
+    RsFire_ApplySettings(this);
 
     if (this->flag >= 0 && Flags_GetWorldFlag(this->flag)) {
         // Lit once already in this save: it stays lit, without its ignition sound.
@@ -530,20 +547,24 @@ void RsFire_Update(Actor* thisx, PlayState* play) {
             Lights_PointSetColorAndRadius(&this->lightInfo, (u8)(255.0f * intensity), (u8)(200.0f * intensity), 0,
                                           RS_FIRE_LIGHT_RADIUS);
         }
-        Audio_PlayActorSound2(thisx, NA_SE_EV_TORCH - SFX_FLAG);
+        if (!(sRsFireProbes & RS_FIRE_PROBE_NO_SOUND)) {
+            Audio_PlayActorSound2(thisx, NA_SE_EV_TORCH - SFX_FLAG);
+        }
     }
 
     // The flame's collider, every tick it updates - and it updates only while in view, so the culling
     // (RsFire.h, the draw distance) is the range: an arrow can light any fire Link can see.
-    Collider_UpdateCylinder(thisx, &this->collider);
-    CollisionCheck_SetAC(play, &play->colChkCtx, &this->collider.base);
+    if (!(sRsFireProbes & RS_FIRE_PROBE_NO_COLLIDER)) {
+        Collider_UpdateCylinder(thisx, &this->collider);
+        CollisionCheck_SetAC(play, &play->colChkCtx, &this->collider.base);
+    }
 }
 
 void RsFire_Draw(Actor* thisx, PlayState* play) {
     RsFire* this = (RsFire*)thisx;
     float grow;
 
-    if (!this->lit) {
+    if (!this->lit || (sRsFireProbes & RS_FIRE_PROBE_NO_FLAME)) {
         return;
     }
     grow = (this->growTicks < RS_FIRE_GROW_TICKS) ? ((float)this->growTicks / (float)RS_FIRE_GROW_TICKS) : 1.0f;
