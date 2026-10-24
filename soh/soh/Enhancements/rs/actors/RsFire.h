@@ -89,7 +89,7 @@
 //     the fires past it stop filling the AC list. 0 registers every fire that updates, as before.
 //     `rsfire reach <n>|off|default`.
 #define RS_FIRE_POINT_LIGHTS_DEFAULT 0
-#define RS_FIRE_DIRECT_DRAW_DEFAULT 0 // waits for the owner's look (#253)
+#define RS_FIRE_DIRECT_DRAW_DEFAULT 1 // on since the owner's look (#253, 2026-10-24): the 20 Hz turn did not show
 #define RS_FIRE_COLLIDER_REACH_DEFAULT 2500
 #define RS_FIRE_COLLIDER_REACH_MAX 30000
 #define CVAR_RS_FIRE_POINT_LIGHTS CVAR_ENHANCEMENT("RsFirePointLights")
