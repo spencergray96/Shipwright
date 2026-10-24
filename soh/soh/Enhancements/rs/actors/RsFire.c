@@ -157,6 +157,12 @@ int32_t RsFire_ColliderReach(void) {
 // The planted probes (RsFire.h, #253): session-only, all off at launch.
 static uint32_t sRsFireProbes = 0;
 
+// The display list is resolved by name once a tick, not once a fire: gSPDisplayList looks a path up in the
+// resource manager on every call, 600 lookups a tick on #253's field. state.frames restarts with each scene, so
+// RsFire_Init drops the pointer too: a new scene's first tick may share the last one's number.
+static Gfx* sRsFireFlameDL = NULL;
+static u32 sRsFireFlameDLFrame = 0;
+
 uint32_t RsFire_GetProbes(void) {
     return sRsFireProbes;
 }
@@ -221,6 +227,7 @@ void RsFire_Init(Actor* thisx, PlayState* play) {
     char line[128];
 
     this->flag = -1;
+    sRsFireFlameDL = NULL; // RsFire_DrawDirect resolves it again (#253)
     if (RS_FIRE_PARAMS_GET_HAS_FLAG(thisx->params)) {
         if (WORLD_FLAG_IS_PLACEMENT(RS_FIRE_PARAMS_GET_FLAG(thisx->params))) {
             this->flag = (int16_t)RS_FIRE_PARAMS_GET_FLAG(thisx->params);
@@ -634,10 +641,7 @@ void RsFire_Draw(Actor* thisx, PlayState* play) {
 //     by shape.rot (always 0 for a fire) and scale; RsFire_Draw adds the facing turn and the grow. The
 //     product is written out directly: T(pos) x Ry(yaw) x S(scale x grow), the scales being uniform.
 //     A fire never moves, so the interpolated frames between two ticks lose only the facing turn's lerp.
-// The display list is resolved by name once a tick, not once a fire: gSPDisplayList looks a path up in the
-// resource manager on every call, 600 lookups a tick on #253's field.
-static Gfx* sRsFireFlameDL = NULL;
-static u32 sRsFireFlameDLFrame = 0;
+// The flame's display list, resolved once a tick (RsFire_DrawDirect).
 
 int32_t RsFire_DrawDirect(PlayState* play, Actor* thisx) {
     RsFire* this = (RsFire*)thisx;

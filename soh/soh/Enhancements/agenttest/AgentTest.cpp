@@ -3188,14 +3188,7 @@ void RegisterAgentTest() {
 
 static RegisterShipInitFunc initFunc(RegisterAgentTest);
 
-// The marker channel, opened up to gameplay code (sturdy-bassoon#58 P3). This is what lets an actor
-// make an in-game conversation ASSERTABLE - a screenshot shows a textbox, a marker names the rule
-// that produced it. Outside agent mode the line still goes to the engine log, and only there
-// (sturdy-bassoon#97): an ordinary session should not grow a marker file nobody reads, but the
-// sessions where a human judges a conversation are exactly the ones worth a record. Every caller is
-// an event, never a per-frame stream, which is what makes that affordable. A call made before the
-// console-logo tick decides sAgentMode (from a ShipInit function, say) reads as "not agent mode" and
-// reaches the engine log only - so ShipInit-time code still wants a pull-based report.
+// AgentTest.h, sturdy-bassoon#253: one clock read a rendered frame, for the perf marker's frame_max_ms.
 extern "C" void AgentTest_NoteFrameEnd(void) {
     const auto now = std::chrono::steady_clock::now();
     if (sFrameHave) {
@@ -3209,6 +3202,14 @@ extern "C" void AgentTest_NoteFrameEnd(void) {
     sFrameHave = true;
 }
 
+// The marker channel, opened up to gameplay code (sturdy-bassoon#58 P3). This is what lets an actor
+// make an in-game conversation ASSERTABLE - a screenshot shows a textbox, a marker names the rule
+// that produced it. Outside agent mode the line still goes to the engine log, and only there
+// (sturdy-bassoon#97): an ordinary session should not grow a marker file nobody reads, but the
+// sessions where a human judges a conversation are exactly the ones worth a record. Every caller is
+// an event, never a per-frame stream, which is what makes that affordable. A call made before the
+// console-logo tick decides sAgentMode (from a ShipInit function, say) reads as "not agent mode" and
+// reaches the engine log only - so ShipInit-time code still wants a pull-based report.
 extern "C" void AgentTest_WriteMarker(const char* text) {
     if (text == nullptr) {
         return;

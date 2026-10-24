@@ -264,7 +264,12 @@ int32_t Reach(const std::vector<std::string>& args, std::vector<std::string>& li
         CVarSave();
     }
     const int32_t reach = RsFire_ColliderReach();
-    Actor* link = &GET_PLAYER(gPlayState)->actor;
+    Player* player = GET_PLAYER(gPlayState);
+    if (player == nullptr) {
+        Addf(lines, "op=reach result=error error=no_player");
+        return 1;
+    }
+    Actor* link = &player->actor;
     int32_t awake = 0;
     int32_t inReach = 0;
     ForEachFire([&](const Actor* a, const RsFire*) {

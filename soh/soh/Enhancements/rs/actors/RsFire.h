@@ -82,7 +82,8 @@
 //     Actor_Draw. It writes the flame alone - no light bind, no segment 06, no fault client - and its
 //     matrix is built unrecorded, so frame interpolation keeps nothing for it. The fire never moves, so
 //     only the turn to face the camera changes between ticks: it is redrawn each 20 Hz tick, not each
-//     rendered frame. `rsfire directdraw on|off|default`.
+//     rendered frame. `rsfire directdraw on|off|default`. Nor does it leave a light bind behind: a draw after
+//     the actor loop that binds none of its own inherits the last actor's, which was already whichever drew last.
 //   COLLIDER REACH (RS_FIRE_COLLIDER_REACH_DEFAULT): the flame's collider registers only within this of
 //     Link. An arrow flies about 2,200 (#243), so every fire an arrow or a stick can reach still registers;
 //     the fires past it stop filling the AC list. 0 registers every fire that updates, as before.
@@ -150,9 +151,10 @@ int32_t RsFire_DrawDirect(struct PlayState* play, Actor* fire);
 // one session can split the frame between them. Never saved, all off at launch; `rsfire probe`. They change
 // what a fire does, so they are measurement controls, not settings.
 typedef enum RsFireProbe {
-    RS_FIRE_PROBE_NO_SOUND = 1 << 1,    // no NA_SE_EV_TORCH request a tick
-    RS_FIRE_PROBE_NO_COLLIDER = 1 << 2, // no AC registration, so nothing can hit it
-    RS_FIRE_PROBE_NO_FLAME = 1 << 3,    // the flame's own lists are not written; Actor_Draw's head stays
+    RS_FIRE_PROBE_NO_SOUND = 1 << 0,    // no NA_SE_EV_TORCH request a tick
+    RS_FIRE_PROBE_NO_COLLIDER = 1 << 1, // no AC registration, so nothing can hit it
+    RS_FIRE_PROBE_NO_FLAME = 1 << 2,    // the flame's own lists are not written; Actor_Draw's head stays
+                                        // (with directdraw on there is no head: nothing is written)
 } RsFireProbe;
 uint32_t RsFire_GetProbes(void);
 // Read every tick and by every draw.

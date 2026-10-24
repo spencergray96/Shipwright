@@ -51,8 +51,9 @@ static s32 sLightsNullFastThisTick;     // a no-position bind takes the directio
 
 // The no-position bind's directional list (LightsBudget.h, #253): the list's directional nodes, in list order.
 // Rebuilt when the list changes (sLightsListGen, bumped by every insert and remove), when a bind passes another
-// head, or when a new tick starts; a node no longer directional when used rebuilds it too. -1 when the list
-// holds more than fit, and the bind walks instead.
+// head, or when a new tick starts; a cached node no longer directional when used rebuilds it too. A point light
+// turned directional in place is the one change it misses, until the next tick. -1 when the list holds more
+// than fit, and the bind walks instead.
 #define LIGHTS_DIR_LIST_MAX 16
 static LightNode* sLightsDirNodes[LIGHTS_DIR_LIST_MAX];
 static s32 sLightsDirCount;
@@ -730,12 +731,12 @@ static s32 Lights_RefreshDirNodes(LightNode* head) {
             }
         }
         if (i == sLightsDirCount) {
-            return sLightsDirCount >= 0;
+            return 1;
         }
     }
     sLightsDirCount = 0;
     for (node = head; node != NULL; node = node->next) {
-        if (node->info->type == LIGHT_DIRECTIONAL) {
+        if (node->info != NULL && node->info->type == LIGHT_DIRECTIONAL) {
             if (sLightsDirCount >= LIGHTS_DIR_LIST_MAX) {
                 sLightsDirCount = -1;
                 break;
