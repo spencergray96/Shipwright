@@ -63,8 +63,7 @@ int32_t RsAnimProp_PoseAt(const ArchivePropsAnimCopy* copy, int64_t cycle) {
 
 // Where the copy's play stands now, in client cycles: a looping one from the clock's zero plus its start, so
 // copies keep their phase against each other and a pinned clock holds every pose; a play-once one from its Init.
-static int64_t RsAnimProp_Cycle(const RsAnimProp* this) {
-    const double now = RsAnimProp_ClockSeconds();
+int64_t RsAnimProp_CycleAt(const RsAnimProp* this, double now) {
     int64_t start = 0;
     int32_t k;
 
@@ -94,6 +93,10 @@ static void RsAnimProp_Fetch(RsAnimProp* this, PlayState* play) {
     this->generation = ArchiveProps_Generation();
     this->copy = ArchiveProps_AnimCopy(play, this->actor.room, this->list, this->copyIndex, this->check, &miss);
     this->miss = (int16_t)miss;
+    // A play-once copy's flips count from this actor's Init, as RsAnimProp_CycleAt does (#204 C4b).
+    if (this->copy != NULL && !RsAnimProp_Loops(this->copy)) {
+        ArchiveProps_AnimSetOrigin(this->copy, this->initClock);
+    }
 }
 
 void RsAnimProp_Init(Actor* thisx, PlayState* play) {
@@ -125,9 +128,14 @@ void RsAnimProp_Update(Actor* thisx, PlayState* play) {
 void RsAnimProp_Draw(Actor* thisx, PlayState* play) {
     RsAnimProp* this = (RsAnimProp*)thisx;
     const int32_t forced = RsAnimProp_ForcedPose();
+    const int32_t frame = RsAnimProp_PickFrame();
     Gfx* opa;
     Gfx* xlu;
     int32_t pose;
+    int32_t headOpa;
+    int32_t headXlu;
+    int32_t drawOpa;
+    int32_t drawXlu;
 
     RsAnimProp_FrameTick(play);
     // Again after a release (the generation moved), and while its room had not declared its lists yet (an actor
@@ -144,7 +152,7 @@ void RsAnimProp_Draw(Actor* thisx, PlayState* play) {
     } else if (forced >= 0) {
         pose = forced < this->copy->poseCount ? forced : this->copy->poseCount - 1;
     } else {
-        pose = RsAnimProp_PoseAt(this->copy, RsAnimProp_Cycle(this));
+        pose = RsAnimProp_PoseAt(this->copy, RsAnimProp_CycleAt(this, RsAnimProp_ClockSeconds()));
     }
     if (this->pose >= 0 && pose != this->pose) {
         this->changes++;
@@ -153,22 +161,44 @@ void RsAnimProp_Draw(Actor* thisx, PlayState* play) {
     this->draws++;
     opa = this->copy->lists[pose][ARCHIVE_PROPS_PASS_OPA];
     xlu = ArchiveProps_XluSubmitted() ? this->copy->lists[pose][ARCHIVE_PROPS_PASS_XLU] : NULL;
+    // Per frame, a pass with a flip writes its head: it draws whenever some pose has a list in that pass, so its
+    // setup is written each tick even while the pose shown has none (a few words; the torch has an `.xlu` in every
+    // pose, so its stream is C4a's word for word). A pass without one - per tick, or a flip ArchiveProps could not
+    // register - writes this tick's list, C4a's way.
+    headOpa = frame && this->copy->flipSerial[ARCHIVE_PROPS_PASS_OPA] != 0;
+    headXlu = frame && ArchiveProps_XluSubmitted() && this->copy->flipSerial[ARCHIVE_PROPS_PASS_XLU] != 0;
+    drawOpa = headOpa || opa != NULL;
+    drawXlu = headXlu || xlu != NULL;
 
     OPEN_DISPS(play->state.gfxCtx);
 
     // Exactly the room's state before its archive lists (z_room.c, func_80095AB4): the hilite, the room's
     // setup list and the identity modelview, in each pass. The lists set their own materials.
-    if (opa != NULL) {
+    if (drawOpa) {
         func_800342EC(&sRsAnimPropHiliteOrigin, play);
         func_80093C80(play);
         gSPMatrix(POLY_OPA_DISP++, &gMtxClear, G_MTX_MODELVIEW | G_MTX_LOAD);
-        gSPDisplayList(POLY_OPA_DISP++, opa);
+        if (headOpa) {
+            gSPFlipBook(POLY_OPA_DISP++, &this->copy->lists[0][ARCHIVE_PROPS_PASS_OPA],
+                        this->copy->flipSerial[ARCHIVE_PROPS_PASS_OPA]);
+        } else {
+            gSPDisplayList(POLY_OPA_DISP++, opa);
+        }
     }
-    if (xlu != NULL) {
+    if (drawXlu) {
         func_8003435C(&sRsAnimPropHiliteOrigin, play);
         Gfx_SetupDL_25Xlu(play->state.gfxCtx);
         gSPMatrix(POLY_XLU_DISP++, &gMtxClear, G_MTX_MODELVIEW | G_MTX_LOAD);
-        gSPDisplayList(POLY_XLU_DISP++, xlu);
+        if (headXlu) {
+            gSPFlipBook(POLY_XLU_DISP++, &this->copy->lists[0][ARCHIVE_PROPS_PASS_XLU],
+                        this->copy->flipSerial[ARCHIVE_PROPS_PASS_XLU]);
+        } else {
+            gSPDisplayList(POLY_XLU_DISP++, xlu);
+        }
+        // `animprop plant` only: a baked list holding a flip head, which the recorder must refuse.
+        if (RsAnimProp_PlantList(this) != NULL) {
+            gSPDisplayList(POLY_XLU_DISP++, RsAnimProp_PlantList(this));
+        }
     }
 
     CLOSE_DISPS(play->state.gfxCtx);

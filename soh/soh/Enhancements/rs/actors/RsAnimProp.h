@@ -24,8 +24,17 @@
 // the client steps back `frameStep` poses, and a step out of range (RS's -1, a sequence that plays once) stops
 // it, when it draws its rest pose. A looping copy reads the bake's clock (Fast::StaticBakeClockSeconds, which
 // `staticbake clock` pins, so a pinned capture holds its pose) from the table's random start; a play-once copy
-// counts from its Init. Read in Draw, so the pose changes at most once a 20 Hz game tick: SoH draws once a tick
-// and replays that for every interpolated frame (#208). Picking it at render time is #204 C4b.
+// counts from its Init.
+//
+// WHERE THE POSE IS PICKED (#204 C4b; `animprop pick`, CVAR_RS_ANIMPROP_PICK):
+//   frame (the default): Draw writes a flip head (gSPFlipBook) per pass instead of the pose's list, and the
+//          interpreter picks the pose on every rendered frame, interpolated ones included, from the same clock
+//          (ArchivePropLists.h, FLIP HEADS). Poses hold RS's own lengths: the torch's 100 and 80 ms.
+//   tick:  Draw picks the pose and writes its list, C4a exactly. SoH draws once a 20 Hz tick and replays that
+//          for every interpolated frame (#208), so a pose changes at most once a tick and holds 50 or 100 ms.
+//          Kept as the fallback and the planted control.
+// Draw computes the tick's pose in both modes, for `animprop list` and `status` (changes counts it); the frame
+// pick's own counts are the flips' (`flip_changes`). A forced pose (`animprop pose`) holds in both.
 //
 // THE LIGHTS: ACTOR_FLAG_IGNORE_POINTLIGHTS, so Actor_Draw binds the scene's lights with no position, as
 // Play_Draw binds the room's: the copy is lit as its baked twin is, and no point light (a fire beside it) is
@@ -41,6 +50,9 @@
 #include "soh/Enhancements/staticbake/ArchivePropLists.h"
 
 #define RS_ANIMPROP_DRAW_DISTANCE 6000 // uncullZoneForward; Rs_Fire's (RsFire.h). Actor_Init's is 1,000
+
+// WHERE THE POSE IS PICKED: CVAR_DEVELOPER_TOOLS("RsAnimPropPick"), 1 frame, 0 tick (RsAnimPropConsole.cpp).
+#define RS_ANIMPROP_PICK_DEFAULT 1
 
 // A forced pose for the whole session (`animprop pose`): the clock's, a pose index, or rest.
 #define RS_ANIMPROP_FORCE_CLOCK (-1)
@@ -69,10 +81,16 @@ extern "C" {
 int32_t RsAnimProp_PoseAt(const ArchivePropsAnimCopy* copy, int64_t cycle);
 // Whether its sequence loops: frameStep 1..poseCount.
 int32_t RsAnimProp_Loops(const ArchivePropsAnimCopy* copy);
+// The cycle a fetched copy's play stands at when the bake clock reads `now` (THE CLOCK). Pure.
+int64_t RsAnimProp_CycleAt(const RsAnimProp* prop, double now);
 
 // The console's side (RsAnimPropConsole.cpp): the bake clock, the forced pose, and the per-frame tripwire.
 double RsAnimProp_ClockSeconds(void);
 int32_t RsAnimProp_ForcedPose(void);
+// 1: the pose is picked per rendered frame (flip heads), 0: in Draw, per tick (WHERE THE POSE IS PICKED).
+int32_t RsAnimProp_PickFrame(void);
+// `animprop plant`'s list when this copy draws it (a flip head inside a baked list), else NULL.
+Gfx* RsAnimProp_PlantList(const RsAnimProp* prop);
 // Once a drawn frame, from the first copy that draws in it: the #172 texture-cache tripwire (RsAnimPropConsole.h).
 void RsAnimProp_FrameTick(PlayState* play);
 

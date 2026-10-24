@@ -73,6 +73,13 @@
 //     or a missing pose list: no copy, and one log line a cause. The actor draws nothing and says so.
 // Only a ROOM_SHAPE_TYPE_NORMAL room draws them (func_80095AB4); any other shape's declaration is
 // ignored. Every grid-tool room is that shape.
+//
+// FLIP HEADS (sturdy-bassoon#204 C4b; libultraship's fast/FlipBook.h): when a copy is resolved, each pass that
+// has a list in any pose is registered as a flip, its handle the pass's row of pose pointers in the held copy
+// (&lists[0][pass]) and its serial kept in `flipSerial`. Rs_AnimProp writes gSPFlipBook with them, and the
+// interpreter picks the pose on every rendered frame from the copy's clock, as the actor's Draw would once a
+// tick. ReleaseHeld unregisters every flip BEFORE it drops the lists they name, so the registry never holds a
+// freed pointer, and a command built before a release finds no handle and draws nothing.
 
 // The two passes a room submits archive prop lists in: its opaque pass, and its translucent pass.
 #define ARCHIVE_PROPS_PASS_OPA 0
@@ -91,6 +98,8 @@ typedef struct ArchivePropsAnimCopy {
     // [pose][pass], pose poseCount being rest; NULL where the copy has no such list (an empty opaque list, or
     // no `.xlu`): nothing to submit.
     Gfx* lists[ARCHIVE_PROPS_ANIM_POSES_MAX + 1][ARCHIVE_PROPS_PASSES];
+    // Each pass's flip-head serial (FLIP HEADS above); 0: that pass has no list in any pose, or no flip.
+    u16 flipSerial[ARCHIVE_PROPS_PASSES];
 } ArchivePropsAnimCopy;
 
 // Why ArchiveProps_AnimCopy found no copy (it returns NULL and writes one of these).
@@ -124,6 +133,9 @@ const ArchivePropsAnimCopy* ArchiveProps_AnimCopy(PlayState* play, s32 roomNum, 
 // Bumped whenever held lists are released (a new bake group, `staticbake reset`): a copy fetched under an
 // older generation is gone - freed - and its holder must fetch it again before reading it, drawn or not.
 u32 ArchiveProps_Generation(void);
+// A play-once copy's start on the bake clock, for its flips (a looping copy's is the clock's zero). Its
+// actor's Init clock, set after every fetch.
+void ArchiveProps_AnimSetOrigin(const ArchivePropsAnimCopy* copy, double origin);
 // Whether the translucent halves are submitted (`staticbake xlu`): the room's gate, which a copy keeps too.
 s32 ArchiveProps_XluSubmitted(void);
 const char* ArchiveProps_AnimMissName(s32 miss);

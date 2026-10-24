@@ -591,10 +591,13 @@
  *                                          the code table, one interaction's resolved rule, the registry's
  *                                          planted refusals, and #117's cost bench laid out with real
  *                                          triggers. InteractionConsole.h documents every line
- *   agenttest animprop status|list|pose <k|rest|clock>|reset
+ *   agenttest animprop status|list|pose <k|rest|clock>|reset|pick <tick|frame|default>|
+ *                      trace [<idx> <frames>]|selftest [plant]|plant [off|unheld]
  *                                          the flipbook props (sturdy-bassoon#204 C4a): copies, found or not,
  *                                          drawn and culled, pose changes; each copy's clock and last pose;
- *                                          every copy held on one pose for a planted control.
+ *                                          every copy held on one pose for a planted control. Since C4b: where
+ *                                          the pose is picked (this session only), a per-frame pose trace, the
+ *                                          two picks' self-test and the recorder's planted refusal.
  *                                          RsAnimPropConsole.h documents every line
  *   agenttest rsfire list|pool|distance [<n>|default]|glow [on|off|default]
  *                                          the RS torch fires (sturdy-bassoon#232): where each is, its size,
@@ -3002,7 +3005,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     }
     if (args.size() >= 3 && args[1] == "animprop") {
         const std::vector<std::string> sub(args.begin() + 2, args.end());
-        return ConsoleSink::RunToMarkers(RsAnimPropConsole_Run, sub, "rs_animprop ", output, WriteMarker);
+        // The session sink: `pick` holds for this session only, never saved (#204 C4b).
+        return ConsoleSink::RunToMarkers(RsAnimPropConsole_RunSession, sub, "rs_animprop ", output, WriteMarker);
     }
     // >= 2: a bare `agenttest lights` is `status` (#233).
     if (args.size() >= 2 && args[1] == "lights") {
@@ -3089,7 +3093,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "warps list|dump|where|status|badcheck | "
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
-              "animprop status|list|pose <k|rest|clock>|reset | "
+              "animprop status|list|pose <k|rest|clock>|reset|pick <tick|frame|default>|trace [<idx> <frames>]|"
+              "selftest [plant]|plant [off|unheld] | "
               "lights [status]|sunfirst [on|off|default]|pool [<n>|default]|shadow|shadowsmooth|shadowrate|"
               "shadowpulse|shadowinterp | "
               "graph [status]|reset|cap <opa|xlu|overlay> [<words>|default]|failsafe [on|off] | "
@@ -3143,7 +3148,8 @@ void RegisterAgentTest() {
               "warps list|dump|where|status|badcheck | "
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
-              "animprop status|list|pose <k|rest|clock>|reset | "
+              "animprop status|list|pose <k|rest|clock>|reset|pick <tick|frame|default>|trace [<idx> <frames>]|"
+              "selftest [plant]|plant [off|unheld] | "
               "lights [status]|sunfirst [on|off|default]|pool [<n>|default]|shadow|shadowsmooth|shadowrate|"
               "shadowpulse|shadowinterp | "
               "graph [status]|reset|cap <opa|xlu|overlay> [<words>|default]|failsafe [on|off] | "
