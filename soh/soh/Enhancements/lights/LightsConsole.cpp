@@ -25,12 +25,18 @@ namespace {
 using ConsoleSink::Addf;
 
 const char* kUsage =
-    "op=usage result=error usage=\"lights [status] | sunfirst [on|off|default] | pool [<n>|default] | shadow [clear] | "
+    "op=usage result=error usage=\"lights [status] | sunfirst [on|off|default] | "
+    "nullbind [on|off|default|verify on|off|plant] | "
+    "pool [<n>|default] | shadow [clear] | "
     "shadowsmooth [on|off|default] | shadowrate [<k>|default] | shadowpulse [on|off|default|<amount> <seconds>] | "
     "shadowinterp [clear|on|off|default|pair <on|off|default>|probe <link|id>]\"";
 
 bool SunFirstOn() {
     return CVarGetInteger(CVAR_LIGHTS_SUN_FIRST, LIGHTS_SUN_FIRST_DEFAULT) != 0;
+}
+
+bool NullBindFastOn() {
+    return CVarGetInteger(CVAR_LIGHTS_NULL_BIND_FAST, LIGHTS_NULL_BIND_FAST_DEFAULT) != 0;
 }
 
 bool ShadowSmoothOn() {
@@ -47,8 +53,11 @@ int32_t Status(std::vector<std::string>& lines) {
     Addf(lines, "op=status result=ok occupied=%d cap=%d size=%d peak=%d refused=%d sunfirst=%s gate=%d scene=0x%X",
          s.occupied, s.cap, LIGHTS_BUFFER_SIZE, s.peak, s.refused, SunFirstOn() ? "on" : "off", s.sunFirstGate,
          gPlayState != nullptr ? gPlayState->sceneNum : -1);
-    Addf(lines, "tick frame=%u binds=%d walked=%d overflowed=%d max_in_range=%d", s.tick, s.binds, s.walked,
-         s.overflowed, s.maxInRange);
+    Addf(lines,
+         "tick frame=%u binds=%d walked=%d overflowed=%d max_in_range=%d null_binds=%d null_fast=%d nullbind=%s "
+         "null_verified=%d null_mismatch=%d",
+         s.tick, s.binds, s.walked, s.overflowed, s.maxInRange, s.nullBinds, s.nullFast,
+         NullBindFastOn() ? "on" : "off", s.nullVerified, s.nullMismatch);
     Addf(lines, "link in_range=%d points=%d dirs=%d", s.linkInRange, s.linkPoints, s.linkDirs);
     return 0;
 }
@@ -70,6 +79,39 @@ int32_t SunFirst(const std::vector<std::string>& args, std::vector<std::string>&
     Addf(lines, "op=sunfirst result=ok sunfirst=%s default=%s override=%d gate=%d", SunFirstOn() ? "on" : "off",
          LIGHTS_SUN_FIRST_DEFAULT ? "on" : "off", CVarGetInteger(CVAR_LIGHTS_SUN_FIRST, -1) != -1 ? 1 : 0,
          s.sunFirstGate);
+    return 0;
+}
+
+// nullbind [on|off|default | verify on|off|plant] (#253): a no-position bind visits only the directional lights.
+// Saved, as sunfirst. `verify` checks each fast bind against the walk it replaced, for this session only.
+int32_t NullBind(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() == 3 && args[1] == "verify") {
+        if (args[2] == "on" || args[2] == "off" || args[2] == "plant") {
+            Lights_SetNullBindVerify(args[2] == "on"      ? LIGHTS_NULL_VERIFY_ON
+                                     : args[2] == "plant" ? LIGHTS_NULL_VERIFY_PLANT
+                                                          : LIGHTS_NULL_VERIFY_OFF);
+        } else {
+            Addf(lines, "op=nullbind result=error error=bad_value expects=verify_on|off|plant");
+            return 1;
+        }
+    } else if (args.size() == 3) {
+        Addf(lines, "op=nullbind result=error error=bad_value expects=on|off|default|verify");
+        return 1;
+    } else if (args.size() == 2) {
+        if (args[1] == "default") {
+            CVarClear(CVAR_LIGHTS_NULL_BIND_FAST);
+        } else if (args[1] == "on" || args[1] == "off") {
+            CVarSetInteger(CVAR_LIGHTS_NULL_BIND_FAST, args[1] == "on" ? 1 : 0);
+        } else {
+            Addf(lines, "op=nullbind result=error error=bad_value expects=on|off|default");
+            return 1;
+        }
+        CVarSave();
+    }
+    const s32 verify = Lights_GetNullBindVerify();
+    Addf(lines, "op=nullbind result=ok nullbind=%s default=%s override=%d verify=%s", NullBindFastOn() ? "on" : "off",
+         LIGHTS_NULL_BIND_FAST_DEFAULT ? "on" : "off", CVarGetInteger(CVAR_LIGHTS_NULL_BIND_FAST, -1) != -1 ? 1 : 0,
+         verify == LIGHTS_NULL_VERIFY_ON ? "on" : verify == LIGHTS_NULL_VERIFY_PLANT ? "plant" : "off");
     return 0;
 }
 
@@ -320,14 +362,18 @@ int32_t ShadowInterp(const std::vector<std::string>& args, std::vector<std::stri
 } // namespace
 
 int32_t LightsConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines) {
-    // Only `shadowpulse <amount> <seconds>` and `shadowinterp probe <id>` take two values.
-    if (args.size() > 3 || (args.size() == 3 && args[0] != "shadowpulse" && args[0] != "shadowinterp")) {
+    // Only `shadowpulse <amount> <seconds>`, `shadowinterp probe <id>` and `nullbind verify <mode>` take two values.
+    if (args.size() > 3 ||
+        (args.size() == 3 && args[0] != "shadowpulse" && args[0] != "shadowinterp" && args[0] != "nullbind")) {
         lines.push_back(kUsage);
         return 1;
     }
     const std::string sub = args.empty() ? std::string("status") : args[0];
     if (sub == "sunfirst") {
         return SunFirst(args, lines);
+    }
+    if (sub == "nullbind") {
+        return NullBind(args, lines);
     }
     if (sub == "pool") {
         return Pool(args, lines);
@@ -380,8 +426,11 @@ const ConsoleSink::Command lightsCommand(
     "`shadowinterp probe <id>`'s for this session; `shadowinterp clear` starts afresh. `shadowinterp on|off` "
     "switches the feet and circle shadows to world-space interpolation, which stops them shrinking and reversing "
     "when their actor turns sharply; `shadowinterp pair on|off` pairs each foot shadow with its own light's from "
-    "tick to tick, so one joining or leaving does not swing the others.",
-    { { "status|sunfirst|pool|shadow|shadowsmooth|shadowrate|shadowpulse|shadowinterp", Ship::ArgumentType::TEXT },
+    "tick to tick, so one joining or leaving does not swing the others. nullbind (#253) switches the "
+    "no-position bind (IGNORE_POINTLIGHTS actors, the room, soft sprites) to visit only the directional lights "
+    "instead of walking every node; it binds the same lights either way.",
+    { { "status|sunfirst|nullbind|pool|shadow|shadowsmooth|shadowrate|shadowpulse|shadowinterp",
+        Ship::ArgumentType::TEXT },
       { "value", Ship::ArgumentType::TEXT, true } });
 
 } // namespace

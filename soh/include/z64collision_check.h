@@ -9,8 +9,11 @@
 // units but OC at 150-400, so a prop-dense square fills AC first (see ENGINE_BUDGETS.md,
 // "Collision check subscriptions"). AT stays vanilla: it reads 0/50 in every run ever logged and
 // only fills mid-attack. Raising further is safe per the sweep; raise both AC and OC or neither.
+// AC raised again, alone, to 1,024 (sturdy-bassoon#253): a lit Rs_Fire registers an AC cylinder and no OC,
+// so 600 fires in view filled the 192 and left 408 unhittable. `rsfire accap <n>` lowers the cap for one
+// session (CollisionCheck_SetACCap) to plant the old one; the array stays this size.
 #define COLLISION_CHECK_AT_MAX 50
-#define COLLISION_CHECK_AC_MAX 192
+#define COLLISION_CHECK_AC_MAX 1024
 #define COLLISION_CHECK_OC_MAX 128
 #define COLLISION_CHECK_OC_LINE_MAX 3
 
@@ -52,6 +55,18 @@ typedef struct {
  * Drives the agent-test perf marker's colchk_* fields.
  */
 void CollisionCheck_DiagTakeWindow(CollisionCheckDiagWindow* out);
+
+// The AC list's cap in force (sturdy-bassoon#253): COLLISION_CHECK_AC_MAX unless lowered for this session.
+// Set clamps to 1..COLLISION_CHECK_AC_MAX and returns what it set; it is never saved. C linkage either way: C++
+// reaches this header through RsFire.h as well as inside the usual extern "C" includes.
+#ifdef __cplusplus
+extern "C" {
+#endif
+s32 CollisionCheck_GetACCap(void);
+s32 CollisionCheck_SetACCap(s32 cap);
+#ifdef __cplusplus
+}
+#endif
 
 typedef struct {
     /* 0x00 */ struct Actor* actor; // Attached actor

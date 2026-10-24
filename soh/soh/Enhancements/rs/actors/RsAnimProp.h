@@ -38,7 +38,8 @@
 //
 // THE LIGHTS: ACTOR_FLAG_IGNORE_POINTLIGHTS, so Actor_Draw binds the scene's lights with no position, as
 // Play_Draw binds the room's: the copy is lit as its baked twin is, and no point light (a fire beside it) is
-// bound for it - it pays the bind walk's directional pass only (#253).
+// bound for it. The bind still visits every light node to find the directional ones (twice in a grid-tool
+// scene) unless `lights nullbind` is on, which visits only those (#253).
 //
 // THE CULL: flags otherwise 0, so a copy outside its cull volume neither updates nor draws. The volume's
 // forward reach is RS_ANIMPROP_DRAW_DISTANCE, Rs_Fire's, so a torch's flame and a fire on it go together.

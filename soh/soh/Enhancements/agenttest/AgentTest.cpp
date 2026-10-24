@@ -38,7 +38,10 @@
  *        cell_p95=<n> cells=<occupied>/<total> heap_kb=<free>/<total> colchk_at=<peak>/<max>
  *        colchk_ac=<peak>/<max> colchk_oc=<peak>/<max> colchk_rej=<at>/<ac>/<oc>
  *        dynapoly=<peak>/<max> dynapoly_rej=<n> fog=<near>/<far> wfog=<start>/<end>|off cap=<n>
- *        scene=0x<hex> frame=<n>
+ *        scene=0x<hex> frame=<n> ... frame_max_ms=<f> frame_late=<n> frame_gaps=<n>
+ *                                        (frame_*: the longest gap between two rendered frames over
+ *                                        the interval, and how many of frame_gaps ran past 1.2x the
+ *                                        cap's frame - AgentTest_NoteFrameEnd, sturdy-bassoon#253)
  *                                        every PerfInterval ticks (0 disables). fps/ms = ImGui render
  *                                        framerate (capped by the FPS setting); sub_ms = mean wall time
  *                                        one rendered frame spent inside the Fast3D interpreter, and
@@ -845,6 +848,13 @@ double sTickMaxMs = 0.0;
 uint32_t sTickSamples = 0;
 int16_t sLastRoom = -1;
 
+// Rendered-frame gaps (AgentTest_NoteFrameEnd, #253): the longest over the perf interval and how many ran late.
+std::chrono::steady_clock::time_point sFrameLast;
+bool sFrameHave = false;
+double sFrameMaxMs = 0.0;
+uint32_t sFrameLate = 0;
+uint32_t sFrameGaps = 0;
+
 // Fast3D's render-side counters as of the previous perf marker. They are cumulative, so the
 // interval's own figures are this subtracted from the current read.
 Fast::PerfCounters sLastRenderCounters = {};
@@ -1211,28 +1221,33 @@ void EmitPerf() {
         std::snprintf(worldFog, sizeof(worldFog), "%d/%d", worldStart, worldEnd);
     }
 
-    char buf[832];
+    char buf[960];
     std::snprintf(buf, sizeof(buf),
                   "perf fps=%.1f ms=%.2f sub_ms=%.2f draws=%llu tris=%llu flushes=%llu draws_baked=%llu "
                   "tris_baked=%llu tick_ms=%.2f "
                   "tick_max_ms=%.2f mem_mb=%.0f actors=%u act_near=%u act_mid=%u act_far=%u nodes=%u/%u "
                   "cell_max=%u cell_p95=%u cells=%u/%u heap_kb=%u/%u colchk_at=%d/%d colchk_ac=%d/%d "
                   "colchk_oc=%d/%d colchk_rej=%u/%u/%u dynapoly=%d/%d dynapoly_rej=%u fog=%d/%d wfog=%s cap=%u bld=%s "
-                  "scene=%s frame=%u texcache=%llu/%llu tex_evict=%llu tex_upload=%llu tex_used=%llu",
+                  "scene=%s frame=%u texcache=%llu/%llu tex_evict=%llu tex_upload=%llu tex_used=%llu "
+                  "frame_max_ms=%.2f frame_late=%u frame_gaps=%u",
                   fps, ms, subMs, (unsigned long long)render.lastDraws, (unsigned long long)render.lastTris,
                   (unsigned long long)render.lastFlushes, (unsigned long long)render.lastDrawsBaked,
                   (unsigned long long)render.lastTrisBaked, tickAvg, sTickMaxMs, ResidentMemoryMb(), ResidentActors(),
                   tierNear, tierMid, tierFar, nodes.count,
                   nodes.max, sCellMax, sCellP95, sCellsOccupied, sCellsTotal, heapFree / 1024,
                   (heapFree + heapAlloc) / 1024, colChk.peakAT, COLLISION_CHECK_AT_MAX, colChk.peakAC,
-                  COLLISION_CHECK_AC_MAX, colChk.peakOC, COLLISION_CHECK_OC_MAX, colChk.rejectedAT,
+                  CollisionCheck_GetACCap(), colChk.peakOC, COLLISION_CHECK_OC_MAX, colChk.rejectedAT,
                   colChk.rejectedAC, colChk.rejectedOC, dynaPoly.peak, BG_ACTOR_MAX, dynaPoly.rejected,
                   gPlayState->lightCtx.fogNear, gPlayState->lightCtx.fogFar, worldFog,
                   OTRGlobals::Instance->GetInterpolationFPS(), buildTier, Hex(gPlayState->sceneNum).c_str(),
                   gPlayState->state.frames, (unsigned long long)render.texCacheSize,
                   (unsigned long long)render.texCacheMax, (unsigned long long)texEvictions,
-                  (unsigned long long)texUploads, (unsigned long long)render.lastTexEntriesUsed);
+                  (unsigned long long)texUploads, (unsigned long long)render.lastTexEntriesUsed, sFrameMaxMs,
+                  sFrameLate, sFrameGaps);
     WriteMarker(buf);
+    sFrameMaxMs = 0.0;
+    sFrameLate = 0;
+    sFrameGaps = 0;
     sTickSumMs = 0.0;
     sTickMaxMs = 0.0;
     sTickSamples = 0;
@@ -3172,6 +3187,20 @@ void RegisterAgentTest() {
 } // namespace
 
 static RegisterShipInitFunc initFunc(RegisterAgentTest);
+
+// AgentTest.h, sturdy-bassoon#253: one clock read a rendered frame, for the perf marker's frame_max_ms.
+extern "C" void AgentTest_NoteFrameEnd(void) {
+    const auto now = std::chrono::steady_clock::now();
+    if (sFrameHave) {
+        const double ms = std::chrono::duration<double, std::milli>(now - sFrameLast).count();
+        const uint32_t cap = OTRGlobals::Instance->GetInterpolationFPS();
+        sFrameMaxMs = std::max(sFrameMaxMs, ms);
+        sFrameLate += (cap > 0 && ms > 1.2 * 1000.0 / cap) ? 1 : 0;
+        sFrameGaps++;
+    }
+    sFrameLast = now;
+    sFrameHave = true;
+}
 
 // The marker channel, opened up to gameplay code (sturdy-bassoon#58 P3). This is what lets an actor
 // make an in-game conversation ASSERTABLE - a screenshot shows a textbox, a marker names the rule

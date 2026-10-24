@@ -28,6 +28,15 @@
 #define LIGHTS_BUFFER_SIZE 256
 #define LIGHTS_POOL_CAP_VANILLA 32
 
+// The no-position bind (sturdy-bassoon#253). An actor with ACTOR_FLAG_IGNORE_POINTLIGHTS, the room draw and the
+// soft sprites bind with no position, so no point light can take a slot: only the directional lights bind, in
+// list order. Vanilla's loop still visits every node to find them, and in a grid-tool scene #233's count visits
+// them all once more first: 512 nodes a bind with the pool full. With the setting on, such a bind visits only
+// the directional nodes, from a list rebuilt when a light is inserted or removed, or a new tick starts. It binds
+// exactly what the walk bound. Every scene.
+#define CVAR_LIGHTS_NULL_BIND_FAST CVAR_ENHANCEMENT("LightsNullBindFast")
+#define LIGHTS_NULL_BIND_FAST_DEFAULT 1 // #253: on since its look; off is the walk, kept as the planted control
+
 // Smoothed feet shadows (sturdy-bassoon#250). A fire's light re-rolls its brightness every tick (En_Light's
 // flicker, which Rs_Fire copies; vanilla's torches do the same), and ActorShadow_DrawFeet draws a shadow per
 // bound point light at that brightness, so each shadow jumped by about a quarter of its strength every tick.
@@ -106,6 +115,10 @@ typedef struct LightsStats {
     s32 binds;        // Lights_BindAll calls (each drawn actor, the room draw, soft sprites)
     s32 walked;       // list nodes visited: in a grid-tool scene each bind walks its list twice (count, bind)
     s32 overflowed;   // binds with more lights in range than 7 slots (grid-tool scenes; 0 in vanilla ones)
+    s32 nullBinds;    // binds with no position (#253), and how many of them took the directional list
+    s32 nullFast;
+    s32 nullVerified; // `lights nullbind verify`: fast binds checked against the walk, and how many differed
+    s32 nullMismatch;
     s32 maxInRange;   // most point lights in range of one bind (likewise)
     // Link's own bind in that tick (-1 when he did not draw, and always in a vanilla scene)
     s32 linkInRange; // point lights within their radius of him
@@ -180,6 +193,13 @@ void Lights_SetShadowMeanColor(LightNode* node, LightInfo* info, f32 colorSum);
 // Clamps to 1..LIGHTS_BUFFER_SIZE and returns the cap applied. Holders over the cap keep their nodes;
 // only new inserts are refused until the count drops below it.
 s32 Lights_SetPoolCap(s32 cap);
+// `lights nullbind verify` (#253): off, on (each fast no-position bind is checked against the walk it replaced),
+// or plant (the fast bind drops a light first, so the check must count it). Session-only.
+#define LIGHTS_NULL_VERIFY_OFF 0
+#define LIGHTS_NULL_VERIFY_ON 1
+#define LIGHTS_NULL_VERIFY_PLANT 2
+void Lights_SetNullBindVerify(s32 mode);
+s32 Lights_GetNullBindVerify(void);
 
 #ifdef __cplusplus
 }

@@ -22,6 +22,7 @@
 #include <spdlog/sinks/rotating_file_sink.h>
 
 #include "Enhancements/gameconsole.h"
+#include "Enhancements/agenttest/AgentTest.h"
 #ifdef _WIN32
 #include <Windows.h>
 #else
@@ -1816,6 +1817,7 @@ void RunCommands(Gfx* Commands, int time, int step, int denom, int count) {
             (time == denom) ? std::unordered_map<Mtx*, MtxF>() : FrameInterpolation_Interpolate((float)time / denom);
         intp->mInterpolationT = (float)time / denom;
         wnd->DrawAndRunGraphicsCommands(Commands, mtx_replacements);
+        AgentTest_NoteFrameEnd(); // SOH [sturdy-bassoon#253] the perf marker's worst frame
         intp->mInterpolationIndex++;
     }
     ImGui::PopStyleColor();

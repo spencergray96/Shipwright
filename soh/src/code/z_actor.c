@@ -17,6 +17,7 @@
 #include "soh/Enhancements/graph/GraphBudget.h"
 #include "soh/Enhancements/nametag.h"
 #include "soh/Enhancements/actortiers/ActorTiers.h"
+#include "soh/Enhancements/rs/actors/RsFire.h"
 
 #include "soh/ActorDB.h"
 #include "soh/OTRGlobals.h"
@@ -3275,7 +3276,10 @@ void Actor_DrawAll(PlayState* play, ActorContext* actorCtx) {
                             // full, so the frame ends inside its arenas (graph/GraphBudget.h). The player
                             // always draws.
                             if (Graph_ActorDrawBegin(play->state.gfxCtx, actor)) {
-                                Actor_Draw(play, actor);
+                                // SOH [sturdy-bassoon#253] A fire may draw its flame alone (RsFire.h).
+                                if (actor->id != ACTOR_RS_FIRE || !RsFire_DrawDirect(play, actor)) {
+                                    Actor_Draw(play, actor);
+                                }
                                 actor->isDrawn = true;
                                 Graph_ActorDrawEnd(play->state.gfxCtx, actor);
                             }

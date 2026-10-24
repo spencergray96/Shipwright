@@ -57,7 +57,8 @@
 // would register every fire in the scene in the 192-slot AC list every tick, seen or not (ENGINE_BUDGETS
 // "Collision check subscriptions"); a larger uncull zone pays only for the fires in view. The CVar
 // below overrides the distance for tuning; `rsfire distance` writes it into every live fire, because a
-// culled fire never updates to read it.
+// culled fire never updates to read it. #253 adds a second bound, the collider reach below: past it from
+// Link the collider does not register, since no arrow flies that far.
 
 // The shipped defaults (#243). The CVars only override them; unset, these are what every fire uses.
 #define RS_FIRE_DRAW_DISTANCE 6000 // uncullZoneForward, the owner's pick. Actor_Init's is 1,000
@@ -68,6 +69,32 @@
 // The overrides. CVAR_ENHANCEMENT is soh/cvar_prefixes.h's; it expands where these are used.
 #define CVAR_RS_FIRE_DRAW_DISTANCE CVAR_ENHANCEMENT("RsFireDrawDistance")
 #define CVAR_RS_FIRE_GLOW CVAR_ENHANCEMENT("RsFireGlow")
+
+// THE FIELD'S COST (sturdy-bassoon#253). Measured with 600 lit fires in view: not the lights and not the
+// actor count, but each fire's draw - the interpreter rerunning the flame's texture loads, and frame
+// interpolation recording and replaying every fire's Actor_Draw. Three levers, each a setting:
+//   POINT LIGHTS (on: 0, the default): the flame draws UNLIT - gEffFire1DL clears G_LIGHTING, so the lights
+//     Actor_Draw binds for a fire never reach its pixels. With this off the fire carries
+//     ACTOR_FLAG_IGNORE_POINTLIGHTS, so its bind takes no position, and with `lights nullbind` on it visits
+//     only the directional lights. Other actors are lit by the fires' nodes as before: only the fire's own
+//     bind changes. `rsfire pointlights on|off|default`.
+//   DIRECT DRAW (RS_FIRE_DIRECT_DRAW_DEFAULT): Actor_DrawAll hands a fire to RsFire_DrawDirect instead of
+//     Actor_Draw. It writes the flame alone - no light bind, no segment 06, no fault client - and its
+//     matrix is built unrecorded, so frame interpolation keeps nothing for it. The fire never moves, so
+//     only the turn to face the camera changes between ticks: it is redrawn each 20 Hz tick, not each
+//     rendered frame. `rsfire directdraw on|off|default`. Nor does it leave a light bind behind: a draw after
+//     the actor loop that binds none of its own inherits the last actor's, which was already whichever drew last.
+//   COLLIDER REACH (RS_FIRE_COLLIDER_REACH_DEFAULT): the flame's collider registers only within this of
+//     Link. An arrow flies about 2,200 (#243), so every fire an arrow or a stick can reach still registers;
+//     the fires past it stop filling the AC list. 0 registers every fire that updates, as before.
+//     `rsfire reach <n>|off|default`.
+#define RS_FIRE_POINT_LIGHTS_DEFAULT 0
+#define RS_FIRE_DIRECT_DRAW_DEFAULT 1 // on since the owner's look (#253, 2026-10-24): the 20 Hz turn did not show
+#define RS_FIRE_COLLIDER_REACH_DEFAULT 2500
+#define RS_FIRE_COLLIDER_REACH_MAX 30000
+#define CVAR_RS_FIRE_POINT_LIGHTS CVAR_ENHANCEMENT("RsFirePointLights")
+#define CVAR_RS_FIRE_DIRECT_DRAW CVAR_ENHANCEMENT("RsFireDirectDraw")
+#define CVAR_RS_FIRE_COLLIDER_REACH CVAR_ENHANCEMENT("RsFireColliderReach")
 
 #include "z64actor.h"
 #include "z64light.h"
@@ -109,8 +136,29 @@ const char* RsFire_LitByName(int32_t litBy);
 // RS_FIRE_DRAW_DISTANCE_MIN..MAX.
 int32_t RsFire_DrawDistance(void);
 int32_t RsFire_GlowOn(void);
-// Writes both settings into one live fire, as its next update would.
+// #253's three (above). The reach is clamped to 0..RS_FIRE_COLLIDER_REACH_MAX; 0 is no gate.
+int32_t RsFire_PointLightsOn(void);
+int32_t RsFire_DirectDrawOn(void);
+int32_t RsFire_ColliderReach(void);
+// Writes the settings a fire carries (the distance, the glow, the point-light flag) into one live fire,
+// as its next update would.
 void RsFire_ApplySettings(RsFire* fire);
+// Actor_DrawAll's call for every fire it would draw (#253): with direct draw on, writes the flame and
+// returns 1, and Actor_Draw is not called; off, returns 0.
+int32_t RsFire_DrawDirect(struct PlayState* play, Actor* fire);
+
+// PLANTED PROBES (sturdy-bassoon#253): session-only switches that each take one of a fire's costs away, so
+// one session can split the frame between them. Never saved, all off at launch; `rsfire probe`. They change
+// what a fire does, so they are measurement controls, not settings.
+typedef enum RsFireProbe {
+    RS_FIRE_PROBE_NO_SOUND = 1 << 0,    // no NA_SE_EV_TORCH request a tick
+    RS_FIRE_PROBE_NO_COLLIDER = 1 << 1, // no AC registration, so nothing can hit it
+    RS_FIRE_PROBE_NO_FLAME = 1 << 2,    // the flame's own lists are not written; Actor_Draw's head stays
+                                        // (with directdraw on there is no head: nothing is written)
+} RsFireProbe;
+uint32_t RsFire_GetProbes(void);
+// Read every tick and by every draw.
+void RsFire_SetProbes(uint32_t probes);
 
 #ifdef __cplusplus
 }

@@ -1185,6 +1185,18 @@ static ColChkDiagList sColChkDiagAT;
 static ColChkDiagList sColChkDiagAC;
 static ColChkDiagList sColChkDiagOC;
 
+// The AC list's cap for this session (z64collision_check.h, #253).
+static s32 sColChkACCap = COLLISION_CHECK_AC_MAX;
+
+s32 CollisionCheck_GetACCap(void) {
+    return sColChkACCap;
+}
+
+s32 CollisionCheck_SetACCap(s32 cap) {
+    sColChkACCap = CLAMP(cap, 1, COLLISION_CHECK_AC_MAX);
+    return sColChkACCap;
+}
+
 /* Called on every accepted subscription, with the occupancy *after* the append. One compare and a
    rarely-taken store per collider per frame. */
 static void CollisionCheck_DiagAccept(ColChkDiagList* diag, s32 count) {
@@ -1354,10 +1366,11 @@ s32 CollisionCheck_SetAC(PlayState* play, CollisionCheckContext* colChkCtx, Coll
     if (collider->actor != NULL && collider->actor->update == NULL) {
         return -1;
     }
-    if (colChkCtx->colACCount >= COLLISION_CHECK_AC_MAX) {
+    // SOH [sturdy-bassoon#253] the session's cap, COLLISION_CHECK_AC_MAX unless `rsfire accap` lowered it.
+    if (colChkCtx->colACCount >= sColChkACCap) {
         // "Index exceeded and cannot add more"
         osSyncPrintf("CollisionCheck_setAC():インデックスがオーバして追加不能\n");
-        CollisionCheck_DiagReject(play, &sColChkDiagAC, "AC", COLLISION_CHECK_AC_MAX, collider);
+        CollisionCheck_DiagReject(play, &sColChkDiagAC, "AC", sColChkACCap, collider);
         return -1;
     }
     if (colChkCtx->sacFlags & 1) {
