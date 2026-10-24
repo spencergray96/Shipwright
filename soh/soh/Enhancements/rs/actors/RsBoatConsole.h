@@ -43,6 +43,10 @@
 //   lakehylia [on|off]
 //                   whether Lake Hylia gets a boat on entry (saved; default on while the prototype is on its
 //                   branch). `op=lakehylia result=ok setting=on|off`
+//   lakelevel [full|drained]
+//                   sets or clears EVENTCHKINF_RAISED_LAKE_HYLIA_WATER, the flag that fills Lake Hylia for an adult
+//                   Link (a child always has the full lake). Read on scene load, so it shows on the next entry;
+//                   kept by `agenttest save <n>`. `op=lakelevel result=ok raised=0|1 adult=0|1 in_lake=0|1`
 //   clear           kills every boat. `op=clear result=ok killed=<n>`
 //
 // Refusals, each with rc 1:

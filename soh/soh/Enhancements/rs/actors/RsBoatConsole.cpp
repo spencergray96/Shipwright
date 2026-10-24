@@ -32,7 +32,8 @@ using ConsoleSink::Addf;
 // The subcommand grammar, once: the usage line and the console's help text both print it.
 #define RS_BOAT_GRAMMAR                                                                                         \
     "list | spawn [<x> <z> [<yaw>]] | probe <x> <z> | water <x0> <z0> <x1> <z1> <y> | water clear | "            \
-    "board [<idx>] | helm on|off [<idx>] | drive <throttle> <turn> <ticks> | lakehylia [on|off] | clear"
+    "board [<idx>] | helm on|off [<idx>] | drive <throttle> <turn> <ticks> | lakehylia [on|off] | "             \
+    "lakelevel [full|drained] | clear"
 
 const char* kUsage = "op=usage result=error usage=\"boat " RS_BOAT_GRAMMAR "\"";
 
@@ -244,6 +245,27 @@ int32_t LakeHylia(const std::vector<std::string>& args, std::vector<std::string>
     return 0;
 }
 
+// Lake Hylia's water level is one event flag, EVENTCHKINF_RAISED_LAKE_HYLIA_WATER, which the Water Temple's
+// ending sets. Adult Link without it gets the drained lake (z_scene_table.c, Bg_Spot06_Objects); a child always
+// gets the full one. The flag is read when the scene loads, so a change shows on the next entry. It lives in the
+// save, so `agenttest save <n>` keeps it.
+int32_t LakeLevel(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() == 2) {
+        if (args[1] == "full") {
+            Flags_SetEventChkInf(EVENTCHKINF_RAISED_LAKE_HYLIA_WATER);
+        } else if (args[1] == "drained") {
+            Flags_UnsetEventChkInf(EVENTCHKINF_RAISED_LAKE_HYLIA_WATER);
+        } else {
+            lines.push_back(kUsage);
+            return 1;
+        }
+    }
+    Addf(lines, "op=lakelevel result=ok raised=%d adult=%d in_lake=%d",
+         Flags_GetEventChkInf(EVENTCHKINF_RAISED_LAKE_HYLIA_WATER) ? 1 : 0, LINK_IS_ADULT ? 1 : 0,
+         gPlayState->sceneNum == SCENE_LAKE_HYLIA ? 1 : 0);
+    return 0;
+}
+
 int32_t Clear(std::vector<std::string>& lines) {
     const std::vector<RsBoat*> boats = Boats();
     for (RsBoat* boat : boats) {
@@ -405,6 +427,9 @@ int32_t RsBoatConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "clear" && args.size() == 1) {
         return Clear(lines);
     }
+    if (sub == "lakelevel") {
+        return LakeLevel(args, lines);
+    }
     lines.push_back(kUsage);
     return 1;
 }
@@ -419,8 +444,8 @@ const ConsoleSink::Command rsBoatCommand(
     "front of Link (or at x z); probe reads the water and floor at a point; water adds a test waterbox to this "
     "scene until it reloads; board stands Link at a boat's tiller; helm takes or lets go of it as A and B do; "
     "drive steers the boat at the helm for <ticks> ticks without the pad; lakehylia switches Lake Hylia's own "
-    "boat (saved).",
-    { { "list|spawn|probe|water|board|helm|drive|lakehylia|clear", Ship::ArgumentType::TEXT },
+    "boat (saved); lakelevel fills or drains Lake Hylia (its event flag, in the save; shows on the next entry).",
+    { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|clear", Ship::ArgumentType::TEXT },
       { "arg1", Ship::ArgumentType::TEXT, true },
       { "arg2", Ship::ArgumentType::TEXT, true },
       { "arg3", Ship::ArgumentType::TEXT, true },
