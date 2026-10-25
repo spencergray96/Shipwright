@@ -107,12 +107,16 @@ int32_t List(std::vector<std::string>& lines) {
     }
     Addf(lines,
          "op=list result=ok count=%d link_x=%d link_y=%d link_z=%d link_yaw=%d link_floor_bg=%d "
-         "link_input_disabled=%d link_swimming=%d link_can_take_helm=%d drive_ticks=%d hud=%s",
+         "link_input_disabled=%d link_swimming=%d link_can_take_helm=%d tiller_in_reach=%d link_focus_boat=%d "
+         "a_label_check=%d drive_ticks=%d hud=%s",
          (int)boats.size(), (int)lroundf(player->actor.world.pos.x), (int)lroundf(player->actor.world.pos.y),
          (int)lroundf(player->actor.world.pos.z), (int)(u16)player->actor.shape.rot.y, (int)player->actor.floorBgId,
          (player->stateFlags1 & PLAYER_STATE1_INPUT_DISABLED) ? 1 : 0,
          (player->stateFlags1 & PLAYER_STATE1_IN_WATER) ? 1 : 0, RsBoat_LinkCanTakeHelm(player) ? 1 : 0,
-         gRsBoatDrive.ticks, RsBoatHud_ShownName(RsBoatHud_Shown()));
+         RsBoat_TillerInReach(gPlayState) ? 1 : 0,
+         (player->focusActor != nullptr && player->focusActor->id == ACTOR_RS_BOAT) ? 1 : 0,
+         gPlayState->interfaceCtx.unk_1F0 == DO_ACTION_CHECK ? 1 : 0, gRsBoatDrive.ticks,
+         RsBoatHud_ShownName(RsBoatHud_Shown()));
     return 0;
 }
 

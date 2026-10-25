@@ -142,14 +142,34 @@ static void Camera_ReloadOnHeightChange(Camera* camera) {
 }
 
 /**
+ * Where the #155 ledge rules apply: grid-tool scenes, Link standing on a boat's deck in any scene
+ * (sturdy-bassoon#256), or every scene with CamLedgeAllScenes on. CameraIndoorTuning.h says why.
+ */
+static s32 Camera_LedgeRulesApply(Camera* camera) {
+    Player* player = camera->player;
+
+    if (GridToolSceneRegistry_IsCustomScene(camera->play->sceneNum) ||
+        CVarGetInteger(CVAR_CAM_LEDGE_ALL_SCENES, CAM_LEDGE_ALL_SCENES_DEFAULT)) {
+        return true;
+    }
+    if (player != NULL && DynaPoly_IsBgIdBgActor(player->actor.floorBgId)) {
+        DynaPolyActor* floor = DynaPoly_GetActor(&camera->play->colCtx, player->actor.floorBgId);
+
+        return floor != NULL && floor->actor.id == ACTOR_RS_BOAT;
+    }
+    return false;
+}
+
+/**
  * The #155 ledge rules on the slope probe's two floor readings, as heights relative to the ground
  * under Link: a rise with a drop behind it is a parapet, not a slope, and a drop counts as no
- * deeper than the cap. Grid-tool scenes only. The values in CameraIndoorTuning.h say why.
+ * deeper than the cap. Grid-tool scenes and boat decks (Camera_LedgeRulesApply). The values in
+ * CameraIndoorTuning.h say why.
  */
 static void Camera_SoftenLedge(Camera* camera, f32* dNear, f32* dFar) {
     f32 cap;
 
-    if (!GridToolSceneRegistry_IsCustomScene(camera->play->sceneNum)) {
+    if (!Camera_LedgeRulesApply(camera)) {
         return;
     }
     // The near probe on a parapet's top, the far one past it over the drop. Tested on the raw

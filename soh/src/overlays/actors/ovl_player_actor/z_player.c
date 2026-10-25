@@ -31,6 +31,7 @@
 #include "soh/frame_interpolation.h"
 #include "soh/OTRGlobals.h"
 #include "soh/Enhancements/savestate_serialize.h"
+#include "soh/Enhancements/rs/actors/RsBoat.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -11104,6 +11105,15 @@ void Player_UpdateInterface(PlayState* play, Player* this) {
                     }
                 }
             }
+        }
+
+        // SOH [Fork] sturdy-bassoon#256: a boat's tiller in reach reads "Check" on A, as a sign does, in place
+        // of an idle label only - never over a door, an item, a climb or a real talk offer. The boat takes the
+        // A press itself before Player updates; this is only the label that says so.
+        if ((doAction == DO_ACTION_NONE || doAction == DO_ACTION_ATTACK || doAction == DO_ACTION_JUMP ||
+             doAction == DO_ACTION_PUTAWAY) &&
+            RsBoat_TillerInReach(play)) {
+            doAction = DO_ACTION_CHECK;
         }
 
         if (doAction != DO_ACTION_PUTAWAY) {

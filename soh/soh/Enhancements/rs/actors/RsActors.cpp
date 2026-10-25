@@ -648,7 +648,9 @@ void RegisterRsActors() {
             "RS boat (sailing prototype: board, take the helm, steer)",
             ACTOR_RS_BOAT,
             ACTORCAT_BG,
-            (u32)(ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED),
+            // FRIENDLY: the tiller is targeted like a sign. ATTENTION_ENABLED is set by RsBoat_Update while
+            // the helm is free, not here.
+            (u32)(ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED | ACTOR_FLAG_FRIENDLY),
             OBJECT_GAMEPLAY_KEEP,
             sizeof(RsBoat),
             (ActorFunc)RsBoat_Init,

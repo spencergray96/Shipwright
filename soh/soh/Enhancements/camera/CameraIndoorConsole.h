@@ -41,6 +41,8 @@
 //   ledgecap <f>         #155, grid-tool scenes: deepest a drop ahead counts as (ships 20; 0 = no cap)
 //   ledgerail on|off     #155: ignore a rise the near probe reads when the far probe reads a drop (a
 //                        parapet's top). Ships on
+//   ledgeall on|off      #256: apply ledgecap and ledgerail in vanilla scenes too. Ships off; they always
+//                        apply in grid-tool scenes and with Link on a boat's deck
 //   heightt <f>          #136, grid-tool scenes: adult camera height lerp(68, 44, t); `+0.1` / `-0.1`
 //                        step it. A change forces a parameter reload on the main camera
 //   release <f>          #174, grid-tool scenes: per frame, the eye may move away from `at` by `at`'s

@@ -444,6 +444,36 @@ s32 RsBoat_LinkCanTakeHelm(const Player* player) {
            player->talkActor == NULL && player->heldItemAction == PLAYER_IA_NONE;
 }
 
+// Link could take this boat's helm with A now: on its deck, free to, and either within reach of the tiller or
+// locked on to it with Z, which works from anywhere on the deck (the bow is ~200 from the tiller).
+static s32 RsBoat_TillerReachable(const RsBoat* this, const Player* player) {
+    Vec3f helm;
+
+    if (this->helm || !RsBoat_LinkOnDeck(this, player) || !RsBoat_LinkCanTakeHelm(player)) {
+        return 0;
+    }
+    if (player->focusActor == &this->dyna.actor) {
+        return 1;
+    }
+    RsBoat_HelmPos(this, &helm);
+    return Math_Vec3f_DistXZ(&helm, (Vec3f*)&player->actor.world.pos) < RS_BOAT_HELM_RANGE;
+}
+
+s32 RsBoat_TillerInReach(PlayState* play) {
+    const Player* player = GET_PLAYER(play);
+    Actor* a;
+
+    if (Message_GetState(&play->msgCtx) != TEXT_STATE_NONE) {
+        return 0;
+    }
+    for (a = play->actorCtx.actorLists[ACTORCAT_BG].head; a != NULL; a = a->next) {
+        if (a->id == ACTOR_RS_BOAT && a->update != NULL && RsBoat_TillerReachable((const RsBoat*)a, player)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 // --- the steering camera --------------------------------------------------------------------------
 
 // Where the steering camera wants to be: behind Link along the hull's heading, its eye at a locked height over
@@ -575,6 +605,9 @@ void RsBoat_Init(Actor* thisx, PlayState* play) {
     thisx->shape.rot.x = 0;
     thisx->shape.rot.z = 0;
     thisx->world.rot = thisx->shape.rot;
+    // Targetable from the deck and the water just around it: attention measures from the hull's centre, and
+    // range 170 (mode 1) covers the deck's far corners with room to spare.
+    thisx->targetMode = 1;
     thisx->uncullZoneForward = 4000.0f;
     thisx->uncullZoneScale = 300.0f;
     thisx->uncullZoneDownward = 300.0f;
@@ -655,16 +688,22 @@ void RsBoat_Update(Actor* thisx, PlayState* play) {
     // hull's transform as this tick left it, so Player carries Link by this tick's move, not last tick's.
     this->timer++;
 
-    // Take the helm: a fresh A press, Link on deck within reach of the tiller, free to (not aiming, holding,
-    // airborne...: RsBoat_LinkCanTakeHelm), and no textbox wanting the A.
-    if (!this->helm && aDown && !this->helmPress && RsBoat_LinkOnDeck(this, player) &&
-        RsBoat_LinkCanTakeHelm(player) && Message_GetState(&play->msgCtx) == TEXT_STATE_NONE) {
-        Vec3f helm;
+    // The tiller is targetable while the helm is free: the arrow and the lock-on ride over the post at head
+    // height. Off at the helm, so the Z search skips it and the leash drops a lock held through the take.
+    if (this->helm) {
+        thisx->flags &= ~ACTOR_FLAG_ATTENTION_ENABLED;
+    } else {
+        thisx->flags |= ACTOR_FLAG_ATTENTION_ENABLED;
+    }
+    RsBoat_HelmPos(this, &thisx->focus.pos);
+    thisx->focus.pos.y += 40.0f;
+    thisx->focus.rot = thisx->shape.rot;
 
-        RsBoat_HelmPos(this, &helm);
-        if (Math_Vec3f_DistXZ(&helm, &player->actor.world.pos) < RS_BOAT_HELM_RANGE) {
-            RsBoat_SetHelm(this, play, 1);
-        }
+    // Take the helm: a fresh A press with the tiller in reach (on deck, free to, close enough or locked on),
+    // and no textbox wanting the A.
+    if (!this->helm && aDown && !this->helmPress && RsBoat_TillerReachable(this, player) &&
+        Message_GetState(&play->msgCtx) == TEXT_STATE_NONE) {
+        RsBoat_SetHelm(this, play, 1);
     }
     this->helmPress = aDown;
 

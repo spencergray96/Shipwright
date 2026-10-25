@@ -24,6 +24,11 @@
 //
 // THE LABEL. "Not steering" / "Steering boat" under the C buttons (RsBoatHud.cpp), while there are no
 // steering animations to show it.
+//
+// THE TILLER IS TARGETABLE, like a sign: its attention focus sits over the tiller post at head height, so
+// Navi's arrow finds it and Z locks on to it, and while Link could take the helm the A button reads "Check"
+// (RsBoat_TillerInReach, read by Player_UpdateInterface). Locked on, A takes the helm from anywhere on the
+// deck. Attention is off while the helm is held.
 // THE WATER. Every tick the hull's height is the waterbox surface under it plus a slow bob. The roll and
 // pitch (a second, slower sine) are DRAW-ONLY: the collision stays level, so Link stands upright on a deck
 // that rocks a few degrees under him and never slides. A waterbox buried under the ground is not water
@@ -68,7 +73,7 @@ extern "C" {
 #define CVAR_RS_BOAT_CAM_DIST CVAR_ENHANCEMENT("RsBoatCamDist")     // eye behind Link, world units
 #define CVAR_RS_BOAT_CAM_EASE CVAR_ENHANCEMENT("RsBoatCamEase")     // percent of the way to its target a tick
 #define CVAR_RS_BOAT_HUD CVAR_ENHANCEMENT("RsBoatHud")              // 0: no steering label
-#define RS_BOAT_CAM_HEIGHT_DEFAULT 60
+#define RS_BOAT_CAM_HEIGHT_DEFAULT 120 // the owner's pick: high enough to see obstacles in the water ahead
 #define RS_BOAT_CAM_DIST_DEFAULT 240
 #define RS_BOAT_CAM_EASE_DEFAULT 25 // ~90% of the way in 8 ticks (0.4 s): a fast catch-up, not a snap
 #define RS_BOAT_CAM_HEIGHT_MIN -20
@@ -135,6 +140,11 @@ s32 RsBoat_SetHelm(RsBoat* boat, PlayState* play, s32 on);
 
 // Link is standing on this boat's deck.
 s32 RsBoat_LinkOnDeck(const RsBoat* boat, const Player* player);
+
+// 1 when A would take some boat's helm right now: Link on its deck, free to (RsBoat_LinkCanTakeHelm), and
+// within reach of its tiller (RS_BOAT_HELM_RANGE), or anywhere on its deck while locked on to it. Player
+// reads it for the A button's label.
+s32 RsBoat_TillerInReach(PlayState* play);
 
 // Link is free to take the helm: on nothing but his feet, empty-handed and doing nothing else. 0 while he aims
 // or looks in first person, has a sword or item out, holds, carries or throws something, shields, hangs,

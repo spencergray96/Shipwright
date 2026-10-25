@@ -17,12 +17,15 @@
 //                   surface=<y> blocked=<none|no_water|shallow|wall|headroom> blocks=<n> link_on=0|1
 //                   helm_dist=<n> cam=0|1` line per live boat, then `op=list result=ok count=<n> link_x= link_y=
 //                   link_z= link_yaw= link_floor_bg=<n> link_input_disabled=0|1 link_swimming=0|1
-//                   link_can_take_helm=0|1 drive_ticks=<n> hud=<hidden|not_steering|steering>`.
+//                   link_can_take_helm=0|1 tiller_in_reach=0|1 link_focus_boat=0|1 a_label_check=0|1
+//                   drive_ticks=<n> hud=<hidden|not_steering|steering>`.
 //                   blocked: why the last move was refused (RsBoatBlock), blocks: refused moves since spawn;
 //                   link_on: Link is standing on that boat's deck; helm_dist: Link's xz distance from its
 //                   tiller; cam: the steering camera holds the view; link_swimming: PLAYER_STATE1_IN_WATER;
-//                   link_can_take_helm: A at the tiller would take it (RsBoat_LinkCanTakeHelm); hud: what the
-//                   steering label drew on the last frame (RsBoatHud.h)
+//                   link_can_take_helm: Link is free to take a helm (RsBoat_LinkCanTakeHelm); tiller_in_reach:
+//                   A would take one now (RsBoat_TillerInReach); link_focus_boat: Z is locked on to a boat;
+//                   a_label_check: the A button reads "Check"; hud: what the steering label drew on the last
+//                   frame (RsBoatHud.h)
 //   spawn [<x> <z> [<yaw>]]
 //                   puts a boat down: at (x, z), or 220 units in front of Link facing his way, on the water's
 //                   surface there. `op=spawn result=ok idx=<i> x= y= z= yaw=`
@@ -52,7 +55,7 @@
 //                   kept by `agenttest save <n>`. `op=lakelevel result=ok raised=0|1 adult=0|1 in_lake=0|1`
 //   cam [on|off|default] | cam height|dist|ease <n>
 //                   the steering camera (saved): on or off, the eye's height over the deck (-20..600, default
-//                   60), its distance behind Link (80..1000, default 240), and how much of the way to its target
+//                   120), its distance behind Link (80..1000, default 240), and how much of the way to its target
 //                   it moves a tick, in percent (5..100, default 25; 100 is a snap). Read every tick, so a change
 //                   shows at the helm at once. `op=cam result=ok cam=on|off height= dist= ease=`. Works with no
 //                   scene loaded
