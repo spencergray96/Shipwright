@@ -609,7 +609,7 @@
  *                                          two picks' self-test and the recorder's planted refusal.
  *                                          RsAnimPropConsole.h documents every line
  *   agenttest boat list|spawn [<x> <z> [<yaw>]]|probe <x> <z>|water <x0> <z0> <x1> <z1> <y>|water clear|board [<idx>]|helm on|off [<idx>]|drive <t> <turn> <ticks>|
- *                  lakehylia [on|off]|lakelevel [full|drained]|clear
+ *                  lakehylia [on|off]|lakelevel [full|drained]|cam [..]|hud [on|off]|clear
  *                                          the sailing prototype's boats (sturdy-bassoon#256): where each is,
  *                                          its speed, helm and why it last stopped; put one down, stand Link
  *                                          at its tiller, take the helm, steer it without the pad.
@@ -3127,7 +3127,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "warps list|dump|where|status|badcheck | "
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
               "boat list|spawn [<x> <z> [<yaw>]]|probe <x> <z>|water <x0> <z0> <x1> <z1> <y>|water clear|board [<idx>]|helm on|off [<idx>]|drive <t> <turn> <ticks>|"
-              "lakehylia [on|off]|lakelevel [full|drained]|clear | "
+              "lakehylia [on|off]|lakelevel [full|drained]|cam [..]|hud [on|off]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
               "animprop status|list|pose <k|rest|clock>|reset|pick <tick|frame|default>|trace [<idx> <frames>]|"
               "selftest [plant]|plant [off|unheld] | "
@@ -3184,7 +3184,7 @@ void RegisterAgentTest() {
               "warps list|dump|where|status|badcheck | "
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
               "boat list|spawn [<x> <z> [<yaw>]]|probe <x> <z>|water <x0> <z0> <x1> <z1> <y>|water clear|board [<idx>]|helm on|off [<idx>]|drive <t> <turn> <ticks>|"
-              "lakehylia [on|off]|lakelevel [full|drained]|clear | "
+              "lakehylia [on|off]|lakelevel [full|drained]|cam [..]|hud [on|off]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
               "animprop status|list|pose <k|rest|clock>|reset|pick <tick|frame|default>|trace [<idx> <frames>]|"
               "selftest [plant]|plant [off|unheld] | "

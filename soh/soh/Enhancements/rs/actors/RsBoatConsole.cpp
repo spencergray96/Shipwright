@@ -7,6 +7,7 @@
 #include <ship/debug/Console.h>
 
 #include "RsBoat.h"
+#include "RsBoatHud.h"
 #include "soh/Enhancements/console/ConsoleSink.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/ShipInit.hpp"
@@ -33,7 +34,7 @@ using ConsoleSink::Addf;
 #define RS_BOAT_GRAMMAR                                                                                         \
     "list | spawn [<x> <z> [<yaw>]] | probe <x> <z> | water <x0> <z0> <x1> <z1> <y> | water clear | "            \
     "board [<idx>] | helm on|off [<idx>] | drive <throttle> <turn> <ticks> | lakehylia [on|off] | "             \
-    "lakelevel [full|drained] | clear"
+    "lakelevel [full|drained] | cam [on|off|default] | cam height|dist|ease <n> | hud [on|off] | clear"
 
 const char* kUsage = "op=usage result=error usage=\"boat " RS_BOAT_GRAMMAR "\"";
 
@@ -96,20 +97,22 @@ int32_t List(std::vector<std::string>& lines) {
         RsBoat_HelmPos(boat, &helm);
         Addf(lines,
              "boat idx=%d x=%d y=%d z=%d yaw=%d speed=%d tiller=%d helm=%d on_water=%d surface=%d blocked=%s "
-             "blocks=%d link_on=%d helm_dist=%d",
+             "blocks=%d link_on=%d helm_dist=%d cam=%d",
              (int)idx, (int)lroundf(a->world.pos.x), (int)lroundf(a->world.pos.y), (int)lroundf(a->world.pos.z),
              (int)(u16)a->shape.rot.y, (int)lroundf(boat->speed * 100.0f), (int)lroundf(boat->tiller * 100.0f),
              boat->helm, boat->onWater, (int)lroundf(boat->surfaceY), RsBoat_BlockName(boat->blocked),
              boat->blockCount, RsBoat_LinkOnDeck(boat, player) ? 1 : 0,
-             (int)lroundf(Math_Vec3f_DistXZ(&helm, (Vec3f*)&player->actor.world.pos)));
+             (int)lroundf(Math_Vec3f_DistXZ(&helm, (Vec3f*)&player->actor.world.pos)),
+             boat->subCamId != SUBCAM_NONE ? 1 : 0);
     }
     Addf(lines,
          "op=list result=ok count=%d link_x=%d link_y=%d link_z=%d link_yaw=%d link_floor_bg=%d "
-         "link_input_disabled=%d link_swimming=%d drive_ticks=%d",
+         "link_input_disabled=%d link_swimming=%d link_can_take_helm=%d drive_ticks=%d hud=%s",
          (int)boats.size(), (int)lroundf(player->actor.world.pos.x), (int)lroundf(player->actor.world.pos.y),
          (int)lroundf(player->actor.world.pos.z), (int)(u16)player->actor.shape.rot.y, (int)player->actor.floorBgId,
          (player->stateFlags1 & PLAYER_STATE1_INPUT_DISABLED) ? 1 : 0,
-         (player->stateFlags1 & PLAYER_STATE1_IN_WATER) ? 1 : 0, gRsBoatDrive.ticks);
+         (player->stateFlags1 & PLAYER_STATE1_IN_WATER) ? 1 : 0, RsBoat_LinkCanTakeHelm(player) ? 1 : 0,
+         gRsBoatDrive.ticks, RsBoatHud_ShownName(RsBoatHud_Shown()));
     return 0;
 }
 
@@ -266,6 +269,76 @@ int32_t LakeLevel(const std::vector<std::string>& args, std::vector<std::string>
     return 0;
 }
 
+// The steering camera's settings, saved: on/off, and the eye's height over the deck, its distance behind Link and
+// how fast it eases. A boat at the helm reads them every tick, so a change shows at once.
+int32_t Cam(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    struct Knob {
+        const char* name;
+        const char* cvar;
+        int32_t def;
+        int32_t min;
+        int32_t max;
+    };
+    const Knob knobs[] = {
+        { "height", CVAR_RS_BOAT_CAM_HEIGHT, RS_BOAT_CAM_HEIGHT_DEFAULT, RS_BOAT_CAM_HEIGHT_MIN,
+          RS_BOAT_CAM_HEIGHT_MAX },
+        { "dist", CVAR_RS_BOAT_CAM_DIST, RS_BOAT_CAM_DIST_DEFAULT, RS_BOAT_CAM_DIST_MIN, RS_BOAT_CAM_DIST_MAX },
+        { "ease", CVAR_RS_BOAT_CAM_EASE, RS_BOAT_CAM_EASE_DEFAULT, RS_BOAT_CAM_EASE_MIN, RS_BOAT_CAM_EASE_MAX },
+    };
+    if (args.size() == 2 && (args[1] == "on" || args[1] == "off")) {
+        CVarSetInteger(CVAR_RS_BOAT_CAM, args[1] == "on" ? 1 : 0);
+        CVarSave();
+    } else if (args.size() == 2 && args[1] == "default") {
+        CVarClear(CVAR_RS_BOAT_CAM);
+        for (const Knob& k : knobs) {
+            CVarClear(k.cvar);
+        }
+        CVarSave();
+    } else if (args.size() == 3) {
+        const Knob* knob = nullptr;
+        for (const Knob& k : knobs) {
+            if (args[1] == k.name) {
+                knob = &k;
+            }
+        }
+        long value = 0;
+        if (knob == nullptr || !ParseInt(args[2], &value) || value < knob->min || value > knob->max) {
+            Addf(lines, "op=cam result=error error=bad_value height=%d..%d dist=%d..%d ease=%d..%d",
+                 RS_BOAT_CAM_HEIGHT_MIN, RS_BOAT_CAM_HEIGHT_MAX, RS_BOAT_CAM_DIST_MIN, RS_BOAT_CAM_DIST_MAX,
+                 RS_BOAT_CAM_EASE_MIN, RS_BOAT_CAM_EASE_MAX);
+            return 1;
+        }
+        CVarSetInteger(knob->cvar, (int32_t)value);
+        CVarSave();
+    } else if (args.size() != 1) {
+        lines.push_back(kUsage);
+        return 1;
+    }
+    Addf(lines, "op=cam result=ok cam=%s height=%d dist=%d ease=%d",
+         CVarGetInteger(CVAR_RS_BOAT_CAM, 1) ? "on" : "off",
+         CVarGetInteger(CVAR_RS_BOAT_CAM_HEIGHT, RS_BOAT_CAM_HEIGHT_DEFAULT),
+         CVarGetInteger(CVAR_RS_BOAT_CAM_DIST, RS_BOAT_CAM_DIST_DEFAULT),
+         CVarGetInteger(CVAR_RS_BOAT_CAM_EASE, RS_BOAT_CAM_EASE_DEFAULT));
+    return 0;
+}
+
+int32_t Hud(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() == 2) {
+        if (args[1] != "on" && args[1] != "off") {
+            lines.push_back(kUsage);
+            return 1;
+        }
+        CVarSetInteger(CVAR_RS_BOAT_HUD, args[1] == "on" ? 1 : 0);
+        CVarSave();
+    } else if (args.size() != 1) {
+        lines.push_back(kUsage);
+        return 1;
+    }
+    Addf(lines, "op=hud result=ok hud=%s shown=%s", CVarGetInteger(CVAR_RS_BOAT_HUD, 1) ? "on" : "off",
+         RsBoatHud_ShownName(RsBoatHud_Shown()));
+    return 0;
+}
+
 int32_t Clear(std::vector<std::string>& lines) {
     const std::vector<RsBoat*> boats = Boats();
     for (RsBoat* boat : boats) {
@@ -399,6 +472,13 @@ int32_t RsBoatConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "lakehylia") {
         return LakeHylia(args, lines);
     }
+    // Settings, not scene state: they work from the title screen too.
+    if (sub == "cam") {
+        return Cam(args, lines);
+    }
+    if (sub == "hud") {
+        return Hud(args, lines);
+    }
     if (gPlayState == nullptr) {
         Addf(lines, "op=boat result=error error=no_scene");
         return 1;
@@ -444,8 +524,11 @@ const ConsoleSink::Command rsBoatCommand(
     "front of Link (or at x z); probe reads the water and floor at a point; water adds a test waterbox to this "
     "scene until it reloads; board stands Link at a boat's tiller; helm takes or lets go of it as A and B do; "
     "drive steers the boat at the helm for <ticks> ticks without the pad; lakehylia switches Lake Hylia's own "
-    "boat (saved); lakelevel fills or drains Lake Hylia (its event flag, in the save; shows on the next entry).",
-    { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|clear", Ship::ArgumentType::TEXT },
+    "boat (saved); lakelevel fills or drains Lake Hylia (its event flag, in the save; shows on the next entry); "
+    "cam sets the steering camera (height over the deck, distance behind, ease in percent a tick; saved); "
+    "hud switches the steering label.",
+    { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|clear",
+        Ship::ArgumentType::TEXT },
       { "arg1", Ship::ArgumentType::TEXT, true },
       { "arg2", Ship::ArgumentType::TEXT, true },
       { "arg3", Ship::ArgumentType::TEXT, true },
