@@ -50,12 +50,15 @@
 extern "C" {
 #endif
 
-// Hull size, world units. Link's wall radius is ~17.5 and he is ~50 tall, so this deck takes him and a
-// step either side of the tiller.
-#define RS_BOAT_HALF_LENGTH 120.0f // along the hull's +z (the bow)
-#define RS_BOAT_HALF_WIDTH 60.0f
-#define RS_BOAT_DECK_Y 16.0f  // deck above the waterline: low enough to climb onto from swimming
-#define RS_BOAT_KEEL_Y -14.0f // the drawn hull's bottom below the waterline
+// Hull size, world units: the Sailing skiff's (loc 59508, RsBoatModel.cpp), whose export spans x -75..75 and
+// z -167..173 with its bow at +z, its inside floor at y 0 and its gunwale's top at 48. The collision is a box
+// over its floor (the bow's taper and the gunwales are not in it: Link walks through a gunwale's drawing).
+#define RS_BOAT_HALF_LENGTH 168.0f // along the hull's +z (the bow)
+#define RS_BOAT_HALF_WIDTH 68.0f
+#define RS_BOAT_DECK_Y 4.0f   // deck above the waterline: the skiff's floor, so its hull sits on the water
+#define RS_BOAT_KEEL_Y -14.0f // the placeholder box's bottom below the waterline (drawn without the model)
+// The skiff's export is centred 3 units bow-ward of its origin; drawn this far back, it sits on the collision.
+#define RS_BOAT_MODEL_Z (-3.0f)
 // The collision sides reach further down than the drawn hull: a swimming adult Link floats ~45 below the surface
 // and checks walls ~26 above that, so sides that stop at the keel let him swim straight under the boat instead
 // of meeting its side (where he can climb out onto the deck).
@@ -164,6 +167,10 @@ s32 RsBoat_SurfaceAt(PlayState* play, f32 x, f32 z, f32* outY, Actor* skip);
 
 // The hull's tiller position in world space, at deck height.
 void RsBoat_HelmPos(const RsBoat* boat, Vec3f* out);
+
+// The skiff's display list, in its own model space (RsBoatModel.cpp), or NULL when its archive is not in mods/ -
+// the boat then draws its placeholder box.
+Gfx* RsBoat_ModelList(void);
 
 const char* RsBoat_BlockName(s32 block);
 

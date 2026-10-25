@@ -865,12 +865,23 @@ static void RsBoat_DrawTestWater(GraphicsContext* gfxCtx) {
 void RsBoat_Draw(Actor* thisx, PlayState* play) {
     RsBoat* this = (RsBoat*)thisx;
     GraphicsContext* gfxCtx = play->state.gfxCtx;
+    Gfx* model = RsBoat_ModelList();
 
     OPEN_DISPS(gfxCtx);
 
     Gfx_SetupDL_25Opa(gfxCtx);
     // Actor_Draw has set the hull's matrix (position and yaw); the rock is draw-only, on top of it.
     Matrix_RotateZYX(this->pitch, 0, this->roll, MTXMODE_APPLY);
+    if (model != NULL) {
+        // The skiff, in its own model space: its floor on the deck, centred on the collision. Its list carries
+        // its own materials (lit, RS's base colours as prim colours), so the state is set up again after it.
+        Matrix_Push();
+        Matrix_Translate(0.0f, RS_BOAT_DECK_Y, RS_BOAT_MODEL_Z, MTXMODE_APPLY);
+        gSPMatrix(POLY_OPA_DISP++, MATRIX_NEWMTX(gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
+        gSPDisplayList(POLY_OPA_DISP++, model);
+        Matrix_Pop();
+        Gfx_SetupDL_25Opa(gfxCtx);
+    }
     gSPMatrix(POLY_OPA_DISP++, MATRIX_NEWMTX(gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
     gSPClearGeometryMode(POLY_OPA_DISP++, G_CULL_BACK);
     // PRIMITIVE * SHADE: the part's colour, lit by the scene through each face's normal.
@@ -879,9 +890,13 @@ void RsBoat_Draw(Actor* thisx, PlayState* play) {
 
     CLOSE_DISPS(gfxCtx);
 
-    RsBoat_DrawBox(gfxCtx, sHullBoxVtx, 96, 62, 34, 168, 128, 80);
+    // The placeholder box only when the skiff's archive is not mounted; the tiller post always, as the thing
+    // Link targets and steers from (the skiff has no tiller of its own: Sailing's helm is a separate loc).
+    if (model == NULL) {
+        RsBoat_DrawBox(gfxCtx, sHullBoxVtx, 96, 62, 34, 168, 128, 80);
+        RsBoat_DrawBox(gfxCtx, sProwBoxVtx, 120, 80, 44, 150, 104, 60);
+    }
     RsBoat_DrawBox(gfxCtx, sTillerBoxVtx, 60, 38, 20, 60, 38, 20);
-    RsBoat_DrawBox(gfxCtx, sProwBoxVtx, 120, 80, 44, 150, 104, 60);
 
     OPEN_DISPS(gfxCtx);
     gSPSetGeometryMode(POLY_OPA_DISP++, G_CULL_BACK);
