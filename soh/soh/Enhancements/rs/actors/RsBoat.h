@@ -50,15 +50,16 @@
 extern "C" {
 #endif
 
-// Hull size, world units: the Sailing skiff's (loc 59508, RsBoatModel.cpp), whose export spans x -75..75 and
-// z -167..173 with its bow at +z, its inside floor at y 0 and its gunwale's top at 48. The collision is a box
-// over its floor (the bow's taper and the gunwales are not in it: Link walks through a gunwale's drawing).
-#define RS_BOAT_HALF_LENGTH 168.0f // along the hull's +z (the bow)
-#define RS_BOAT_HALF_WIDTH 68.0f
+// Hull size, world units: the Sailing skiff's (loc 59503, RsBoatModel.cpp), whose export spans x -51..51 and
+// z -87..137 with its bow at +z (tapering to 4 wide), a 70-wide transom at the stern, its inside floor at y 0
+// and its gunwale's top at 34. The collision is a box over its floor (the bow's taper and the gunwales are not
+// in it: Link walks through a gunwale's drawing). Loc 59508, first taken for it, is the sloop's 3 x 8 hull.
+#define RS_BOAT_HALF_LENGTH 108.0f // along the hull's +z (the bow)
+#define RS_BOAT_HALF_WIDTH 46.0f
 #define RS_BOAT_DECK_Y 4.0f   // deck above the waterline: the skiff's floor, so its hull sits on the water
 #define RS_BOAT_KEEL_Y -14.0f // the placeholder box's bottom below the waterline (drawn without the model)
-// The skiff's export is centred 3 units bow-ward of its origin; drawn this far back, it sits on the collision.
-#define RS_BOAT_MODEL_Z (-3.0f)
+// The skiff's export is centred 25 units bow-ward of its origin; drawn this far back, it sits on the collision.
+#define RS_BOAT_MODEL_Z (-25.0f)
 // The collision sides reach further down than the drawn hull: a swimming adult Link floats ~45 below the surface
 // and checks walls ~26 above that, so sides that stop at the keel let him swim straight under the boat instead
 // of meeting its side (where he can climb out onto the deck).

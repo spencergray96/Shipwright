@@ -1,4 +1,4 @@
-// The boat prototype's RS model (sturdy-bassoon#256): the Sailing skiff's hull, loc 59508, as one archive prop list
+// The boat prototype's RS model (sturdy-bassoon#256): the Sailing skiff's hull, loc 59503, as one archive prop list
 // with a single copy at the origin, turn 0 - which is the kind in its own model space (the lit export sits on the
 // origin rule; only the generator's turn and move put copies into world space). Rs_Boat draws it under its own
 // matrix, so it follows the hull's position, yaw, bob and rock.
