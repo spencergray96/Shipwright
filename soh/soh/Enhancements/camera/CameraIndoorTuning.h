@@ -220,6 +220,13 @@ extern "C" {
 // asked. `camindoor ledgeall on|off`.
 #define CVAR_CAM_LEDGE_ALL_SCENES CVAR_ENHANCEMENT("CamLedgeAllScenes")
 #define CAM_LEDGE_ALL_SCENES_DEFAULT 0
+// 0 = a drop ahead reads as level ground: no ledge look-down at all, wherever the rules above apply. The
+// owner's pick on 2026-10-24 (sturdy-bassoon#256), replacing #155's "a little" (the cap's 20, which still
+// applies with this on). Cost: the slope probe cannot tell a drop from a downhill slope, so walking down a
+// terrain hill no longer tips the camera down either; a rise (uphill) keeps vanilla's damped look-up.
+// `camindoor ledgelean on|off`.
+#define CVAR_CAM_LEDGE_LEAN CVAR_ENHANCEMENT("CamLedgeLean")
+#define CAM_LEDGE_LEAN_DEFAULT 0
 
 /*
  * A rise behind a wall (sturdy-bassoon#223). Grid-tool scenes only; the rule is in

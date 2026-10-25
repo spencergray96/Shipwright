@@ -162,9 +162,9 @@ static s32 Camera_LedgeRulesApply(Camera* camera) {
 
 /**
  * The #155 ledge rules on the slope probe's two floor readings, as heights relative to the ground
- * under Link: a rise with a drop behind it is a parapet, not a slope, and a drop counts as no
- * deeper than the cap. Grid-tool scenes and boat decks (Camera_LedgeRulesApply). The values in
- * CameraIndoorTuning.h say why.
+ * under Link: a rise with a drop behind it is a parapet, not a slope, and a drop reads as level
+ * ground (CamLedgeLean off, the default) or as no deeper than the cap (on). Grid-tool scenes and boat
+ * decks (Camera_LedgeRulesApply). The values in CameraIndoorTuning.h say why.
  */
 static void Camera_SoftenLedge(Camera* camera, f32* dNear, f32* dFar) {
     f32 cap;
@@ -176,6 +176,16 @@ static void Camera_SoftenLedge(Camera* camera, f32* dNear, f32* dFar) {
     // readings, before the cap shrinks the drop that gives the parapet away.
     if (CVarGetInteger(CVAR_CAM_LEDGE_RAIL, CAM_LEDGE_RAIL_DEFAULT) && *dNear > 1.0f && *dFar < -1.0f) {
         *dNear = 0.0f;
+    }
+    // #256: no lean at all - a drop reads as level ground, so the camera never tips down at an edge.
+    if (!CVarGetInteger(CVAR_CAM_LEDGE_LEAN, CAM_LEDGE_LEAN_DEFAULT)) {
+        if (*dNear < 0.0f) {
+            *dNear = 0.0f;
+        }
+        if (*dFar < 0.0f) {
+            *dFar = 0.0f;
+        }
+        return;
     }
     cap = CVarGetFloat(CVAR_CAM_LEDGE_DROP_CAP, CAM_LEDGE_DROP_CAP_DEFAULT);
     if (cap > CAM_LEDGE_DROP_CAP_MAX) {

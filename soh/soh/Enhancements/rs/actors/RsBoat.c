@@ -605,9 +605,9 @@ void RsBoat_Init(Actor* thisx, PlayState* play) {
     thisx->shape.rot.x = 0;
     thisx->shape.rot.z = 0;
     thisx->world.rot = thisx->shape.rot;
-    // Targetable from the deck and the water just around it: attention measures from the hull's centre, and
-    // range 170 (mode 1) covers the deck's far corners with room to spare.
-    thisx->targetMode = 1;
+    // Targetable from the whole deck and the water just around it: RsBoat_Update makes attention measure from
+    // the tiller, and the bow is ~220 from it, inside range 240 (mode 8).
+    thisx->targetMode = 8;
     thisx->uncullZoneForward = 4000.0f;
     thisx->uncullZoneScale = 300.0f;
     thisx->uncullZoneDownward = 300.0f;
@@ -698,6 +698,19 @@ void RsBoat_Update(Actor* thisx, PlayState* play) {
     RsBoat_HelmPos(this, &thisx->focus.pos);
     thisx->focus.pos.y += 40.0f;
     thisx->focus.rot = thisx->shape.rot;
+    // Attention reads its distance and its "in front of Link" angle off these, which Actor_UpdateAll measured
+    // from the hull's centre - so walking toward the stern put the centre behind him and the tiller dropped
+    // out of the Z search, while turning away from it brought it back. Measured from the tiller instead; the
+    // attention search and the lock-on leash run after every actor's update. Nothing else here reads them.
+    {
+        Vec3f tiller;
+
+        RsBoat_HelmPos(this, &tiller);
+        thisx->xzDistToPlayer = Math_Vec3f_DistXZ(&tiller, &player->actor.world.pos);
+        thisx->yDistToPlayer = player->actor.world.pos.y - tiller.y;
+        thisx->xyzDistToPlayerSq = SQ(thisx->xzDistToPlayer) + SQ(thisx->yDistToPlayer);
+        thisx->yawTowardsPlayer = Math_Vec3f_Yaw(&tiller, &player->actor.world.pos);
+    }
 
     // Take the helm: a fresh A press with the tiller in reach (on deck, free to, close enough or locked on),
     // and no textbox wanting the A.
