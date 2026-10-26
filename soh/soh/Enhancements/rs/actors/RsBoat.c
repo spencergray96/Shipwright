@@ -186,6 +186,8 @@ s32 RsBoat_KindByName(const char* name) {
 // and misses it (it found the deck from the water, the lake from the deck); at 14 it lands 4 inside the top from
 // both sides.
 #define RS_BOAT_RAIL_THICK 14.0f
+// A collision triangle at least this thick at its narrowest, or it is left out (RsBoat_AddTri).
+#define RS_BOAT_MIN_ALTITUDE 4.0f
 #define RS_BOAT_MAX_VTX (RS_BOAT_MAX_STATIONS * 8)
 #define RS_BOAT_MAX_POLYS ((RS_BOAT_MAX_STATIONS - 1) * 14 + 12)
 // The shore probes: the floor's edge and the gunwale's edge at every station, both sides, and the stern's middle.
@@ -255,9 +257,20 @@ static void RsBoat_AddTri(RsBoatHull* hull, s32 a, s32 b, s32 c, f32 outX, f32 o
     f32 nz = abx * acy - aby * acx;
     f32 len = sqrtf(nx * nx + ny * ny + nz * nz);
 
-    // Two stations' points can meet at the bow's tip: a triangle with no area has no normal, and nothing to hit.
-    if (len < 0.5f) {
-        return;
+    // A sliver is left out. The engine moves the hull's collision into world space every tick and truncates each
+    // vertex to whole units (DynaPoly_ExpandSRT), up to ~1.7 off in 3D; a triangle thinner than twice that can land
+    // with no area, keep its unrotated normal and go in the wall list, where a flat one trips
+    // BgCheck_SphVsDynaWallInBgActor's assert. The skiff's bow had them: the owner's crash on letting go of the helm.
+    {
+        f32 bcx = (f32)(vc->x - vb->x);
+        f32 bcy = (f32)(vc->y - vb->y);
+        f32 bcz = (f32)(vc->z - vb->z);
+        f32 longest = MAX(MAX(sqrtf(abx * abx + aby * aby + abz * abz), sqrtf(acx * acx + acy * acy + acz * acz)),
+                          sqrtf(bcx * bcx + bcy * bcy + bcz * bcz));
+
+        if (longest < 0.5f || len / longest < RS_BOAT_MIN_ALTITUDE) {
+            return;
+        }
     }
     nx /= len;
     ny /= len;
@@ -343,8 +356,12 @@ static void RsBoat_BuildHull(s32 kindId) {
     for (i = 0; i < n; i++) {
         const RsBoatStation* st = &kind->stations[i];
         const f32 innerHw = MAX(st->outerHw - RS_BOAT_RAIL_THICK, st->outerHw * 0.5f);
-        // The rail's inner edge steps in from the stern and the bow too, so the ends have a rail top of their own.
-        const f32 innerZ = (i == 0) ? st->z + RS_BOAT_RAIL_THICK : (i == n - 1) ? st->z - RS_BOAT_RAIL_THICK : st->z;
+        // The rail's inner edge steps in from the stern and the bow too, so the ends have a rail top of their own -
+        // but never past the next station in: at the skiff's bow (112, the one before at 99) a full step crossed
+        // it and folded the deck and rail top into slivers (RS_BOAT_MIN_ALTITUDE).
+        const f32 innerZ = (i == 0)       ? MIN(st->z + RS_BOAT_RAIL_THICK, kind->stations[1].z - 4.0f)
+                           : (i == n - 1) ? MAX(st->z - RS_BOAT_RAIL_THICK, kind->stations[n - 2].z + 4.0f)
+                                          : st->z;
         const s16 railTop = (s16)lroundf(RS_BOAT_DECK_Y + st->railY);
 
         hull->halfWidth = MAX(hull->halfWidth, st->outerHw);
@@ -564,6 +581,16 @@ static s32 RsBoat_SurfaceIsOpen(PlayState* play, f32 x, f32 z, f32 surface, Acto
     if (!BgCheck_EntityLineTest2(&play->colCtx, &from, &to, &hit, &poly, false, true, true, false, &bgId, skip)) {
         return 1;
     }
+    // Any boat's deck over the water is not ground burying it: `boat kind` puts a new boat where the old one is still
+    // in the collision this tick, and the old deck read as ground and refused the spawn.
+    if (bgId != BGCHECK_SCENE) {
+        // Asked of the collision itself, so a boat killed this tick (its update already cleared) still counts.
+        DynaPolyActor* owner = DynaPoly_GetActor(&play->colCtx, bgId);
+
+        if (owner != NULL && owner->actor.id == ACTOR_RS_BOAT) {
+            return 1;
+        }
+    }
     return poly == NULL || COLPOLY_GET_NORMAL(poly->normal.y) < 0.0f;
 }
 
@@ -623,17 +650,27 @@ s32 RsBoat_SurfaceAt(PlayState* play, f32 x, f32 z, f32* outY, Actor* skip) {
 // A hull point is on the boat's own water: inside the box under the hull's centre (the cheap case, nearly every
 // point every tick), or over another open box at the same height. Ground over the water inside the box - a bank
 // overhanging it, a dock - is the floor test's to find, not this one's.
-static s32 RsBoat_WaterAt(RsBoat* this, PlayState* play, f32 x, f32 z) {
+// (x, z) is inside the box the boat floats in, still switched on: once afloat in a box, the whole of it is water.
+// The buried test (RsBoat_SurfaceIsOpen) only picks a box to start in - by Lake Hylia's west wall it looks up at a
+// cliff's ground overhanging deep water, calls the water buried, and the boat sank to the lakebed.
+static s32 RsBoat_InOwnBox(const RsBoat* this, PlayState* play, f32 x, f32 z) {
     CollisionHeader* header = play->colCtx.colHeader;
+    WaterBox* own;
+
+    if (this->waterBox < 0 || (u32)this->waterBox >= header->numWaterBoxes) {
+        return 0;
+    }
+    own = &header->waterBoxes[this->waterBox];
+    return (own->properties & 0x80000) == 0 && own->xMin < x && x < own->xMin + own->xLength && own->zMin < z &&
+           z < own->zMin + own->zLength;
+}
+
+static s32 RsBoat_WaterAt(RsBoat* this, PlayState* play, f32 x, f32 z) {
     f32 y = this->surfaceY;
     s32 box;
 
-    if (this->waterBox >= 0 && (u32)this->waterBox < header->numWaterBoxes) {
-        WaterBox* own = &header->waterBoxes[this->waterBox];
-
-        if (own->xMin < x && x < own->xMin + own->xLength && own->zMin < z && z < own->zMin + own->zLength) {
-            return 1;
-        }
+    if (RsBoat_InOwnBox(this, play, x, z)) {
+        return 1;
     }
     return RsBoat_SurfaceBox(play, x, z, &y, &this->dyna.actor, &box) &&
            fabsf(y - this->surfaceY) <= RS_BOAT_SURFACE_TOLERANCE;
@@ -1314,7 +1351,10 @@ static void RsBoat_Move(RsBoat* this, PlayState* play, f32 nextX, f32 nextZ, s16
     if (!cleared) {
         RsBoat_Evaluate(this, play, thisx->world.pos.x, thisx->world.pos.z, thisx->shape.rot.y, &now);
     }
-    if (cleared || left < now.total - 0.01f) {
+    // Whatever the probes say, the centre stays on the boat's water. A hull already half off it took a move that left
+    // it less deep in trouble with the centre over the edge, and a boat off its water settles on the ground: in Lake
+    // Hylia, 300 down on the lakebed past the main box's west edge, with Link aboard.
+    if ((cleared || left < now.total - 0.01f) && RsBoat_WaterAt(this, play, x, z)) {
         if (touched != RS_BOAT_BLOCK_NONE) {
             const f32 along =
                 (x - thisx->world.pos.x) * Math_SinS(nextYaw) + (z - thisx->world.pos.z) * Math_CosS(nextYaw);
@@ -1342,7 +1382,8 @@ static void RsBoat_Move(RsBoat* this, PlayState* play, f32 nextX, f32 nextZ, s16
 
         x = thisx->world.pos.x + Math_SinS(thisx->shape.rot.y) * this->speed;
         z = thisx->world.pos.z + Math_CosS(thisx->shape.rot.y) * this->speed;
-        if (this->speed != 0.0f && RsBoat_Improves(this, play, x, z, thisx->shape.rot.y, now.total)) {
+        if (this->speed != 0.0f && RsBoat_WaterAt(this, play, x, z) &&
+            RsBoat_Improves(this, play, x, z, thisx->shape.rot.y, now.total)) {
             thisx->world.pos.x = x;
             thisx->world.pos.z = z;
             moved = 1;
@@ -1447,8 +1488,12 @@ void RsBoat_Update(Actor* thisx, PlayState* play) {
 
     // The surface under the hull's centre. Off the water the boat does not move, and settles on whatever is
     // under its keel (beached; or Lake Hylia drained under it).
-    this->onWater = RsBoat_SurfaceBox(play, thisx->world.pos.x, thisx->world.pos.z, &this->surfaceY, thisx,
-                                      &this->waterBox);
+    if (this->onWater && RsBoat_InOwnBox(this, play, thisx->world.pos.x, thisx->world.pos.z)) {
+        this->surfaceY = (f32)play->colCtx.colHeader->waterBoxes[this->waterBox].ySurface;
+    } else {
+        this->onWater = RsBoat_SurfaceBox(play, thisx->world.pos.x, thisx->world.pos.z, &this->surfaceY, thisx,
+                                          &this->waterBox);
+    }
     if (!this->onWater) {
         Vec3f above = thisx->world.pos;
         CollisionPoly* poly = NULL;
