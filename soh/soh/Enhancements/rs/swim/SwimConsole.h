@@ -14,7 +14,7 @@
 //
 // `args[0]` is the subcommand. Every write ends with the status line, so a run reads the result of
 // the write it made rather than polling for it:
-//   status              op=status enabled= phase=idle|sinking|moving budget=<ticks> max=<ticks>
+//   status              op=status enabled= phase=idle|dive|sinking|moving budget=<ticks> max=<ticks>
 //                       seconds=<clock> length=<s> length_source=default|cvar swimming= grounded=
 //                       hold=none|message|cutscene|timer swim_clock=<the main timer is the swim clock>
 //                       refuge=none|world|actor drowns=<n> last=none|refuge|point:<name>|voidout

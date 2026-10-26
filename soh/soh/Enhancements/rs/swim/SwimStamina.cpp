@@ -86,7 +86,12 @@ const SceneAnchor* AnchorOf(int16_t sceneId) {
 
 // --- state ------------------------------------------------------------------------------------------
 
-enum Phase { PHASE_IDLE, PHASE_SINKING, PHASE_MOVING };
+// DIVE: the budget ran out under water in an A-dive; he finishes it and drowns at the surface.
+enum Phase { PHASE_IDLE, PHASE_DIVE, PHASE_SINKING, PHASE_MOVING };
+
+// The longest a dive may hold the drown off, in ticks. A dive is a few seconds down and back up; this
+// only stops something that keeps him under (a held item, a grab) from holding it off for ever.
+constexpr int32_t kDiveGraceMaxTicks = 200;
 
 struct Refuge {
     bool set = false;
@@ -121,9 +126,18 @@ void Marker(const char* fmt, ...) {
     AgentTest_WriteMarker(line);
 }
 
-// Player's own "is swimming" test (z_player.c): in water, and not walking the floor in iron boots.
+// In the water, whatever he is doing there: swimming, diving, or sunk to the bottom in iron boots (the
+// owner, 2026-10-26: boots that force a sink keep the budget draining). Player sets IN_WATER on entering
+// water even in iron boots on the floor (z_player.c, func_8083D36C).
 bool IsSwimming(Player* player) {
-    return (player->stateFlags1 & PLAYER_STATE1_IN_WATER) && player->currentBoots != PLAYER_BOOTS_IRON;
+    return (player->stateFlags1 & PLAYER_STATE1_IN_WATER) != 0;
+}
+
+// Under water in an A-dive: Player's DIVING flag (set by the A press, kept after it) while UNDERWATER (cleared
+// back at the surface). Not in iron boots, which sink him without a dive and never bring him back up.
+bool InDive(Player* player) {
+    return (player->stateFlags2 & PLAYER_STATE2_DIVING) && (player->stateFlags2 & PLAYER_STATE2_UNDERWATER) &&
+           player->currentBoots != PLAYER_BOOTS_IRON;
 }
 
 bool IsGrounded(Player* player) {
@@ -345,8 +359,35 @@ void OnPlayerUpdateSwim() {
                 return;
             }
             if (--sState.budget <= 0) {
-                BeginSinking(player, "budget");
+                if (InDive(player)) {
+                    // Out under water mid-dive: let the dive finish (the owner, 2026-10-26).
+                    sState.budget = 0;
+                    sState.sinkTicks = 0;
+                    sState.phase = PHASE_DIVE;
+                    Marker("rs_swim event=drown_deferred reason=dive");
+                } else {
+                    BeginSinking(player, "budget");
+                }
             }
+            return;
+        case PHASE_DIVE:
+            if (sState.grounded) {
+                // Standing on something, however he got there: that refills it, as always.
+                sState.phase = PHASE_IDLE;
+                sState.budget = max;
+                Marker("rs_swim event=drown_cancelled reason=grounded");
+                return;
+            }
+            if (InDive(player) && ++sState.sinkTicks < kDiveGraceMaxTicks) {
+                return;
+            }
+            // Back at the surface (or out of time): he has already been under, so no second sink - straight
+            // to wherever he goes back to.
+            sState.drowns++;
+            Player_PlaySfx(&player->actor, player->ageProperties->unk_92 + NA_SE_VO_LI_DAMAGE_S);
+            Marker("rs_swim event=drown cause=after_dive x=%.0f y=%.0f z=%.0f", player->actor.world.pos.x,
+                   player->actor.world.pos.y, player->actor.world.pos.z);
+            Respawn(play, player);
             return;
         case PHASE_SINKING:
             // En_Stream's pull: velocity eased down, from after Player's own update, so his buoyancy
@@ -484,7 +525,7 @@ extern "C" void RsSwim_ClearRefuge(void) {
 }
 
 RsSwimStatus RsSwim_GetStatus() {
-    static const char* const kPhaseNames[] = { "idle", "sinking", "moving" };
+    static const char* const kPhaseNames[] = { "idle", "dive", "sinking", "moving" };
     RsSwimStatus s;
     s.enabled = RsSwim_Enabled() != 0;
     s.phase = kPhaseNames[sState.phase];

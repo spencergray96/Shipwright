@@ -10,10 +10,9 @@
 // In OoT Link swims forever, which leaves a boat nothing to do. With this on, he swims for a BUDGET -
 // any water, sea or river, one rule everywhere - and drowns when it runs out.
 //
-//   - SWIMMING drains it one tick per tick: Link in water and not in iron boots, the test Player's
-//     own swim checks use. Diving counts; walking the lake floor in iron boots neither drains nor
-//     refills. Nothing lengthens it: not the Zora tunic, not a scale, not Link's age (the owner,
-//     2026-10-25).
+//   - BEING IN THE WATER drains it one tick per tick: swimming, diving, or sunk to the bottom in iron
+//     boots (the owner, 2026-10-26). Nothing lengthens it: not the Zora tunic, not a scale, not Link's
+//     age (the owner, 2026-10-25).
 //   - STANDING on anything - ground, a platform, a boat's deck - refills it at once. In the air,
 //     between the two, it holds.
 //   - It HOLDS while a textbox is up, while Link is in a cutscene, and while another feature holds the
@@ -23,12 +22,15 @@
 //     water until he stands on something: z_parameter.c starts and stops it on this file's answer to
 //     VB_SHOW_SWIM_CLOCK, this file writes its seconds, and the engine never counts it down or kills Link
 //     with it. With this off the VB answers false and z_parameter.c behaves as vanilla.
-//   - With it on, ONE VANILLA BEHAVIOUR CHANGES: a long dive. Once the swim clock is up, vanilla's
-//     underwater clock (15 s under, then 8 s a heart) cannot start, so a dive lasts the swim budget instead,
-//     tunic or not. The heat clock is unaffected: Link cannot swim in a hot room.
+//   - With it on, ONE VANILLA BEHAVIOUR CHANGES: iron boots under water. The swim clock is up from the
+//     moment he is in the water, so vanilla's underwater clock (8 s a heart, after a few seconds under)
+//     never starts: sunk in iron boots he drowns when the swim budget runs out instead, tunic or not. The
+//     heat clock is unaffected: Link cannot swim in a hot room.
 //
 // RUNNING OUT: Link is pulled under for RS_SWIM_SINK_TICKS, the way the Zora's River whirlpool takes
-// him (ovl_En_Stream), then is put back somewhere dry, in this order:
+// him (ovl_En_Stream), then is put back somewhere dry. If it runs out while he is under water in an
+// A-dive, the dive finishes first and he is put back the moment he surfaces, with no second sink (the
+// owner, 2026-10-26). Either way he goes, in this order:
 //
 //   1. his REFUGE, when he has one - the boat he last steered (RsSwim_SetRefuge). Set on letting go of
 //      the helm, cleared when he stands on anything but that boat, so walking around on a boat is
@@ -87,7 +89,7 @@ void RsSwim_ClearRefuge(void);
 // C++ only, for the console.
 struct RsSwimStatus {
     bool enabled;
-    const char* phase; // "idle", "sinking", "moving"
+    const char* phase; // "idle", "dive", "sinking", "moving"
     int32_t budget;
     int32_t max;
     bool swimming;
