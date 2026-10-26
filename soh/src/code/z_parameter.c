@@ -185,6 +185,14 @@ static s16 Item_GetSlot(u8 item) {
 static s16 sEnvHazard = PLAYER_ENV_HAZARD_NONE;
 static s16 sEnvHazardActive = false;
 
+// An environment-hazard clock that cannot kill. Every vanilla one can (sEnvHazardActive), so the only one
+// is the swim clock VB_SHOW_SWIM_CLOCK starts (sturdy-bassoon#257): whoever answers that writes its
+// seconds, and it never counts down or kills here.
+static s32 Interface_IsSwimClock(void) {
+    return !sEnvHazardActive && (gSaveContext.timerState >= TIMER_STATE_ENV_HAZARD_INIT) &&
+           (gSaveContext.timerState <= TIMER_STATE_ENV_HAZARD_TICK);
+}
+
 static Gfx sSetupDL_80125A60[] = {
     gsDPPipeSync(),
     gsSPClearGeometryMode(G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN |
@@ -6001,7 +6009,9 @@ void Interface_Draw(PlayState* play) {
                 case TIMER_STATE_ENV_HAZARD_INIT:
                     sTimerStateTimer = 20;
                     sTimerNextSecondTimer = 20;
-                    gSaveContext.timerSeconds = gSaveContext.health >> 1;
+                    if (!Interface_IsSwimClock()) {
+                        gSaveContext.timerSeconds = gSaveContext.health >> 1;
+                    }
                     gSaveContext.timerState = TIMER_STATE_ENV_HAZARD_PREVIEW;
                     break;
                 case TIMER_STATE_ENV_HAZARD_PREVIEW:
@@ -6076,7 +6086,7 @@ void Interface_Draw(PlayState* play) {
                     if ((gSaveContext.timerState >= TIMER_STATE_ENV_HAZARD_MOVE) && (msgCtx->msgLength == 0)) {
                         sTimerNextSecondTimer--;
                         if (sTimerNextSecondTimer == 0) {
-                            if (gSaveContext.timerSeconds != 0) {
+                            if ((gSaveContext.timerSeconds != 0) && !Interface_IsSwimClock()) {
                                 gSaveContext.timerSeconds--;
                             }
 
@@ -6851,6 +6861,15 @@ void Interface_Update(PlayState* play) {
             gSaveContext.timerX[TIMER_ID_MAIN] = 140;
             gSaveContext.timerY[TIMER_ID_MAIN] = 80;
             sEnvHazardActive = true;
+        } else if (GameInteractor_Should(VB_SHOW_SWIM_CLOCK, false)) {
+            gSaveContext.timerState = TIMER_STATE_ENV_HAZARD_INIT;
+            gSaveContext.timerX[TIMER_ID_MAIN] = 140;
+            gSaveContext.timerY[TIMER_ID_MAIN] = 80;
+            sEnvHazardActive = false;
+        }
+    } else if (Interface_IsSwimClock()) {
+        if (!GameInteractor_Should(VB_SHOW_SWIM_CLOCK, true)) {
+            gSaveContext.timerState = TIMER_STATE_OFF;
         }
     } else {
         if (((sEnvHazard == PLAYER_ENV_HAZARD_NONE) || (sEnvHazard == PLAYER_ENV_HAZARD_SWIMMING)) &&
