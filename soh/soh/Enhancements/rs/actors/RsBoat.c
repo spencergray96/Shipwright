@@ -32,15 +32,17 @@ RsBoatTestWater gRsBoatTestWater = { 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
 // kind while it is above 0. Reverse is a share of the top speed in use, so an upgrade backs up faster too (25%: the
 // raft's 2.5 at 10, which the owner liked, and the skiff's 3.5 at 14). Accel and drag were tuned and kept; brake is
 // the rate when the stick opposes the way the boat moves (pulling back while going ahead took 4.7 s at the drag
-// rate before the skiff began to back up). The fwd and rev CVars are new names: the old ones held a speed in units.
+// rate before the skiff began to back up; 0.6 then felt too strong, and 0.4 takes half as long again: ~1.75 s from
+// the skiff's 14). Turn rates are the kind's own too (sRsBoatKinds), and turnstill / turnmove override them for every
+// kind while above 0. The fwd, rev and turn CVars are new names: the old ones held one value for every kind.
 const RsBoatTuneInfo gRsBoatTune[RS_BOAT_TUNE_COUNT] = {
     { "fwd", CVAR_ENHANCEMENT("RsBoatTuneTopSpeed"), 0.0f, 0.0f, 40.0f },
     { "rev", CVAR_ENHANCEMENT("RsBoatTuneReverseShare"), 0.25f, 0.05f, 1.0f },
     { "accel", CVAR_ENHANCEMENT("RsBoatTuneAccel"), 0.25f, 0.01f, 5.0f },
     { "drag", CVAR_ENHANCEMENT("RsBoatTuneDrag"), 0.15f, 0.01f, 5.0f },
-    { "brake", CVAR_ENHANCEMENT("RsBoatTuneBrake"), 0.6f, 0.01f, 5.0f },
-    { "turnstill", CVAR_ENHANCEMENT("RsBoatTuneTurnStill"), 110.0f, 0.0f, 1000.0f },
-    { "turnmove", CVAR_ENHANCEMENT("RsBoatTuneTurnMove"), 300.0f, 0.0f, 2000.0f },
+    { "brake", CVAR_ENHANCEMENT("RsBoatTuneBrake"), 0.4f, 0.01f, 5.0f },
+    { "turnstill", CVAR_ENHANCEMENT("RsBoatTuneTurnAtRest"), 0.0f, 0.0f, 1000.0f },
+    { "turnmove", CVAR_ENHANCEMENT("RsBoatTuneTurnAtSpeed"), 0.0f, 0.0f, 2000.0f },
     { "steps", CVAR_ENHANCEMENT("RsBoatTuneSteps"), 0.0f, 0.0f, 10.0f },
     { "upgrade", CVAR_ENHANCEMENT("RsBoatTuneUpgrade"), 0.0f, 0.0f, 1.0f },
 };
@@ -121,6 +123,8 @@ typedef struct RsBoatKind {
     f32 modelZ;
     f32 topSpeed;        // units a tick ahead, by default
     f32 topSpeedUpgrade; // with its speed upgrade unlocked (sturdy-bassoon#263), or 0 for none
+    f32 turnAtRest;      // binang a tick at full tiller, standing still: how lively it feels, not a balance
+    f32 turnAtSpeed;     // added at its default top speed: (rest + this) sets its full-speed turning circle
     s32 numStations;
     RsBoatStation stations[RS_BOAT_MAX_STATIONS];
 } RsBoatKind;
@@ -135,6 +139,8 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
       -25.0f,
       14.0f, // the fastest, for now: the middle boat's use
       18.0f,
+      220.0f, // full-speed circle ~650 across
+      230.0f,
       13,
       {
           { -112.0f, 24.0f, 35.0f, 22.0f },
@@ -160,6 +166,8 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
       -3.0f,
       12.0f,
       14.0f,
+      200.0f, // the widest full-speed circle, ~780 across: 20% wider than the skiff's
+      121.0f,
       15,
       {
           { -170.0f, 40.0f, 55.0f, 32.0f },
@@ -189,7 +197,9 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
       -12.5f,
       0.0f,
       10.0f,
-      0.0f, // no upgrade considered yet
+      0.0f,   // no upgrade considered yet
+      300.0f, // the best handling: the quickest spin and the tightest circle, ~420 across
+      200.0f,
       7,
       {
           { -70.0f, 22.0f, 24.0f, 0.0f },
@@ -217,6 +227,22 @@ f32 RsBoat_TopSpeed(const RsBoat* boat) {
         return kind->topSpeedUpgrade;
     }
     return kind->topSpeed;
+}
+
+// The turn rate at full tiller for a boat moving at `speed`, binang a tick. From the kind's rest rate it rises with
+// speed to (rest + at speed) at its default top speed, and in step with any faster top speed beyond that (an upgrade,
+// or `fwd`), so a faster boat draws the same full-speed circle rather than a wider one: an upgrade the player cannot
+// undo never handles worse. The owner's tuning, 2026-10-25 (the upgraded skiff felt right at 579 = 450 x 18 / 14).
+static f32 RsBoat_TurnRate(const RsBoat* boat, f32 speed) {
+    const RsBoatKind* kind = &sRsBoatKinds[boat->kind];
+    const f32 top = RsBoat_TopSpeed(boat);
+    const f32 rest = RsBoat_Tune(RS_BOAT_TUNE_TURN_STILL) > 0.0f ? RsBoat_Tune(RS_BOAT_TUNE_TURN_STILL)
+                                                                 : kind->turnAtRest;
+    const f32 atSpeed = RsBoat_Tune(RS_BOAT_TUNE_TURN_MOVING) > 0.0f ? RsBoat_Tune(RS_BOAT_TUNE_TURN_MOVING)
+                                                                     : kind->turnAtSpeed;
+    const f32 atTop = (rest + atSpeed) * top / kind->topSpeed;
+
+    return rest + (atTop - rest) * MIN(fabsf(speed) / top, 1.0f);
 }
 
 const char* RsBoat_KindName(s32 kind) {
@@ -1579,9 +1605,7 @@ void RsBoat_Update(Actor* thisx, PlayState* play) {
     }
     Math_StepToF(&this->speed, target, rate);
     this->tiller += (turn - this->tiller) * RS_BOAT_TILLER_EASE;
-    this->yawVel = (s16)(this->tiller * (RsBoat_Tune(RS_BOAT_TUNE_TURN_STILL) +
-                                         RsBoat_Tune(RS_BOAT_TUNE_TURN_MOVING) *
-                                             MIN(fabsf(this->speed) / top, 1.0f)));
+    this->yawVel = (s16)(this->tiller * RsBoat_TurnRate(this, this->speed));
 
     // The surface under the hull's centre. Off the water the boat does not move, and settles on whatever is
     // under its keel (beached; or Lake Hylia drained under it).

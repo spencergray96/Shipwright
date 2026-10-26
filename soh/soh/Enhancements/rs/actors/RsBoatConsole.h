@@ -83,9 +83,11 @@
 //                   the handling (saved, read every tick): fwd (top speed ahead, units a tick, for every kind;
 //                   0, the default: each kind's own, skiff 14, sloop 12, raft 10), rev (top speed astern as a
 //                   share of the top speed in use; 0.25), accel and drag (speed gained, or lost coasting, a tick;
-//                   0.25 and 0.15), brake (speed lost a tick while the stick opposes the motion; 0.6), turnstill
-//                   and turnmove (binang a tick at full tiller standing still, and added at top speed; 110 and
-//                   300), steps (0, the default: the throttle follows the stick smoothly; n: n steps), upgrade (1:
+//                   0.25 and 0.15), brake (speed lost a tick while the stick opposes the motion; 0.4), turnstill
+//                   and turnmove (binang a tick at full tiller standing still, and added at the kind's default top
+//                   speed, for every kind; 0, the default: each kind's own, raft 300 + 200, skiff 220 + 230, sloop
+//                   200 + 121; a faster top speed turns faster in step, keeping the kind's full-speed circle),
+//                   steps (0, the default: the throttle follows the stick smoothly; n: n steps), upgrade (1:
 //                   each kind's upgraded top speed, skiff 18, sloop 14, raft none; 0). `op=tune result=ok fwd=
 //                   rev= accel= drag= brake= turnstill= turnmove= steps= upgrade=`. Works with no scene
 //   contact [<idx>] what the boat's outline meets where it is now: `op=contact result=ok deepest=<none|no_water|
