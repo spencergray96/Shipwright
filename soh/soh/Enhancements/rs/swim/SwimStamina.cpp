@@ -112,6 +112,7 @@ struct State {
     // Last tick's reading, for `swim status`.
     bool swimming = false;
     bool grounded = false;
+    float depth = 0.0f; // Player's yDistToWater: how far his feet are below the surface
     const char* holdReason = "none";
 };
 
@@ -126,11 +127,24 @@ void Marker(const char* fmt, ...) {
     AgentTest_WriteMarker(line);
 }
 
-// In the water, whatever he is doing there: swimming, diving, or sunk to the bottom in iron boots (the
-// owner, 2026-10-26: boots that force a sink keep the budget draining). Player sets IN_WATER on entering
-// water even in iron boots on the floor (z_player.c, func_8083D36C).
+// STANDING counts as land, wading included: on a floor with his head above the surface, boots or not (the
+// owner, 2026-10-26). "Head above" is Player's own line, ageProperties->unk_2C (56 units deep adult, 32
+// young): deeper than that it muffles the audio and runs its underwater timer, and without boots he
+// swims. Player's IN_WATER is no use here: in iron boots it stays set walking out until the water is only
+// unk_24 deep (36 adult), so it would drain him in a band where he is standing with his head out.
+bool IsGrounded(Player* player) {
+    if (!(player->actor.bgCheckFlags & BGCHECKFLAG_GROUND)) {
+        return false;
+    }
+    return !(player->stateFlags1 & PLAYER_STATE1_IN_WATER) ||
+           player->actor.yDistToWater < player->ageProperties->unk_2C;
+}
+
+// In the water and not standing: swimming, diving, or sunk to the bottom in iron boots with his head under
+// (the owner, 2026-10-26: boots that force a sink keep the budget draining). Player sets IN_WATER on
+// entering deep water even in iron boots on the floor (z_player.c, func_8083D36C).
 bool IsSwimming(Player* player) {
-    return (player->stateFlags1 & PLAYER_STATE1_IN_WATER) != 0;
+    return (player->stateFlags1 & PLAYER_STATE1_IN_WATER) && !IsGrounded(player);
 }
 
 // Under water in an A-dive: Player's DIVING flag (set by the A press, kept after it) while UNDERWATER (cleared
@@ -138,10 +152,6 @@ bool IsSwimming(Player* player) {
 bool InDive(Player* player) {
     return (player->stateFlags2 & PLAYER_STATE2_DIVING) && (player->stateFlags2 & PLAYER_STATE2_UNDERWATER) &&
            player->currentBoots != PLAYER_BOOTS_IRON;
-}
-
-bool IsGrounded(Player* player) {
-    return (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) && !(player->stateFlags1 & PLAYER_STATE1_IN_WATER);
 }
 
 // The main timer belongs to somebody else: running, and not as the swim clock.
@@ -316,6 +326,7 @@ void OnPlayerUpdateSwim() {
     const int32_t max = RsSwim_MaxTicks();
     sState.swimming = IsSwimming(player);
     sState.grounded = IsGrounded(player);
+    sState.depth = player->actor.yDistToWater;
     sState.holdReason = "none";
 
     // The refuge is spent by standing on anything but the boat it names.
@@ -533,6 +544,7 @@ RsSwimStatus RsSwim_GetStatus() {
     s.max = RsSwim_MaxTicks();
     s.swimming = sState.swimming;
     s.grounded = sState.grounded;
+    s.depth = sState.depth;
     s.holdReason = sState.holdReason;
     s.clockOwned = sState.ownsClock;
     s.refuge = sState.refuge.set;

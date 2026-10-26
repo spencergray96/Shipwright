@@ -11,10 +11,10 @@
 // any water, sea or river, one rule everywhere - and drowns when it runs out.
 //
 //   - BEING IN THE WATER drains it one tick per tick: swimming, diving, or sunk to the bottom in iron
-//     boots (the owner, 2026-10-26). Nothing lengthens it: not the Zora tunic, not a scale, not Link's
-//     age (the owner, 2026-10-25).
-//   - STANDING on anything - ground, a platform, a boat's deck - refills it at once. In the air,
-//     between the two, it holds.
+//     boots with his head under (the owner, 2026-10-26). Nothing lengthens it: not the Zora tunic, not
+//     a scale, not Link's age (the owner, 2026-10-25).
+//   - STANDING on anything - ground, a platform, a boat's deck, a river bed with his head above the
+//     surface (wading, boots or not) - refills it at once. In the air, between the two, it holds.
 //   - It HOLDS while a textbox is up, while Link is in a cutscene, and while another feature holds the
 //     main timer (a minigame's clock), because that clock is the only place the budget is visible and
 //     drowning with no warning would be worse than a pause.
@@ -94,6 +94,7 @@ struct RsSwimStatus {
     int32_t max;
     bool swimming;
     bool grounded;
+    float depth; // how far his feet are below the water's surface (Player's yDistToWater)
     const char* holdReason; // why swimming is not draining it this tick: "none", "message", "cutscene", "timer"
     bool clockOwned;        // the main timer is the swim clock
     bool refuge;

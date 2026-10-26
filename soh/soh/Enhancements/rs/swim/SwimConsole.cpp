@@ -24,9 +24,9 @@ std::string Describe() {
     char buf[400];
     std::snprintf(buf, sizeof(buf),
                   "enabled=%d phase=%s budget=%d max=%d seconds=%d length=%d length_source=%s swimming=%d "
-                  "grounded=%d hold=%s swim_clock=%d refuge=%s drowns=%d last=%s",
+                  "grounded=%d depth=%.0f hold=%s swim_clock=%d refuge=%s drowns=%d last=%s",
                   s.enabled ? 1 : 0, s.phase, s.budget, s.max, RsSwim_ClockSeconds(), RsSwim_GetLengthSeconds(),
-                  RsSwim_LengthOverridden() ? "cvar" : "default", s.swimming ? 1 : 0, s.grounded ? 1 : 0,
+                  RsSwim_LengthOverridden() ? "cvar" : "default", s.swimming ? 1 : 0, s.grounded ? 1 : 0, s.depth,
                   s.holdReason, s.clockOwned ? 1 : 0, !s.refuge ? "none" : (s.refugeOnActor ? "actor" : "world"),
                   s.drowns, s.lastRespawn);
     return buf;

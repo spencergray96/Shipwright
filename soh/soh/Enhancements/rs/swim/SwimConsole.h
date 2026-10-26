@@ -16,6 +16,7 @@
 // the write it made rather than polling for it:
 //   status              op=status enabled= phase=idle|dive|sinking|moving budget=<ticks> max=<ticks>
 //                       seconds=<clock> length=<s> length_source=default|cvar swimming= grounded=
+//                       depth=<feet below the surface; standing is land under 56 adult, 32 young>
 //                       hold=none|message|cutscene|timer swim_clock=<the main timer is the swim clock>
 //                       refuge=none|world|actor drowns=<n> last=none|refuge|point:<name>|voidout
 //   on | off            the switch (CVar, saved). Refills the budget. `op=on|off result=ok ...`
