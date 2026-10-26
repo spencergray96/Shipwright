@@ -15,7 +15,8 @@
 // `args[0]` is the subcommand:
 //   list            one `boat idx=<i> kind=<skiff|sloop> x= y= z= yaw=<binang> speed=<x100> throttle=<x100>
 //                   tiller=<x100> helm=0|1 on_water=0|1 surface=<y> blocked=<none|no_water|shallow|wall|headroom>
-//                   blocks=<n> touch=<same names> touches=<n> link_on=0|1 helm_dist=<n> cam=0|1` line per live
+//                   blocks=<n> touch=<same names> touches=<n> lift=<x100> floor_low=<x100> link_on=0|1
+//                   helm_dist=<n> cam=0|1` line per live
 //                   boat, then `op=list result=ok count=<n> link_x= link_y= link_z= link_yaw= link_floor_bg=<n>
 //                   link_input_disabled=0|1 link_swimming=0|1 link_can_take_helm=0|1 tiller_in_reach=0|1
 //                   link_focus_boat=0|1 a_label_check=0|1 a_label=<DO_ACTION_*>
@@ -23,7 +24,9 @@
 //                   hud=<hidden|not_steering|steering>`.
 //                   throttle: what the helm asked for last tick (-100..100); blocked: why the last move was
 //                   refused (RsBoatBlock), blocks: refused moves since spawn; touch: what the last move that was
-//                   pushed off the shore had met, touches: such moves since spawn;
+//                   pushed off the shore had met, touches: such moves since spawn; lift: how far the hull is
+//                   raised this tick to keep its rocking floor dry, floor_low: the floor's lowest drawn point
+//                   over the water (never under RS_BOAT_FLOAT_MARGIN while afloat);
 //                   link_on: Link is standing on that boat's deck; helm_dist: Link's xz distance from its
 //                   tiller; cam: the steering camera holds the view; link_swimming: PLAYER_STATE1_IN_WATER;
 //                   link_can_take_helm: Link is free to take a helm (RsBoat_LinkCanTakeHelm); tiller_in_reach:

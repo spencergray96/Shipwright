@@ -160,6 +160,8 @@ typedef struct RsBoat {
     s32 linkAboard;  // Link stood on this boat's deck or rail as of last tick (RsBoat_LinkWasAboard)
     s32 railPush;    // ticks Link has pushed into this hull's wall from its deck (RsBoat_RailHop)
     s32 railGrace;   // ticks without contact the push may still survive
+    f32 lift;        // how far the hull is raised this tick to keep its rocking floor out of the water
+    f32 floorLow;    // the floor's lowest drawn point over the water this tick, lift included (`boat list`)
     f32 throttle;    // what the helm asked for on the last tick, -1..1, for the console
     s16 subCamId;    // the steering camera while the helm is held, else SUBCAM_NONE
     Vec3f camEye;    // where it is now, eased toward its target each tick
@@ -213,6 +215,10 @@ s32 RsBoat_LinkWasAboard(PlayState* play);
 // 1 when Link stood on a boat last tick and is on other ground now: he walked off the rail onto a bank level with
 // it, never leaving the ground, so the hop above is never asked about. Player hops him there too.
 s32 RsBoat_SteppedOffBoat(PlayState* play, const Player* player);
+
+// 1 when `bgId` is a live boat's collision. Player reads it for the floor under Link as he leaves an edge: stepping
+// off the rail onto the deck below is a drop, not a hop, which at a run could carry him over the far side.
+s32 RsBoat_IsBoatFloor(PlayState* play, s32 bgId);
 
 // How much higher than vanilla a swimming Link reaches to climb out onto the ledge in front of him: some when the
 // wall he swims against is a boat's hull, so both rails are climbable from the water anywhere; 0 otherwise.

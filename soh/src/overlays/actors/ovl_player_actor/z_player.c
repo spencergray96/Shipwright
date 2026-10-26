@@ -5825,6 +5825,9 @@ void func_8083AA10(Player* this, PlayState* play) {
                     // below its rail, where the vanilla 20-unit drop test made Link step off without one.
                     (sPrevFloorProperty != FLOOR_PROPERTY_9) &&
                     ((sYDistToFloor > 20.0f) || RsBoat_LinkWasAboard(play)) &&
+                    // SOH [Fork] sturdy-bassoon#262: off a boat's rail onto its own deck is a drop, not a hop: a
+                    // hop at a run carried Link across the deck and over the far side.
+                    !RsBoat_IsBoatFloor(play, this->actor.floorBgId) &&
                     (this->meleeWeaponState == 0) && (ABS(sp5C) < 0x2000) && (this->linearVelocity > 3.0f)) {
 
                     if ((sPrevFloorProperty == FLOOR_PROPERTY_11) &&

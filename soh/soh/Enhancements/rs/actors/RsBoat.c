@@ -67,6 +67,10 @@ f32 RsBoat_Tune(s32 knob) {
 #define RS_BOAT_ROCK_PERIOD 101.0f // ticks: ~5 s, out of step with the bob on purpose
 #define RS_BOAT_ROLL_DIP 2.2f
 #define RS_BOAT_PITCH_DIP 2.35f
+// The floor's lowest drawn point is kept this far over the water: when the bob and both rocks line up past the
+// deck's height (the skiff's stern corners went ~1.2 under, about one moment in ten), the hull is lifted by the
+// difference, as a tipping hull rises (RsBoat_FloorLow).
+#define RS_BOAT_FLOAT_MARGIN 1.0f
 
 // The wall probe runs this far above the surface: under the deck, above any lip a shore has at the waterline.
 #define RS_BOAT_PROBE_Y 8.0f
@@ -1100,6 +1104,10 @@ f32 RsBoat_RailHop(PlayState* play, const Player* player) {
     return 0.0f;
 }
 
+s32 RsBoat_IsBoatFloor(PlayState* play, s32 bgId) {
+    return RsBoat_IsHullBg(play, bgId);
+}
+
 s32 RsBoat_SteppedOffBoat(PlayState* play, const Player* player) {
     Actor* a;
 
@@ -1227,6 +1235,27 @@ s32 RsBoat_SetHelm(RsBoat* this, PlayState* play, s32 on) {
     return 1;
 }
 
+// The floor's lowest drawn point over the water at this bob and rock, before any lift. The floor's edge is the keel
+// probes; RsBoat_Draw rotates the model by the roll about z and then the pitch about x, so a point (x, deck, z)
+// lands at x sin(roll) + (deck cos(pitch) - z sin(pitch)) cos(roll). Both signs of each are taken: the floor is
+// symmetric across, and whichever end the pitch dips, the lowest point is found.
+static f32 RsBoat_FloorLow(const RsBoat* this, f32 bob) {
+    const RsBoatHull* hull = &sHulls[this->kind];
+    const f32 sr = fabsf(Math_SinS(this->roll));
+    const f32 cr = Math_CosS(this->roll);
+    const f32 sp = fabsf(Math_SinS(this->pitch));
+    const f32 cp = Math_CosS(this->pitch);
+    f32 low = RS_BOAT_DECK_Y;
+    s32 i;
+
+    for (i = 0; i < hull->numKeel; i++) {
+        const f32 y = -fabsf(hull->keel[i].x) * sr + (RS_BOAT_DECK_Y * cp - fabsf(hull->keel[i].z) * sp) * cr;
+
+        low = MIN(low, y);
+    }
+    return bob + low;
+}
+
 // --- actor --------------------------------------------------------------------------------------
 
 void RsBoat_Init(Actor* thisx, PlayState* play) {
@@ -1266,6 +1295,8 @@ void RsBoat_Init(Actor* thisx, PlayState* play) {
     this->freeTicks = 0;
     this->helmPress = 0;
     this->linkAboard = 0;
+    this->lift = 0.0f;
+    this->floorLow = RS_BOAT_DECK_Y;
     this->railPush = 0;
     this->railGrace = 0;
     this->throttle = 0.0f;
@@ -1518,13 +1549,16 @@ void RsBoat_Update(Actor* thisx, PlayState* play) {
         RsBoat_CamUpdate(this, play, player);
     }
 
-    // Float: the surface plus the bob. Only the hull moves; the water stays flat.
-    bob = sinf((f32)this->timer * (2.0f * (f32)M_PI / RS_BOAT_BOB_PERIOD)) * RS_BOAT_BOB_AMP;
-    if (this->onWater) {
-        thisx->world.pos.y = this->surfaceY + bob;
-    }
+    // Float: the surface plus the bob, and the lift that keeps the rocking floor out of the water. Only the hull
+    // moves; the water stays flat.
     this->roll = (s16)(sinf((f32)this->timer * (2.0f * (f32)M_PI / RS_BOAT_ROCK_PERIOD)) * hull->rollAmp);
     this->pitch = (s16)(cosf((f32)this->timer * (2.0f * (f32)M_PI / RS_BOAT_ROCK_PERIOD) * 0.7f) * hull->pitchAmp);
+    bob = sinf((f32)this->timer * (2.0f * (f32)M_PI / RS_BOAT_BOB_PERIOD)) * RS_BOAT_BOB_AMP;
+    this->lift = MAX(0.0f, RS_BOAT_FLOAT_MARGIN - RsBoat_FloorLow(this, bob));
+    this->floorLow = RsBoat_FloorLow(this, bob) + this->lift;
+    if (this->onWater) {
+        thisx->world.pos.y = this->surfaceY + bob + this->lift;
+    }
 }
 
 static void RsBoat_DrawBox(GraphicsContext* gfxCtx, Vtx* vtx, u8 r, u8 g, u8 b, u8 topR, u8 topG, u8 topB) {
