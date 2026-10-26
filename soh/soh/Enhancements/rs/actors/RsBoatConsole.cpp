@@ -104,11 +104,12 @@ int32_t List(std::vector<std::string>& lines) {
         Vec3f helm;
         RsBoat_HelmPos(boat, &helm);
         Addf(lines,
-             "boat idx=%d kind=%s x=%d y=%d z=%d yaw=%d speed=%d throttle=%d tiller=%d helm=%d on_water=%d "
+             "boat idx=%d kind=%s x=%d y=%d z=%d yaw=%d speed=%d top=%d throttle=%d tiller=%d helm=%d on_water=%d "
              "surface=%d blocked=%s blocks=%d touch=%s touches=%d lift=%d floor_low=%d link_on=%d helm_dist=%d "
              "cam=%d",
              (int)idx, RsBoat_KindName(boat->kind), (int)lroundf(a->world.pos.x), (int)lroundf(a->world.pos.y),
              (int)lroundf(a->world.pos.z), (int)(u16)a->shape.rot.y, (int)lroundf(boat->speed * 100.0f),
+             (int)lroundf(RsBoat_TopSpeed(boat) * 100.0f),
              (int)lroundf(boat->throttle * 100.0f), (int)lroundf(boat->tiller * 100.0f), boat->helm,
              boat->onWater, (int)lroundf(boat->surfaceY), RsBoat_BlockName(boat->blocked), boat->blockCount,
              RsBoat_BlockName(boat->touch), boat->touchCount, (int)lroundf(boat->lift * 100.0f),
@@ -645,9 +646,10 @@ const ConsoleSink::Command rsBoatCommand(
     "boat (saved); lakelevel fills or drains Lake Hylia (its event flag, in the save; shows on the next entry); "
     "cam sets the steering camera (height over the deck, distance behind, ease in percent a tick; saved); "
     "hud switches the steering label; kind picks the hull Lake Hylia's boat and spawn use (saved; puts Lake "
-    "Hylia's boat back as that kind); tune sets the handling: fwd and rev top speed, accel, drag, turnstill and "
-    "turnmove (binang a tick), steps (0: the stick's throttle is smooth; saved); contact lists what the hull's outline "
-    "meets where it is.",
+    "Hylia's boat back as that kind); tune sets the handling: fwd (top speed for every kind; 0 for each kind's own), "
+    "rev (astern, a share of top speed), accel, drag, brake, turnstill and turnmove (binang a tick), steps (0: the "
+    "stick's throttle is smooth), upgrade (1: each kind's upgraded top speed); saved; contact lists what the hull's "
+    "outline meets where it is.",
     { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|kind|tune|contact|clear",
         Ship::ArgumentType::TEXT },
       { "arg1", Ship::ArgumentType::TEXT, true },

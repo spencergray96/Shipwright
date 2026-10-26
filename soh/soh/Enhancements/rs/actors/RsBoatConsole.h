@@ -13,7 +13,8 @@
 // command that takes `[<idx>]` defaults to 0.
 //
 // `args[0]` is the subcommand:
-//   list            one `boat idx=<i> kind=<skiff|sloop|raft> x= y= z= yaw=<binang> speed=<x100> throttle=<x100>
+//   list            one `boat idx=<i> kind=<skiff|sloop|raft> x= y= z= yaw=<binang> speed=<x100> top=<x100>
+//                   throttle=<x100>
 //                   tiller=<x100> helm=0|1 on_water=0|1 surface=<y> blocked=<none|no_water|shallow|wall|headroom>
 //                   blocks=<n> touch=<same names> touches=<n> lift=<x100> floor_low=<x100> link_on=0|1
 //                   helm_dist=<n> cam=0|1` line per live
@@ -22,7 +23,8 @@
 //                   link_focus_boat=0|1 a_label_check=0|1 a_label=<DO_ACTION_*>
 //                   link_ledge=<climb type>/<delay ticks>/<ledge height> link_lin=<x100> drive_ticks=<n>
 //                   hud=<hidden|not_steering|steering>`.
-//                   throttle: what the helm asked for last tick (-100..100); blocked: why the last move was
+//                   top: the top speed in use (RsBoat_TopSpeed); throttle: what the helm asked for last tick
+//                   (-100..100); blocked: why the last move was
 //                   refused (RsBoatBlock), blocks: refused moves since spawn; touch: what the last move that was
 //                   pushed off the shore had met, touches: such moves since spawn; lift: how far the hull is
 //                   raised this tick to keep its rocking floor dry, floor_low: the floor's lowest drawn point
@@ -78,11 +80,14 @@
 //                   `op=kind result=ok kind= polys=<n> respawned=0|1` (polys: the kind's collision triangles, 0
 //                   before one has spawned). Works with no scene
 //   tune [default] | tune <knob> <value>
-//                   the handling (saved, read every tick): fwd and rev (top speed ahead and astern, units a tick;
-//                   defaults 8 and 2.5), accel and drag (speed gained or lost a tick; 0.25 and 0.15), turnstill
+//                   the handling (saved, read every tick): fwd (top speed ahead, units a tick, for every kind;
+//                   0, the default: each kind's own, skiff 14, sloop 12, raft 10), rev (top speed astern as a
+//                   share of the top speed in use; 0.25), accel and drag (speed gained, or lost coasting, a tick;
+//                   0.25 and 0.15), brake (speed lost a tick while the stick opposes the motion; 0.6), turnstill
 //                   and turnmove (binang a tick at full tiller standing still, and added at top speed; 110 and
-//                   300), steps (0, the default: the throttle follows the stick smoothly; n: n steps). `op=tune
-//                   result=ok fwd= rev= accel= drag= turnstill= turnmove= steps=`. Works with no scene
+//                   300), steps (0, the default: the throttle follows the stick smoothly; n: n steps), upgrade (1:
+//                   each kind's upgraded top speed, skiff 18, sloop 14, raft none; 0). `op=tune result=ok fwd=
+//                   rev= accel= drag= brake= turnstill= turnmove= steps= upgrade=`. Works with no scene
 //   contact [<idx>] what the boat's outline meets where it is now: `op=contact result=ok deepest=<none|no_water|
 //                   shallow|wall|headroom> points= <reason>:<depth>@<push x>,<push z> ...`, one entry per probe in
 //                   trouble, depth in world units and the push a unit vector x100 on the world axes. Empty

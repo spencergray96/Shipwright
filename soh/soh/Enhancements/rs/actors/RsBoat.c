@@ -27,16 +27,22 @@ RsBoatTestWater gRsBoatTestWater = { 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
 
 // --- tuning -------------------------------------------------------------------------------------
 //
-// The handling is live (`boat tune`, RsBoat.h): per 20 Hz tick, Link's run being ~6 units a tick as adult, so the
-// default top speed outruns him a little.
+// The handling is live (`boat tune`, RsBoat.h): per 20 Hz tick, Link's run being ~6 units a tick as adult. Top speed is
+// the kind's own (sRsBoatKinds: the owner's first pass, 2026-10-25, sturdy-bassoon#263); `fwd` overrides it for every
+// kind while it is above 0. Reverse is a share of the top speed in use, so an upgrade backs up faster too (25%: the
+// raft's 2.5 at 10, which the owner liked, and the skiff's 3.5 at 14). Accel and drag were tuned and kept; brake is
+// the rate when the stick opposes the way the boat moves (pulling back while going ahead took 4.7 s at the drag
+// rate before the skiff began to back up). The fwd and rev CVars are new names: the old ones held a speed in units.
 const RsBoatTuneInfo gRsBoatTune[RS_BOAT_TUNE_COUNT] = {
-    { "fwd", CVAR_ENHANCEMENT("RsBoatTuneFwd"), 8.0f, 0.5f, 40.0f },
-    { "rev", CVAR_ENHANCEMENT("RsBoatTuneRev"), 2.5f, 0.1f, 20.0f },
+    { "fwd", CVAR_ENHANCEMENT("RsBoatTuneTopSpeed"), 0.0f, 0.0f, 40.0f },
+    { "rev", CVAR_ENHANCEMENT("RsBoatTuneReverseShare"), 0.25f, 0.05f, 1.0f },
     { "accel", CVAR_ENHANCEMENT("RsBoatTuneAccel"), 0.25f, 0.01f, 5.0f },
     { "drag", CVAR_ENHANCEMENT("RsBoatTuneDrag"), 0.15f, 0.01f, 5.0f },
+    { "brake", CVAR_ENHANCEMENT("RsBoatTuneBrake"), 0.6f, 0.01f, 5.0f },
     { "turnstill", CVAR_ENHANCEMENT("RsBoatTuneTurnStill"), 110.0f, 0.0f, 1000.0f },
     { "turnmove", CVAR_ENHANCEMENT("RsBoatTuneTurnMove"), 300.0f, 0.0f, 2000.0f },
     { "steps", CVAR_ENHANCEMENT("RsBoatTuneSteps"), 0.0f, 0.0f, 10.0f },
+    { "upgrade", CVAR_ENHANCEMENT("RsBoatTuneUpgrade"), 0.0f, 0.0f, 1.0f },
 };
 
 f32 RsBoat_Tune(s32 knob) {
@@ -113,6 +119,8 @@ typedef struct RsBoatKind {
     f32 deckY;  // where Link stands, over the waterline: the floor of a hull, the top of a raft's logs
     f32 modelY; // where the model's origin is drawn, over the waterline
     f32 modelZ;
+    f32 topSpeed;        // units a tick ahead, by default
+    f32 topSpeedUpgrade; // with its speed upgrade unlocked (sturdy-bassoon#263), or 0 for none
     s32 numStations;
     RsBoatStation stations[RS_BOAT_MAX_STATIONS];
 } RsBoatKind;
@@ -125,6 +133,8 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
       RS_BOAT_DECK_Y,
       RS_BOAT_DECK_Y,
       -25.0f,
+      14.0f, // the fastest, for now: the middle boat's use
+      18.0f,
       13,
       {
           { -112.0f, 24.0f, 35.0f, 22.0f },
@@ -148,6 +158,8 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
       RS_BOAT_DECK_Y,
       RS_BOAT_DECK_Y,
       -3.0f,
+      12.0f,
+      14.0f,
       15,
       {
           { -170.0f, 40.0f, 55.0f, 32.0f },
@@ -176,6 +188,8 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
       6.0f,
       -12.5f,
       0.0f,
+      10.0f,
+      0.0f, // no upgrade considered yet
       7,
       {
           { -70.0f, 22.0f, 24.0f, 0.0f },
@@ -190,6 +204,19 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
 
 static f32 RsBoat_DeckY(const RsBoat* boat) {
     return sRsBoatKinds[boat->kind].deckY;
+}
+
+f32 RsBoat_TopSpeed(const RsBoat* boat) {
+    const RsBoatKind* kind = &sRsBoatKinds[boat->kind];
+    const f32 override = RsBoat_Tune(RS_BOAT_TUNE_FORWARD);
+
+    if (override > 0.0f) {
+        return override;
+    }
+    if (RsBoat_Tune(RS_BOAT_TUNE_UPGRADE) >= 0.5f && kind->topSpeedUpgrade > 0.0f) {
+        return kind->topSpeedUpgrade;
+    }
+    return kind->topSpeed;
 }
 
 const char* RsBoat_KindName(s32 kind) {
@@ -1472,7 +1499,8 @@ void RsBoat_Update(Actor* thisx, PlayState* play) {
     const RsBoatHull* hull = &sHulls[this->kind];
     Player* player = GET_PLAYER(play);
     Input* input = &play->state.input[0];
-    const f32 maxForward = RsBoat_Tune(RS_BOAT_TUNE_FORWARD);
+    const f32 top = RsBoat_TopSpeed(this);
+    f32 rate;
     f32 throttle = 0.0f;
     f32 turn = 0.0f;
     s32 letGo = 0;
@@ -1539,15 +1567,21 @@ void RsBoat_Update(Actor* thisx, PlayState* play) {
     }
     this->throttle = throttle;
 
-    // Speed toward the throttle's target; the tiller eases toward the stick, and turns harder with way on.
-    target = throttle > 0.0f ? throttle * maxForward : throttle * RsBoat_Tune(RS_BOAT_TUNE_REVERSE);
-    Math_StepToF(&this->speed, target,
-                 (fabsf(target) > fabsf(this->speed)) ? RsBoat_Tune(RS_BOAT_TUNE_ACCEL)
-                                                      : RsBoat_Tune(RS_BOAT_TUNE_DRAG));
+    // Speed toward the throttle's target: braking while the stick opposes the way the boat moves, gaining toward a
+    // higher target, coasting toward a lower one. The tiller eases toward the stick, and turns harder with way on.
+    target = throttle > 0.0f ? throttle * top : throttle * top * RsBoat_Tune(RS_BOAT_TUNE_REVERSE);
+    if ((this->speed > 0.0f && target < 0.0f) || (this->speed < 0.0f && target > 0.0f)) {
+        rate = RsBoat_Tune(RS_BOAT_TUNE_BRAKE);
+    } else if (fabsf(target) > fabsf(this->speed)) {
+        rate = RsBoat_Tune(RS_BOAT_TUNE_ACCEL);
+    } else {
+        rate = RsBoat_Tune(RS_BOAT_TUNE_DRAG);
+    }
+    Math_StepToF(&this->speed, target, rate);
     this->tiller += (turn - this->tiller) * RS_BOAT_TILLER_EASE;
     this->yawVel = (s16)(this->tiller * (RsBoat_Tune(RS_BOAT_TUNE_TURN_STILL) +
                                          RsBoat_Tune(RS_BOAT_TUNE_TURN_MOVING) *
-                                             MIN(fabsf(this->speed) / maxForward, 1.0f)));
+                                             MIN(fabsf(this->speed) / top, 1.0f)));
 
     // The surface under the hull's centre. Off the water the boat does not move, and settles on whatever is
     // under its keel (beached; or Lake Hylia drained under it).

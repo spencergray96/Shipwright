@@ -102,16 +102,18 @@ typedef enum RsBoatKindId {
 #define RS_BOAT_CAM_EASE_MAX 100
 
 // The handling, live (#262 point 7): `boat tune <knob> <value>`, saved, read every tick. Speeds per 20 Hz tick
-// (Link's run is ~6 as adult), turn rates in binang a tick at full tiller. One set for every kind until the kinds
-// get their own (sturdy-bassoon#263).
+// (Link's run is ~6 as adult), turn rates in binang a tick at full tiller. Top speed is each kind's own
+// (RsBoat_TopSpeed); the rest are one set for every kind until the kinds get their own (sturdy-bassoon#263).
 typedef enum RsBoatTuneKnob {
-    RS_BOAT_TUNE_FORWARD,     // top speed ahead
-    RS_BOAT_TUNE_REVERSE,     // top speed astern
+    RS_BOAT_TUNE_FORWARD,     // top speed ahead for every kind, overriding each kind's own; 0: the kind's
+    RS_BOAT_TUNE_REVERSE,     // top speed astern, as a share of the top speed in use
     RS_BOAT_TUNE_ACCEL,       // speed gained a tick, toward the throttle's target
     RS_BOAT_TUNE_DRAG,        // speed lost a tick, coasting toward a lower target
+    RS_BOAT_TUNE_BRAKE,       // speed lost a tick while the stick opposes the way the boat moves
     RS_BOAT_TUNE_TURN_STILL,  // turn rate standing still
     RS_BOAT_TUNE_TURN_MOVING, // added at top speed ahead
     RS_BOAT_TUNE_STEPS,       // 0: the throttle follows the stick smoothly; n: it snaps to n steps
+    RS_BOAT_TUNE_UPGRADE,     // 1: each kind's upgraded top speed, where it has one (a stand-in until #263's saves)
     RS_BOAT_TUNE_COUNT,
 } RsBoatTuneKnob;
 
@@ -127,6 +129,11 @@ extern const RsBoatTuneInfo gRsBoatTune[RS_BOAT_TUNE_COUNT];
 
 // A knob's live value, clamped to its range.
 f32 RsBoat_Tune(s32 knob);
+
+struct RsBoat;
+// The top speed this boat uses now, units a tick: `fwd` when it is set, else its kind's upgraded speed while
+// `upgrade` is on and the kind has one, else its kind's own.
+f32 RsBoat_TopSpeed(const struct RsBoat* boat);
 
 typedef enum RsBoatBlock {
     RS_BOAT_BLOCK_NONE,
