@@ -134,7 +134,8 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
     // The Sailing skiff, loc 59503: model z -87..137 (bow at +z), x -51..51, a 70-wide transom, the bow tapering
     // to 4 wide; its rail 22 over the floor, rising to 28 at the bow. Its archive also carries Sailing's default
     // trim (59626, the gunwale cap in the hull's wood: without it the stern's inner corners are open), keel
-    // (59516), helm (60558) and still sails (29480) at the template boats' offsets (#262).
+    // (59516), helm (59583, with the cleat the sail's sheet rope ends on) and still sails (29480) at the template
+    // boats' offsets (#262).
     { "skiff",
       "objects/rs_props/rs_boat_skiff/props",
       RS_BOAT_DECK_Y,
