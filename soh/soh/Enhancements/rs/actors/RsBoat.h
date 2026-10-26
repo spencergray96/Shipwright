@@ -157,6 +157,7 @@ typedef struct RsBoat {
                      // so a boat nudging the shore at a crawl reports it once rather than every few ticks
     s32 freeTicks;   // moves in a row that fitted: "freely again" is RS_BOAT_FREE_TICKS of them
     s32 helmPress;   // A was down last tick: a held A is not a second press
+    s32 linkAboard;  // Link stood on this boat's deck or rail as of last tick (RsBoat_LinkWasAboard)
     f32 throttle;    // what the helm asked for on the last tick, -1..1, for the console
     s16 subCamId;    // the steering camera while the helm is held, else SUBCAM_NONE
     Vec3f camEye;    // where it is now, eased toward its target each tick
@@ -202,6 +203,14 @@ s32 RsBoat_TillerInReach(PlayState* play);
 
 // 1 while Link holds some boat's helm. Player reads it to blank the A button's label: A does nothing there.
 s32 RsBoat_LinkAtHelm(PlayState* play);
+
+// 1 when Link stood on some boat's deck or rail as of last tick. Player reads it as he leaves the ground: running
+// off a boat always hops, however near the ground beside it is (vanilla hops only over a drop of more than 20).
+s32 RsBoat_LinkWasAboard(PlayState* play);
+
+// 1 when Link stood on a boat last tick and is on other ground now: he walked off the rail onto a bank level with
+// it, never leaving the ground, so the hop above is never asked about. Player hops him there too.
+s32 RsBoat_SteppedOffBoat(PlayState* play, const Player* player);
 
 // Link is free to take the helm: on nothing but his feet, empty-handed and doing nothing else. 0 while he aims
 // or looks in first person, has a sword or item out, holds, carries or throws something, shields, hangs,

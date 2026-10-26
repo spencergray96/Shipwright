@@ -107,6 +107,11 @@ typedef struct RsBoatKind {
     const char* name;
     const char* list; // the archive's display list: the kind once, at the origin, turn 0 (RsBoatModel.cpp)
     f32 modelZ;
+    // The collision rail's top over the deck at most, or 0 for the drawn height. A swimming adult climbs out onto a
+    // ledge at most 70 above him (Player's sAgeProperties unk_10) and floats ~46 under the surface, so with the
+    // bob (RS_BOAT_BOB_AMP) a rail over the deck (RS_BOAT_DECK_Y) is climbable from the water anywhere only up to
+    // ~18. The skiff's drawn rail is 22: Link standing on it sinks the difference into its drawing.
+    f32 railCap;
     s32 numStations;
     RsBoatStation stations[RS_BOAT_MAX_STATIONS];
 } RsBoatKind;
@@ -117,6 +122,7 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
     { "skiff",
       "objects/rs_props/rs_boat_skiff/props",
       -25.0f,
+      17.0f,
       13,
       {
           { -112.0f, 24.0f, 35.0f, 22.0f },
@@ -138,6 +144,7 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
     { "sloop",
       "objects/rs_props/rs_boat_sloop/props",
       -3.0f,
+      0.0f, // 32 to 37: not climbable from the water; capping it would sink Link 15 into the drawn rail
       15,
       {
           { -170.0f, 40.0f, 55.0f, 32.0f },
@@ -180,8 +187,10 @@ s32 RsBoat_KindByName(const char* name) {
 // and the inner wall's foot on the deck. Between two stations, on each side, the outer side, the rail's top and
 // the inner wall, and the deck between the inner feet; the stern and the bow are closed the same way across.
 // No bottom, which nothing stands on and the camera never sees from inside. The rail is RS_BOAT_RAIL_THICK wide
-// and Link can stand on it, which is how he climbs aboard from the water and steps off again.
-#define RS_BOAT_RAIL_THICK 6.0f
+// and Link can stand on it, which is how he climbs aboard from the water and steps off again. Wider than the
+// drawn rail on purpose: Player's ledge check looks 10 past the wall he swims against, and on a narrower rail it
+// lands on the deck instead, then finds the rail's own side in the way and refuses the climb.
+#define RS_BOAT_RAIL_THICK 10.0f
 #define RS_BOAT_MAX_VTX (RS_BOAT_MAX_STATIONS * 8)
 #define RS_BOAT_MAX_POLYS ((RS_BOAT_MAX_STATIONS - 1) * 14 + 12)
 // The shore probes: the floor's edge and the gunwale's edge at every station, both sides, and the stern's middle.
@@ -341,7 +350,8 @@ static void RsBoat_BuildHull(s32 kindId) {
         const f32 innerHw = MAX(st->outerHw - RS_BOAT_RAIL_THICK, st->outerHw * 0.5f);
         // The rail's inner edge steps in from the stern and the bow too, so the ends have a rail top of their own.
         const f32 innerZ = (i == 0) ? st->z + RS_BOAT_RAIL_THICK : (i == n - 1) ? st->z - RS_BOAT_RAIL_THICK : st->z;
-        const s16 railTop = (s16)lroundf(RS_BOAT_DECK_Y + st->railY);
+        const s16 railTop =
+            (s16)lroundf(RS_BOAT_DECK_Y + (kind->railCap > 0.0f ? MIN(st->railY, kind->railCap) : st->railY));
 
         hull->halfWidth = MAX(hull->halfWidth, st->outerHw);
         for (side = 0; side < 2; side++) {
@@ -436,9 +446,10 @@ static void RsBoat_BuildHull(s32 kindId) {
         const s16 deck = (s16)RS_BOAT_DECK_Y;
 
         RsBoat_BuildBox(hull->hullBox, (s16)-w, (s16)RS_BOAT_KEEL_Y, stern, w, deck, bow);
-        // the tiller post: on the stern edge behind where Link stands to steer, and low, because the camera sits
-        // behind Link at the helm and a tall post fills the frame
-        RsBoat_BuildBox(hull->tillerBox, -4, deck, stern, 4, (s16)(deck + 16), (s16)(stern + 6));
+        // the tiller post: just inboard of the stern, behind where Link stands to steer, and low, because the
+        // camera sits behind Link at the helm and a tall post fills the frame. Not on the stern itself: its back
+        // face on the transom's z-fought with it.
+        RsBoat_BuildBox(hull->tillerBox, -4, deck, (s16)(stern + 8), 4, (s16)(deck + 16), (s16)(stern + 14));
         // the prow: a low fin along the bow's last stretch
         RsBoat_BuildBox(hull->prowBox, -5, deck, (s16)(bow - 40), 5, (s16)(deck + 14), bow);
     }
@@ -940,15 +951,47 @@ s32 RsBoat_TillerInReach(PlayState* play) {
     return 0;
 }
 
-s32 RsBoat_LinkAtHelm(PlayState* play) {
+// The first live boat `test` holds for, or NULL.
+static const RsBoat* RsBoat_Find(PlayState* play, s32 (*test)(const RsBoat*)) {
     Actor* a;
 
     for (a = play->actorCtx.actorLists[ACTORCAT_BG].head; a != NULL; a = a->next) {
-        if (a->id == ACTOR_RS_BOAT && a->update != NULL && ((const RsBoat*)a)->helm) {
-            return 1;
+        if (a->id == ACTOR_RS_BOAT && a->update != NULL && test((const RsBoat*)a)) {
+            return (const RsBoat*)a;
         }
     }
-    return 0;
+    return NULL;
+}
+
+static s32 RsBoat_HelmHeld(const RsBoat* boat) {
+    return boat->helm;
+}
+
+static s32 RsBoat_LinkWasOn(const RsBoat* boat) {
+    return boat->linkAboard;
+}
+
+s32 RsBoat_LinkAtHelm(PlayState* play) {
+    return RsBoat_Find(play, RsBoat_HelmHeld) != NULL;
+}
+
+s32 RsBoat_LinkWasAboard(PlayState* play) {
+    return RsBoat_Find(play, RsBoat_LinkWasOn) != NULL;
+}
+
+s32 RsBoat_SteppedOffBoat(PlayState* play, const Player* player) {
+    Actor* a;
+
+    if (!RsBoat_LinkWasAboard(play)) {
+        return 0;
+    }
+    // Onto another boat's deck is still aboard.
+    for (a = play->actorCtx.actorLists[ACTORCAT_BG].head; a != NULL; a = a->next) {
+        if (a->id == ACTOR_RS_BOAT && a->update != NULL && RsBoat_LinkOnDeck((const RsBoat*)a, player)) {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 // --- the steering camera --------------------------------------------------------------------------
@@ -1101,6 +1144,7 @@ void RsBoat_Init(Actor* thisx, PlayState* play) {
     this->markedBlock = RS_BOAT_BLOCK_NONE;
     this->freeTicks = 0;
     this->helmPress = 0;
+    this->linkAboard = 0;
     this->throttle = 0.0f;
     this->subCamId = SUBCAM_NONE;
     this->surfaceY = thisx->world.pos.y;
@@ -1250,6 +1294,9 @@ void RsBoat_Update(Actor* thisx, PlayState* play) {
     // No lag to make up for when drawing: DynaPoly_Setup runs between the BG and Player categories and takes the
     // hull's transform as this tick left it, so Player carries Link by this tick's move, not last tick's.
     this->timer++;
+    // Read before Player's update this tick, so it is where Link stood last tick: Player asks when he leaves the
+    // ground whether the floor he left was a boat (RsBoat_LinkWasAboard).
+    this->linkAboard = RsBoat_LinkOnDeck(this, player);
 
     // The tiller is targetable while the helm is free: the arrow and the lock-on ride over the post at head
     // height. Off at the helm, so the Z search skips it and the leash drops a lock held through the take.

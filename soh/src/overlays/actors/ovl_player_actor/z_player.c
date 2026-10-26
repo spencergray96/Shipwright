@@ -5810,7 +5810,10 @@ void func_8083AA10(Player* this, PlayState* play) {
 
                 if ((this->actor.bgCheckFlags & BGCHECKFLAG_GROUND_LEAVE) &&
                     !(this->stateFlags1 & PLAYER_STATE1_IN_WATER) && (sPrevFloorProperty != FLOOR_PROPERTY_6) &&
-                    (sPrevFloorProperty != FLOOR_PROPERTY_9) && (sYDistToFloor > 20.0f) &&
+                    // SOH [Fork] sturdy-bassoon#262: running off a boat always hops, even onto a bank close
+                    // below its rail, where the vanilla 20-unit drop test made Link step off without one.
+                    (sPrevFloorProperty != FLOOR_PROPERTY_9) &&
+                    ((sYDistToFloor > 20.0f) || RsBoat_LinkWasAboard(play)) &&
                     (this->meleeWeaponState == 0) && (ABS(sp5C) < 0x2000) && (this->linearVelocity > 3.0f)) {
 
                     if ((sPrevFloorProperty == FLOOR_PROPERTY_11) &&
@@ -5840,6 +5843,15 @@ void func_8083AA10(Player* this, PlayState* play) {
             }
         }
     } else {
+        // SOH [Fork] sturdy-bassoon#262: running off a boat onto a bank level with its rail never leaves the
+        // ground, so the hop above is never asked about. Hop there too, on the same terms as the hop off an edge.
+        if (!(this->stateFlags1 & (PLAYER_STATE1_IN_WATER | PLAYER_STATE1_IN_CUTSCENE | PLAYER_STATE1_JUMPING |
+                                   PLAYER_STATE1_CLIMBING_LEDGE | PLAYER_STATE1_HANGING_OFF_LEDGE)) &&
+            (this->meleeWeaponState == 0) && (this->linearVelocity > 3.0f) &&
+            (ABS((s16)(this->yaw - this->actor.shape.rot.y)) < 0x2000) && RsBoat_SteppedOffBoat(play, this)) {
+            func_8083A4A8(this, play);
+            return;
+        }
         this->fallStartHeight = this->actor.world.pos.y;
     }
 }
