@@ -436,6 +436,9 @@
  *                                          nightFlag by the engine's own threshold (night when > 0xC000 or
  *                                          < 0x4555). Presets dawn=0x4000, day=0x8000, dusk=0xC001, night=0;
  *                                          value is 0..65535, decimal or 0x-hex. Emits a state marker
+ *   agenttest eventflag <flag> [on|off]    read or set an event flag (eventChkInf), 0x-hex ok; writes
+ *                                          `eventflag flag=0x<n> set=0|1`. 0x69 refills adult Lake Hylia.
+ *                                          Re-enter the scene after a change: most are read at load
  *   agenttest sunssong                     finish a Sun's Song without the ocarina: sets sunsSongState to START,
  *                                          as Oceff_Spot does, and the next Interface_Update takes it from there -
  *                                          in place in a custom scene (rs_suns markers), by reload elsewhere.
@@ -576,6 +579,12 @@
  *                                          scenes loads. `pick` says what a trip to a map would load
  *                                          from here; the context's own `rs_worldctx event=scene|set`
  *                                          markers say when a scene set or left it. WorldConsole.h
+ *   agenttest swim status|on|off|length <s>|default|budget <ticks>|drown|refuge here|clear|points
+ *                                          SWIM STAMINA (sturdy-bassoon#257): the budget, the switch,
+ *                                          the length, a forced drown, the refuge and the drown points.
+ *                                          `rs_swim op=` lines answer; SwimStamina.cpp writes
+ *                                          `rs_swim event=drown|respawn|landed|refuge_set|refuge_cleared`
+ *                                          on its own. SwimConsole.h
  *   agenttest stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|
  *                    bump [on|off|default|hold <ticks|default>]|actors|badcheck
  *                                          staircases (sturdy-bassoon#147): the menu-driven storey
@@ -706,6 +715,7 @@
 #include "soh/Enhancements/lights/LightsConsole.h"
 #include "soh/Enhancements/graph/GraphConsole.h"
 #include "soh/Enhancements/rs/maps/WorldConsole.h"
+#include "soh/Enhancements/rs/swim/SwimConsole.h"
 #include "soh/Enhancements/rs/stairs/StairConsole.h"
 #include "soh/Enhancements/rs/interactions/InteractionConsole.h"
 #include "soh/Enhancements/rs/warps/WarpConsole.h"
@@ -2395,6 +2405,33 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         gSaveContext.nightFlag = (gSaveContext.dayTime > 0xC000 || gSaveContext.dayTime < 0x4555) ? 1 : 0;
         return EmitState(output);
     }
+    // An event flag (gSaveContext.eventChkInf), for a run that needs world state the debug save lacks -
+    // EVENTCHKINF_RAISED_LAKE_HYLIA_WATER (0x69) refills adult Lake Hylia (sturdy-bassoon#257). A scene
+    // reads most of these as it loads, so re-enter the scene after setting one.
+    if (args.size() >= 3 && args[1] == "eventflag") {
+        int32_t flag = -1;
+        if (!ParseU16(args[2], &flag) || flag >= (int32_t)(ARRAY_COUNT(gSaveContext.eventChkInf) * 16) ||
+            (args.size() >= 4 && args[3] != "on" && args[3] != "off")) {
+            if (output) {
+                *output += "eventflag needs a flag below eventChkInf's size (0x-hex ok), then on|off";
+            }
+            return 1;
+        }
+        if (args.size() >= 4) {
+            if (args[3] == "on") {
+                Flags_SetEventChkInf(flag);
+            } else {
+                Flags_UnsetEventChkInf(flag);
+            }
+        }
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "eventflag flag=0x%X set=%d", flag, Flags_GetEventChkInf(flag) ? 1 : 0);
+        WriteMarker(buf);
+        if (output) {
+            *output += buf;
+        }
+        return 0;
+    }
     if (args.size() >= 2 && args[1] == "sunssong") {
         // What Oceff_Spot does when the song's effect finishes: the next Interface_Update takes the song
         // from there, in place in a custom scene (rs/time/SunsSong.h, sturdy-bassoon#159) and by reload
@@ -2998,6 +3035,12 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(RsWorldConsole_Run, sub, "rs_worldctx ", output, WriteMarker);
     }
+    // Swim stamina (sturdy-bassoon#257). `rs_swim op=...` answers, `rs_swim event=...` (SwimStamina.cpp)
+    // is the budget running out, the respawn and the refuge changing.
+    if (args.size() >= 3 && args[1] == "swim") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(RsSwimConsole_Run, sub, "rs_swim ", output, WriteMarker);
+    }
     // Staircases (sturdy-bassoon#147). Same prefix as the move's own event markers, which is
     // deliberate: `rs_stairs op=…` is an answer to a question, `rs_stairs stair=<n> event=…` is the
     // move reporting itself, and a run greps the one it is waiting for.
@@ -3091,7 +3134,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             "usage: agenttest perf <ticks> | state | goto <x> <y> <z> [yaw] | "
             "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | look <frames> [rx] [ry] | "
             "press <BUTTONS> [frames] | hold [<BUTTONS>|none] | ocarina <NOTES> [hold] [gap] | song <name> | stats | "
-              "rooms | time <dawn|day|dusk|night|value> | sunssong | display | "
+              "rooms | time <dawn|day|dusk|night|value> | eventflag <flag> [on|off] | sunssong | display | "
             "trace <ticks> | octrace <ticks> | ocstall <ms> <tick>|off | "
             "cutscene <index>|off | fog <near> <far> [r g b] [max=<m>]|world <start> <end> [r g b] [clip=<c>]|haze <H> <F>|status|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
             "roomdist [hysteresis]|off | uncull | kill <actor> | sceneflag <sceneId> [value] | "
@@ -3103,6 +3146,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
               "worldctx get|set <unset|solo|0xNN>|pick <map>|scenes <map> | "
+              "swim status|on|off|length <s>|default|budget <ticks>|drown|refuge here|clear|points | "
               "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|"
               "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
               "warps list|dump|where|status|badcheck | "
@@ -3146,7 +3190,7 @@ void RegisterAgentTest() {
               "Agent test loop: perf <ticks> | state | goto <x> <y> <z> [yaw] | "
               "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | look <frames> [rx] [ry] | "
               "press <BUTTONS> [frames] | hold [<BUTTONS>|none] | ocarina <NOTES> [hold] [gap] | song <name> | stats | "
-              "rooms | time <dawn|day|dusk|night|value> | sunssong | display | "
+              "rooms | time <dawn|day|dusk|night|value> | eventflag <flag> [on|off] | sunssong | display | "
               "trace <ticks> | octrace <ticks> | ocstall <ms> <tick>|off | "
               "cutscene <index>|off | fog <near> <far> [r g b] [max=<m>]|world <start> <end> [r g b] [clip=<c>]|haze <H> <F>|status|off | tiers <near> <mid> <n> [mitb] [drawcull]|off | "
               "roomdist [hysteresis]|off | uncull | kill <actor> | sceneflag <sceneId> [value] | "
@@ -3158,6 +3202,7 @@ void RegisterAgentTest() {
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
               "worldctx get|set <unset|solo|0xNN>|pick <map>|scenes <map> | "
+              "swim status|on|off|length <s>|default|budget <ticks>|drown|refuge here|clear|points | "
               "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|"
               "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
               "warps list|dump|where|status|badcheck | "
