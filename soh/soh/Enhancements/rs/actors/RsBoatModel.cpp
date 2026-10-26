@@ -1,16 +1,17 @@
-// The boat prototype's RS model (sturdy-bassoon#256): the Sailing skiff's hull, loc 59503, as one archive prop list
-// with a single copy at the origin, turn 0 - which is the kind in its own model space (the lit export sits on the
-// origin rule; only the generator's turn and move put copies into world space). Rs_Boat draws it under its own
-// matrix, so it follows the hull's position, yaw, bob and rock.
+// The boat's RS models (sturdy-bassoon#256, #262): each kind's hull - the Sailing skiff, loc 59503, and the sloop,
+// loc 59508 - as one archive prop list with a single copy at the origin, turn 0, which is the kind in its own model
+// space (the lit export sits on the origin rule; only the generator's turn and move put copies into world space).
+// Rs_Boat draws it under its own matrix, so it follows the hull's position, yaw, bob and rock.
 //
-// The archive is `rs-props-rs_boat_skiff.o2r` in mods/, made by generate_props.py from a one-line placement list
-// (docs/notes/2026-10-24-sailing-boat-prototype.md says how). Not in mods/: the boat draws its placeholder box.
+// Each archive is `rs-props-rs_boat_<kind>.o2r` in mods/, made by generate_props.py from a one-line placement list
+// (docs/notes/2026-10-24-sailing-boat-prototype.md says how). Not in mods/: that kind draws its placeholder box.
 //
 // Held, not re-resolved, as ArchivePropLists.cpp holds a room's lists: the list's address is its resource's
 // instruction vector, stable only while the resource lives. And loaded by its exact path, which never looks at alt/.
 
 #include "RsBoat.h"
 
+#include <map>
 #include <memory>
 #include <string>
 
@@ -22,28 +23,30 @@
 
 namespace {
 
-const char* const kSkiffList = "objects/rs_props/rs_boat_skiff/props";
+// By list path, once each: a null entry is a path already looked for and not found.
+std::map<std::string, std::shared_ptr<Fast::DisplayList>> sModels;
 
-std::shared_ptr<Fast::DisplayList> sSkiff;
-bool sLooked = false;
+std::shared_ptr<Fast::DisplayList> Load(const char* path) {
+    auto resources = Ship::Context::GetRawInstance()->GetResourceManager();
+    if (!resources->GetArchiveManager()->HasFile(path)) {
+        SPDLOG_INFO("[rs_boat] {} is in no mounted archive: that boat draws its placeholder box", path);
+        return nullptr;
+    }
+    auto list = std::dynamic_pointer_cast<Fast::DisplayList>(resources->LoadResource(path, true));
+    if (list == nullptr || list->Instructions.empty()) {
+        SPDLOG_WARN("[rs_boat] {} is not a display list: that boat draws its placeholder box", path);
+        return nullptr;
+    }
+    SPDLOG_INFO("[rs_boat] drawing a boat from {}", path);
+    return list;
+}
 
 } // namespace
 
-extern "C" Gfx* RsBoat_ModelList(void) {
-    if (!sLooked) {
-        sLooked = true;
-        auto resources = Ship::Context::GetRawInstance()->GetResourceManager();
-        if (!resources->GetArchiveManager()->HasFile(kSkiffList)) {
-            SPDLOG_INFO("[rs_boat] {} is in no mounted archive: the boat draws its placeholder box", kSkiffList);
-            return nullptr;
-        }
-        sSkiff = std::dynamic_pointer_cast<Fast::DisplayList>(resources->LoadResource(kSkiffList, true));
-        if (sSkiff == nullptr || sSkiff->Instructions.empty()) {
-            SPDLOG_WARN("[rs_boat] {} is not a display list: the boat draws its placeholder box", kSkiffList);
-            sSkiff = nullptr;
-            return nullptr;
-        }
-        SPDLOG_INFO("[rs_boat] drawing the skiff from {}", kSkiffList);
+extern "C" Gfx* RsBoat_ModelList(const char* listPath) {
+    auto found = sModels.find(listPath);
+    if (found == sModels.end()) {
+        found = sModels.emplace(listPath, Load(listPath)).first;
     }
-    return sSkiff != nullptr ? (Gfx*)sSkiff->Instructions.data() : nullptr;
+    return found->second != nullptr ? (Gfx*)found->second->Instructions.data() : nullptr;
 }

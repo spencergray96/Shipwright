@@ -11115,6 +11115,11 @@ void Player_UpdateInterface(PlayState* play, Player* this) {
             RsBoat_TillerInReach(play)) {
             doAction = DO_ACTION_CHECK;
         }
+        // SOH [Fork] sturdy-bassoon#262: at a boat's helm the stick drives and A does nothing, so it says nothing
+        // (it kept whatever it read before the helm was taken, "Put Away" with Navi up).
+        if (RsBoat_LinkAtHelm(play)) {
+            doAction = DO_ACTION_NONE;
+        }
 
         if (doAction != DO_ACTION_PUTAWAY) {
             this->putAwayCooldownTimer = 20;

@@ -1,6 +1,7 @@
 #include "RsBoatConsole.h"
 
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 
 #include <libultraship/bridge/consolevariablebridge.h>
@@ -34,7 +35,8 @@ using ConsoleSink::Addf;
 #define RS_BOAT_GRAMMAR                                                                                         \
     "list | spawn [<x> <z> [<yaw>]] | probe <x> <z> | water <x0> <z0> <x1> <z1> <y> | water clear | "            \
     "board [<idx>] | helm on|off [<idx>] | drive <throttle> <turn> <ticks> | lakehylia [on|off] | "             \
-    "lakelevel [full|drained] | cam [on|off|default] | cam height|dist|ease <n> | hud [on|off] | clear"
+    "lakelevel [full|drained] | cam [on|off|default] | cam height|dist|ease <n> | hud [on|off] | "             \
+    "kind [skiff|sloop] | tune [default] | tune <knob> <value> | contact [<idx>] | clear"
 
 const char* kUsage = "op=usage result=error usage=\"boat " RS_BOAT_GRAMMAR "\"";
 
@@ -74,13 +76,19 @@ bool ParseInt(const std::string& s, long* out) {
     return end != s.c_str() && *end == '\0';
 }
 
+// The kind `boat kind` last picked (RsBoatKindId), which Lake Hylia's boat and `spawn` put down.
+s32 CurrentKind() {
+    return CLAMP(CVarGetInteger(CVAR_RS_BOAT_KIND, RS_BOAT_KIND_SKIFF), 0, RS_BOAT_KIND_COUNT - 1);
+}
+
 // Spawns one at (x, z) on the water's surface there, room -1 so a room change in a multi-room scene keeps it.
 RsBoat* SpawnAt(float x, float z, int16_t yaw) {
     float y = GET_PLAYER(gPlayState)->actor.world.pos.y;
     if (!RsBoat_SurfaceAt(gPlayState, x, z, &y, nullptr)) {
         return nullptr;
     }
-    Actor* a = Actor_Spawn(&gPlayState->actorCtx, gPlayState, ACTOR_RS_BOAT, x, y, z, 0, yaw, 0, 0);
+    // The params are the kind.
+    Actor* a = Actor_Spawn(&gPlayState->actorCtx, gPlayState, ACTOR_RS_BOAT, x, y, z, 0, yaw, 0, (s16)CurrentKind());
     if (a != nullptr) {
         a->room = -1;
     }
@@ -96,26 +104,28 @@ int32_t List(std::vector<std::string>& lines) {
         Vec3f helm;
         RsBoat_HelmPos(boat, &helm);
         Addf(lines,
-             "boat idx=%d x=%d y=%d z=%d yaw=%d speed=%d tiller=%d helm=%d on_water=%d surface=%d blocked=%s "
-             "blocks=%d link_on=%d helm_dist=%d cam=%d",
-             (int)idx, (int)lroundf(a->world.pos.x), (int)lroundf(a->world.pos.y), (int)lroundf(a->world.pos.z),
-             (int)(u16)a->shape.rot.y, (int)lroundf(boat->speed * 100.0f), (int)lroundf(boat->tiller * 100.0f),
-             boat->helm, boat->onWater, (int)lroundf(boat->surfaceY), RsBoat_BlockName(boat->blocked),
-             boat->blockCount, RsBoat_LinkOnDeck(boat, player) ? 1 : 0,
+             "boat idx=%d kind=%s x=%d y=%d z=%d yaw=%d speed=%d throttle=%d tiller=%d helm=%d on_water=%d "
+             "surface=%d blocked=%s blocks=%d touch=%s touches=%d link_on=%d helm_dist=%d cam=%d",
+             (int)idx, RsBoat_KindName(boat->kind), (int)lroundf(a->world.pos.x), (int)lroundf(a->world.pos.y),
+             (int)lroundf(a->world.pos.z), (int)(u16)a->shape.rot.y, (int)lroundf(boat->speed * 100.0f),
+             (int)lroundf(boat->throttle * 100.0f), (int)lroundf(boat->tiller * 100.0f), boat->helm,
+             boat->onWater, (int)lroundf(boat->surfaceY), RsBoat_BlockName(boat->blocked), boat->blockCount,
+             RsBoat_BlockName(boat->touch), boat->touchCount, RsBoat_LinkOnDeck(boat, player) ? 1 : 0,
              (int)lroundf(Math_Vec3f_DistXZ(&helm, (Vec3f*)&player->actor.world.pos)),
              boat->subCamId != SUBCAM_NONE ? 1 : 0);
     }
     Addf(lines,
          "op=list result=ok count=%d link_x=%d link_y=%d link_z=%d link_yaw=%d link_floor_bg=%d "
          "link_input_disabled=%d link_swimming=%d link_can_take_helm=%d tiller_in_reach=%d link_focus_boat=%d "
-         "a_label_check=%d drive_ticks=%d hud=%s",
+         "a_label_check=%d a_label=%d drive_ticks=%d hud=%s",
          (int)boats.size(), (int)lroundf(player->actor.world.pos.x), (int)lroundf(player->actor.world.pos.y),
          (int)lroundf(player->actor.world.pos.z), (int)(u16)player->actor.shape.rot.y, (int)player->actor.floorBgId,
          (player->stateFlags1 & PLAYER_STATE1_INPUT_DISABLED) ? 1 : 0,
          (player->stateFlags1 & PLAYER_STATE1_IN_WATER) ? 1 : 0, RsBoat_LinkCanTakeHelm(player) ? 1 : 0,
          RsBoat_TillerInReach(gPlayState) ? 1 : 0,
          (player->focusActor != nullptr && player->focusActor->id == ACTOR_RS_BOAT) ? 1 : 0,
-         gPlayState->interfaceCtx.unk_1F0 == DO_ACTION_CHECK ? 1 : 0, gRsBoatDrive.ticks,
+         gPlayState->interfaceCtx.unk_1F0 == DO_ACTION_CHECK ? 1 : 0, (int)gPlayState->interfaceCtx.unk_1F0,
+         gRsBoatDrive.ticks,
          RsBoatHud_ShownName(RsBoatHud_Shown()));
     return 0;
 }
@@ -343,6 +353,98 @@ int32_t Hud(const std::vector<std::string>& args, std::vector<std::string>& line
     return 0;
 }
 
+// The handling knobs (RsBoat.h's RsBoatTuneKnob), saved: a boat reads them every tick, so a change shows at once.
+void AddTune(std::vector<std::string>& lines, const char* op) {
+    std::string line = std::string("op=") + op + " result=ok";
+    for (int k = 0; k < RS_BOAT_TUNE_COUNT; k++) {
+        char part[64];
+        snprintf(part, sizeof(part), " %s=%g", gRsBoatTune[k].name, (double)RsBoat_Tune(k));
+        line += part;
+    }
+    lines.push_back(line);
+}
+
+int32_t Tune(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() == 2 && args[1] == "default") {
+        for (int k = 0; k < RS_BOAT_TUNE_COUNT; k++) {
+            CVarClear(gRsBoatTune[k].cvar);
+        }
+        CVarSave();
+    } else if (args.size() == 3) {
+        int knob = -1;
+        for (int k = 0; k < RS_BOAT_TUNE_COUNT; k++) {
+            if (args[1] == gRsBoatTune[k].name) {
+                knob = k;
+            }
+        }
+        float value = 0.0f;
+        if (knob < 0 || !ParseFloat(args[2], &value) || value < gRsBoatTune[knob].min ||
+            value > gRsBoatTune[knob].max) {
+            std::string ranges;
+            for (int k = 0; k < RS_BOAT_TUNE_COUNT; k++) {
+                char part[64];
+                snprintf(part, sizeof(part), " %s=%g..%g", gRsBoatTune[k].name, (double)gRsBoatTune[k].min,
+                         (double)gRsBoatTune[k].max);
+                ranges += part;
+            }
+            lines.push_back("op=tune result=error error=bad_value" + ranges);
+            return 1;
+        }
+        CVarSetFloat(gRsBoatTune[knob].cvar, value);
+        CVarSave();
+    } else if (args.size() != 1) {
+        lines.push_back(kUsage);
+        return 1;
+    }
+    AddTune(lines, "tune");
+    return 0;
+}
+
+// The kind Lake Hylia's boat and `boat spawn` put down (saved). In Lake Hylia, with its boat on, every boat is
+// killed and the lake's put back at its spot as the new kind at once, so a kind can be tried without leaving;
+// elsewhere it shows on the next spawn.
+int32_t Kind(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    int respawned = 0;
+    if (args.size() == 2) {
+        const s32 kind = RsBoat_KindByName(args[1].c_str());
+        if (kind < 0) {
+            std::string kinds;
+            for (s32 k = 0; k < RS_BOAT_KIND_COUNT; k++) {
+                kinds += (k > 0 ? "," : "") + std::string(RsBoat_KindName(k));
+            }
+            lines.push_back("op=kind result=error error=bad_value kinds=" + kinds);
+            return 1;
+        }
+        CVarSetInteger(CVAR_RS_BOAT_KIND, kind);
+        CVarSave();
+        if (gPlayState != nullptr && gPlayState->sceneNum == SCENE_LAKE_HYLIA &&
+            CVarGetInteger(CVAR_RS_BOAT_LAKE_HYLIA, 1) != 0) {
+            for (RsBoat* boat : Boats()) {
+                Actor_Kill(&boat->dyna.actor);
+            }
+            respawned = SpawnAt(kLakeHyliaX, kLakeHyliaZ, kLakeHyliaYaw) != nullptr ? 1 : 0;
+        }
+    } else if (args.size() != 1) {
+        lines.push_back(kUsage);
+        return 1;
+    }
+    const s32 kind = CurrentKind();
+    Addf(lines, "op=kind result=ok kind=%s polys=%d respawned=%d", RsBoat_KindName(kind), RsBoat_KindPolyCount(kind),
+         respawned);
+    return 0;
+}
+
+int32_t Contact(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    RsBoat* boat = PickBoat(args, 1, "contact", lines);
+    if (boat == nullptr) {
+        return 1;
+    }
+    char points[900];
+    const s32 deepest = RsBoat_ContactReport(boat, gPlayState, points, (s32)sizeof(points));
+    Addf(lines, "op=contact result=ok deepest=%s %s", RsBoat_BlockName(deepest), points);
+    return 0;
+}
+
 int32_t Clear(std::vector<std::string>& lines) {
     const std::vector<RsBoat*> boats = Boats();
     for (RsBoat* boat : boats) {
@@ -483,6 +585,12 @@ int32_t RsBoatConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "hud") {
         return Hud(args, lines);
     }
+    if (sub == "tune") {
+        return Tune(args, lines);
+    }
+    if (sub == "kind") {
+        return Kind(args, lines);
+    }
     if (gPlayState == nullptr) {
         Addf(lines, "op=boat result=error error=no_scene");
         return 1;
@@ -508,6 +616,9 @@ int32_t RsBoatConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "drive") {
         return Drive(args, lines);
     }
+    if (sub == "contact") {
+        return Contact(args, lines);
+    }
     if (sub == "clear" && args.size() == 1) {
         return Clear(lines);
     }
@@ -530,8 +641,11 @@ const ConsoleSink::Command rsBoatCommand(
     "drive steers the boat at the helm for <ticks> ticks without the pad; lakehylia switches Lake Hylia's own "
     "boat (saved); lakelevel fills or drains Lake Hylia (its event flag, in the save; shows on the next entry); "
     "cam sets the steering camera (height over the deck, distance behind, ease in percent a tick; saved); "
-    "hud switches the steering label.",
-    { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|clear",
+    "hud switches the steering label; kind picks the hull Lake Hylia's boat and spawn use (saved; puts Lake "
+    "Hylia's boat back as that kind); tune sets the handling: fwd and rev top speed, accel, drag, turnstill and "
+    "turnmove (binang a tick), steps (0: the stick's throttle is smooth; saved); contact lists what the hull's outline "
+    "meets where it is.",
+    { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|kind|tune|contact|clear",
         Ship::ArgumentType::TEXT },
       { "arg1", Ship::ArgumentType::TEXT, true },
       { "arg2", Ship::ArgumentType::TEXT, true },

@@ -33,7 +33,7 @@ enum ActorIDExtra {
     /* 0x01DC */ ACTOR_RS_INTERACTION, // Enhancements/rs/actors/RsInteraction.c - params = interaction id
     /* 0x01DD */ ACTOR_RS_FIRE,        // Enhancements/rs/actors/RsFire.c - params = (world flag, unlit, no light)
     /* 0x01DE */ ACTOR_RS_ANIMPROP,    // Enhancements/rs/actors/RsAnimProp.c - a flipbook prop; params = copy index
-    /* 0x01DF */ ACTOR_RS_BOAT,        // Enhancements/rs/actors/RsBoat.c - a steerable boat (#256 prototype); params unused
+    /* 0x01DF */ ACTOR_RS_BOAT,        // Enhancements/rs/actors/RsBoat.c - a steerable boat (#256 prototype); params: RsBoatKindId
     // #endregion
     ACTOR_ID_EXTRA_MAX
 };
