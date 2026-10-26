@@ -1,0 +1,67 @@
+{
+ "format": 2,
+ "scene": "rs_boat",
+ "list": "objects/rs_props/rs_boat_skiff/props",
+ "kinds": {
+  "loc-59503": "rs_59503",
+  "loc-59626": "rs_59626",
+  "loc-59516": "rs_59516",
+  "helm-59583": "rs_59583",
+  "loc-29480": "rs_29480"
+ },
+ "props": [
+  {
+   "id": "skiff",
+   "kind": "loc-59503",
+   "pos": [
+    0,
+    0,
+    0
+   ],
+   "rot": 0
+  },
+  {
+   "id": "trim",
+   "kind": "loc-59626",
+   "pos": [
+    0,
+    21,
+    0
+   ],
+   "rot": 0,
+   "weld": "skiff"
+  },
+  {
+   "id": "keel",
+   "kind": "loc-59516",
+   "pos": [
+    -60,
+    -83,
+    100
+   ],
+   "rot": 0,
+   "weld": "skiff"
+  },
+  {
+   "id": "helm",
+   "kind": "helm-59583",
+   "pos": [
+    20,
+    -42,
+    -100
+   ],
+   "rot": 0
+  },
+  {
+   "id": "sails",
+   "kind": "loc-29480",
+   "pos": [
+    20,
+    0,
+    -20
+   ],
+   "rot": 0,
+   "weld": "helm"
+  }
+ ]
+}

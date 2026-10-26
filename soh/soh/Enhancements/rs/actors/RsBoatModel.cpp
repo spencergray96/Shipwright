@@ -1,10 +1,12 @@
-// The boat's RS models (sturdy-bassoon#256, #262): each kind's hull - the Sailing skiff, loc 59503, and the sloop,
-// loc 59508 - as one archive prop list with a single copy at the origin, turn 0, which is the kind in its own model
-// space (the lit export sits on the origin rule; only the generator's turn and move put copies into world space).
-// Rs_Boat draws it under its own matrix, so it follows the hull's position, yaw, bob and rock.
+// The boat's RS models (sturdy-bassoon#256, #262): each kind as one archive prop list in the boat's own model space -
+// its hull at the origin, turn 0 (the lit export sits on the origin rule; only the generator's turn and move put
+// copies into world space), and the skiff's Sailing parts (trim, keel, helm, sails) beside it at the template boats'
+// offsets, welded onto the hull where RS shares their vertices. Rs_Boat draws it under its own matrix, so it follows
+// the hull's position, yaw, bob and rock.
 //
-// Each archive is `rs-props-rs_boat_<kind>.o2r` in mods/, made by generate_props.py from a one-line placement list
-// (docs/notes/2026-10-24-sailing-boat-prototype.md says how). Not in mods/: that kind draws its placeholder box.
+// Each archive is `rs-props-rs_boat_<kind>.o2r` in mods/, made by generate_props.py from the kind's committed
+// placement list, soh/soh/custom/rs_boats/rs_boat_<kind>_props.json (docs/notes/2026-10-24-sailing-boat-prototype.md
+// says how). Not in mods/: that kind draws its placeholder box.
 //
 // Held, not re-resolved, as ArchivePropLists.cpp holds a room's lists: the list's address is its resource's
 // instruction vector, stable only while the resource lives. And loaded by its exact path, which never looks at alt/.

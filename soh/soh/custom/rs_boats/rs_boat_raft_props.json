@@ -1,0 +1,20 @@
+{
+ "format": 2,
+ "scene": "rs_boat",
+ "list": "objects/rs_props/rs_boat_raft/props",
+ "kinds": {
+  "loc-59496": "rs_59496"
+ },
+ "props": [
+  {
+   "id": "raft",
+   "kind": "loc-59496",
+   "pos": [
+    0,
+    0,
+    0
+   ],
+   "rot": 0
+  }
+ ]
+}
