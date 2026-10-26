@@ -13,7 +13,7 @@
 // command that takes `[<idx>]` defaults to 0.
 //
 // `args[0]` is the subcommand:
-//   list            one `boat idx=<i> kind=<skiff|sloop> x= y= z= yaw=<binang> speed=<x100> throttle=<x100>
+//   list            one `boat idx=<i> kind=<skiff|sloop|raft> x= y= z= yaw=<binang> speed=<x100> throttle=<x100>
 //                   tiller=<x100> helm=0|1 on_water=0|1 surface=<y> blocked=<none|no_water|shallow|wall|headroom>
 //                   blocks=<n> touch=<same names> touches=<n> lift=<x100> floor_low=<x100> link_on=0|1
 //                   helm_dist=<n> cam=0|1` line per live
@@ -72,7 +72,7 @@
 //                   scene loaded
 //   hud [on|off]    the "Not steering" / "Steering boat" label under the C buttons (saved, default on).
 //                   `op=hud result=ok hud=on|off shown=<hidden|not_steering|steering>`. Works with no scene
-//   kind [skiff|sloop]
+//   kind [skiff|sloop|raft]
 //                   the hull Lake Hylia's boat and `spawn` put down (saved, default skiff). In Lake Hylia, with
 //                   `lakehylia` on, every boat is killed and the lake's own put back at its spot as the new kind.
 //                   `op=kind result=ok kind= polys=<n> respawned=0|1` (polys: the kind's collision triangles, 0

@@ -110,6 +110,8 @@ typedef struct RsBoatStation {
 typedef struct RsBoatKind {
     const char* name;
     const char* list; // the archive's display list: the kind once, at the origin, turn 0 (RsBoatModel.cpp)
+    f32 deckY;  // where Link stands, over the waterline: the floor of a hull, the top of a raft's logs
+    f32 modelY; // where the model's origin is drawn, over the waterline
     f32 modelZ;
     s32 numStations;
     RsBoatStation stations[RS_BOAT_MAX_STATIONS];
@@ -120,6 +122,8 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
     // to 4 wide; its rail 22 over the floor, rising to 28 at the bow.
     { "skiff",
       "objects/rs_props/rs_boat_skiff/props",
+      RS_BOAT_DECK_Y,
+      RS_BOAT_DECK_Y,
       -25.0f,
       13,
       {
@@ -141,6 +145,8 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
     // the raised bow.
     { "sloop",
       "objects/rs_props/rs_boat_sloop/props",
+      RS_BOAT_DECK_Y,
+      RS_BOAT_DECK_Y,
       -3.0f,
       15,
       {
@@ -160,7 +166,31 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
           { 161.0f, 4.0f, 16.0f, 37.0f },
           { 170.0f, 2.0f, 6.0f, 32.0f },
       } },
+    // The raft, loc 59496 (the 856-face model, in the skiff's tint column; 59494-59500 are its row, the 530-face
+    // model from 59497): a flat log platform 48 wide and 140 long, model z -71..69, x -24..24 with two crossbeams
+    // standing 5 out each side (model z -46 and 2, left out of the outline), the logs from model y 8 to their top
+    // at 18.5, a post at model z 18. No rail. It floats flat with its logs half under: the top 6 over the water,
+    // the model drawn 12.5 down.
+    { "raft",
+      "objects/rs_props/rs_boat_raft/props",
+      6.0f,
+      -12.5f,
+      0.0f,
+      7,
+      {
+          { -70.0f, 22.0f, 24.0f, 0.0f },
+          { -46.0f, 22.0f, 24.0f, 0.0f },
+          { -22.0f, 22.0f, 24.0f, 0.0f },
+          { 2.0f, 22.0f, 24.0f, 0.0f },
+          { 26.0f, 22.0f, 24.0f, 0.0f },
+          { 50.0f, 22.0f, 24.0f, 0.0f },
+          { 68.0f, 21.0f, 23.0f, 0.0f },
+      } },
 };
+
+static f32 RsBoat_DeckY(const RsBoat* boat) {
+    return sRsBoatKinds[boat->kind].deckY;
+}
 
 const char* RsBoat_KindName(s32 kind) {
     return (kind >= 0 && kind < RS_BOAT_KIND_COUNT) ? sRsBoatKinds[kind].name : "?";
@@ -362,11 +392,12 @@ static void RsBoat_BuildHull(s32 kindId) {
         const f32 innerHw = MAX(st->outerHw - RS_BOAT_RAIL_THICK, st->outerHw * 0.5f);
         // The rail's inner edge steps in from the stern and the bow too, so the ends have a rail top of their own -
         // but never past the next station in: at the skiff's bow (112, the one before at 99) a full step crossed
-        // it and folded the deck and rail top into slivers (RS_BOAT_MIN_ALTITUDE).
-        const f32 innerZ = (i == 0)       ? MIN(st->z + RS_BOAT_RAIL_THICK, kind->stations[1].z - 4.0f)
-                           : (i == n - 1) ? MAX(st->z - RS_BOAT_RAIL_THICK, kind->stations[n - 2].z + 4.0f)
+        // it and folded the deck and rail top into slivers (RS_BOAT_MIN_ALTITUDE). 8 short, not 4: a 4-deep strip of
+        // the raft's deck fell under the thinness limit and left a gap Link could drop through.
+        const f32 innerZ = (i == 0)       ? MIN(st->z + RS_BOAT_RAIL_THICK, kind->stations[1].z - 8.0f)
+                           : (i == n - 1) ? MAX(st->z - RS_BOAT_RAIL_THICK, kind->stations[n - 2].z + 8.0f)
                                           : st->z;
-        const s16 railTop = (s16)lroundf(RS_BOAT_DECK_Y + st->railY);
+        const s16 railTop = (s16)lroundf(kind->deckY + st->railY);
 
         hull->halfWidth = MAX(hull->halfWidth, st->outerHw);
         for (side = 0; side < 2; side++) {
@@ -382,7 +413,7 @@ static void RsBoat_BuildHull(s32 kindId) {
             v[RS_BOAT_V_INNER_TOP].y = railTop;
             v[RS_BOAT_V_INNER_TOP].z = (s16)lroundf(innerZ);
             v[RS_BOAT_V_DECK] = v[RS_BOAT_V_INNER_TOP];
-            v[RS_BOAT_V_DECK].y = (s16)RS_BOAT_DECK_Y;
+            v[RS_BOAT_V_DECK].y = (s16)lroundf(kind->deckY);
         }
     }
     for (i = 0; i < n; i++) {
@@ -458,7 +489,7 @@ static void RsBoat_BuildHull(s32 kindId) {
         const s16 w = (s16)lroundf(hull->halfWidth);
         const s16 stern = (s16)lroundf(hull->sternZ);
         const s16 bow = (s16)lroundf(hull->bowZ);
-        const s16 deck = (s16)RS_BOAT_DECK_Y;
+        const s16 deck = (s16)lroundf(kind->deckY);
 
         RsBoat_BuildBox(hull->hullBox, (s16)-w, (s16)RS_BOAT_KEEL_Y, stern, w, deck, bow);
         // the tiller post: just inboard of the stern, behind where Link stands to steer, and low, because the
@@ -559,7 +590,7 @@ static void RsBoat_LocalToWorld(f32 x, f32 z, s16 yaw, f32 lx, f32 lz, f32* outX
 void RsBoat_HelmPos(const RsBoat* boat, Vec3f* out) {
     RsBoat_LocalToWorld(boat->dyna.actor.world.pos.x, boat->dyna.actor.world.pos.z, boat->dyna.actor.shape.rot.y,
                         0.0f, sHulls[boat->kind].helmZ, &out->x, &out->z);
-    out->y = boat->dyna.actor.world.pos.y + RS_BOAT_DECK_Y;
+    out->y = boat->dyna.actor.world.pos.y + RsBoat_DeckY(boat);
 }
 
 // A waterbox's surface is open water at (x, z) unless it is buried: Lake Hylia, drained, lowers its main box
@@ -776,6 +807,7 @@ static void RsBoat_NoteWall(RsBoatContact* c, Vec3f* hit, const CollisionPoly* p
 static void RsBoat_Evaluate(RsBoat* this, PlayState* play, f32 x, f32 z, s16 yaw, RsBoatContact* c) {
     const RsBoatHull* hull = &sHulls[this->kind];
     const f32 surface = this->surfaceY;
+    const f32 deckY = RsBoat_DeckY(this);
     Actor* self = &this->dyna.actor;
     s32 i;
 
@@ -800,7 +832,7 @@ static void RsBoat_Evaluate(RsBoat* this, PlayState* play, f32 x, f32 z, s16 yaw
         // Down from above Link's head on the deck, skipping the boat's own collision: a bank, a dock or a rock
         // above the water reads as a floor above the surface, which is shallower than any draft. Starting
         // lower missed a bank that rises steeply: the raycast began inside it and found the bed below.
-        point.y = surface + RS_BOAT_DECK_Y + RS_BOAT_HEADROOM;
+        point.y = surface + deckY + RS_BOAT_HEADROOM;
         floorY = BgCheck_EntityRaycastFloor4(&play->colCtx, &poly, &bgId, self, &point);
         if (floorY > surface - RS_BOAT_DRAFT) {
             RsBoat_NoteGround(c, RS_BOAT_BLOCK_SHALLOW, floorY - (surface - RS_BOAT_DRAFT), poly, inX, inZ);
@@ -812,7 +844,7 @@ static void RsBoat_Evaluate(RsBoat* this, PlayState* play, f32 x, f32 z, s16 yaw
         }
         // Straight up from the deck at the point: anything in the way is lower than Link's head.
         from = point;
-        from.y = surface + RS_BOAT_DECK_Y + 2.0f;
+        from.y = surface + deckY + 2.0f;
         if (BgCheck_EntityLineTest2(&play->colCtx, &from, &point, &hit, &poly, true, true, true, false, &bgId,
                                     self)) {
             RsBoat_Note(c, RS_BOAT_BLOCK_HEADROOM, RS_BOAT_STEP_OUT, inX, inZ);
@@ -830,10 +862,10 @@ static void RsBoat_Evaluate(RsBoat* this, PlayState* play, f32 x, f32 z, s16 yaw
 
         RsBoat_LocalToWorld(x, z, yaw, hull->outer[i].x, hull->outer[i].z, &point.x, &point.z);
         RsBoat_LocalToWorld(0.0f, 0.0f, yaw, hull->outer[i].inX, hull->outer[i].inZ, &inX, &inZ);
-        point.y = surface + RS_BOAT_DECK_Y + RS_BOAT_HEADROOM;
+        point.y = surface + deckY + RS_BOAT_HEADROOM;
         floorY = BgCheck_EntityRaycastFloor4(&play->colCtx, &poly, &bgId, self, &point);
-        if (floorY > surface + RS_BOAT_DECK_Y + RS_BOAT_SIDE_CLEAR) {
-            RsBoat_NoteGround(c, RS_BOAT_BLOCK_SHALLOW, floorY - (surface + RS_BOAT_DECK_Y + RS_BOAT_SIDE_CLEAR),
+        if (floorY > surface + deckY + RS_BOAT_SIDE_CLEAR) {
+            RsBoat_NoteGround(c, RS_BOAT_BLOCK_SHALLOW, floorY - (surface + deckY + RS_BOAT_SIDE_CLEAR),
                               poly, inX, inZ);
             continue;
         }
@@ -846,7 +878,7 @@ static void RsBoat_Evaluate(RsBoat* this, PlayState* play, f32 x, f32 z, s16 yaw
             RsBoat_NoteWall(c, &hit, poly, &point, x, z, inX, inZ);
             continue;
         }
-        center.y = surface + RS_BOAT_DECK_Y + RS_BOAT_WAIST_Y;
+        center.y = surface + deckY + RS_BOAT_WAIST_Y;
         point.y = center.y;
         if (BgCheck_EntityLineTest2(&play->colCtx, &center, &point, &hit, &poly, true, false, false, false, &bgId,
                                     self)) {
@@ -1099,7 +1131,7 @@ f32 RsBoat_RailHop(PlayState* play, const Player* player) {
                 railY = kind->stations[i].railY;
             }
         }
-        return MAX(a->world.pos.y + RS_BOAT_DECK_Y + railY - player->actor.world.pos.y, 18.0f);
+        return MAX(a->world.pos.y + kind->deckY + railY - player->actor.world.pos.y, 18.0f);
     }
     return 0.0f;
 }
@@ -1138,7 +1170,7 @@ static void RsBoat_CamTarget(const RsBoat* this, const Player* player, Vec3f* at
     const s16 yaw = this->dyna.actor.shape.rot.y;
     const f32 s = Math_SinS(yaw);
     const f32 c = Math_CosS(yaw);
-    const f32 deckY = this->dyna.actor.world.pos.y + RS_BOAT_DECK_Y;
+    const f32 deckY = this->dyna.actor.world.pos.y + RsBoat_DeckY(this);
 
     at->x = player->actor.world.pos.x + s * RS_BOAT_CAM_AT_AHEAD;
     at->y = deckY + RS_BOAT_CAM_AT_Y;
@@ -1245,11 +1277,11 @@ static f32 RsBoat_FloorLow(const RsBoat* this, f32 bob) {
     const f32 cr = Math_CosS(this->roll);
     const f32 sp = fabsf(Math_SinS(this->pitch));
     const f32 cp = Math_CosS(this->pitch);
-    f32 low = RS_BOAT_DECK_Y;
+    f32 low = RsBoat_DeckY(this);
     s32 i;
 
     for (i = 0; i < hull->numKeel; i++) {
-        const f32 y = -fabsf(hull->keel[i].x) * sr + (RS_BOAT_DECK_Y * cp - fabsf(hull->keel[i].z) * sp) * cr;
+        const f32 y = -fabsf(hull->keel[i].x) * sr + (RsBoat_DeckY(this) * cp - fabsf(hull->keel[i].z) * sp) * cr;
 
         low = MIN(low, y);
     }
@@ -1296,7 +1328,7 @@ void RsBoat_Init(Actor* thisx, PlayState* play) {
     this->helmPress = 0;
     this->linkAboard = 0;
     this->lift = 0.0f;
-    this->floorLow = RS_BOAT_DECK_Y;
+    this->floorLow = RsBoat_DeckY(this);
     this->railPush = 0;
     this->railGrace = 0;
     this->throttle = 0.0f;
@@ -1531,7 +1563,7 @@ void RsBoat_Update(Actor* thisx, PlayState* play) {
         s32 bgId = BGCHECK_SCENE;
         f32 groundY;
 
-        above.y += RS_BOAT_DECK_Y + RS_BOAT_HEADROOM;
+        above.y += RsBoat_DeckY(this) + RS_BOAT_HEADROOM;
         groundY = BgCheck_EntityRaycastFloor4(&play->colCtx, &poly, &bgId, thisx, &above);
         if (groundY > BGCHECK_Y_MIN) {
             thisx->world.pos.y = groundY - RS_BOAT_KEEL_Y;
@@ -1624,7 +1656,7 @@ void RsBoat_Draw(Actor* thisx, PlayState* play) {
         // The kind's model, in its own model space: its floor on the deck, centred on the collision. Its list carries
         // its own materials (lit, RS's base colours as prim colours), so the state is set up again after it.
         Matrix_Push();
-        Matrix_Translate(0.0f, RS_BOAT_DECK_Y, sRsBoatKinds[this->kind].modelZ, MTXMODE_APPLY);
+        Matrix_Translate(0.0f, sRsBoatKinds[this->kind].modelY, sRsBoatKinds[this->kind].modelZ, MTXMODE_APPLY);
         gSPMatrix(POLY_OPA_DISP++, MATRIX_NEWMTX(gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
         gSPDisplayList(POLY_OPA_DISP++, model);
         Matrix_Pop();

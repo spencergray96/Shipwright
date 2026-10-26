@@ -13,7 +13,8 @@
 // THE PLATFORM. A collision header built from the outline at the first Init of each kind: a flat deck, inner
 // rail walls, a rail top Link can stand on and outer sides reaching RS_BOAT_SIDE_FOOT_Y under the water.
 // DPM_UNK3 (position and yaw) is what carries Link along and turns him with the hull, the engine's own
-// moving-platform path. The hull's origin is the waterline: the deck is RS_BOAT_DECK_Y above it.
+// moving-platform path. The hull's origin is the waterline: the deck is the kind's deckY above it (RS_BOAT_DECK_Y
+// for the skiff and the sloop).
 //
 // THE HELM. While Link stands on deck the stick moves Link, so steering is a toggle: A within
 // RS_BOAT_HELM_RANGE of the tiller (the post at the stern) takes the helm. PLAYER_STATE1_INPUT_DISABLED
@@ -65,11 +66,12 @@ extern "C" {
 typedef enum RsBoatKindId {
     RS_BOAT_KIND_SKIFF, // loc 59503, 2 x 6
     RS_BOAT_KIND_SLOOP, // loc 59508, 3 x 8
+    RS_BOAT_KIND_RAFT,  // loc 59496, 1 x 3
     RS_BOAT_KIND_COUNT,
 } RsBoatKindId;
 
 // Hull heights, world units, shared by the kinds: both models' floor is their origin, and both sit on it.
-#define RS_BOAT_DECK_Y 4.0f   // deck above the waterline: the floor, so the hull sits on the water
+#define RS_BOAT_DECK_Y 4.0f   // the skiff's and the sloop's deck above the waterline: their floor, on the water
 #define RS_BOAT_KEEL_Y -14.0f // the placeholder box's bottom below the waterline (drawn without the model)
 // The collision sides reach further down than the drawn hull: a swimming adult Link floats ~45 below the surface
 // and checks walls ~26 above that, so sides that stop at the keel let him swim straight under the boat instead

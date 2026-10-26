@@ -36,7 +36,7 @@ using ConsoleSink::Addf;
     "list | spawn [<x> <z> [<yaw>]] | probe <x> <z> | water <x0> <z0> <x1> <z1> <y> | water clear | "            \
     "board [<idx>] | helm on|off [<idx>] | drive <throttle> <turn> <ticks> | lakehylia [on|off] | "             \
     "lakelevel [full|drained] | cam [on|off|default] | cam height|dist|ease <n> | hud [on|off] | "             \
-    "kind [skiff|sloop] | tune [default] | tune <knob> <value> | contact [<idx>] | clear"
+    "kind [skiff|sloop|raft] | tune [default] | tune <knob> <value> | contact [<idx>] | clear"
 
 const char* kUsage = "op=usage result=error usage=\"boat " RS_BOAT_GRAMMAR "\"";
 
