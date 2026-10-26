@@ -121,6 +121,7 @@ typedef struct RsBoatKind {
     f32 deckY;  // where Link stands, over the waterline: the floor of a hull, the top of a raft's logs
     f32 modelY; // where the model's origin is drawn, over the waterline
     f32 modelZ;
+    s32 helmInModel;     // its archive carries Sailing's helm as well as the hull: no placeholder tiller post
     f32 topSpeed;        // units a tick ahead, by default
     f32 topSpeedUpgrade; // with its speed upgrade unlocked (sturdy-bassoon#263), or 0 for none
     f32 turnAtRest;      // binang a tick at full tiller, standing still: how lively it feels, not a balance
@@ -131,12 +132,14 @@ typedef struct RsBoatKind {
 
 static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
     // The Sailing skiff, loc 59503: model z -87..137 (bow at +z), x -51..51, a 70-wide transom, the bow tapering
-    // to 4 wide; its rail 22 over the floor, rising to 28 at the bow.
+    // to 4 wide; its rail 22 over the floor, rising to 28 at the bow. Its archive also carries Sailing's default
+    // keel (59516), helm (60558) and still sails (29480) at the template boats' offsets (#262).
     { "skiff",
       "objects/rs_props/rs_boat_skiff/props",
       RS_BOAT_DECK_Y,
       RS_BOAT_DECK_Y,
       -25.0f,
+      1,
       14.0f, // the fastest, for now: the middle boat's use
       18.0f,
       220.0f, // full-speed circle ~650 across
@@ -164,6 +167,7 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
       RS_BOAT_DECK_Y,
       RS_BOAT_DECK_Y,
       -3.0f,
+      0,
       12.0f,
       14.0f,
       200.0f, // the widest full-speed circle, ~780 across: 20% wider than the skiff's
@@ -196,6 +200,7 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
       6.0f,
       -12.5f,
       0.0f,
+      0,
       10.0f,
       0.0f,   // no upgrade considered yet
       300.0f, // the best handling: the quickest spin and the tightest circle, ~420 across
@@ -1728,13 +1733,15 @@ void RsBoat_Draw(Actor* thisx, PlayState* play) {
 
     CLOSE_DISPS(gfxCtx);
 
-    // The placeholder box only when the kind's archive is not mounted; the tiller post always, as the thing
-    // Link targets and steers from (neither hull has a tiller of its own: Sailing's helm is a separate loc).
+    // The placeholder box only when the kind's archive is not mounted; the tiller post, as the thing Link
+    // targets and steers from, unless the archive carries the kind's own helm (Sailing's helm is a separate loc).
     if (model == NULL) {
         RsBoat_DrawBox(gfxCtx, hull->hullBox, 96, 62, 34, 168, 128, 80);
         RsBoat_DrawBox(gfxCtx, hull->prowBox, 120, 80, 44, 150, 104, 60);
     }
-    RsBoat_DrawBox(gfxCtx, hull->tillerBox, 60, 38, 20, 60, 38, 20);
+    if (model == NULL || !sRsBoatKinds[this->kind].helmInModel) {
+        RsBoat_DrawBox(gfxCtx, hull->tillerBox, 60, 38, 20, 60, 38, 20);
+    }
 
     OPEN_DISPS(gfxCtx);
     gSPSetGeometryMode(POLY_OPA_DISP++, G_CULL_BACK);
