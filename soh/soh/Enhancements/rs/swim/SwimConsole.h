@@ -16,9 +16,9 @@
 // the write it made rather than polling for it:
 //   status              op=status enabled= phase=idle|sinking|moving budget=<ticks> max=<ticks>
 //                       seconds=<clock> length=<s> length_source=default|cvar swimming= grounded=
-//                       hold=none|message|cutscene|timer clock=<the hazard clock is the swim clock>
+//                       hold=none|message|cutscene|timer swim_clock=<the main timer is the swim clock>
 //                       refuge=none|world|actor drowns=<n> last=none|refuge|point:<name>|voidout
-//   on | off            the switch (CVar, saved). Refills the budget
+//   on | off            the switch (CVar, saved). Refills the budget. `op=on|off result=ok ...`
 //   length <s>|default  the length in seconds, 1..600, or back to the build default (30)
 //   budget <ticks>      sets what is left, clamped to [1, max]: a run's way to a drown without
 //                       swimming for the whole length

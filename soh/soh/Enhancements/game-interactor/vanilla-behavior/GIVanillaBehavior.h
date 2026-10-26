@@ -1859,6 +1859,19 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // false where the clock would start, true where it is already showing
+    // ```
+    // Whether the swim clock shows: vanilla's environment-hazard clock started for plain swimming, which
+    // vanilla classifies as a hazard (PLAYER_ENV_HAZARD_SWIMMING) and then ignores. Interface_Update asks
+    // when the main timer is free and no vanilla hazard clock is starting, then every tick while the swim
+    // clock is up; false stops it. It never counts down or kills: whoever answers writes its seconds.
+    // rs/swim/SwimStamina.cpp answers with swim stamina on (sturdy-bassoon#257).
+    // #### `args`
+    // - none
+    VB_SHOW_SWIM_CLOCK,
+
+    // #### `result`
+    // ```c
     // false
     // ```
     // #### `args`

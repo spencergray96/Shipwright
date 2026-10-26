@@ -22,7 +22,6 @@
 #include "soh/ResourceManagerHelpers.h"
 #include "soh/Enhancements/gameplaystats.h"
 #include "soh/ObjectExtension/ActorMaximumHealth.h"
-#include "soh/Enhancements/rs/swim/SwimStamina.h"
 
 #include "message_data_static.h"
 extern MessageTableEntry* sNesMessageEntryTablePtr;
@@ -185,6 +184,14 @@ static s16 Item_GetSlot(u8 item) {
 
 static s16 sEnvHazard = PLAYER_ENV_HAZARD_NONE;
 static s16 sEnvHazardActive = false;
+
+// An environment-hazard clock that cannot kill. Every vanilla one can (sEnvHazardActive), so the only one
+// is the swim clock VB_SHOW_SWIM_CLOCK starts (sturdy-bassoon#257): whoever answers that writes its
+// seconds, and it never counts down or kills here.
+static s32 Interface_IsSwimClock(void) {
+    return !sEnvHazardActive && (gSaveContext.timerState >= TIMER_STATE_ENV_HAZARD_INIT) &&
+           (gSaveContext.timerState <= TIMER_STATE_ENV_HAZARD_TICK);
+}
 
 static Gfx sSetupDL_80125A60[] = {
     gsDPPipeSync(),
@@ -6002,8 +6009,9 @@ void Interface_Draw(PlayState* play) {
                 case TIMER_STATE_ENV_HAZARD_INIT:
                     sTimerStateTimer = 20;
                     sTimerNextSecondTimer = 20;
-                    // The swim clock (sturdy-bassoon#257) is the swim budget, not the health formula.
-                    gSaveContext.timerSeconds = RsSwim_OwnsClock() ? RsSwim_ClockSeconds() : gSaveContext.health >> 1;
+                    if (!Interface_IsSwimClock()) {
+                        gSaveContext.timerSeconds = gSaveContext.health >> 1;
+                    }
                     gSaveContext.timerState = TIMER_STATE_ENV_HAZARD_PREVIEW;
                     break;
                 case TIMER_STATE_ENV_HAZARD_PREVIEW:
@@ -6075,17 +6083,10 @@ void Interface_Draw(PlayState* play) {
                         }
                     }
 
-                    // The swim clock reads its seconds from the budget every tick and never counts down
-                    // itself: SwimStamina.cpp drains it and drowns Link, and sEnvHazardActive stays false so
-                    // reaching 0 here only stops the clock.
-                    if (RsSwim_OwnsClock()) {
-                        gSaveContext.timerSeconds = RsSwim_ClockSeconds();
-                    }
-
                     if ((gSaveContext.timerState >= TIMER_STATE_ENV_HAZARD_MOVE) && (msgCtx->msgLength == 0)) {
                         sTimerNextSecondTimer--;
                         if (sTimerNextSecondTimer == 0) {
-                            if ((gSaveContext.timerSeconds != 0) && !RsSwim_OwnsClock()) {
+                            if ((gSaveContext.timerSeconds != 0) && !Interface_IsSwimClock()) {
                                 gSaveContext.timerSeconds--;
                             }
 
@@ -6860,20 +6861,15 @@ void Interface_Update(PlayState* play) {
             gSaveContext.timerX[TIMER_ID_MAIN] = 140;
             gSaveContext.timerY[TIMER_ID_MAIN] = 80;
             sEnvHazardActive = true;
-            RsSwim_SetOwnsClock(false);
-        } else if (RsSwim_WantsClock()) {
-            // Swim stamina (sturdy-bassoon#257): the same clock for swimming, which vanilla classifies
-            // as a hazard and then ignores. Not sEnvHazardActive: running out is SwimStamina.cpp's call.
+        } else if (GameInteractor_Should(VB_SHOW_SWIM_CLOCK, false)) {
             gSaveContext.timerState = TIMER_STATE_ENV_HAZARD_INIT;
             gSaveContext.timerX[TIMER_ID_MAIN] = 140;
             gSaveContext.timerY[TIMER_ID_MAIN] = 80;
             sEnvHazardActive = false;
-            RsSwim_SetOwnsClock(true);
         }
-    } else if (RsSwim_OwnsClock()) {
-        if (!RsSwim_WantsClock()) {
+    } else if (Interface_IsSwimClock()) {
+        if (!GameInteractor_Should(VB_SHOW_SWIM_CLOCK, true)) {
             gSaveContext.timerState = TIMER_STATE_OFF;
-            RsSwim_SetOwnsClock(false);
         }
     } else {
         if (((sEnvHazard == PLAYER_ENV_HAZARD_NONE) || (sEnvHazard == PLAYER_ENV_HAZARD_SWIMMING)) &&

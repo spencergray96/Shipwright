@@ -3,7 +3,6 @@
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
-#include <cstring>
 
 #include <libultraship/bridge/consolevariablebridge.h>
 
@@ -22,6 +21,8 @@ extern "C" {
 #include "variables.h"
 #include "macros.h"
 extern PlayState* gPlayState;
+// z_player.c's, undeclared in any header: the damage path the void-out uses, without DamageMult on top.
+s32 Player_InflictDamageModified(PlayState* play, s32 damage, u8 modified);
 }
 
 // See SwimStamina.h for the rules. This file is the budget, the drowning and where he goes back to.
@@ -90,6 +91,7 @@ enum Phase { PHASE_IDLE, PHASE_SINKING, PHASE_MOVING };
 struct Refuge {
     bool set = false;
     Actor* actor = nullptr; // NULL: x/y/z/yaw are a world position
+    int16_t actorId = 0;    // with the pointer, so a recycled actor slot is not mistaken for the boat
     Vec3f pos = { 0.0f, 0.0f, 0.0f };
     int16_t yaw = 0;
 };
@@ -130,15 +132,15 @@ bool IsGrounded(Player* player) {
 
 // The main timer belongs to somebody else: running, and not as the swim clock.
 bool TimerHeldElsewhere() {
-    return gSaveContext.timerState != TIMER_STATE_OFF && !RsSwim_OwnsClock();
+    return gSaveContext.timerState != TIMER_STATE_OFF && !sState.ownsClock;
 }
 
-// Whether `actor` is still in the actor lists. A refuge's pointer is never followed until this says so:
-// the boat may have been killed since he left the helm.
-bool ActorAlive(PlayState* play, Actor* actor) {
+// Whether `actor` is still in the actor lists, as the same kind of actor. A refuge's pointer is never
+// followed until this says so: the boat may have been killed since he left the helm.
+bool ActorAlive(PlayState* play, Actor* actor, int16_t id) {
     for (int32_t cat = 0; cat < ACTORCAT_MAX; cat++) {
         for (Actor* a = play->actorCtx.actorLists[cat].head; a != nullptr; a = a->next) {
-            if (a == actor) {
+            if (a == actor && a->id == id) {
                 return true;
             }
         }
@@ -165,7 +167,7 @@ bool RefugeWorld(PlayState* play, Vec3f* pos, int16_t* yaw) {
         *yaw = r.yaw;
         return true;
     }
-    if (!ActorAlive(play, r.actor)) {
+    if (!ActorAlive(play, r.actor, r.actorId)) {
         ClearRefuge("actor_gone");
         return false;
     }
@@ -243,20 +245,20 @@ void BeginSinking(Player* player, const char* cause) {
 void Respawn(PlayState* play, Player* player) {
     Vec3f pos;
     int16_t yaw = 0;
-    const char* kind = nullptr;
+    bool found = false;
     char name[48];
     if (RefugeWorld(play, &pos, &yaw)) {
-        kind = "refuge";
+        found = true;
         std::snprintf(name, sizeof(name), "refuge");
     } else {
         const int32_t point = NearestPoint(play, player->actor.world.pos, &pos);
         if (point >= 0) {
-            kind = "point";
+            found = true;
             yaw = kDrownPoints[point].yaw;
             std::snprintf(name, sizeof(name), "point:%s", kDrownPoints[point].name);
         }
     }
-    if (kind != nullptr) {
+    if (found) {
         RsWarpMoveDest dest = {};
         dest.fromTile = 0;
         dest.toTile = 0;
@@ -282,6 +284,13 @@ void Respawn(PlayState* play, Player* player) {
     sState.budget = RsSwim_MaxTicks();
     std::snprintf(sState.lastRespawn, sizeof(sState.lastRespawn), "voidout");
     Marker("rs_swim event=respawn to=voidout");
+}
+
+// Whether the swim clock should show: swimming, or in the air with part of the budget spent - a hop
+// out of the water onto a deck, so the clock does not vanish and replay its preview on the way.
+bool WantsClock() {
+    return RsSwim_Enabled() && sState.phase == PHASE_IDLE &&
+           (sState.swimming || (!sState.grounded && sState.budget < RsSwim_MaxTicks()));
 }
 
 void OnPlayerUpdateSwim() {
@@ -355,15 +364,30 @@ void OnPlayerUpdateSwim() {
             // Landed. The void-out's damage, which vanilla charges on a respawn and the move does not - and
             // charged the way vanilla charges it (Player's unk_A86): once Player is out of every blocking
             // cutscene state, which can outlast the move by a tick, and then once, whatever it returns.
-            // Player refuses damage in such a state, and its return value is not "it landed".
+            // Player refuses damage in such a state, and its return value is not "it landed". Unmodified, as
+            // vanilla's is: VoidDamageMult applies and DamageMult does not.
             if (Player_InBlockingCsMode(play, player)) {
                 return;
             }
-            play->damagePlayer(play, -16 * (1 << CVarGetInteger(CVAR_ENHANCEMENT("VoidDamageMult"), 0)));
+            Player_InflictDamageModified(play, -16 * (1 << CVarGetInteger(CVAR_ENHANCEMENT("VoidDamageMult"), 0)),
+                                         false);
             sState.phase = PHASE_IDLE;
             sState.budget = max;
             Marker("rs_swim event=landed health=%d", gSaveContext.health);
             return;
+    }
+}
+
+// The swim clock's seconds, every tick it is ours. The engine never counts it down (VB_SHOW_SWIM_CLOCK).
+// Ownership lapses the moment the main timer is anything but a hazard clock - a minigame's took it over,
+// or it stopped - so it is never mistaken for a vanilla hazard clock that starts later.
+void OnInterfaceUpdateSwim() {
+    if (gSaveContext.timerState < TIMER_STATE_ENV_HAZARD_INIT ||
+        gSaveContext.timerState > TIMER_STATE_ENV_HAZARD_TICK) {
+        sState.ownsClock = false;
+    }
+    if (sState.ownsClock) {
+        gSaveContext.timerSeconds = RsSwim_ClockSeconds();
     }
 }
 
@@ -377,6 +401,15 @@ void OnSceneInitSwim(int16_t sceneNum) {
 void RegisterSwimHooks() {
     COND_HOOK(OnPlayerUpdate, true, OnPlayerUpdateSwim);
     COND_HOOK(OnSceneInit, true, OnSceneInitSwim);
+    COND_HOOK(OnInterfaceUpdate, true, OnInterfaceUpdateSwim);
+    // Asked where the clock would start (default false) and every tick it shows (default true).
+    COND_VB_SHOULD(VB_SHOW_SWIM_CLOCK, true, {
+        *should = WantsClock();
+        sState.ownsClock = *should;
+        if (*should) {
+            gSaveContext.timerSeconds = RsSwim_ClockSeconds();
+        }
+    });
 }
 
 RegisterShipInitFunc swimHooksInitFunc(RegisterSwimHooks);
@@ -423,10 +456,6 @@ extern "C" int32_t RsSwim_LengthOverridden(void) {
     return CVarGetInteger(CVAR_RS_SWIM_STAMINA_SECONDS, 0) > 0 ? 1 : 0;
 }
 
-extern "C" int32_t RsSwim_BudgetTicks(void) {
-    return sState.budget;
-}
-
 extern "C" int32_t RsSwim_MaxTicks(void) {
     return RsSwim_GetLengthSeconds() * 20;
 }
@@ -436,28 +465,14 @@ extern "C" void RsSwim_SetBudgetTicks(int32_t ticks) {
     sState.budget = ticks < 1 ? 1 : (ticks > max ? max : ticks);
 }
 
-extern "C" int32_t RsSwim_WantsClock(void) {
-    return RsSwim_Enabled() && sState.phase == PHASE_IDLE && sState.swimming ? 1 : 0;
-}
-
 extern "C" int32_t RsSwim_ClockSeconds(void) {
     return (sState.budget + 19) / 20;
-}
-
-extern "C" int32_t RsSwim_OwnsClock(void) {
-    return sState.ownsClock && gSaveContext.timerState >= TIMER_STATE_ENV_HAZARD_INIT &&
-                   gSaveContext.timerState <= TIMER_STATE_ENV_HAZARD_TICK
-               ? 1
-               : 0;
-}
-
-extern "C" void RsSwim_SetOwnsClock(int32_t owns) {
-    sState.ownsClock = owns != 0;
 }
 
 extern "C" void RsSwim_SetRefuge(Actor* actor, float x, float y, float z, int16_t yaw) {
     sState.refuge.set = true;
     sState.refuge.actor = actor;
+    sState.refuge.actorId = actor != nullptr ? actor->id : 0;
     sState.refuge.pos = { x, y, z };
     sState.refuge.yaw = yaw;
     Marker("rs_swim event=refuge_set on=%s x=%.0f y=%.0f z=%.0f yaw=%d", actor != nullptr ? "actor" : "world", x,
@@ -478,8 +493,7 @@ RsSwimStatus RsSwim_GetStatus() {
     s.swimming = sState.swimming;
     s.grounded = sState.grounded;
     s.holdReason = sState.holdReason;
-    s.held = std::strcmp(sState.holdReason, "none") != 0;
-    s.clockOwned = RsSwim_OwnsClock() != 0;
+    s.clockOwned = sState.ownsClock;
     s.refuge = sState.refuge.set;
     s.refugeOnActor = sState.refuge.set && sState.refuge.actor != nullptr;
     s.drowns = sState.drowns;

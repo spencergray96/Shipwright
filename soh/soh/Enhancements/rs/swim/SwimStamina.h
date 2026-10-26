@@ -19,9 +19,13 @@
 //   - It HOLDS while a textbox is up, while Link is in a cutscene, and while another feature holds the
 //     main timer (a minigame's clock), because that clock is the only place the budget is visible and
 //     drowning with no warning would be worse than a pause.
-//   - It SHOWS on vanilla's hazard clock, the red one heat and iron boots use, from the moment Link is
-//     in the water: z_parameter.c starts it, reads its seconds from here and never kills Link with it.
-//     Vanilla's hazard clocks are untouched, and with this off nothing in z_parameter.c changes.
+//   - It SHOWS on vanilla's hazard clock, the one heat and iron boots use, from the moment Link is in the
+//     water until he stands on something: z_parameter.c starts and stops it on this file's answer to
+//     VB_SHOW_SWIM_CLOCK, this file writes its seconds, and the engine never counts it down or kills Link
+//     with it. With this off the VB answers false and z_parameter.c behaves as vanilla.
+//   - With it on, ONE VANILLA BEHAVIOUR CHANGES: a long dive. Once the swim clock is up, vanilla's
+//     underwater clock (15 s under, then 8 s a heart) cannot start, so a dive lasts the swim budget instead,
+//     tunic or not. The heat clock is unaffected: Link cannot swim in a hot room.
 //
 // RUNNING OUT: Link is pulled under for RS_SWIM_SINK_TICKS, the way the Zora's River whirlpool takes
 // him (ovl_En_Stream), then is put back somewhere dry, in this order:
@@ -62,21 +66,11 @@ void RsSwim_SetLengthSeconds(int32_t seconds); // clamped
 void RsSwim_ClearLengthSeconds(void);          // back to the build default
 int32_t RsSwim_LengthOverridden(void);
 
-// The budget, in ticks, and its ceiling.
-int32_t RsSwim_BudgetTicks(void);
+// The budget's ceiling in ticks, and a way to set what is left (clamped to [1, max]; for the console).
 int32_t RsSwim_MaxTicks(void);
-void RsSwim_SetBudgetTicks(int32_t ticks); // clamped to [1, max]; for the console
-
-// --- the clock: what z_parameter.c asks ---------------------------------------------------------
-// Whether the hazard clock should be showing the budget: on, swimming, not already drowning.
-int32_t RsSwim_WantsClock(void);
+void RsSwim_SetBudgetTicks(int32_t ticks);
 // The budget as the clock shows it, rounded up, so it reads 0 only when it is gone.
 int32_t RsSwim_ClockSeconds(void);
-// Whether the main timer is the swim clock. z_parameter.c sets it when it starts one and clears it
-// when vanilla starts its own hazard clock; it only counts while the timer is in a hazard state, so a
-// minigame's clock that replaced it is never mistaken for it.
-int32_t RsSwim_OwnsClock(void);
-void RsSwim_SetOwnsClock(int32_t owns);
 
 // --- the refuge ---------------------------------------------------------------------------------
 // Where a drowned Link goes back to, ahead of any drown point. With an `actor` (the boat), x/y/z and
@@ -98,9 +92,8 @@ struct RsSwimStatus {
     int32_t max;
     bool swimming;
     bool grounded;
-    bool held; // why the budget is not moving this tick, when it is not: see `holdReason`
-    const char* holdReason; // "none", "message", "cutscene", "timer"
-    bool clockOwned;
+    const char* holdReason; // why swimming is not draining it this tick: "none", "message", "cutscene", "timer"
+    bool clockOwned;        // the main timer is the swim clock
     bool refuge;
     bool refugeOnActor;
     int32_t drowns;

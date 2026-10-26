@@ -24,7 +24,7 @@ std::string Describe() {
     char buf[400];
     std::snprintf(buf, sizeof(buf),
                   "enabled=%d phase=%s budget=%d max=%d seconds=%d length=%d length_source=%s swimming=%d "
-                  "grounded=%d hold=%s clock=%d refuge=%s drowns=%d last=%s",
+                  "grounded=%d hold=%s swim_clock=%d refuge=%s drowns=%d last=%s",
                   s.enabled ? 1 : 0, s.phase, s.budget, s.max, RsSwim_ClockSeconds(), RsSwim_GetLengthSeconds(),
                   RsSwim_LengthOverridden() ? "cvar" : "default", s.swimming ? 1 : 0, s.grounded ? 1 : 0,
                   s.holdReason, s.clockOwned ? 1 : 0, !s.refuge ? "none" : (s.refugeOnActor ? "actor" : "world"),
@@ -64,7 +64,7 @@ int32_t RsSwimConsole_Run(const std::vector<std::string>& args, std::vector<std:
     }
     if (sub == "on" || sub == "off") {
         RsSwim_SetEnabled(sub == "on" ? 1 : 0);
-        lines.push_back("op=" + sub + " " + Describe());
+        lines.push_back("op=" + sub + " result=ok " + Describe());
         return 0;
     }
     if (sub == "length") {
@@ -121,7 +121,9 @@ int32_t RsSwimConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "points") {
         for (int32_t i = 0; i < RsSwim_PointCount(); i++) {
             const RsSwimPointStatus p = RsSwim_GetPoint(i);
-            Addf(lines, "op=points name=%s scene=0x%X rs=%d,%d unlocked=%d in_scene=%d placed=%d x=%.0f y=%.0f z=%.0f wet=%d",
+            Addf(lines,
+                 "op=points name=%s scene=0x%X rs=%d,%d unlocked=%d in_scene=%d placed=%d x=%.0f y=%.0f z=%.0f "
+                 "wet=%d",
                  p.name, p.sceneId, p.rsX, p.rsY, p.unlocked ? 1 : 0, p.inScene ? 1 : 0, p.placed ? 1 : 0, p.x, p.y,
                  p.z, p.wet ? 1 : 0);
         }
