@@ -18,7 +18,8 @@
 //                   blocks=<n> touch=<same names> touches=<n> link_on=0|1 helm_dist=<n> cam=0|1` line per live
 //                   boat, then `op=list result=ok count=<n> link_x= link_y= link_z= link_yaw= link_floor_bg=<n>
 //                   link_input_disabled=0|1 link_swimming=0|1 link_can_take_helm=0|1 tiller_in_reach=0|1
-//                   link_focus_boat=0|1 a_label_check=0|1 a_label=<DO_ACTION_*> drive_ticks=<n>
+//                   link_focus_boat=0|1 a_label_check=0|1 a_label=<DO_ACTION_*>
+//                   link_ledge=<climb type>/<delay ticks>/<ledge height> link_lin=<x100> drive_ticks=<n>
 //                   hud=<hidden|not_steering|steering>`.
 //                   throttle: what the helm asked for last tick (-100..100); blocked: why the last move was
 //                   refused (RsBoatBlock), blocks: refused moves since spawn; touch: what the last move that was
@@ -28,7 +29,9 @@
 //                   link_can_take_helm: Link is free to take a helm (RsBoat_LinkCanTakeHelm); tiller_in_reach:
 //                   A would take one now (RsBoat_TillerInReach); link_focus_boat: Z is locked on to a boat;
 //                   a_label_check: the A button reads "Check"; a_label: its do-action id (0 is none, as at
-//                   the helm); hud: what the steering label drew on the last frame (RsBoatHud.h)
+//                   the helm); link_ledge: Player's ledgeClimbType, ledgeClimbDelayTimer and yDistToLedge (a
+//                   wall Link pushes into: what he would climb, how long he has pushed, how high its top is);
+//                   link_lin: his linearVelocity; hud: what the steering label drew on the last frame (RsBoatHud.h)
 //   spawn [<x> <z> [<yaw>]]
 //                   puts a boat of the `kind` kind down: at (x, z), or 220 units in front of Link facing his
 //                   way, on the water's surface there. `op=spawn result=ok idx=<i> x= y= z= yaw=`

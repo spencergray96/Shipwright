@@ -4923,15 +4923,20 @@ s32 Player_ActionHandler_12(Player* this, PlayState* play) {
     f32 wallPolyNormalX;
     f32 wallPolyNormalZ;
     f32 sp24;
+    // SOH [Fork] sturdy-bassoon#262: a swimmer reaches higher against a boat's hull, so its rail is climbable from
+    // the water anywhere; 0 against anything else.
+    f32 swimReach = RsBoat_SwimReach(play, this);
+    f32 railHop = 0.0f;
 
     if (!(this->stateFlags1 & PLAYER_STATE1_CARRYING_ACTOR) && (this->ledgeClimbType >= 2) &&
-        (!(this->stateFlags1 & PLAYER_STATE1_IN_WATER) || (this->ageProperties->unk_14 > this->yDistToLedge))) {
+        (!(this->stateFlags1 & PLAYER_STATE1_IN_WATER) ||
+         (this->ageProperties->unk_14 + swimReach > this->yDistToLedge))) {
         sp3C = 0;
 
         if (func_808332B8(this)) {
             if (this->actor.yDistToWater < 50.0f) {
                 if ((this->ledgeClimbType < PLAYER_LEDGE_CLIMB_2) ||
-                    (this->yDistToLedge > this->ageProperties->unk_10)) {
+                    (this->yDistToLedge > this->ageProperties->unk_10 + swimReach)) {
                     return 0;
                 }
             } else if ((this->currentBoots != PLAYER_BOOTS_IRON) || (this->ledgeClimbType > PLAYER_LEDGE_CLIMB_2)) {
@@ -4950,7 +4955,8 @@ s32 Player_ActionHandler_12(Player* this, PlayState* play) {
                     sp3C = 1;
                 }
             }
-        } else if ((this->ledgeClimbDelayTimer >= 6) || CHECK_BTN_ALL(sControlInput->press.button, BTN_A)) {
+        } else if ((this->ledgeClimbDelayTimer >= RsBoat_ClimbDelay(play, this, 6)) ||
+                   CHECK_BTN_ALL(sControlInput->press.button, BTN_A)) {
             sp3C = 1;
         }
 
@@ -4961,7 +4967,9 @@ s32 Player_ActionHandler_12(Player* this, PlayState* play) {
 
             sp34 = this->yDistToLedge;
 
-            if (this->ageProperties->unk_14 <= sp34) {
+            // SOH [Fork] sturdy-bassoon#262: a swimmer climbing a hull keeps the swim climb, even past the height
+            // where on land Link would take the big jump-up.
+            if ((this->ageProperties->unk_14 <= sp34) && !(func_808332B8(this) && (swimReach > 0.0f))) {
                 anim = &gPlayerAnim_link_normal_250jump_start;
                 this->linearVelocity = 1.0f;
             } else {
@@ -5001,9 +5009,12 @@ s32 Player_ActionHandler_12(Player* this, PlayState* play) {
 
             return 1;
         }
-    } else if ((this->actor.bgCheckFlags & BGCHECKFLAG_GROUND) && (this->ledgeClimbType == 1) &&
-               (this->ledgeClimbDelayTimer >= 3)) {
-        temp = (this->yDistToLedge * 0.08f) + 5.5f;
+    } else if ((this->actor.bgCheckFlags & BGCHECKFLAG_GROUND) &&
+               (((this->ledgeClimbType == 1) && (this->ledgeClimbDelayTimer >= RsBoat_ClimbDelay(play, this, 3))) ||
+                // SOH [Fork] sturdy-bassoon#262: a boat counts the push into its rail itself (Player's count
+                // resets on every tick the hull's wall contact drops) and says when to hop, and how high.
+                ((railHop = RsBoat_RailHop(play, this)) > 0.0f))) {
+        temp = ((railHop > 0.0f ? railHop : this->yDistToLedge) * 0.08f) + 5.5f;
         func_808389E8(this, &gPlayerAnim_link_normal_jump, temp, play);
         this->linearVelocity = 2.5f;
 

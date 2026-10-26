@@ -158,6 +158,8 @@ typedef struct RsBoat {
     s32 freeTicks;   // moves in a row that fitted: "freely again" is RS_BOAT_FREE_TICKS of them
     s32 helmPress;   // A was down last tick: a held A is not a second press
     s32 linkAboard;  // Link stood on this boat's deck or rail as of last tick (RsBoat_LinkWasAboard)
+    s32 railPush;    // ticks Link has pushed into this hull's wall from its deck (RsBoat_RailHop)
+    s32 railGrace;   // ticks without contact the push may still survive
     f32 throttle;    // what the helm asked for on the last tick, -1..1, for the console
     s16 subCamId;    // the steering camera while the helm is held, else SUBCAM_NONE
     Vec3f camEye;    // where it is now, eased toward its target each tick
@@ -211,6 +213,18 @@ s32 RsBoat_LinkWasAboard(PlayState* play);
 // 1 when Link stood on a boat last tick and is on other ground now: he walked off the rail onto a bank level with
 // it, never leaving the ground, so the hop above is never asked about. Player hops him there too.
 s32 RsBoat_SteppedOffBoat(PlayState* play, const Player* player);
+
+// How much higher than vanilla a swimming Link reaches to climb out onto the ledge in front of him: some when the
+// wall he swims against is a boat's hull, so both rails are climbable from the water anywhere; 0 otherwise.
+f32 RsBoat_SwimReach(PlayState* play, const Player* player);
+
+// The ticks Link must push into the wall in front of him before he hops or climbs onto its top: `vanilla` (3 or 6),
+// or never against a boat's hull from its deck, where RsBoat_RailHop decides instead.
+s32 RsBoat_ClimbDelay(PlayState* play, const Player* player, s32 vanilla);
+
+// The height of the rail Link should hop onto now, or 0: he has pushed into a boat's hull from its deck for 0.6 s,
+// so brushing past the rail does not put him over the side. Player hops him as onto a ledge that high.
+f32 RsBoat_RailHop(PlayState* play, const Player* player);
 
 // Link is free to take the helm: on nothing but his feet, empty-handed and doing nothing else. 0 while he aims
 // or looks in first person, has a sword or item out, holds, carries or throws something, shields, hangs,
