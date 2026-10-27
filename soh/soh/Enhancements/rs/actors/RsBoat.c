@@ -121,6 +121,8 @@ typedef struct RsBoatStation {
 // (boat z; the first is the aft face), columns RS_BOAT_FOREDECK_STEP apart across the centreline, each a height over
 // the deck, or RS_BOAT_FOREDECK_OUT within 2 of the hull's side. A cell is solid where its four knots are. Link
 // climbs onto it hands-on, as onto a prop (RsBoat_ClimbDelay), not with the rail's hop. rows 0: none.
+// How far a drawn rudder turns at full tiller: 25 degrees (the owner's pick), binang.
+#define RS_BOAT_RUDDER_YAW 4551
 #define RS_BOAT_FOREDECK_ROWS 7
 #define RS_BOAT_FOREDECK_COLS 13
 #define RS_BOAT_FOREDECK_STEP 6.0f
@@ -131,6 +133,14 @@ typedef struct RsBoatForedeck {
     s8 top[RS_BOAT_FOREDECK_ROWS][RS_BOAT_FOREDECK_COLS];
 } RsBoatForedeck;
 
+// A rudder drawn turning (#262): its own archive list (`list`, NULL for none), placed so the rudder's pin sits at the
+// list's origin; `pin` is where that is in the kind's model space. RsBoat_Draw turns it about the pin's vertical
+// axis by the tiller, opposite the turn as on a real boat: the tiller swings out of the turn, the blade into it.
+typedef struct RsBoatRudder {
+    const char* list;
+    f32 pin[3];
+} RsBoatRudder;
+
 typedef struct RsBoatKind {
     const char* name;
     const char* list; // the archive's display list: the kind once, at the origin, turn 0 (RsBoatModel.cpp)
@@ -139,6 +149,7 @@ typedef struct RsBoatKind {
     f32 modelZ;
     s32 helmInModel;     // its archive carries Sailing's helm as well as the hull: no placeholder tiller post
     RsBoatForedeck foredeck;
+    RsBoatRudder rudder;
     f32 topSpeed;       // units a tick ahead, by default
     f32 topSpeedUpgrade; // with its speed upgrade unlocked (sturdy-bassoon#263), or 0 for none
     f32 turnAtRest;      // binang a tick at full tiller, standing still: how lively it feels, not a balance
@@ -174,6 +185,9 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
             { -128, -128, -128, -128, 27, 30, 33, 30, 27, -128, -128, -128, -128 },
             { -128, -128, -128, -128, -128, 27, 29, 27, -128, -128, -128, -128, -128 },
         } },
+      // the rudder and tiller (helm-59583-rudder, the piece taken out of the helm): its pin is the block on the
+      // transom's top, on the centreline at model z -84
+      { "objects/rs_props/rs_boat_skiff_rudder/props", { 0.0f, 0.0f, -84.0f } },
       14.0f, // the fastest, for now: the middle boat's use
       18.0f,
       220.0f, // full-speed circle ~650 across
@@ -210,6 +224,7 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
       -3.0f,
       0,
       { 0 },
+      { NULL },
       12.0f,
       14.0f,
       200.0f, // the widest full-speed circle, ~780 across: 20% wider than the skiff's
@@ -243,6 +258,7 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
       0.0f,
       0,
       { 0 },
+      { NULL },
       10.0f,
       0.0f,   // no upgrade considered yet
       300.0f, // the best handling: the quickest spin and the tightest circle, ~420 across
@@ -2173,6 +2189,22 @@ void RsBoat_Draw(Actor* thisx, PlayState* play) {
         gSPDisplayList(POLY_OPA_DISP++, model);
         Matrix_Pop();
         Gfx_SetupDL_25Opa(gfxCtx);
+    }
+    if (model != NULL && sRsBoatKinds[this->kind].rudder.list != NULL) {
+        const RsBoatRudder* rudder = &sRsBoatKinds[this->kind].rudder;
+        Gfx* rudderModel = RsBoat_ModelList(rudder->list);
+
+        if (rudderModel != NULL) {
+            Matrix_Push();
+            Matrix_Translate(rudder->pin[0], sRsBoatKinds[this->kind].modelY + rudder->pin[1],
+                             sRsBoatKinds[this->kind].modelZ + rudder->pin[2], MTXMODE_APPLY);
+            // A tiller to the left (a left turn) swings its handle to starboard, which is -x looking at the bow.
+            Matrix_RotateY(BINANG_TO_RAD(-this->tiller * RS_BOAT_RUDDER_YAW), MTXMODE_APPLY);
+            gSPMatrix(POLY_OPA_DISP++, MATRIX_NEWMTX(gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
+            gSPDisplayList(POLY_OPA_DISP++, rudderModel);
+            Matrix_Pop();
+            Gfx_SetupDL_25Opa(gfxCtx);
+        }
     }
     gSPMatrix(POLY_OPA_DISP++, MATRIX_NEWMTX(gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
     gSPClearGeometryMode(POLY_OPA_DISP++, G_CULL_BACK);

@@ -1,0 +1,20 @@
+{
+ "format": 2,
+ "scene": "rs_boat",
+ "list": "objects/rs_props/rs_boat_skiff_rudder/props",
+ "kinds": {
+  "helm-59583-rudder": "rs_59583_rudder"
+ },
+ "props": [
+  {
+   "id": "rudder",
+   "kind": "helm-59583-rudder",
+   "pos": [
+    20,
+    -43,
+    -16
+   ],
+   "rot": 0
+  }
+ ]
+}
