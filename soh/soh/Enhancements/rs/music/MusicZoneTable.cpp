@@ -285,22 +285,22 @@ const RsZoneRect kRects_lumbridge[] = {
     { 3200, 3136, 3263, 3199, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_lumbridge[] = {
-    // harmony: 216.038 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 216038, 5000, "custom/music/rs/harmony" },
-    // yesteryear: 237.029 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 237029, 5000, "custom/music/rs/yesteryear" },
-    // book-of-spells: 323.663 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 323663, 5000, "custom/music/rs/book-of-spells" },
-    // flute-salad: 115.217 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 115217, 5000, "custom/music/rs/flute-salad" },
-    // autumn-voyage: 136.046 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 136046, 5000, "custom/music/rs/autumn-voyage" },
-    // dream: 153.646 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 153646, 5000, "custom/music/rs/dream" },
+    // harmony: 216.038 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 216038, 5000, "custom/music/rs/harmony" },
+    // yesteryear: 237.029 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 237029, 5000, "custom/music/rs/yesteryear" },
+    // book-of-spells: 323.663 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 323663, 5000, "custom/music/rs/book-of-spells" },
+    // flute-salad: 115.217 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 115217, 5000, "custom/music/rs/flute-salad" },
+    // autumn-voyage: 136.046 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 136046, 5000, "custom/music/rs/autumn-voyage" },
+    // dream: 153.646 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 153646, 5000, "custom/music/rs/dream" },
 };
 const RsZoneTrack kFirstVisit_lumbridge[] = {
-    // harmony: 216.038 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 216038, 5000, "custom/music/rs/harmony" },
+    // harmony: 216.038 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 216038, 5000, "custom/music/rs/harmony" },
 };
 
 /*
@@ -319,12 +319,12 @@ const RsZoneRect kRects_draynor[] = {
     { 3072, 3264, 3135, 3327, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_draynor[] = {
-    // unknown-land: 124.389 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 124389, 5000, "custom/music/rs/unknown-land" },
-    // wander: 203.43 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 203430, 5000, "custom/music/rs/wander" },
-    // start: 164.026 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 164026, 5000, "custom/music/rs/start" },
+    // unknown-land: 124.389 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 124389, 5000, "custom/music/rs/unknown-land" },
+    // wander: 203.43 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 203430, 5000, "custom/music/rs/wander" },
+    // start: 164.026 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 164026, 5000, "custom/music/rs/start" },
 };
 
 /*
@@ -337,8 +337,8 @@ const RsZoneRect kRects_draynor_manor[] = {
     { 3072, 3328, 3135, 3391, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_draynor_manor[] = {
-    // spooky: 222.958 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 222958, 5000, "custom/music/rs/spooky" },
+    // spooky: 222.958 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 222958, 5000, "custom/music/rs/spooky" },
 };
 
 /*
@@ -350,8 +350,8 @@ const RsZoneRect kRects_port_sarim[] = {
     { 3008, 3200, 3071, 3263, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_port_sarim[] = {
-    // sea-shanty-2: 124.831 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 124831, 5000, "custom/music/rs/sea-shanty-2" },
+    // sea-shanty-2: 124.831 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 124831, 5000, "custom/music/rs/sea-shanty-2" },
 };
 
 /*
@@ -365,8 +365,8 @@ const RsZoneRect kRects_port_sarim_south[] = {
     { 3008, 3136, 3071, 3199, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_port_sarim_south[] = {
-    // tomorrow: 156.015 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 156015, 5000, "custom/music/rs/tomorrow" },
+    // tomorrow: 156.015 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 156015, 5000, "custom/music/rs/tomorrow" },
 };
 
 /*
@@ -378,8 +378,8 @@ const RsZoneRect kRects_wizards_tower[] = {
     { 3072, 3136, 3135, 3199, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_wizards_tower[] = {
-    // vision: 170.272 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 170272, 5000, "custom/music/rs/vision" },
+    // vision: 170.272 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 170272, 5000, "custom/music/rs/vision" },
 };
 
 /*
@@ -394,10 +394,10 @@ const RsZoneRect kRects_rimmington[] = {
     { 2944, 3136, 3007, 3199, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_rimmington[] = {
-    // emperor: 240.025 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 240025, 5000, "custom/music/rs/emperor" },
-    // attention: 169.111 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 169111, 5000, "custom/music/rs/attention" },
+    // emperor: 240.025 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 240025, 5000, "custom/music/rs/emperor" },
+    // attention: 169.111 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 169111, 5000, "custom/music/rs/attention" },
 };
 
 /*
@@ -413,10 +413,10 @@ const RsZoneRect kRects_falador_farms[] = {
     { 3008, 3264, 3071, 3327, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_falador_farms[] = {
-    // long-way-home: 120.024 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 120024, 5000, "custom/music/rs/long-way-home" },
-    // nightfall: 228.02 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 228020, 5000, "custom/music/rs/nightfall" },
+    // long-way-home: 120.024 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 120024, 5000, "custom/music/rs/long-way-home" },
+    // nightfall: 228.02 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 228020, 5000, "custom/music/rs/nightfall" },
 };
 
 /*
@@ -431,10 +431,10 @@ const RsZoneRect kRects_falador[] = {
     { 3008, 3328, 3071, 3391, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_falador[] = {
-    // workshop: 250.52 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 250520, 5000, "custom/music/rs/workshop" },
-    // fanfare: 138.019 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 138019, 5000, "custom/music/rs/fanfare" },
+    // workshop: 250.52 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 250520, 5000, "custom/music/rs/workshop" },
+    // fanfare: 138.019 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 138019, 5000, "custom/music/rs/fanfare" },
 };
 
 /*
@@ -447,8 +447,8 @@ const RsZoneRect kRects_doric_hut[] = {
     { 2944, 3392, 3007, 3455, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_doric_hut[] = {
-    // scape-soft: 158.407 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 158407, 5000, "custom/music/rs/scape-soft" },
+    // scape-soft: 158.407 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 158407, 5000, "custom/music/rs/scape-soft" },
 };
 
 /*
@@ -462,8 +462,8 @@ const RsZoneRect kRects_dwarven_mine[] = {
     { 3008, 3392, 3071, 3455, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_dwarven_mine[] = {
-    // dwarf-theme: 94.018 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 94018, 5000, "custom/music/rs/dwarf-theme" },
+    // dwarf-theme: 94.018 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 94018, 5000, "custom/music/rs/dwarf-theme" },
 };
 
 /*
@@ -476,8 +476,8 @@ const RsZoneRect kRects_goblin_village[] = {
     { 2944, 3456, 3007, 3519, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_goblin_village[] = {
-    // goblin-village: 96.015 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 96015, 5000, "custom/music/rs/goblin-village" },
+    // goblin-village: 96.015 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 96015, 5000, "custom/music/rs/goblin-village" },
 };
 
 /*
@@ -490,8 +490,8 @@ const RsZoneRect kRects_monastery[] = {
     { 3008, 3456, 3071, 3519, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_monastery[] = {
-    // ballad-of-enchantment: 207.029 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 207029, 5000, "custom/music/rs/ballad-of-enchantment" },
+    // ballad-of-enchantment: 207.029 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 207029, 5000, "custom/music/rs/ballad-of-enchantment" },
 };
 
 /*
@@ -503,8 +503,8 @@ const RsZoneRect kRects_barbarian_village[] = {
     { 3072, 3392, 3135, 3455, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_barbarian_village[] = {
-    // barbarianism: 271.023 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 271023, 5000, "custom/music/rs/barbarianism" },
+    // barbarianism: 271.023 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 271023, 5000, "custom/music/rs/barbarianism" },
 };
 
 /*
@@ -515,8 +515,8 @@ const RsZoneRect kRects_edgeville[] = {
     { 3072, 3456, 3135, 3519, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_edgeville[] = {
-    // forever: 219.452 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 219452, 5000, "custom/music/rs/forever" },
+    // forever: 219.452 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 219452, 5000, "custom/music/rs/forever" },
 };
 
 /*
@@ -527,8 +527,8 @@ const RsZoneRect kRects_grand_exchange[] = {
     { 3136, 3456, 3199, 3519, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_grand_exchange[] = {
-    // the-trade-parade: 271.348 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 271348, 5000, "custom/music/rs/the-trade-parade" },
+    // the-trade-parade: 271.348 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 271348, 5000, "custom/music/rs/the-trade-parade" },
 };
 
 /*
@@ -546,14 +546,14 @@ const RsZoneRect kRects_varrock[] = {
     { 3200, 3456, 3263, 3519, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_varrock[] = {
-    // garden: 158.407 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 158407, 5000, "custom/music/rs/garden" },
-    // medieval: 240.025 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 240025, 5000, "custom/music/rs/medieval" },
-    // spirit: 234.011 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 234011, 5000, "custom/music/rs/spirit" },
-    // adventure: 153.623 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 153623, 5000, "custom/music/rs/adventure" },
+    // garden: 158.407 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 158407, 5000, "custom/music/rs/garden" },
+    // medieval: 240.025 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 240025, 5000, "custom/music/rs/medieval" },
+    // spirit: 234.011 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 234011, 5000, "custom/music/rs/spirit" },
+    // adventure: 153.623 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 153623, 5000, "custom/music/rs/adventure" },
 };
 
 /*
@@ -578,12 +578,12 @@ const RsZoneRect kRects_varrock_outskirts[] = {
     { 3264, 3456, 3327, 3519, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_varrock_outskirts[] = {
-    // expanse: 170.272 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 170272, 5000, "custom/music/rs/expanse" },
-    // still-night: 172.826 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 172826, 5000, "custom/music/rs/still-night" },
-    // greatness: 221.518 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 221518, 5000, "custom/music/rs/greatness" },
+    // expanse: 170.272 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 170272, 5000, "custom/music/rs/expanse" },
+    // still-night: 172.826 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 172826, 5000, "custom/music/rs/still-night" },
+    // greatness: 221.518 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 221518, 5000, "custom/music/rs/greatness" },
 };
 
 /*
@@ -599,12 +599,12 @@ const RsZoneRect kRects_al_kharid[] = {
     { 3264, 3264, 3327, 3327, RS_ZONE_Y_ANY_MIN, RS_ZONE_Y_ANY_MAX },
 };
 const RsZoneTrack kTracks_al_kharid[] = {
-    // arabian: 140.806 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 140806, 5000, "custom/music/rs/arabian" },
-    // al-kharid: 199.297 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 199297, 5000, "custom/music/rs/al-kharid" },
-    // arabian-2: 183.02 s of audio, 5 s end fade, placeholder 0x82
-    { 0x82, RS_ZONE_COND_ANY, 183020, 5000, "custom/music/rs/arabian-2" },
+    // arabian: 140.806 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 140806, 5000, "custom/music/rs/arabian" },
+    // al-kharid: 199.297 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 199297, 5000, "custom/music/rs/al-kharid" },
+    // arabian-2: 183.02 s of audio, 5 s end fade, placeholder 0x3E
+    { 0x3E, RS_ZONE_COND_ANY, 183020, 5000, "custom/music/rs/arabian-2" },
 };
 
 /*

@@ -198,7 +198,7 @@ int32_t RsMusic_ResolveTrackPath(const char* name, const char** error);
  * One formatter, for the same reason RsMusic_FormatTiles is one: `transition`, `advance`, `refill`,
  * `status`, `zones`, `bags` and `firstvisit` all name tracks, and a second spelling is a second
  * thing to keep in step. It is not `0x%X` any more because an id stopped identifying a track when
- * imported ones arrived - all six Lumbridge tracks are `0x82`.
+ * imported ones arrived - every imported track carries the same placeholder.
  */
 void RsMusic_FormatTrack(char* buf, uint32_t size, const RsZoneTrack* track);
 

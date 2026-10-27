@@ -54,6 +54,9 @@
 //                         it did nor what it was for, and cost a human real confusion
 //   players               all four sequence players as the engine reads them (#90 P5), plus the
 //                         audio thread's own view of each (#91) - see the comment in the renderer
+//   combat [...]          the per-actor combat-music lever (#90 P6): which actors may start enemy
+//                         music in a director scene. Handed to RsCombatMusic_Console with `combat`
+//                         sliced off; CombatMusic.h lists its subcommands and lines
 //
 // TEST SURFACE for sturdy-bassoon#91, the RS track import. These bypass the director entirely.
 // #90 P3 wired imported tracks into the director and KEPT THESE: the director only ever plays what

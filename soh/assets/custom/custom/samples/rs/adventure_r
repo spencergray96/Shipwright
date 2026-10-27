@@ -1,3 +1,3 @@
-<Sample Version="0" Codec="S16" Medium="Ram" bit26="0" CustomFormat="ogg" Size="14747832" Path="custom/samples/rs/adventure_r.ogg">
-    <ADPCMLoop Start="0" End="7373916" Count="0"/>
+<Sample Version="0" Codec="S16" Medium="Ram" bit26="0" CustomFormat="ogg" Size="14747830" Path="custom/samples/rs/adventure_r.ogg">
+    <ADPCMLoop Start="0" End="7373915" Count="0"/>
 </Sample>
