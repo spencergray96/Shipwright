@@ -7,7 +7,8 @@
   "loc-59626": "rs_59626",
   "loc-59516": "rs_59516",
   "helm-59583": "rs_59583",
-  "loc-29480": "rs_29480"
+  "loc-29480": "rs_29480",
+  "helm-59583-rudder": "rs_59583_rudder"
  },
  "props": [
   {
@@ -47,10 +48,14 @@
    "kind": "helm-59583",
    "pos": [
     20,
-    21,
+    -43,
     -100
    ],
-   "rot": 0
+   "rot": 0,
+   "omit": {
+    "kind": "helm-59583-rudder",
+    "why": "the rudder and tiller, drawn turning on the boat's own rudder list (rs_boat_skiff_rudder_props.json)"
+   }
   },
   {
    "id": "sails",
@@ -61,7 +66,25 @@
     -20
    ],
    "rot": 0,
-   "weld": "helm"
+   "weld": "helm",
+   "sway": [
+    {
+     "colour": [
+      226,
+      226,
+      222
+     ],
+     "why": "the sail's cloth: RS swings it with skeletal animation 13884, which no stage reads; the wind sway stands in"
+    },
+    {
+     "colour": [
+      128,
+      15,
+      7
+     ],
+     "why": "the pennant at the masthead"
+    }
+   ]
   }
  ]
 }
