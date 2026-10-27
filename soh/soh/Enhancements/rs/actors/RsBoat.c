@@ -149,7 +149,7 @@ typedef struct RsBoatKind {
 
 static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
     // The Sailing skiff, loc 59503: model z -87..137 (bow at +z), x -51..51, a 70-wide transom, the bow tapering
-    // to 4 wide; its rail 22 over the floor, rising to 28 at the bow. Its archive also carries Sailing's default
+    // to 4 wide; its rail 25 over the floor, the trim's top (the bare hull's gunwale is 22), rising to 28 at the bow. Its archive also carries Sailing's default
     // trim (59626, the gunwale cap in the hull's wood: without it the stern's inner corners are open), keel
     // (59516), helm (59583, with the cleat the sail's sheet rope ends on) and still sails (29480) at the template
     // boats' offsets (#262). Its covered bow is a lid from model z 85 (boat 60) to the stem over a recess too low for
@@ -179,15 +179,15 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
       230.0f,
       13,
       {
-          { -112.0f, 24.0f, 35.0f, 22.0f },
-          { -91.0f, 30.0f, 40.0f, 22.0f },
-          { -71.0f, 34.0f, 44.5f, 22.0f },
-          { -51.0f, 38.0f, 48.0f, 22.0f },
-          { -31.0f, 39.0f, 50.0f, 22.0f },
-          { -11.0f, 41.0f, 51.0f, 22.0f },
-          { 9.0f, 40.0f, 51.0f, 22.0f },
-          { 29.0f, 38.0f, 49.0f, 22.0f },
-          { 49.0f, 34.0f, 46.0f, 22.0f },
+          { -112.0f, 24.0f, 35.0f, 25.0f },
+          { -91.0f, 30.0f, 40.0f, 25.0f },
+          { -71.0f, 34.0f, 44.5f, 25.0f },
+          { -51.0f, 38.0f, 48.0f, 25.0f },
+          { -31.0f, 39.0f, 50.0f, 25.0f },
+          { -11.0f, 41.0f, 51.0f, 25.0f },
+          { 9.0f, 40.0f, 51.0f, 25.0f },
+          { 29.0f, 38.0f, 49.0f, 25.0f },
+          { 49.0f, 34.0f, 46.0f, 25.0f },
           { 69.0f, 29.0f, 39.0f, 28.0f },
           { 89.0f, 18.0f, 30.0f, 26.0f },
           { 99.0f, 6.0f, 18.5f, 25.0f },
@@ -1553,9 +1553,10 @@ s32 RsBoat_SetHelm(RsBoat* this, PlayState* play, s32 on) {
 }
 
 // The floor's lowest drawn point over the water at this bob and rock, before any lift. The floor's edge is the keel
-// probes; RsBoat_Draw rotates the model by the roll about z and then the pitch about x, so a point (x, deck, z)
-// lands at x sin(roll) + (deck cos(pitch) - z sin(pitch)) cos(roll). Both signs of each are taken: the floor is
-// symmetric across, and whichever end the pitch dips, the lowest point is found.
+// probes; the hull's matrix (shape.rot, Y X Z as the actor draw and the dyna collision build it) turns a point by the
+// roll about z and then the pitch about x, so a point (x, deck, z) lands at (x sin(roll) + deck cos(roll))
+// cos(pitch) - z sin(pitch). Both signs of each are taken: the floor is symmetric across, and whichever end the
+// pitch dips, the lowest point is found.
 static f32 RsBoat_FloorLow(const RsBoat* this, f32 bob) {
     const RsBoatHull* hull = &sHulls[this->kind];
     const f32 sr = fabsf(Math_SinS(this->roll));
@@ -1566,7 +1567,7 @@ static f32 RsBoat_FloorLow(const RsBoat* this, f32 bob) {
     s32 i;
 
     for (i = 0; i < hull->numKeel; i++) {
-        const f32 y = -fabsf(hull->keel[i].x) * sr + (RsBoat_DeckY(this) * cp - fabsf(hull->keel[i].z) * sp) * cr;
+        const f32 y = (-fabsf(hull->keel[i].x) * sr + RsBoat_DeckY(this) * cr) * cp - fabsf(hull->keel[i].z) * sp;
 
         low = MIN(low, y);
     }
@@ -1879,6 +1880,10 @@ void RsBoat_Update(Actor* thisx, PlayState* play) {
     // moves; the water stays flat.
     this->roll = (s16)(sinf((f32)this->timer * (2.0f * (f32)M_PI / RS_BOAT_ROCK_PERIOD)) * hull->rollAmp);
     this->pitch = (s16)(cosf((f32)this->timer * (2.0f * (f32)M_PI / RS_BOAT_ROCK_PERIOD) * 0.7f) * hull->pitchAmp);
+    // The rock tilts the collision too (#262): DynaPoly_Setup takes the hull's whole shape.rot, after this update and
+    // before Player's, so the deck under Link rises and falls with the drawn one this same tick.
+    thisx->shape.rot.x = this->pitch;
+    thisx->shape.rot.z = this->roll;
     bob = sinf((f32)this->timer * (2.0f * (f32)M_PI / RS_BOAT_BOB_PERIOD)) * RS_BOAT_BOB_AMP;
     this->lift = MAX(0.0f, RS_BOAT_FLOAT_MARGIN - RsBoat_FloorLow(this, bob));
     this->floorLow = RsBoat_FloorLow(this, bob) + this->lift;
@@ -1944,8 +1949,7 @@ void RsBoat_Draw(Actor* thisx, PlayState* play) {
     OPEN_DISPS(gfxCtx);
 
     Gfx_SetupDL_25Opa(gfxCtx);
-    // Actor_Draw has set the hull's matrix (position and yaw); the rock is draw-only, on top of it.
-    Matrix_RotateZYX(this->pitch, 0, this->roll, MTXMODE_APPLY);
+    // Actor_Draw has set the hull's matrix: its position and shape.rot, the rock included, as its collision has it.
     if (model != NULL) {
         // The kind's model, in its own model space: its floor on the deck, centred on the collision. Its list carries
         // its own materials (lit, RS's base colours as prim colours), so the state is set up again after it.

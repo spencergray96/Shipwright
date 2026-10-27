@@ -38,8 +38,9 @@
 // (RsBoat_TillerInReach, read by Player_UpdateInterface). Locked on, A takes the helm from anywhere on the
 // deck. Attention is off while the helm is held.
 // THE WATER. Every tick the hull's height is the waterbox surface under it plus a slow bob. The roll and
-// pitch (a second, slower sine) are DRAW-ONLY: the collision stays level, so Link stands upright on a deck
-// that rocks a few degrees under him and never slides. The rock is sized so a corner dips the same distance on
+// pitch (a second, slower sine) tilt the collision with the drawn hull (#262; #256 drew them only): Link rides
+// the rocking deck, his feet on it as it rises and falls under him, upright, and at 2.5 degrees he never
+// slides. The rock is sized so a corner dips the same distance on
 // any hull (RS_BOAT_ROLL_DIP, RS_BOAT_PITCH_DIP): a bigger hull rocks through a smaller angle, as a real one
 // does, and its corners stay out of the water. A waterbox buried under the ground is not water
 // (RsBoat_SurfaceAt); a boat with no water under it settles on the ground and does not move.
@@ -154,7 +155,7 @@ typedef struct RsBoat {
     f32 speed;       // signed, units per tick along the hull's heading
     f32 tiller;      // -1..1, eased toward the stick
     s16 yawVel;      // binang per tick, from the tiller and the speed
-    s16 roll;        // draw-only tilt, binang
+    s16 roll;        // the rock's tilt, binang, about the hull's length; pitch about its width. In shape.rot
     s16 pitch;
     s32 timer;       // ticks since spawn: the bob's clock
     f32 surfaceY;    // the waterbox surface under the hull; the last good one when there is none
