@@ -149,7 +149,8 @@ typedef struct RsBoatKind {
 
 static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
     // The Sailing skiff, loc 59503: model z -87..137 (bow at +z), x -51..51, a 70-wide transom, the bow tapering
-    // to 4 wide; its rail 25 over the floor, the trim's top (the bare hull's gunwale is 22), rising to 28 at the bow. Its archive also carries Sailing's default
+    // to 4 wide; its rail 25 over the floor, the trim's top (the bare hull's gunwale is 22), rising to 28 at the bow,
+    // with a boarding notch amidships. Its archive also carries Sailing's default
     // trim (59626, the gunwale cap in the hull's wood: without it the stern's inner corners are open), keel
     // (59516), helm (59583, with the cleat the sail's sheet rope ends on) and still sails (29480) at the template
     // boats' offsets (#262). Its covered bow is a lid from model z 85 (boat 60) to the stem over a recess too low for
@@ -182,8 +183,14 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
           { -112.0f, 24.0f, 35.0f, 25.0f },
           { -91.0f, 30.0f, 40.0f, 25.0f },
           { -71.0f, 34.0f, 44.5f, 25.0f },
-          { -51.0f, 38.0f, 48.0f, 25.0f },
-          { -31.0f, 39.0f, 50.0f, 25.0f },
+          // the boarding notch, both sides: drawn as a dip from 25 at -56 to 17 at -45 and back by -34. Cut to 20
+          // over -52..-38, not to its drawn bottom: Player walks straight up a wall under 18 from the deck, so a
+          // lower notch would let Link step out of the boat. Stations 6 apart at its ends, as the deck between two
+          // stations closer than 4 would be a sliver (RS_BOAT_MIN_ALTITUDE).
+          { -58.0f, 36.5f, 46.5f, 25.0f },
+          { -52.0f, 38.0f, 48.0f, 20.0f },
+          { -38.0f, 38.5f, 49.5f, 20.0f },
+          { -32.0f, 39.0f, 50.0f, 25.0f },
           { -11.0f, 41.0f, 51.0f, 25.0f },
           { 9.0f, 40.0f, 51.0f, 25.0f },
           { 29.0f, 38.0f, 49.0f, 25.0f },
@@ -1312,8 +1319,7 @@ s32 RsBoat_LinkWasAboard(PlayState* play) {
 // for the same reason as the rail's. The owner's pick for the rails too, over the hop's 0.6 s.
 #define RS_BOAT_HANDS_CLIMB_DELAY 6
 // A rail climbed hands-on lands Link this much further past its face than Player's climb does (RsBoat_ClimbInset).
-// RsBoat_SmoothLinkOnDeck moves Link to the exact deck only this close to where Player stood him: the truncation is
-// at most ~1.7 off (ENGINE_BUDGETS.md); anything further is not that.
+// RsBoat_ExactFloorY trusts its exact height only this close to the engine's truncated one.
 #define RS_BOAT_SMOOTH_MAX 2.0f
 #define RS_BOAT_RAIL_CLIMB_INSET 1.5f
 
@@ -1424,58 +1430,68 @@ f32 RsBoat_RailHop(PlayState* play, const Player* player) {
     return 0.0f;
 }
 
-void RsBoat_SmoothLinkOnDeck(PlayState* play) {
-    Player* player = GET_PLAYER(play);
+f32 RsBoat_ExactFloorY(PlayState* play, CollisionPoly* poly, s32 bgId, f32 x, f32 z, f32 truncated) {
     const RsBoat* boat;
     const BgActor* bg;
     const CollisionHeader* col;
-    const CollisionPoly* poly;
+    const CollisionPoly* local;
     s32 index;
     MtxF mtx;
     Vec3f v[3];
-    Vec3s* local[3];
+    Vec3s* src[3];
     f32 nx;
     f32 ny;
     f32 nz;
-    f32 y;
     s32 i;
 
-    if (player == NULL || !(player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) || player->actor.floorPoly == NULL ||
-        (player->stateFlags1 & (PLAYER_STATE1_CLIMBING_LEDGE | PLAYER_STATE1_JUMPING)) ||
-        (boat = RsBoat_HullOf(play, player->actor.floorBgId)) == NULL) {
-        return;
+    if (poly == NULL || bgId == BGCHECK_SCENE || (boat = RsBoat_HullOf(play, bgId)) == NULL) {
+        return truncated;
     }
     bg = &play->colCtx.dyna.bgActors[boat->dyna.bgId];
     col = bg->colHeader;
-    index = (s32)(player->actor.floorPoly - play->colCtx.dyna.polyList) - (s32)bg->dynaLookup.polyStartIndex;
+    index = (s32)(poly - play->colCtx.dyna.polyList) - (s32)bg->dynaLookup.polyStartIndex;
     if (col == NULL || index < 0 || index >= (s32)col->numPolygons) {
-        return;
+        return truncated;
     }
-    poly = &col->polyList[index];
-    local[0] = &col->vtxList[COLPOLY_VTX_INDEX(poly->flags_vIA)];
-    local[1] = &col->vtxList[COLPOLY_VTX_INDEX(poly->flags_vIB)];
-    local[2] = &col->vtxList[poly->vIC];
+    local = &col->polyList[index];
+    src[0] = &col->vtxList[COLPOLY_VTX_INDEX(local->flags_vIA)];
+    src[1] = &col->vtxList[COLPOLY_VTX_INDEX(local->flags_vIB)];
+    src[2] = &col->vtxList[local->vIC];
     // The engine's own transform for the hull this tick (DynaPoly_ExpandSRT), without its truncation.
     SkinMatrix_SetTranslateRotateYXZScale(&mtx, bg->curTransform.scale.x, bg->curTransform.scale.y,
                                           bg->curTransform.scale.z, bg->curTransform.rot.x, bg->curTransform.rot.y,
                                           bg->curTransform.rot.z, bg->curTransform.pos.x, bg->curTransform.pos.y,
                                           bg->curTransform.pos.z);
     for (i = 0; i < 3; i++) {
-        Vec3f src;
+        Vec3f in;
 
-        Math_Vec3s_ToVec3f(&src, local[i]);
-        SkinMatrix_Vec3fMtxFMultXYZ(&mtx, &src, &v[i]);
+        Math_Vec3s_ToVec3f(&in, src[i]);
+        SkinMatrix_Vec3fMtxFMultXYZ(&mtx, &in, &v[i]);
     }
     nx = (v[1].y - v[0].y) * (v[2].z - v[0].z) - (v[1].z - v[0].z) * (v[2].y - v[0].y);
     ny = (v[1].z - v[0].z) * (v[2].x - v[0].x) - (v[1].x - v[0].x) * (v[2].z - v[0].z);
     nz = (v[1].x - v[0].x) * (v[2].y - v[0].y) - (v[1].y - v[0].y) * (v[2].x - v[0].x);
     if (fabsf(ny) < 0.5f * sqrtf(nx * nx + ny * ny + nz * nz)) {
+        return truncated;
+    }
+    {
+        const f32 y = v[0].y - (nx * (x - v[0].x) + nz * (z - v[0].z)) / ny;
+
+        // The truncation is at most ~1.7 off (ENGINE_BUDGETS.md); anything further is not that.
+        return (fabsf(y - truncated) <= RS_BOAT_SMOOTH_MAX) ? y : truncated;
+    }
+}
+
+void RsBoat_SmoothLinkOnDeck(PlayState* play) {
+    Player* player = GET_PLAYER(play);
+
+    if (player == NULL || !(player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) ||
+        (player->stateFlags1 & (PLAYER_STATE1_CLIMBING_LEDGE | PLAYER_STATE1_JUMPING))) {
         return;
     }
-    y = v[0].y - (nx * (player->actor.world.pos.x - v[0].x) + nz * (player->actor.world.pos.z - v[0].z)) / ny;
-    if (fabsf(y - player->actor.world.pos.y) <= RS_BOAT_SMOOTH_MAX) {
-        player->actor.world.pos.y = y;
-    }
+    player->actor.world.pos.y =
+        RsBoat_ExactFloorY(play, player->actor.floorPoly, player->actor.floorBgId, player->actor.world.pos.x,
+                           player->actor.world.pos.z, player->actor.world.pos.y);
 }
 
 s32 RsBoat_IsBoatFloor(PlayState* play, s32 bgId) {

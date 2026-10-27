@@ -240,6 +240,11 @@ s32 RsBoat_IsBoatFloor(PlayState* play, s32 bgId);
 // follows its floor), so only what is drawn and what the camera follows changes, by under 2 units.
 void RsBoat_SmoothLinkOnDeck(PlayState* play);
 
+// The height of a floor at (x, z) exactly, when `poly` is a boat's (the hull's float transform, as above), else
+// `truncated`, the engine's own. Player's leg IK asks it for each foot, so Link's feet meet the deck his smoothed body
+// stands on rather than reaching for the truncated one (his legs wobbled with the bob).
+f32 RsBoat_ExactFloorY(PlayState* play, CollisionPoly* poly, s32 bgId, f32 x, f32 z, f32 truncated);
+
 // How much higher than vanilla a swimming Link reaches to climb out onto the ledge in front of him: some when the
 // wall he swims against is a boat's hull, so both rails are climbable from the water anywhere; 0 otherwise.
 f32 RsBoat_SwimReach(PlayState* play, const Player* player);

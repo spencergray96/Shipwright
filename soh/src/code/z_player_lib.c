@@ -10,6 +10,7 @@
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/randomizer/draw.h"
 #include "soh/ResourceManagerHelpers.h"
+#include "soh/Enhancements/rs/actors/RsBoat.h"
 
 #include <stdlib.h>
 
@@ -1200,7 +1201,9 @@ void func_8008F87C(PlayState* play, Player* this, SkelAnime* skelAnime, Vec3f* p
 
         footprintPos.y += 15.0f;
 
-        sp80 = BgCheck_EntityRaycastFloor4(&play->colCtx, &sp88, &sp84, &this->actor, &footprintPos) + sp74;
+        sp80 = BgCheck_EntityRaycastFloor4(&play->colCtx, &sp88, &sp84, &this->actor, &footprintPos);
+        // SOH [Fork] sturdy-bassoon#262: a boat's deck at its exact height, where Link's body stands on it.
+        sp80 = RsBoat_ExactFloorY(play, sp88, sp84, footprintPos.x, footprintPos.z, sp80) + sp74;
 
         if (sp98.y < sp80) {
             sp70 = sp98.x - spA4.x;
