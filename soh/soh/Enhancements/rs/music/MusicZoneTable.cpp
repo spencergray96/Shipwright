@@ -108,11 +108,14 @@ namespace {
  * an anchored scene that lands outside the six-by-six. `wilderness` and `test_map_interior` keep
  * vanilla ids, which is what keeps the mixed vanilla/imported format exercised in-game.
  *
- * THE TWO FIXTURE TERRAIN SCENES ARE STILL OPTED IN (see scenes), and since #244 they are no longer
- * fallback-only. Their anchor puts the settlement composite on the Falador / Dwarven Mine squares -
- * the very mistake the P4 map exposed - so they now play `falador`, `doric_hut` and
- * `dwarven_mine` there:
- * music for a place they are not. Dead weight rather than a bug; the boundary to test against is
+ * THE TWO FIXTURE TERRAIN SCENES ARE NO LONGER OPTED IN (2026-10-26). They were the only walkable
+ * ground when P0-P2 were built, and they kept a hand-derived anchor of RS (3136, 3327) long after
+ * the zones they were authored for were deleted. Since #244 covered the real squares that anchor
+ * put them on Falador and the Dwarven Mine, so they played music for a place they are not - the
+ * very mistake the P4 map exposed. Harmless, but it was explained afresh in three separate phase
+ * reports, so the entries are gone rather than the explanation being written a fourth time.
+ * Both scenes still EXIST and 0x62C is still #95's seam specimen; they simply have no music zone,
+ * and the vanilla loader owns their BGM again. The boundary to test music against is
  * SCENE_F2P_OVERWORLD's, whose Lumbridge chunk centres on OoT (3860, 3820) per its world include.
  *
  * What made the swap cheap, and still does, is the coordinate frame: a rect authored against a
@@ -879,52 +882,6 @@ const RsMusicZone kZones[] = {
  * are ~20 generated grid-tool scenes plus all of vanilla, and this table describes only F2P.
  */
 const RsMusicScene kScenes[] = {
-   /*
-    * SUPERSEDED for testing by SCENE_TERRAIN_F2P_SETTLEMENT_SEALED below, and kept opted in on purpose.
-    * This bake (0x83, `entrance 0x62C`) predates the #95 T-junction fix and tears along seams; it is
-    * retained as the walkable 'before' half of that A/B, and keeping it in this table means the tearing can
-    * be compared with the music working in both.
-    *
-    * Derivation:
-    * HAND-DERIVED; deriving this belongs to the world manifest (#92), not here. The scene's collision
-    * bounds are (-7680,-7680)..(7680,7680) - 384 tiles of 40 units, recentred on the bake window - so
-    * terrain tile (0,0) is at world (-7680,-7680) and OoT world (0,0) is terrain tile (192,192) = RS
-    * (2944+192, 3519-192) = (3136, 3327). Cross-checked against the emitted spawn ActorEntry at
-    * (-6640,13,-2960), which must be f2p.json's authored spawn tile (26,118): 26*40-7680 = -6640 and
-    * 118*40-7680 = -2960. It is. A re-bake with a different window silently invalidates this; `rsmusic
-    * where` shows the drift in one teleport.
-    */
-    {
-        .sceneId = SCENE_TERRAIN_F2P_SETTLEMENT,
-        .rsOriginX = 3136,
-        .rsOriginY = 3327,
-        .unitsPerTile = 40,
-        .flags = 0,
-    },
-   /*
-    * THE ONE TO TEST AUDIO IN (0x8A, `entrance 0x633`). Same inputs as SCENE_TERRAIN_F2P_SETTLEMENT above -
-    * same field, same `Lumbridge Settlement X3@56,64` composite - re-emitted 2026-09-10, so the seams no
-    * longer tear. NOT only a T-junction difference: the original was baked 2026-08-26 and a dozen emitter
-    * changes have landed since (wall-run and floor-slab merging, carving, stone tiling, then #95), which is
-    * why this mesh is the smaller of the two despite stitching adding vertices. Prefer it for anything a
-    * human has to look at while listening.
-    *
-    * Derivation:
-    * IDENTICAL to SCENE_TERRAIN_F2P_SETTLEMENT's, and that is checked rather than assumed. The anchor is a
-    * function of the bake window, and the re-emit reported the same collision bounds
-    * (-7680,-7680)..(7680,7680) and the same spawn ActorEntry (-6640,13,-2960) as the original - so the
-    * recentred origin did not move and the derivation above carries over unchanged. Closing T-junctions
-    * splits edges and adds vertices; it does not move the window. If a future re-bake changes `--chunks` or
-    * the field, this number stops being right for BOTH scenes at once: `rsmusic where` at the spawn must
-    * read rs=2970,3401.
-    */
-    {
-        .sceneId = SCENE_TERRAIN_F2P_SETTLEMENT_SEALED,
-        .rsOriginX = 3136,
-        .rsOriginY = 3327,
-        .unitsPerTile = 40,
-        .flags = 0,
-    },
    /*
     * POC stand-in for an interior / underground scene (0x76, `entrance 0x61F`). It exists in this table to
     * exercise the scene-bound zone path - a small grid-tool test map with its own local origin, which is
