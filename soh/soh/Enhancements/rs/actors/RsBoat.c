@@ -1312,6 +1312,9 @@ s32 RsBoat_LinkWasAboard(PlayState* play) {
 // for the same reason as the rail's. The owner's pick for the rails too, over the hop's 0.6 s.
 #define RS_BOAT_HANDS_CLIMB_DELAY 6
 // A rail climbed hands-on lands Link this much further past its face than Player's climb does (RsBoat_ClimbInset).
+// RsBoat_SmoothLinkOnDeck moves Link to the exact deck only this close to where Player stood him: the truncation is
+// at most ~1.7 off (ENGINE_BUDGETS.md); anything further is not that.
+#define RS_BOAT_SMOOTH_MAX 2.0f
 #define RS_BOAT_RAIL_CLIMB_INSET 1.5f
 
 // The boat whose collision `bgId` is, or NULL.
@@ -1419,6 +1422,60 @@ f32 RsBoat_RailHop(PlayState* play, const Player* player) {
         return MAX(a->world.pos.y + kind->deckY + railY - player->actor.world.pos.y, 18.0f);
     }
     return 0.0f;
+}
+
+void RsBoat_SmoothLinkOnDeck(PlayState* play) {
+    Player* player = GET_PLAYER(play);
+    const RsBoat* boat;
+    const BgActor* bg;
+    const CollisionHeader* col;
+    const CollisionPoly* poly;
+    s32 index;
+    MtxF mtx;
+    Vec3f v[3];
+    Vec3s* local[3];
+    f32 nx;
+    f32 ny;
+    f32 nz;
+    f32 y;
+    s32 i;
+
+    if (player == NULL || !(player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) || player->actor.floorPoly == NULL ||
+        (player->stateFlags1 & (PLAYER_STATE1_CLIMBING_LEDGE | PLAYER_STATE1_JUMPING)) ||
+        (boat = RsBoat_HullOf(play, player->actor.floorBgId)) == NULL) {
+        return;
+    }
+    bg = &play->colCtx.dyna.bgActors[boat->dyna.bgId];
+    col = bg->colHeader;
+    index = (s32)(player->actor.floorPoly - play->colCtx.dyna.polyList) - (s32)bg->dynaLookup.polyStartIndex;
+    if (col == NULL || index < 0 || index >= (s32)col->numPolygons) {
+        return;
+    }
+    poly = &col->polyList[index];
+    local[0] = &col->vtxList[COLPOLY_VTX_INDEX(poly->flags_vIA)];
+    local[1] = &col->vtxList[COLPOLY_VTX_INDEX(poly->flags_vIB)];
+    local[2] = &col->vtxList[poly->vIC];
+    // The engine's own transform for the hull this tick (DynaPoly_ExpandSRT), without its truncation.
+    SkinMatrix_SetTranslateRotateYXZScale(&mtx, bg->curTransform.scale.x, bg->curTransform.scale.y,
+                                          bg->curTransform.scale.z, bg->curTransform.rot.x, bg->curTransform.rot.y,
+                                          bg->curTransform.rot.z, bg->curTransform.pos.x, bg->curTransform.pos.y,
+                                          bg->curTransform.pos.z);
+    for (i = 0; i < 3; i++) {
+        Vec3f src;
+
+        Math_Vec3s_ToVec3f(&src, local[i]);
+        SkinMatrix_Vec3fMtxFMultXYZ(&mtx, &src, &v[i]);
+    }
+    nx = (v[1].y - v[0].y) * (v[2].z - v[0].z) - (v[1].z - v[0].z) * (v[2].y - v[0].y);
+    ny = (v[1].z - v[0].z) * (v[2].x - v[0].x) - (v[1].x - v[0].x) * (v[2].z - v[0].z);
+    nz = (v[1].x - v[0].x) * (v[2].y - v[0].y) - (v[1].y - v[0].y) * (v[2].x - v[0].x);
+    if (fabsf(ny) < 0.5f * sqrtf(nx * nx + ny * ny + nz * nz)) {
+        return;
+    }
+    y = v[0].y - (nx * (player->actor.world.pos.x - v[0].x) + nz * (player->actor.world.pos.z - v[0].z)) / ny;
+    if (fabsf(y - player->actor.world.pos.y) <= RS_BOAT_SMOOTH_MAX) {
+        player->actor.world.pos.y = y;
+    }
 }
 
 s32 RsBoat_IsBoatFloor(PlayState* play, s32 bgId) {

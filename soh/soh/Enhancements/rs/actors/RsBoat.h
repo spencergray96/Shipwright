@@ -233,6 +233,13 @@ s32 RsBoat_SteppedOffBoat(PlayState* play, const Player* player);
 // off the rail onto the deck below is a drop, not a hop, which at a run could carry him over the far side.
 s32 RsBoat_IsBoatFloor(PlayState* play, s32 bgId);
 
+// After Player's update (OnPlayerUpdate): Link standing on a boat is put on the floor under him as the hull's own
+// float transform has it (#262). The engine truncates a moving hull's collision to whole units each tick
+// (DynaPoly_ExpandSRT), so as the hull bobs and rocks the floor under him steps a unit at a time while the drawn hull
+// moves smoothly, and he visibly jolts. Player stands him on the truncated floor again next tick (a grounded actor
+// follows its floor), so only what is drawn and what the camera follows changes, by under 2 units.
+void RsBoat_SmoothLinkOnDeck(PlayState* play);
+
 // How much higher than vanilla a swimming Link reaches to climb out onto the ledge in front of him: some when the
 // wall he swims against is a boat's hull, so both rails are climbable from the water anywhere; 0 otherwise.
 f32 RsBoat_SwimReach(PlayState* play, const Player* player);

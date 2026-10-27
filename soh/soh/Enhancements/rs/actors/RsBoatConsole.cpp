@@ -573,7 +573,11 @@ void OnSceneInitBoat(int16_t sceneNum) {
 }
 
 void OnPlayerUpdateBoat() {
-    if (!sLakeHyliaPending || gPlayState == nullptr) {
+    if (gPlayState == nullptr) {
+        return;
+    }
+    RsBoat_SmoothLinkOnDeck(gPlayState);
+    if (!sLakeHyliaPending) {
         return;
     }
     sLakeHyliaPending = false;
