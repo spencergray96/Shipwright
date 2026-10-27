@@ -123,6 +123,11 @@ typedef struct RsBoatStation {
 // climbs onto it hands-on, as onto a prop (RsBoat_ClimbDelay), not with the rail's hop. rows 0: none.
 // How far a drawn rudder turns at full tiller: 25 degrees (the owner's pick), binang.
 #define RS_BOAT_RUDDER_YAW 4551
+// Astern a rudder steers the other way (the water meets the blade from behind), so to show the turn the stick makes
+// the drawn rudder is the tiller mirrored once the boat moves astern faster than this (the owner's pick: the
+// steering stays as tuned, only the picture turns). It eases across this much of the way a tick, ~0.5 s.
+#define RS_BOAT_RUDDER_ASTERN 0.5f
+#define RS_BOAT_RUDDER_EASE 0.15f
 #define RS_BOAT_FOREDECK_ROWS 7
 #define RS_BOAT_FOREDECK_COLS 13
 #define RS_BOAT_FOREDECK_STEP 6.0f
@@ -1833,6 +1838,7 @@ void RsBoat_Init(Actor* thisx, PlayState* play) {
     this->helm = 0;
     this->speed = 0.0f;
     this->tiller = 0.0f;
+    this->rudder = 0.0f;
     this->yawVel = 0;
     this->timer = 0;
     this->blocked = RS_BOAT_BLOCK_NONE;
@@ -2072,6 +2078,8 @@ void RsBoat_Update(Actor* thisx, PlayState* play) {
     }
     Math_StepToF(&this->speed, target, rate);
     this->tiller += (turn - this->tiller) * RS_BOAT_TILLER_EASE;
+    this->rudder += ((this->speed < -RS_BOAT_RUDDER_ASTERN ? -this->tiller : this->tiller) - this->rudder) *
+                    RS_BOAT_RUDDER_EASE;
     this->yawVel = (s16)(this->tiller * RsBoat_TurnRate(this, this->speed));
 
     // The surface under the hull's centre. Off the water the boat does not move, and settles on whatever is
@@ -2198,8 +2206,8 @@ void RsBoat_Draw(Actor* thisx, PlayState* play) {
             Matrix_Push();
             Matrix_Translate(rudder->pin[0], sRsBoatKinds[this->kind].modelY + rudder->pin[1],
                              sRsBoatKinds[this->kind].modelZ + rudder->pin[2], MTXMODE_APPLY);
-            // A tiller to the left (a left turn) swings its handle to starboard, which is -x looking at the bow.
-            Matrix_RotateY(BINANG_TO_RAD(-this->tiller * RS_BOAT_RUDDER_YAW), MTXMODE_APPLY);
+            // A left turn ahead swings the handle to starboard, which is -x looking at the bow (astern, port).
+            Matrix_RotateY(BINANG_TO_RAD(-this->rudder * RS_BOAT_RUDDER_YAW), MTXMODE_APPLY);
             gSPMatrix(POLY_OPA_DISP++, MATRIX_NEWMTX(gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
             gSPDisplayList(POLY_OPA_DISP++, rudderModel);
             Matrix_Pop();

@@ -154,6 +154,7 @@ typedef struct RsBoat {
     s32 helm;        // 1 while Link holds the helm
     f32 speed;       // signed, units per tick along the hull's heading
     f32 tiller;      // -1..1, eased toward the stick
+    f32 rudder;      // -1..1, the drawn rudder's deflection: the tiller's going ahead, mirrored astern, eased
     s16 yawVel;      // binang per tick, from the tiller and the speed
     s16 roll;        // the rock's tilt, binang, about the hull's length; pitch about its width. In shape.rot
     s16 pitch;

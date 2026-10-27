@@ -104,13 +104,14 @@ int32_t List(std::vector<std::string>& lines) {
         Vec3f helm;
         RsBoat_HelmPos(boat, &helm);
         Addf(lines,
-             "boat idx=%d kind=%s x=%d y=%d z=%d yaw=%d speed=%d top=%d throttle=%d tiller=%d helm=%d on_water=%d "
+             "boat idx=%d kind=%s x=%d y=%d z=%d yaw=%d speed=%d top=%d throttle=%d tiller=%d rudder=%d helm=%d on_water=%d "
              "surface=%d blocked=%s blocks=%d touch=%s touches=%d lift=%d floor_low=%d link_on=%d helm_dist=%d "
              "cam=%d",
              (int)idx, RsBoat_KindName(boat->kind), (int)lroundf(a->world.pos.x), (int)lroundf(a->world.pos.y),
              (int)lroundf(a->world.pos.z), (int)(u16)a->shape.rot.y, (int)lroundf(boat->speed * 100.0f),
              (int)lroundf(RsBoat_TopSpeed(boat) * 100.0f),
-             (int)lroundf(boat->throttle * 100.0f), (int)lroundf(boat->tiller * 100.0f), boat->helm,
+             (int)lroundf(boat->throttle * 100.0f), (int)lroundf(boat->tiller * 100.0f),
+             (int)lroundf(boat->rudder * 100.0f), boat->helm,
              boat->onWater, (int)lroundf(boat->surfaceY), RsBoat_BlockName(boat->blocked), boat->blockCount,
              RsBoat_BlockName(boat->touch), boat->touchCount, (int)lroundf(boat->lift * 100.0f),
              (int)lroundf(boat->floorLow * 100.0f), RsBoat_LinkOnDeck(boat, player) ? 1 : 0,

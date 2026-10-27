@@ -15,7 +15,7 @@
 // `args[0]` is the subcommand:
 //   list            one `boat idx=<i> kind=<skiff|sloop|raft> x= y= z= yaw=<binang> speed=<x100> top=<x100>
 //                   throttle=<x100>
-//                   tiller=<x100> helm=0|1 on_water=0|1 surface=<y> blocked=<none|no_water|shallow|wall|headroom>
+//                   tiller=<x100> rudder=<x100> helm=0|1 on_water=0|1 surface=<y> blocked=<none|no_water|shallow|wall|headroom>
 //                   blocks=<n> touch=<same names> touches=<n> lift=<x100> floor_low=<x100> link_on=0|1
 //                   helm_dist=<n> cam=0|1` line per live
 //                   boat, then `op=list result=ok count=<n> link_x= link_y= link_z= link_yaw= link_floor_bg=<n>
@@ -24,6 +24,7 @@
 //                   link_ledge=<climb type>/<delay ticks>/<ledge height> link_lin=<x100> drive_ticks=<n>
 //                   hud=<hidden|not_steering|steering>`.
 //                   top: the top speed in use (RsBoat_TopSpeed); throttle: what the helm asked for last tick
+//                   (-100..100); rudder: the drawn rudder's deflection, the tiller ahead and mirrored astern
 //                   (-100..100); blocked: why the last move was
 //                   refused (RsBoatBlock), blocks: refused moves since spawn; touch: what the last move that was
 //                   pushed off the shore had met, touches: such moves since spawn; lift: how far the hull is
