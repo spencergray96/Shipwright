@@ -43,6 +43,8 @@ using ConsoleSink::Addf;
  * Empty on purpose: rs/actors/ has no monster yet, and which ones should affect the music is a
  * per-encounter call to be made by feel when they exist - not something to guess for vanilla
  * enemies that never appear in RS content. A boss does not belong here (see CombatMusic.h).
+ * The whole recipe - flags, trying it with `rsmusic combat add` first, checking it - is
+ * CombatMusic.h's "HOW TO USE IT", recipe 1.
  *
  *   ACTOR_RS_<NAME>, // why this one gets combat music
  */
