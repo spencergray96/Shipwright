@@ -538,7 +538,8 @@
  *                                          (sturdy-bassoon#90 P5): Destroy runs on the next Actor_UpdateAll,
  *                                          as after a death, so a mini-boss's music release fires
  *   agenttest music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|
- *                    fadein <s>|baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]]
+ *                    fadein <s>|baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]|
+ *                    combat [status|add <actor>|remove <actor>|clear|policy opt_in|vanilla]]
  *                                          the zone music director's console surface (sturdy-bassoon#90).
  *                                          `where` is the one to reach for first: it prints Link's
  *                                          position in OoT world units AND in RS absolute surface tiles,
@@ -3161,7 +3162,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|fadein <s>|"
-              "baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
+              "baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]|combat ...] | "
             "keepinput [on|off] | kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|reset|link <a> <b>|sort on|off|props|"
               "scroll [list|clear|<path> <du> <dv>]|clock [<s>|run]|texclear|"
               "wind [list|reset|saved|<key> <value>...]|xlu [on|off]] | "
@@ -3217,7 +3218,7 @@ void RegisterAgentTest() {
               "stress [<n> [same]|off|memo <on|off>]|cursor [left|right|up|down|select|<id>]|probe [on|off]|"
               "kaleido|equips|hud|flight ...|song|inv <kind> <a> <b>|namepanel ...|dump | "
               "music [status|where|zones|scenes|bags|firstvisit|players|on|off|dwell <s>|fadeout <s>|"
-              "fadein <s>|baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]] | "
+              "fadein <s>|baseline|tracks|testplay <track> <placeholder> [fade_in_s]|teststop [s]|combat ...] | "
               "keepinput [on|off] | kaleidoinput [on|off] | altassets [on|off] | staticbake [status|on|off|rebake|reset|link <a> <b>|sort on|off|props|"
               "scroll [list|clear|<path> <du> <dv>]|clock [<s>|run]|texclear|"
               "wind [list|reset|saved|<key> <value>...]|xlu [on|off]] | "

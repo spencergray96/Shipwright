@@ -4,6 +4,7 @@
  */
 
 #include "MusicConsole.h"
+#include "CombatMusic.h"
 #include "MusicZones.h"
 #include "ZoneDirector.h"
 
@@ -28,7 +29,8 @@ extern "C" {
 #include "seqcmd.h"
 extern PlayState* gPlayState;
 // code_800EC960.c's own globals, declared in no header. Read, never written, here - see `players`.
-// (ZoneDirector.cpp's ReclaimFromOverride is the one writer of sPrevMainBgmSeqId in the mod.)
+// (ZoneDirector.cpp is the one writer of sPrevMainBgmSeqId in the mod: the yield's stash swap and
+// ReclaimFromOverride.)
 extern u8 sPrevSeqMode;
 extern u16 sPrevMainBgmSeqId;
 // The table behind code_800EC960.c's static Audio_GetSeqFlags. Read by `testplay` to report whether
@@ -496,6 +498,12 @@ int32_t MusicConsole_Run(const std::vector<std::string>& args, std::vector<std::
         return SetSeconds(args, lines, CVAR_RS_MUSIC_FADE_IN, "fadein", true);
     }
 
+    if (sub == "combat") {
+        // The per-actor combat-music lever (#90 P6). Its own renderer, because its state is its own;
+        // see CombatMusic.h for the subcommands and the lines they print.
+        return RsCombatMusic_Console(std::vector<std::string>(args.begin() + 1, args.end()), lines);
+    }
+
     if (sub == "baseline") {
         // Bookmarks the count; it does NOT zero it, and there is deliberately no way to. A run that
         // wants to assert the negative takes a baseline here, walks, and compares - see the
@@ -550,8 +558,10 @@ const ConsoleSink::Command musicCommand(
     "rsmusic", RunAndEchoTestMarkers,
     "Zone-based overworld music (sturdy-bassoon#90): status | where | zones | scenes | bags | "
     "firstvisit | players | on | off | dwell <sec> | fadeout <sec> | fadein <sec> | baseline | tracks | "
-    "testplay <track> <placeholder> [fade_in_sec] | teststop [fade_out_sec]. `players` "
+    "testplay <track> <placeholder> [fade_in_sec] | teststop [fade_out_sec] | "
+    "combat [status|add <actor>|remove <actor>|clear|policy opt_in|vanilla]. `players` "
     "reads all four sequence players, which is how a duck (enemy music, a fanfare) is seen at all. "
+    "`combat` is the per-actor lever: in a director scene only listed actors start combat music. "
     "`tracks`, `testplay` and `teststop` are the imported-track probe (sturdy-bassoon#91): they "
     "list custom sequences and start or stop one on player 0 WITHOUT the director. "
     "`where` prints Link's "
@@ -561,9 +571,9 @@ const ConsoleSink::Command musicCommand(
     "engine really gets. `baseline` bookmarks the transition count so `status` can report the "
     "difference; it does NOT zero the counter, on purpose.",
     { { "status|where|zones|scenes|bags|firstvisit|players|on|off|dwell|fadeout|fadein|baseline|tracks|"
-        "testplay|teststop",
+        "testplay|teststop|combat",
         Ship::ArgumentType::TEXT },
-      { "seconds|track", Ship::ArgumentType::TEXT, true },
+      { "seconds|track|combat_sub", Ship::ArgumentType::TEXT, true },
       { "placeholder", Ship::ArgumentType::TEXT, true },
       { "fade_in_sec", Ship::ArgumentType::TEXT, true } });
 

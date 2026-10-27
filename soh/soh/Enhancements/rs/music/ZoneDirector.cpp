@@ -113,8 +113,10 @@ constexpr int32_t NO_ZONE = -1;
  * AudioSeq_SequencePlayerProcessSequence, and AudioSeq_ResetSequencePlayer zeroes it when a new
  * sequence is loaded onto the player. It is the right clock for a track duration because it is the
  * AUDIO's own clock: it advances with the sound the player is actually hearing rather than with
- * game ticks, and it freezes while the pause menu is open (the muted early-return sits above the
- * increment).
+ * game ticks. Under a pause it freezes only where the sequence's mute behaviour has 0x80 (the
+ * muted early return above the increment); an imported track does not, so its clock keeps running
+ * with the quietened music while kaleido is up - measured in the #90 P6 run (AUDIO_SYSTEM.md
+ * section 7). This comment said it always froze until then.
  *
  * DO NOT HARDCODE THE RATE. #90 section 9 says to read updatesPerFrame at runtime; the whole rate
  * is derivable and neither half of it is a constant:
@@ -252,6 +254,28 @@ uint8_t sPlayingBagSize = 0;
 int32_t sPlayingAudioSeq = -1;
 
 /*
+ * What the director leaves in the mini-boss stash in place of an imported track's placeholder
+ * (#90 P6) - an id func_800F5B58 restarts into silence.
+ *
+ * Every imported track carries a DUCK-CAPABLE placeholder (sSeqFlags bit 0, NA_BGM_SARIA_THEME by
+ * policy - see CombatMusic.cpp and the 2026-10-26 ADR), because that bit is what lets combat music
+ * duck the track at all. But the placeholder is also what a mini-boss stashes and replays when it
+ * dies, and seqReplaced does not survive to that replay (AUDIO_SYSTEM.md section 10): the restart
+ * plays VANILLA Lost Woods at full volume for the tick or so before the release below lands a fresh
+ * pick on top of it. So at the yield, a stash holding our imported placeholder is rewritten to this
+ * one. 0x82 is an AudioCollection reserved instrument number that sequenceMap never fills, so the
+ * restart disables player 0 and loads nothing (#91's measurement), the director sees `release
+ * via=quiet`, and the zone track fades back in like any other start.
+ *
+ * Only for an IMPORTED track. A vanilla entry's stashed id IS our track, and its restart is the
+ * `restored` exit working as designed.
+ */
+constexpr uint16_t STASH_RESTORES_NOTHING = 0x82;
+// The stash holds STASH_RESTORES_NOTHING because we put it there, so it is still ours to release -
+// ReclaimFromOverride's ownership test. Cleared on release and on every reset.
+bool sStashSwapped = false;
+
+/*
  * Has player 0 actually been observed sounding OUR track since we asked for it?
  *
  * This is the discriminator between "the track ended" and "the track never started", and the
@@ -381,8 +405,9 @@ void RecordEvent(const char* fmt, ...) {
 // A vanilla entry is named by its id and an imported one by its path, and after #90 P3 those two
 // live in one list. Everything below exists because the OBVIOUS name - RsZoneTrack::seqId - stopped
 // identifying a track the moment RS entries arrived: every imported track carries the same
-// placeholder (0x82 for all six Lumbridge tracks), so an id comparison says "same track" about two
-// different songs and an id in a log line says nothing about which one played.
+// placeholder (0x82 when this was written, NA_BGM_SARIA_THEME since #90 P6), so an id comparison
+// says "same track" about two different songs and an id in a log line says nothing about which
+// one played.
 
 /*
  * Are these two entries the same track? THE BACK-TO-BACK GUARD DEPENDS ON THIS ANSWER, and getting
@@ -1248,10 +1273,13 @@ void EndOfTrack(const char* trigger, int32_t rsX, int32_t rsY, const Vec3f& pos)
  */
 void ReclaimFromOverride(int32_t winner, const char* reason, int32_t rsX, int32_t rsY) {
     const uint16_t theirs = func_800FA0B4(SEQ_PLAYER_BGM_MAIN);
-    const bool stashIsOurs = (sPlayingSeqId != NA_BGM_DISABLED && sPrevMainBgmSeqId == sPlayingSeqId);
+    // Ours either way: the placeholder func_800F5ACC stashed, or the id the yield swapped it for.
+    const bool stashIsOurs = (sPlayingSeqId != NA_BGM_DISABLED && sPrevMainBgmSeqId == sPlayingSeqId) ||
+                             (sStashSwapped && sPrevMainBgmSeqId == STASH_RESTORES_NOTHING);
     if (stashIsOurs) {
         sPrevMainBgmSeqId = NA_BGM_DISABLED;
     }
+    sStashSwapped = false;
     char tiles[32];
     RsMusic_FormatTiles(tiles, sizeof(tiles), rsX, rsY);
     RecordEvent("warp_reclaim zone=%s winner=%s theirs=0x%X stash=%s reason=%s rs=%s frame=%u",
@@ -1279,6 +1307,7 @@ void ResetState() {
     sPlayingBagSize = 0;
     sPlayingAudioSeq = -1;
     sSounding = false;
+    sStashSwapped = false;
     sLastCounter = 0;
     sClockResetLogged = false;
     // NOTE WHAT IS NOT RESET: sBags. Bag state persists across leaving and re-entering a zone
@@ -1428,8 +1457,26 @@ void OnPlayerUpdateMusic() {
             // for an imported track is its placeholder - the same value this comparison used, so
             // the line says what was compared rather than what was conceptually playing.
             sState = STATE_YIELDED;
-            RecordEvent("yield zone=%s ours=0x%X theirs=0x%X frame=%u", ZoneName(sActiveZone), sPlayingSeqId, live,
-                        play->state.frames);
+            // A mini-boss (func_800F5ACC) stashed our imported placeholder: swap it for the silent id
+            // so its eventual restart plays nothing rather than vanilla Lost Woods - see
+            // STASH_RESTORES_NOTHING. func_800F5ACC sets the stash on the game thread before it queues
+            // its own start, so by the tick player 0 reads as somebody else's the stash is already
+            // there. `stash=` says which case this was: swapped, ours (a vanilla entry, left for the
+            // `restored` exit), other, or none (a cutscene stashes nothing).
+            const char* stash = "none";
+            if (sPrevMainBgmSeqId != NA_BGM_DISABLED) {
+                if (sPrevMainBgmSeqId != sPlayingSeqId) {
+                    stash = "other";
+                } else if (sPlayingEntry != nullptr && sPlayingEntry->rsPath != nullptr) {
+                    sPrevMainBgmSeqId = STASH_RESTORES_NOTHING;
+                    sStashSwapped = true;
+                    stash = "swapped";
+                } else {
+                    stash = "ours";
+                }
+            }
+            RecordEvent("yield zone=%s ours=0x%X theirs=0x%X stash=%s frame=%u", ZoneName(sActiveZone), sPlayingSeqId,
+                        live, stash, play->state.frames);
         }
     } else if (sState == STATE_SILENT && live != NA_BGM_DISABLED) {
         sState = STATE_YIELDED;
@@ -1521,6 +1568,11 @@ void OnPlayerUpdateMusic() {
             // with combat ducking is deliberate. On the `restored` exit the fresh pick lands on top
             // of vanilla's restart about a tick after it began; whether that is audible is a
             // listening-pass question, and the lever is in the P5 run's README.
+            //
+            // A swapped stash takes the `quiet` exit: the restart of STASH_RESTORES_NOTHING disables
+            // player 0. Player 0 may read 0x82 for a tick before the audio thread gets there, which is
+            // neither exit, so the director simply stays yielded one tick longer.
+            sStashSwapped = false;
             sState = STATE_IDLE;
             BeginSwitch(winner, "override_release", rsX, rsY, pos);
         } else {
