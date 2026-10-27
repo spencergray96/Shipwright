@@ -51,8 +51,10 @@ extern "C" {
 
 struct Actor;
 
-// The switch. Off by default, so the feature cannot touch a vanilla area while it is being tuned.
+// The switch. ON BY DEFAULT since 2026-10-27 (the owner): it was off while it was tuned, in #257. A save
+// of the CVar wins over the default, so `swim off` (which writes 0) still turns it off and keeps it off.
 #define CVAR_RS_SWIM_STAMINA CVAR_ENHANCEMENT("RsSwimStamina")
+#define RS_SWIM_STAMINA_DEFAULT_ON 1
 // THE LENGTH, in seconds. The build default is RS_SWIM_STAMINA_DEFAULT_SECONDS; the CVar overrides it
 // (`swim length <s>`), clamped to [1, RS_SWIM_STAMINA_MAX_SECONDS]. Recorded in ENGINE_BUDGETS.md.
 #define CVAR_RS_SWIM_STAMINA_SECONDS CVAR_ENHANCEMENT("RsSwimStaminaSeconds")

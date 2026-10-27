@@ -469,7 +469,7 @@ RegisterShipInitFunc swimHooksInitFunc(RegisterSwimHooks);
 } // namespace
 
 extern "C" int32_t RsSwim_Enabled(void) {
-    return CVarGetInteger(CVAR_RS_SWIM_STAMINA, 0) != 0 ? 1 : 0;
+    return CVarGetInteger(CVAR_RS_SWIM_STAMINA, RS_SWIM_STAMINA_DEFAULT_ON) != 0 ? 1 : 0;
 }
 
 extern "C" void RsSwim_SetEnabled(int32_t on) {
