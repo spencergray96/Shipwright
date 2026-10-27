@@ -245,6 +245,31 @@ void RsBoat_SmoothLinkOnDeck(PlayState* play);
 // stands on rather than reaching for the truncated one (his legs wobbled with the bob).
 f32 RsBoat_ExactFloorY(PlayState* play, CollisionPoly* poly, s32 bgId, f32 x, f32 z, f32 truncated);
 
+// How far over Link's feet Player looks for walls: `vanilla` (26), or lower while he stands on a boat, where a wall
+// under ~18 would otherwise be walked straight up. The boarding notch's inner wall is that low, and it must stop him
+// on the deck rather than let him step out of the boat.
+f32 RsBoat_WallCheckHeight(PlayState* play, const Player* player, f32 vanilla);
+
+// The lowest top Player takes as a ledge to climb: `vanilla` (18), or lower for a hull's wall from its deck, so the
+// notch is climbed hands-on like the rest of the rail rather than refused.
+f32 RsBoat_LedgeMin(PlayState* play, const Player* player, f32 vanilla);
+
+// The height of Player's forward line looking for a wall to climb: `vanilla` (18), or lower on a boat, where the
+// boarding notch's inner wall is only 17 tall and the line would pass over it.
+f32 RsBoat_InteractHeight(PlayState* play, const Player* player, f32 vanilla);
+
+// How far past his wall radius that line reaches: `vanilla` (10), or further on a boat, so a run into the rail at an
+// angle still finds it and climbs.
+f32 RsBoat_InteractReach(PlayState* play, const Player* player, f32 vanilla);
+
+// How far off straight at a wall Link may face for Player to look for a ledge on it: `vanilla` (0x3000), or wider
+// for a swimmer against a hull, who turns along it as he glances off.
+s32 RsBoat_InteractAngle(PlayState* play, const Player* player, s32 vanilla);
+
+// How flat (a normal's y, s16) a ledge's top must be for Player's hands-on climb: `vanilla` (28000), or steeper for a
+// hull's wall from its deck, so the notch's sloped ends climb rather than fall back to the hop.
+s32 RsBoat_LedgeFlat(PlayState* play, const Player* player, s32 vanilla);
+
 // How much higher than vanilla a swimming Link reaches to climb out onto the ledge in front of him: some when the
 // wall he swims against is a boat's hull, so both rails are climbable from the water anywhere; 0 otherwise.
 f32 RsBoat_SwimReach(PlayState* play, const Player* player);

@@ -11255,7 +11255,8 @@ void Player_ProcessSceneCollision(PlayState* play, Player* this) {
         ceilingCheckHeight = 30.0f;
     } else {
         vWallCheckRadius = this->ageProperties->wallCheckRadius;
-        vWallCheckHeight = 26.0f;
+        // SOH [Fork] sturdy-bassoon#262: lower on a boat's deck, so its low boarding notch stays a wall there.
+        vWallCheckHeight = RsBoat_WallCheckHeight(play, this, 26.0f);
         ceilingCheckHeight = this->ageProperties->ceilingCheckHeight;
     }
 
@@ -11347,8 +11348,10 @@ void Player_ProcessSceneCollision(PlayState* play, Player* this) {
         s16 yawDiff;
         s32 pad;
 
-        sInteractWallCheckOffset.y = 18.0f;
-        sInteractWallCheckOffset.z = this->ageProperties->wallCheckRadius + 10.0f;
+        // SOH [Fork] sturdy-bassoon#262: lower on a boat, so the line meets its boarding notch's low inner wall, and
+        // longer, so it meets the rail from an angle.
+        sInteractWallCheckOffset.y = RsBoat_InteractHeight(play, this, 18.0f);
+        sInteractWallCheckOffset.z = this->ageProperties->wallCheckRadius + RsBoat_InteractReach(play, this, 10.0f);
 
         if (!(this->stateFlags2 & PLAYER_STATE2_CRAWLING) &&
             Player_PosVsWallLineTest(play, this, &sInteractWallCheckOffset, &wallPoly, &wallBgId,
@@ -11388,7 +11391,9 @@ void Player_ProcessSceneCollision(PlayState* play, Player* this) {
             }
         }
 
-        if ((this->actor.bgCheckFlags & BGCHECKFLAG_PLAYER_WALL_INTERACT) && (sShapeYawToTouchedWall < 0x3000)) {
+        // SOH [Fork] sturdy-bassoon#262: wider for a swimmer at a boat's hull, so climbing aboard forgives an angle.
+        if ((this->actor.bgCheckFlags & BGCHECKFLAG_PLAYER_WALL_INTERACT) &&
+            (sShapeYawToTouchedWall < RsBoat_InteractAngle(play, this, 0x3000))) {
             CollisionPoly* wallPoly = this->actor.wallPoly;
 
             if (GameInteractor_Should(VB_SURFACE_ANGLE_IS_CLIMBABLE, ABS(wallPoly->normal.y) < 600)) {
@@ -11418,7 +11423,8 @@ void Player_ProcessSceneCollision(PlayState* play, Player* this) {
                 yDistToLedge = ledgePosY - this->actor.world.pos.y;
                 this->yDistToLedge = yDistToLedge;
 
-                if ((this->yDistToLedge < 18.0f) ||
+                // SOH [Fork] sturdy-bassoon#262: a boat's notch, under 18, is still a ledge to climb from its deck.
+                if ((this->yDistToLedge < RsBoat_LedgeMin(play, this, 18.0f)) ||
                     BgCheck_EntityCheckCeiling(&play->colCtx, &ceillingPosY, &this->actor.world.pos,
                                                (ledgePosY - this->actor.world.pos.y) + 20.0f, &poly, &bgId,
                                                &this->actor)) {
@@ -11445,7 +11451,8 @@ void Player_ProcessSceneCollision(PlayState* play, Player* this) {
                             }
                         } else if ((SurfaceType_GetWallFlags(&play->colCtx, wallPoly, this->actor.wallBgId) &
                                     WALL_FLAG_HANDS_CLIMB) &&
-                                   (ABS(ledgeFloorPoly->normal.y) > 28000)) {
+                                   // SOH [Fork] sturdy-bassoon#262: a boat's sloped notch ends climb too.
+                                   (ABS(ledgeFloorPoly->normal.y) > RsBoat_LedgeFlat(play, this, 28000))) {
                             // sturdy-bassoon#179: under unk_1C (adult 41, child 27) the climb is a hop,
                             // which carries Link 24-32 past the face: over a short prop, or onto its far
                             // edge. A hands-climb wall gets the 100-step climb instead, which puts him 0.5
