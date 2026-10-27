@@ -4975,7 +4975,8 @@ s32 Player_ActionHandler_12(Player* this, PlayState* play) {
             } else {
                 wallPolyNormalX = COLPOLY_GET_NORMAL(this->actor.wallPoly->normal.x);
                 wallPolyNormalZ = COLPOLY_GET_NORMAL(this->actor.wallPoly->normal.z);
-                sp24 = this->distToInteractWall + 0.5f;
+                // SOH [Fork] sturdy-bassoon#262: further onto a boat's rail climbed hands-on; vanilla elsewhere.
+                sp24 = RsBoat_ClimbInset(play, this, this->distToInteractWall + 0.5f);
 
                 this->stateFlags1 |= PLAYER_STATE1_CLIMBING_LEDGE;
 

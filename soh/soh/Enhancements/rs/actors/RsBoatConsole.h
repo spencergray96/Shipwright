@@ -74,6 +74,12 @@
 //                   scene loaded
 //   hud [on|off]    the "Not steering" / "Steering boat" label under the C buttons (saved, default on).
 //                   `op=hud result=ok hud=on|off shown=<hidden|not_steering|steering>`. Works with no scene
+//   climb [hop|hands]
+//                   how Link gets from the deck onto a rail, by pushing into it (saved): `hands`, the default (#262,
+//                   the owner's pick), the hands-on climb a prop and a covered bow get, after 0.3 s and landing half
+//                   as far again onto the rail top; or `hop`, the boat's hop after 0.6 s. A covered bow climbs
+//                   hands-on either way.
+//                   `op=climb result=ok climb=hop|hands`. Works with no scene
 //   kind [skiff|sloop|raft]
 //                   the hull Lake Hylia's boat and `spawn` put down (saved, default skiff). In Lake Hylia, with
 //                   `lakehylia` on, every boat is killed and the lake's own put back at its spot as the new kind.

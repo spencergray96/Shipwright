@@ -36,7 +36,7 @@ using ConsoleSink::Addf;
     "list | spawn [<x> <z> [<yaw>]] | probe <x> <z> | water <x0> <z0> <x1> <z1> <y> | water clear | "            \
     "board [<idx>] | helm on|off [<idx>] | drive <throttle> <turn> <ticks> | lakehylia [on|off] | "             \
     "lakelevel [full|drained] | cam [on|off|default] | cam height|dist|ease <n> | hud [on|off] | "             \
-    "kind [skiff|sloop|raft] | tune [default] | tune <knob> <value> | contact [<idx>] | clear"
+    "climb [hop|hands] | kind [skiff|sloop|raft] | tune [default] | tune <knob> <value> | contact [<idx>] | clear"
 
 const char* kUsage = "op=usage result=error usage=\"boat " RS_BOAT_GRAMMAR "\"";
 
@@ -357,6 +357,24 @@ int32_t Hud(const std::vector<std::string>& args, std::vector<std::string>& line
     return 0;
 }
 
+// How Link gets from the deck onto a rail (saved): the hands-on climb a prop and a covered bow get (the default, the
+// owner's pick, #262), or the boat's hop. A boat reads it every tick.
+int32_t Climb(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() == 2) {
+        if (args[1] != "hop" && args[1] != "hands") {
+            lines.push_back(kUsage);
+            return 1;
+        }
+        CVarSetInteger(CVAR_RS_BOAT_INTERIOR_CLIMB, args[1] == "hands" ? 1 : 0);
+        CVarSave();
+    } else if (args.size() != 1) {
+        lines.push_back(kUsage);
+        return 1;
+    }
+    Addf(lines, "op=climb result=ok climb=%s", CVarGetInteger(CVAR_RS_BOAT_INTERIOR_CLIMB, RS_BOAT_INTERIOR_CLIMB_DEFAULT) ? "hands" : "hop");
+    return 0;
+}
+
 // The handling knobs (RsBoat.h's RsBoatTuneKnob), saved: a boat reads them every tick, so a change shows at once.
 void AddTune(std::vector<std::string>& lines, const char* op) {
     std::string line = std::string("op=") + op + " result=ok";
@@ -588,6 +606,9 @@ int32_t RsBoatConsole_Run(const std::vector<std::string>& args, std::vector<std:
     }
     if (sub == "hud") {
         return Hud(args, lines);
+    }
+    if (sub == "climb") {
+        return Climb(args, lines);
     }
     if (sub == "tune") {
         return Tune(args, lines);

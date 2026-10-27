@@ -90,6 +90,8 @@ typedef enum RsBoatKindId {
 #define CVAR_RS_BOAT_CAM_DIST CVAR_ENHANCEMENT("RsBoatCamDist")     // eye behind Link, world units
 #define CVAR_RS_BOAT_CAM_EASE CVAR_ENHANCEMENT("RsBoatCamEase")     // percent of the way to its target a tick
 #define CVAR_RS_BOAT_HUD CVAR_ENHANCEMENT("RsBoatHud")              // 0: no steering label
+#define CVAR_RS_BOAT_INTERIOR_CLIMB CVAR_ENHANCEMENT("RsBoatInteriorClimb") // 0: the rails hop, not climb hands-on
+#define RS_BOAT_INTERIOR_CLIMB_DEFAULT 1 // the owner's pick (#262): onto a rail hands-on, as onto a prop
 #define CVAR_RS_BOAT_KIND CVAR_ENHANCEMENT("RsBoatKind") // the kind Lake Hylia's boat and `boat spawn` put down
 #define RS_BOAT_CAM_HEIGHT_DEFAULT 120 // the owner's pick: high enough to see obstacles in the water ahead
 #define RS_BOAT_CAM_DIST_DEFAULT 240
@@ -169,6 +171,7 @@ typedef struct RsBoat {
     s32 linkAboard;  // Link stood on this boat's deck or rail as of last tick (RsBoat_LinkWasAboard)
     s32 railPush;    // ticks Link has pushed into this hull's wall from its deck (RsBoat_RailHop)
     s32 railGrace;   // ticks without contact the push may still survive
+    s32 railPushHands; // the wall pushed into climbs hands-on, no hop: a covered bow's, or a rail's (`boat climb`)
     f32 lift;        // how far the hull is raised this tick to keep its rocking floor out of the water
     f32 floorLow;    // the floor's lowest drawn point over the water this tick, lift included (`boat list`)
     f32 throttle;    // what the helm asked for on the last tick, -1..1, for the console
@@ -234,8 +237,14 @@ s32 RsBoat_IsBoatFloor(PlayState* play, s32 bgId);
 f32 RsBoat_SwimReach(PlayState* play, const Player* player);
 
 // The ticks Link must push into the wall in front of him before he hops or climbs onto its top: `vanilla` (3 or 6),
-// or never against a boat's hull from its deck, where RsBoat_RailHop decides instead.
+// or never against a boat's hull from its deck, where RsBoat_RailHop decides instead; against a wall the boat
+// climbs hands-on (a covered bow, or the rails under `boat climb hands`), 0 once the boat has counted 0.3 s.
 s32 RsBoat_ClimbDelay(PlayState* play, const Player* player, s32 vanilla);
+
+// How far past the wall's face a ledge climb stands Link on the top: `vanilla` (his distance from the face plus 0.5),
+// or half as far again onto a boat's rail under `boat climb hands`, so he lands on the rail top rather than at its
+// inner edge (the owner's pick, #262). Every other climb, a covered bow's and a prop's included, is vanilla's.
+f32 RsBoat_ClimbInset(PlayState* play, const Player* player, f32 vanilla);
 
 // The height of the rail Link should hop onto now, or 0: he has pushed into a boat's hull from its deck for 0.6 s,
 // so brushing past the rail does not put him over the side. Player hops him as onto a ledge that high.
