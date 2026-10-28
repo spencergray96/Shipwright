@@ -142,7 +142,8 @@
  *                                        looking up" (issue #38). name is last and quoted because it is
  *                                        the only field that can contain a space
  *   trace <pre|post> frame=<n> lbox=<cur>/<target> pos=... prev=... velY=... lin=... bg=0x<hex> floorH=... yoff=...
- *         sf1..sf3=0x<hex> anim=0x<hex> trans=<n> rdown=<x>,<y>,<z> rdent=0x<hex>
+ *         sf1..sf3=0x<hex> anim=0x<hex> trans=<n> rdown=<x>,<y>,<z> rdent=0x<hex> ... rot=<n> wyaw=<n> wny=<n>
+ *         ledge=<type>/<timer>/<y> push=<ticks>/<hands>
  *                                        per-tick Player diagnostic while "agenttest trace" is active: position,
  *                                        prevPos, velocity, bgCheckFlags, floor height, the model's draw offset
  *                                        above pos (shape.yOffset in world units: a ledge climb's lift, #179),
@@ -404,6 +405,8 @@
  *                                          full speed away from the camera. Optional buttons (comma list) land
  *                                          with a fresh press edge on the at_frame-th injected frame (default 1)
  *                                          and stay held to the end - e.g. "walk 80 0 80 A 40" rolls mid-run.
+ *   agenttest walkyaw <frames> <yaw> [mag] walk toward a world yaw (s16, as goto's) at stick magnitude mag (default
+ *                                          80), the stick re-aimed through the camera every frame
  *                                          Ends with input_done.
  *   agenttest look <frames> [rx] [ry]      hold the RIGHT stick (default 80,0) for N frames, left stick centred -
  *                                          SoH's free-look camera input. Ends with input_done.
@@ -760,6 +763,8 @@ void Message_GetOcarinaStaffShown(s32* shown, s32* bufPos);
 void Environment_GetOutdoorLightPair(u8 config, u16 time, u8* from, u8* to);
 u8 Environment_UsableLightConfig(EnvironmentContext* envCtx, u8 config);
 }
+// The boat's push count, for the trace's climbing fields (sturdy-bassoon#262).
+#include "soh/Enhancements/rs/actors/RsBoat.h"
 
 #ifdef _WIN32
 #include <process.h>
@@ -800,6 +805,11 @@ bool sAgentMode = false; // decided once at the console logo from SOH_AGENT_TEST
 int32_t sInputFramesLeft = 0;
 int8_t sInputStickX = 0;
 int8_t sInputStickY = 0;
+// `walkyaw` (sturdy-bassoon#262): the stick is re-aimed every frame so Link runs toward this world yaw whatever the
+// camera does, at this magnitude; off (sInputYawMag 0) for every other injection. The camera turning behind a running
+// Link swung a fixed stick tens of degrees off its aim within a second.
+int16_t sInputYaw = 0;
+int32_t sInputYawMag = 0;
 // How far an injected stick may be pushed, either stick, either axis: a real N64 stick's reach.
 constexpr int32_t kInjectStickMax = 85;
 // The right stick, for `look` (sturdy-bassoon#138): SoH's free look reads it, and a guard on free look
@@ -1315,6 +1325,23 @@ void EmitTrace(const char* phase) {
                               i == 0 ? "near" : "far", p.x, p.z, p.floorRaw, p.floorPoly, p.verdict, p.reachPoly,
                               p.reachY);
     }
+    // Climbing (sturdy-bassoon#262): Link's facing, the touched wall's yaw and lean (its normal's y: Player climbs
+    // none leaning past 600), Player's ledge climb (type/delay timer/height to the ledge), and the first boat's own
+    // count of a push into its hull (ticks/hands-on).
+    s32 railPush = -1;
+    s32 railHands = -1;
+    for (Actor* a = gPlayState->actorCtx.actorLists[ACTORCAT_BG].head; a != nullptr; a = a->next) {
+        if (a->id == ACTOR_RS_BOAT && a->update != nullptr) {
+            railPush = reinterpret_cast<RsBoat*>(a)->railPush;
+            railHands = reinterpret_cast<RsBoat*>(a)->railPushHands;
+            break;
+        }
+    }
+    used = std::strlen(buf);
+    std::snprintf(buf + used, sizeof(buf) - used, " rot=%d wyaw=%d wny=%d ledge=%d/%d/%.1f push=%d/%d",
+                  player->actor.shape.rot.y, player->actor.wallYaw,
+                  player->actor.wallPoly != nullptr ? player->actor.wallPoly->normal.y : 0, player->ledgeClimbType,
+                  player->ledgeClimbDelayTimer, player->yDistToLedge, railPush, railHands);
     WriteMarker(buf);
 }
 
@@ -1584,6 +1611,13 @@ void InjectPad(Input* input) {
         sInputPressPending = true;
         sDeferredButtons = 0;
     }
+    // `walkyaw`: the stick that runs Link toward sInputYaw through the camera as it stands this frame (Player's move
+    // yaw is the camera's input yaw plus the stick's angle).
+    if (sInputYawMag > 0) {
+        const s16 rel = (s16)(sInputYaw - Camera_GetInputDirYaw(GET_ACTIVE_CAM(gPlayState)));
+        sInputStickX = static_cast<int8_t>(lroundf(-sInputYawMag * Math_SinS(rel)));
+        sInputStickY = static_cast<int8_t>(lroundf(sInputYawMag * Math_CosS(rel)));
+    }
     // The stick replaces the real pad's; PadMgr_ProcessInputs applies the dead zone and clamp a real pad
     // gets (PadUtils_UpdateRelXY) right after this returns.
     input->cur.stick_x = sInputStickX;
@@ -1609,6 +1643,7 @@ void StartInput(int32_t frames, int8_t stickX, int8_t stickY, CONTROLLERBUTTONS_
                 CONTROLLERBUTTONS_T deferredButtons = 0, int32_t deferredAtFrame = 0) {
     sInputStickX = stickX;
     sInputStickY = stickY;
+    sInputYawMag = 0;
     sInputRightX = 0;
     sInputRightY = 0;
     sInputButtons = buttons;
@@ -1926,7 +1961,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         return 0;
     }
     if (args.size() >= 2 &&
-        (args[1] == "state" || args[1] == "goto" || args[1] == "walk" || args[1] == "look" || args[1] == "press" ||
+        (args[1] == "state" || args[1] == "goto" || args[1] == "walk" || args[1] == "walkyaw" || args[1] == "look" ||
+         args[1] == "press" ||
          args[1] == "rooms" || args[1] == "camclear" || args[1] == "ray" ||
          args[1] == "time" || args[1] == "trace" || args[1] == "octrace" || args[1] == "ocstall" ||
          args[1] == "fog" || args[1] == "uncull" || args[1] == "env" ||
@@ -2035,6 +2071,29 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         // misfire on fast travel and on cutscene camera moves.
         RsMusic_NotifyWarped("teleport");
         return EmitState(output);
+    }
+    // walkyaw <frames> <world yaw> [magnitude]: walk toward a world heading, the stick re-aimed through the camera
+    // every frame (sturdy-bassoon#262).
+    if (args.size() >= 4 && args[1] == "walkyaw") {
+        int32_t frames = 0;
+        int32_t yaw = 0;
+        int32_t mag = 80;
+        if (!ParseInt(args[2], &frames) || frames <= 0 || frames > MAX_INPUT_FRAMES || !ParseInt(args[3], &yaw) ||
+            !ParseIntArg(args, 4, 80, &mag) || mag < 1 || mag > kInjectStickMax) {
+            if (output) {
+                *output += "walkyaw needs frames in 1.." + std::to_string(MAX_INPUT_FRAMES) +
+                           ", a world yaw and a magnitude in 1.." + std::to_string(kInjectStickMax);
+            }
+            return 1;
+        }
+        StartInput(frames, 0, 0, 0);
+        sInputYaw = static_cast<int16_t>(yaw);
+        sInputYawMag = mag;
+        if (output) {
+            *output += "walking " + std::to_string(frames) + " frames toward yaw " + std::to_string((int16_t)yaw) +
+                       ", magnitude " + std::to_string(mag) + "; wait for input_done";
+        }
+        return 0;
     }
     if (args.size() >= 3 && args[1] == "walk") {
         int32_t frames = 0;
@@ -3108,7 +3167,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     if (output) {
         *output +=
             "usage: agenttest perf <ticks> | state | goto <x> <y> <z> [yaw] | "
-            "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | look <frames> [rx] [ry] | "
+            "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | walkyaw <frames> <yaw> [mag] | "
+            "look <frames> [rx] [ry] | "
             "press <BUTTONS> [frames] | hold [<BUTTONS>|none] | ocarina <NOTES> [hold] [gap] | song <name> | stats | "
               "rooms | time <dawn|day|dusk|night|value> | sunssong | display | "
             "trace <ticks> | octrace <ticks> | ocstall <ms> <tick>|off | "
@@ -3165,7 +3225,8 @@ void RegisterAgentTest() {
             "agenttest",
             { AgentTestCommand,
               "Agent test loop: perf <ticks> | state | goto <x> <y> <z> [yaw] | "
-              "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | look <frames> [rx] [ry] | "
+              "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | walkyaw <frames> <yaw> [mag] | "
+              "look <frames> [rx] [ry] | "
               "press <BUTTONS> [frames] | hold [<BUTTONS>|none] | ocarina <NOTES> [hold] [gap] | song <name> | stats | "
               "rooms | time <dawn|day|dusk|night|value> | sunssong | display | "
               "trace <ticks> | octrace <ticks> | ocstall <ms> <tick>|off | "
