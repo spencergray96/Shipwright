@@ -156,30 +156,51 @@ bool InTableScene(PlayState* play) {
     return play != nullptr && play->sceneNum == SCENE_F2P_OVERWORLD;
 }
 
-// The sfx En_River_Sound's own draw plays for each param (its soundEffects table).
-u16 SfxFor(int16_t sound) {
-    switch (sound) {
-        case RS_FOUNTAIN_WATER:
-            return NA_SE_EV_FOUNTAIN - SFX_FLAG;
-        case RS_TORCH_CRACKLING:
-            return NA_SE_EV_TORCH - SFX_FLAG;
-        case RS_SMALL_WATERFALL:
-        default:
-            return NA_SE_EV_WATER_WALL - SFX_FLAG;
+// Every En_River_Sound param that is a plain looping sfx, from the actor's own soundEffects table
+// (z_en_river_sound.c), with the name `rsambience status` prints. The params left out (0, 4, 5, 11, 12, 13, 19)
+// are not an sfx at all - a river that follows a path, Saria's song, the fairy fountain's music - and a row
+// naming one stays silent and reads sound=unsupported.
+struct OotSound {
+    int16_t param;
+    u16 sfx;
+    const char* name;
+};
+const OotSound kOotSounds[] = {
+    { RS_SMALL_WATERFALL, NA_SE_EV_WATER_WALL - SFX_FLAG, "small_waterfall" },
+    { RS_LAVA_BUBBLES_1, NA_SE_EV_MAGMA_LEVEL - SFX_FLAG, "lava_bubbles_1" },
+    { RS_LARGE_WATERFALL, NA_SE_EV_WATER_WALL_BIG - SFX_FLAG, "large_waterfall" },
+    { RS_LAVA_BUBBLES_2, NA_SE_EV_MAGMA_LEVEL_M - SFX_FLAG, "lava_bubbles_2" },
+    { RS_LAVA_BUBBLES_3, NA_SE_EV_MAGMA_LEVEL_L - SFX_FLAG, "lava_bubbles_3" },
+    { RS_DRIPPING_WATER, NA_SE_EV_WATERDROP - SFX_FLAG, "dripping_water" },
+    { RS_FOUNTAIN_WATER, NA_SE_EV_FOUNTAIN - SFX_FLAG, "fountain" },
+    { RS_MARKET_CROWD, NA_SE_EV_CROWD - SFX_FLAG, "market_crowd" },
+    { RS_SANDSTORM, NA_SE_EV_SAND_STORM - SFX_FLAG, "sandstorm" },
+    { RS_LAKESIDE_LAB_TANK, NA_SE_EV_WATER_BUBBLE - SFX_FLAG, "water_bubble" },
+    { RS_CHAMBER_OF_SAGES_1, NA_SE_EV_KENJA_ENVIROMENT_0 - SFX_FLAG, "chamber_of_sages_1" },
+    { RS_CHAMBER_OF_SAGES_2, NA_SE_EV_KENJA_ENVIROMENT_1 - SFX_FLAG, "chamber_of_sages_2" },
+    { RS_RUMBLING, NA_SE_EV_EARTHQUAKE - SFX_FLAG, "rumbling" },
+    { RS_TORCH_CRACKLING, NA_SE_EV_TORCH - SFX_FLAG, "torch" },
+    { RS_COW_MOOING, NA_SE_EV_COW_CRY_LV - SFX_FLAG, "cow" },
+};
+
+const OotSound* FindOotSound(int16_t param) {
+    for (const OotSound& s : kOotSounds) {
+        if (s.param == param) {
+            return &s;
+        }
     }
+    return nullptr;
+}
+
+// 0 for a param that is not a plain sfx: EmitterDraw then requests nothing.
+u16 SfxFor(int16_t sound) {
+    const OotSound* s = FindOotSound(sound);
+    return s != nullptr ? s->sfx : 0;
 }
 
 const char* SoundName(int16_t sound) {
-    switch (sound) {
-        case RS_FOUNTAIN_WATER:
-            return "fountain";
-        case RS_TORCH_CRACKLING:
-            return "torch";
-        case RS_SMALL_WATERFALL:
-            return "small_waterfall";
-        default:
-            return "other";
-    }
+    const OotSound* s = FindOotSound(sound);
+    return s != nullptr ? s->name : "unsupported";
 }
 
 bool IsFile(const Emitter& e) {
@@ -249,9 +270,12 @@ void SpawnAll(PlayState* play) {
         CollisionPoly* poly = nullptr;
         const f32 floorY = BgCheck_EntityRaycastFloor1(&play->colCtx, &poly, &pos);
         pos.y = (floorY > BGCHECK_Y_MIN ? floorY : 0.0f) + kAboveFloor;
-        // A kFile row spawns the same actor as a carrier for its position, with no draw: the mixer plays it.
+        // The actor only carries the position: CapToNearest replaces its draw with EmitterDraw (an OoT row) or
+        // none (a file row, which the mixer plays). So every row spawns with the plain fountain param, whose
+        // Init and Update do nothing, never with a param whose actor behaviour is special (a river on a path,
+        // Saria's song).
         sActors[i] = Actor_Spawn(&play->actorCtx, play, ACTOR_EN_RIVER_SOUND, pos.x, pos.y, pos.z, 0, 0, 0,
-                                 IsFile(kEmitters[i]) ? RS_FOUNTAIN_WATER : kEmitters[i].sound);
+                                 RS_FOUNTAIN_WATER);
         if (sActors[i] != nullptr) {
             // Room -1: a room change kills every actor of the room it leaves, and an emitter belongs
             // to the scene, not to whichever room Link was in when it spawned.
@@ -275,8 +299,11 @@ void KillAll(PlayState* play) {
 void EmitterDraw(Actor* actor, PlayState*) {
     for (int32_t i = 0; i < kEmitterCount; i++) {
         if (sActors[i] == actor) {
-            Audio_PlaySoundGeneral(SfxFor(kEmitters[i].sound), &actor->projectedPos, 4, &gSfxDefaultFreqAndVolScale,
-                                   &sVol[i], &gSfxDefaultReverb);
+            const u16 sfx = SfxFor(kEmitters[i].sound);
+            if (sfx != 0) {
+                Audio_PlaySoundGeneral(sfx, &actor->projectedPos, 4, &gSfxDefaultFreqAndVolScale, &sVol[i],
+                                       &gSfxDefaultReverb);
+            }
             return;
         }
     }
