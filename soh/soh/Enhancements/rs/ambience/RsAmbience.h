@@ -17,9 +17,15 @@
 // change. The rows are a few of RS's real ambient emitters on the Lumbridge square (the cache's own
 // loc placements, listed by the #93 note's EmitterList.java), each given the nearest sound the
 // actor's param table offers. Not every emitter, and not RS's sounds: OoT has no wind or birdsong
-// in that table, and the sound's audible range is the vanilla sfx's, not RS's radius.
+// in that table. The actor is only the carrier: this file plays each row's sound itself, so the row's
+// own volume applies.
 //
-// THE CAP. Only the nearest N emitters to Link may ask for their sound (CVAR "RsAmbienceMax", default 2,
+// THE RADIUS AND GAIN. Each row reaches as far as its radius (RS tiles, XZ from Link; seeded from the
+// loc's RS radius), at full volume within a tile and fading linearly to nothing at the edge, and is
+// as loud as its gain (0..1). Without them every sound carried the engine's 250 tiles.
+// `rsambience radius|gain` tunes them live and unsaved; RsAmbience.cpp's CapToNearest has why.
+//
+// THE CAP. Only the nearest N emitters in range of Link may ask for their sound (CVAR "RsAmbienceMax", default 2,
 // `rsambience max`). Without it the env bank's 3 channels went to the water sounds every time and the
 // fires never played, even beside Link: RsAmbience.cpp's CapToNearest has the arithmetic.
 //
@@ -38,16 +44,23 @@
 //           same budget anywhere - the fire-pressure measurement in ENGINE_BUDGETS.md § Sound effects
 //       then one line per table row:
 //       emitter=<name> sound=<name> tile=<x>,<y> pos=<x>,<y>,<z> dist=<units> spawned=0|1 active=0|1
-//               requested=0|1 playing=0|1   (one line in the output)
-//           pos is where it spawned (y from a floor raycast); dist is from Link, in OoT units (40 a
-//           tile). active=1 when it is among the nearest N this tick; requested/playing are this
-//           emitter's own entry in the env list
+//               requested=0|1 playing=0|1 radius=<tiles> gain=<0..1> vol=<0..1>   (one line in the output)
+//           pos is where it spawned (y from a floor raycast); dist is from Link along the ground (XZ),
+//           in OoT units (40 a tile). active=1 when it is in range and among the nearest N this tick;
+//           requested/playing are this emitter's own entry in the env list; radius and gain are the
+//           live values, vol what it asks for this tick (gain x the fade; 0 when not active)
 //   on | off
 //       op=on|off result=ok enabled=0|1 spawned=N - writes the CVar, and spawns or kills now when in
 //       the table's scene
 //   max [<n>|default]
 //       op=max result=ok max=N - with no argument, a read. n is 0..8 (the table's size); anything else
 //       is op=max result=error error=range, rc=1
+//   radius <emitter|all> [<tiles>|default]
+//   gain <emitter|all> [<0..1>|default]
+//       op=radius|gain result=ok emitter=<name> radius|gain=<value> - one line per row named, a read
+//       without a value. Unsaved: a scene reload keeps it, a game restart goes back to the table.
+//       An unknown emitter is error=emitter, a value outside 0.5..64 tiles or 0..1 is error=range
+//       min= max=, both rc=1 and nothing written
 //
 // Returns 0 for a read or a successful write, 1 for a refused argument or an unknown subcommand.
 int32_t RsAmbienceConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines);

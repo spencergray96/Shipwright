@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 
 #include <libultraship/bridge/consolevariablebridge.h>
 
@@ -49,6 +50,11 @@ struct Emitter {
     int32_t rsX;
     int32_t rsY;
     int16_t sound; // an En_River_Sound param (z_en_river_sound.h)
+    // How far the sound reaches, in RS tiles from Link (XZ). Seeded from the loc's own RS radius.
+    float radius;
+    // Loudness at the emitter, 0..1, multiplied into the engine's own distance curve. Water sits lower
+    // than fire: the owner's first listen (2026-10-27) found the water the more offensive of the two.
+    float gain;
 };
 
 /*
@@ -57,15 +63,16 @@ struct Emitter {
  * this OoT sound. Left out on purpose: the area-hum locs (16433/16438, sound 2184 - wind and birds,
  * which the actor's table has no match for), the rocks (5604) and the castle's grandfather clock.
  */
+// Radius and gain are the last two fields: the radius is RS's own, the gain a first guess for the ear.
 const Emitter kEmitters[] = {
-    { "fountain_south", 3221, 3210, RS_FOUNTAIN_WATER },  // loc 879 Fountain, r=7, sound 2150
-    { "fountain_north", 3221, 3226, RS_FOUNTAIN_WATER },  // loc 879 Fountain, r=7, sound 2150
-    { "cooking_range", 3212, 3215, RS_TORCH_CRACKLING },  // loc 114 Cooking range (castle kitchen), r=3
-    { "fireplace", 3214, 3249, RS_TORCH_CRACKLING },      // loc 24969 Fireplace, r=5, sound 2198
-    { "furnace", 3226, 3256, RS_TORCH_CRACKLING },        // loc 24009 Furnace, r=10, sound 2209
-    { "spit_roast", 3245, 3246, RS_TORCH_CRACKLING },     // loc 5608 Spit roast, r=3, sound 2220
-    { "river_lum", 3243, 3229, RS_SMALL_WATERFALL },      // loc 16392 (unnamed) by the River Lum, r=20, sound 2168
-    { "river_lum_north", 3235, 3262, RS_SMALL_WATERFALL }, // loc 16392 (unnamed), r=20, sound 2168
+    { "fountain_south", 3221, 3210, RS_FOUNTAIN_WATER, 7.0f, 0.5f },   // loc 879 Fountain, r=7, sound 2150
+    { "fountain_north", 3221, 3226, RS_FOUNTAIN_WATER, 7.0f, 0.5f },   // loc 879 Fountain, r=7, sound 2150
+    { "cooking_range", 3212, 3215, RS_TORCH_CRACKLING, 3.0f, 0.7f },   // loc 114 Cooking range (kitchen), r=3
+    { "fireplace", 3214, 3249, RS_TORCH_CRACKLING, 5.0f, 0.7f },       // loc 24969 Fireplace, r=5, sound 2198
+    { "furnace", 3226, 3256, RS_TORCH_CRACKLING, 10.0f, 0.7f },        // loc 24009 Furnace, r=10, sound 2209
+    { "spit_roast", 3245, 3246, RS_TORCH_CRACKLING, 3.0f, 0.7f },      // loc 5608 Spit roast, r=3, sound 2220
+    { "river_lum", 3243, 3229, RS_SMALL_WATERFALL, 20.0f, 0.4f },      // loc 16392 by the River Lum, r=20, sound 2168
+    { "river_lum_north", 3235, 3262, RS_SMALL_WATERFALL, 20.0f, 0.4f }, // loc 16392, r=20, sound 2168
 };
 constexpr int32_t kEmitterCount = (int32_t)(sizeof(kEmitters) / sizeof(kEmitters[0]));
 
@@ -73,12 +80,33 @@ constexpr int32_t kEmitterCount = (int32_t)(sizeof(kEmitters) / sizeof(kEmitters
 // scene's actors go with it. Checked against the actor list before every use (IsLive), since
 // something other than this file could kill one.
 Actor* sActors[kEmitterCount] = {};
-// Whether each row is among the nearest N this tick, and so allowed to ask for its sound.
+// Whether each row is in range and among the nearest N this tick, and so allowed to ask for its sound.
 bool sActive[kEmitterCount] = {};
-// En_River_Sound's draw function, kept from the first spawn: the draw is what requests the sound, so
-// an emitter outside the nearest N has it taken away and given back (CapToNearest).
-ActorFunc sRiverSoundDraw = nullptr;
+// Each row's live radius and gain: the table's, until `rsambience radius|gain` tunes them. Not saved -
+// a value the owner settles on by ear goes into the table.
+float sRadius[kEmitterCount];
+float sGain[kEmitterCount];
+bool sTuningSeeded = false;
+// The volume each row asks for this tick (gain x the radius fade). The engine keeps this POINTER with
+// the sound's entry and reads it on every audio update, so it must outlive the request: static storage.
+f32 sVol[kEmitterCount] = {};
 bool sSpawnPending = false;
+
+// Tunable ranges, in RS tiles and as a multiplier. Above 1 the gain would be louder than vanilla.
+constexpr float kRadiusMin = 0.5f;
+constexpr float kRadiusMax = 64.0f;
+constexpr float kGainMax = 1.0f;
+
+void SeedTuning() {
+    if (sTuningSeeded) {
+        return;
+    }
+    for (int32_t i = 0; i < kEmitterCount; i++) {
+        sRadius[i] = kEmitters[i].radius;
+        sGain[i] = kEmitters[i].gain;
+    }
+    sTuningSeeded = true;
+}
 
 bool Enabled() {
     return CVarGetInteger(CVAR_RS_AMBIENCE, 1) != 0;
@@ -91,6 +119,19 @@ int32_t MaxActive() {
 
 bool InTableScene(PlayState* play) {
     return play != nullptr && play->sceneNum == SCENE_F2P_OVERWORLD;
+}
+
+// The sfx En_River_Sound's own draw plays for each param (its soundEffects table).
+u16 SfxFor(int16_t sound) {
+    switch (sound) {
+        case RS_FOUNTAIN_WATER:
+            return NA_SE_EV_FOUNTAIN - SFX_FLAG;
+        case RS_TORCH_CRACKLING:
+            return NA_SE_EV_TORCH - SFX_FLAG;
+        case RS_SMALL_WATERFALL:
+        default:
+            return NA_SE_EV_WATER_WALL - SFX_FLAG;
+    }
 }
 
 const char* SoundName(int16_t sound) {
@@ -148,9 +189,6 @@ void SpawnAll(PlayState* play) {
         sActors[i] = Actor_Spawn(&play->actorCtx, play, ACTOR_EN_RIVER_SOUND, pos.x, pos.y, pos.z, 0, 0, 0,
                                  kEmitters[i].sound);
         if (sActors[i] != nullptr) {
-            if (sRiverSoundDraw == nullptr) {
-                sRiverSoundDraw = sActors[i]->draw;
-            }
             // Room -1: a room change kills every actor of the room it leaves, and an emitter belongs
             // to the scene, not to whichever room Link was in when it spawned.
             sActors[i]->room = -1;
@@ -167,24 +205,63 @@ void KillAll(PlayState* play) {
     }
 }
 
+// Plays one emitter's sound. Replaces En_River_Sound's own draw, which plays at the vanilla volume:
+// this one passes the row's own volume, so the radius and gain apply. The actor is kept only as the
+// carrier of projectedPos, the camera-relative position the engine pans and attenuates by.
+void EmitterDraw(Actor* actor, PlayState*) {
+    for (int32_t i = 0; i < kEmitterCount; i++) {
+        if (sActors[i] == actor) {
+            Audio_PlaySoundGeneral(SfxFor(kEmitters[i].sound), &actor->projectedPos, 4, &gSfxDefaultFreqAndVolScale,
+                                   &sVol[i], &gSfxDefaultReverb);
+            return;
+        }
+    }
+}
+
 /*
+ * THE RADIUS (the owner's first listen, 2026-10-27). All three sounds use the engine's longest range
+ * (sfxParams & 3 == 0 in sEnvBankParams): full volume to 100 units, then a fade that reaches silence
+ * only at 10,000 units, 250 tiles - a fountain is still at half volume 50 tiles away. So each row has
+ * its own radius: full volume within one tile of the emitter, falling linearly to nothing at the radius,
+ * by XZ distance from Link the way RS measures it in tiles. Out of range, the row does not ask at all.
+ *
  * THE CAP (found on the first run, 2026-10-27). Left alone, every emitter asks for its sound every tick
  * and the env bank's 3 channels go by priority = distance^2 + (255 - importance)^2 * 76^2. NA_SE_EV_TORCH
  * has importance 0x10 against 0x30 for the water sounds, a gap worth about 9,000 units of distance: a
  * fountain across Lumbridge outranks a fire at Link's feet, and the fires never played at all. So only
- * the nearest N emitters keep their draw, which is what asks for the sound; the rest are silent until
- * Link comes closer. Nearest by straight distance, not RS's per-sound radius - this is an experiment.
+ * the nearest N emitters in range keep their draw, which is what asks for the sound. The radius alone
+ * does not make the cap redundant: where two radii overlap, the wall is back.
  */
+float Fade(float dist, float radiusTiles) {
+    const float full = kUnitsPerTile;
+    const float edge = radiusTiles * kUnitsPerTile;
+    if (dist >= edge) {
+        return 0.0f;
+    }
+    if (dist <= full || edge <= full) {
+        return 1.0f;
+    }
+    return 1.0f - (dist - full) / (edge - full);
+}
+
 void CapToNearest(PlayState* play) {
     Player* player = GET_PLAYER(play);
-    if (player == nullptr || sRiverSoundDraw == nullptr) {
+    if (player == nullptr) {
         return;
     }
+    SeedTuning();
     float dist[kEmitterCount];
     for (int32_t i = 0; i < kEmitterCount; i++) {
         sActive[i] = false;
-        dist[i] = IsLive(play, sActors[i]) ? Math_Vec3f_DistXYZ(&sActors[i]->world.pos, &player->actor.world.pos)
-                                           : -1.0f;
+        sVol[i] = 0.0f;
+        dist[i] = -1.0f;
+        if (IsLive(play, sActors[i])) {
+            const float d = Math_Vec3f_DistXZ(&sActors[i]->world.pos, &player->actor.world.pos);
+            sVol[i] = sGain[i] * Fade(d, sRadius[i]);
+            if (sVol[i] > 0.0f) {
+                dist[i] = d;
+            }
+        }
     }
     const int32_t max = MaxActive();
     for (int32_t k = 0; k < max; k++) {
@@ -200,8 +277,8 @@ void CapToNearest(PlayState* play) {
         sActive[best] = true;
     }
     for (int32_t i = 0; i < kEmitterCount; i++) {
-        if (dist[i] >= 0.0f) {
-            sActors[i]->draw = sActive[i] ? sRiverSoundDraw : nullptr;
+        if (IsLive(play, sActors[i])) {
+            sActors[i]->draw = sActive[i] ? EmitterDraw : nullptr;
         }
     }
 }
@@ -291,6 +368,7 @@ int32_t Status(const std::string& op, std::vector<std::string>& lines) {
     if (!InTableScene(play)) {
         return 0;
     }
+    SeedTuning();
     Player* player = GET_PLAYER(play);
     for (int32_t i = 0; i < kEmitterCount; i++) {
         const Emitter& e = kEmitters[i];
@@ -302,12 +380,13 @@ int32_t Status(const std::string& op, std::vector<std::string>& lines) {
             EmitterState(actor, &req, &playingNow);
             pos = actor->world.pos;
         }
-        const float dist = (live && player != nullptr) ? Math_Vec3f_DistXYZ(&pos, &player->actor.world.pos) : -1.0f;
+        const float dist = (live && player != nullptr) ? Math_Vec3f_DistXZ(&pos, &player->actor.world.pos) : -1.0f;
         std::snprintf(buf, sizeof(buf),
                       "emitter=%s sound=%s tile=%d,%d pos=%.0f,%.0f,%.0f dist=%.0f spawned=%d active=%d requested=%d "
-                      "playing=%d",
+                      "playing=%d radius=%.1f gain=%.2f vol=%.2f",
                       e.name, SoundName(e.sound), e.rsX, e.rsY, pos.x, live ? pos.y : 0.0f, pos.z, dist, live ? 1 : 0,
-                      (live && sActive[i]) ? 1 : 0, req ? 1 : 0, playingNow ? 1 : 0);
+                      (live && sActive[i]) ? 1 : 0, req ? 1 : 0, playingNow ? 1 : 0, sRadius[i], sGain[i],
+                      (live && sActive[i]) ? sVol[i] : 0.0f);
         lines.push_back(buf);
     }
     return 0;
@@ -352,7 +431,57 @@ int32_t SetMax(const std::vector<std::string>& args, std::vector<std::string>& l
     return 0;
 }
 
-const char* kUsage = "usage: rsambience [status] | on | off | max [<n>|default]";
+// `radius|gain <emitter|all> [<value>|default]`: one line per row it names, a read without a value.
+// The value is checked before anything is written, so a refusal changes nothing.
+int32_t Tune(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    const std::string& op = args[0];
+    const bool isRadius = op == "radius";
+    const float lo = isRadius ? kRadiusMin : 0.0f;
+    const float hi = isRadius ? kRadiusMax : kGainMax;
+    int32_t only = -1;
+    if (args.size() >= 2 && args[1] != "all") {
+        for (int32_t i = 0; i < kEmitterCount; i++) {
+            if (args[1] == kEmitters[i].name) {
+                only = i;
+            }
+        }
+    }
+    if (args.size() < 2 || (args[1] != "all" && only < 0)) {
+        lines.push_back("op=" + op + " result=error error=emitter");
+        return 1;
+    }
+    const bool write = args.size() >= 3;
+    const bool toDefault = write && args[2] == "default";
+    float value = 0.0f;
+    if (write && !toDefault) {
+        char* end = nullptr;
+        value = std::strtof(args[2].c_str(), &end);
+        if (end == args[2].c_str() || *end != 0 || !std::isfinite(value) || value < lo || value > hi) {
+            char buf[96];
+            std::snprintf(buf, sizeof(buf), "op=%s result=error error=range min=%.1f max=%.1f", op.c_str(), lo, hi);
+            lines.push_back(buf);
+            return 1;
+        }
+    }
+    SeedTuning();
+    for (int32_t i = 0; i < kEmitterCount; i++) {
+        if (only >= 0 && i != only) {
+            continue;
+        }
+        float& slot = isRadius ? sRadius[i] : sGain[i];
+        if (write) {
+            slot = toDefault ? (isRadius ? kEmitters[i].radius : kEmitters[i].gain) : value;
+        }
+        char buf[128];
+        std::snprintf(buf, sizeof(buf), "op=%s result=ok emitter=%s %s=%.2f", op.c_str(), kEmitters[i].name,
+                      op.c_str(), slot);
+        lines.push_back(buf);
+    }
+    return 0;
+}
+
+const char* kUsage =
+    "usage: rsambience [status] | on | off | max [<n>|default] | radius|gain <emitter|all> [<value>|default]";
 
 } // namespace
 
@@ -369,6 +498,9 @@ int32_t RsAmbienceConsole_Run(const std::vector<std::string>& args, std::vector<
     if (args[0] == "max") {
         return SetMax(args, lines);
     }
+    if (args[0] == "radius" || args[0] == "gain") {
+        return Tune(args, lines);
+    }
     lines.push_back(kUsage);
     return 1;
 }
@@ -377,11 +509,15 @@ namespace {
 
 const ConsoleSink::Command rsAmbienceCommand(
     "rsambience", RsAmbienceConsole_Run,
-    "Area ambience experiment (sturdy-bassoon#275): status | on | off | max [<n>|default]. A few "
-    "of RS's ambient emitters around Lumbridge as vanilla En_River_Sound actors. status lists "
-    "each emitter with its distance and whether its sound is playing, plus the env sound budget "
-    "in use anywhere; on|off switch them live for an A/B by ear; max is how many of the nearest "
-    "may sound at once (default 2).",
-    { { "status|on|off|max", Ship::ArgumentType::TEXT, true }, { "n", Ship::ArgumentType::TEXT, true } });
+    "Area ambience experiment (sturdy-bassoon#275): status | on | off | max [<n>|default] | "
+    "radius|gain <emitter|all> [<value>|default]. A few of RS's ambient emitters around Lumbridge "
+    "on vanilla En_River_Sound actors. status lists each emitter with its distance, radius, gain "
+    "and whether its sound is playing, plus the env sound budget in use anywhere; on|off switch "
+    "them live for an A/B by ear; max is how many of the nearest in range may sound at once "
+    "(default 2); radius (RS tiles) and gain (0..1) tune one emitter or all of them by ear, "
+    "unsaved.",
+    { { "status|on|off|max|radius|gain", Ship::ArgumentType::TEXT, true },
+      { "n|emitter", Ship::ArgumentType::TEXT, true },
+      { "value", Ship::ArgumentType::TEXT, true } });
 
 } // namespace

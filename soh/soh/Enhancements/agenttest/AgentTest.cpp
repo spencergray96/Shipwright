@@ -622,9 +622,9 @@
  *                                          the pool's cap; and (#243) the fires' draw distance and glow
  *                                          halo, set live for every fire.
  *                                          RsFireConsole.h documents every line
- *   agenttest rsambience [status]|on|off|max [<n>|default]
+ *   agenttest rsambience [status]|on|off|max [<n>|default]|radius|gain <emitter|all> [<v>|default]
  *                                          the area ambience experiment (sturdy-bassoon#275): each emitter's
- *                                          distance and whether its sound is playing, and the env sfx
+ *                                          distance, radius, gain and whether its sound is playing, and the env sfx
  *                                          bank's requested/playing counts in any scene. RsAmbience.h
  *                                          documents every line
  *   agenttest lights [status]|sunfirst [on|off|default]|pool [<n>|default]|shadow [clear]|shadowsmooth ...|
@@ -3168,7 +3168,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "warps list|dump|where|status|badcheck | "
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
-              "rsambience [status]|on|off|max [<n>|default] | "
+              "rsambience [status]|on|off|max [<n>|default]|radius|gain <emitter|all> [<v>|default] | "
               "animprop status|list|pose <k|rest|clock>|reset|pick <tick|frame|default>|trace [<idx> <frames>]|"
               "selftest [plant]|plant [off|unheld] | "
               "lights [status]|sunfirst [on|off|default]|pool [<n>|default]|shadow|shadowsmooth|shadowrate|"
@@ -3225,7 +3225,7 @@ void RegisterAgentTest() {
               "warps list|dump|where|status|badcheck | "
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
-              "rsambience [status]|on|off|max [<n>|default] | "
+              "rsambience [status]|on|off|max [<n>|default]|radius|gain <emitter|all> [<v>|default] | "
               "animprop status|list|pose <k|rest|clock>|reset|pick <tick|frame|default>|trace [<idx> <frames>]|"
               "selftest [plant]|plant [off|unheld] | "
               "lights [status]|sunfirst [on|off|default]|pool [<n>|default]|shadow|shadowsmooth|shadowrate|"
