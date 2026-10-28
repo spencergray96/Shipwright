@@ -1642,11 +1642,17 @@ s32 RsBoat_LinkWasAboard(PlayState* play) {
 #define RS_BOAT_SMOOTH_MAX 2.0f
 #define RS_BOAT_RAIL_CLIMB_INSET 1.5f
 // How far inside the hull's outline a swimmer lands at least (RsBoat_ClimbInset): onto a rail, 6 (the 14-wide rail
-// top's outer half, where the trim is drawn); onto an open deck (the raft's), 12. No further than this past where
+// top's outer half, where the trim is drawn); onto an open deck (the raft's), 8. No further than this past where
 // Player would have put him.
 #define RS_BOAT_SWIM_LAND_RAIL 6.0f
-#define RS_BOAT_SWIM_LAND_OPEN 12.0f
+#define RS_BOAT_SWIM_LAND_OPEN 8.0f
 #define RS_BOAT_SWIM_LAND_MAX 16.0f
+// ... of which at once, at most: as far as this inside the outline, so the climb starts over the deck.
+#define RS_BOAT_SWIM_LAND_EDGE 2.0f
+// The landing's slide in, world units a tick (sClimbSlide), over the first ticks of the climb.
+#define RS_BOAT_CLIMB_SLIDE_TICKS 8
+static f32 sClimbSlide[2];
+static s32 sClimbSlideTicks;
 
 // The boat whose collision `bgId` is, or NULL.
 static const RsBoat* RsBoat_HullOf(PlayState* play, s32 bgId) {
@@ -1773,12 +1779,21 @@ f32 RsBoat_ClimbInset(PlayState* play, const Player* player, f32 vanilla) {
     // wall, which at an angle and with the hull rolling came up to ~4 short: he was set down past the edge, fell,
     // caught it and was pushed out, over and over (the owner's flicker on the raft, 2026-10-28; the skiff's rail
     // did it too, at 30 degrees).
+    // Only as much at once as sets him down on the deck (RS_BOAT_SWIM_LAND_EDGE inside it: off it, the climb broke off
+    // at once for want of a floor); the rest is a slide in over the climb (RsBoat_SmoothLinkOnDeck). Landing the whole
+    // way at once started the animation inside the raft (the owner, 2026-10-28).
     if ((player->stateFlags1 & PLAYER_STATE1_IN_WATER) && player->actor.wallPoly != NULL) {
         const f32 land = RsBoat_SwimLanding(boat, player, (sRsBoatKinds[boat->kind].stations[0].railY <= 0.0f)
                                                               ? RS_BOAT_SWIM_LAND_OPEN
                                                               : RS_BOAT_SWIM_LAND_RAIL);
+        const f32 extra = CLAMP(land - vanilla, 0.0f, RS_BOAT_SWIM_LAND_MAX);
+        const f32 now = CLAMP(RsBoat_SwimLanding(boat, player, RS_BOAT_SWIM_LAND_EDGE) - vanilla, 0.0f, extra);
+        const f32 slide = extra - now;
 
-        return CLAMP(land, vanilla, vanilla + RS_BOAT_SWIM_LAND_MAX);
+        sClimbSlide[0] = -COLPOLY_GET_NORMAL(player->actor.wallPoly->normal.x) * slide / RS_BOAT_CLIMB_SLIDE_TICKS;
+        sClimbSlide[1] = -COLPOLY_GET_NORMAL(player->actor.wallPoly->normal.z) * slide / RS_BOAT_CLIMB_SLIDE_TICKS;
+        sClimbSlideTicks = (slide > 0.0f) ? RS_BOAT_CLIMB_SLIDE_TICKS : 0;
+        return vanilla + now;
     }
     // The rails' own surface row (RS_BOAT_SURFACE_HANDS_RAIL), and on a hull: a scene poly may use that index too.
     if (player->actor.wallPoly != NULL && player->actor.wallPoly->type == RS_BOAT_SURFACE_HANDS_RAIL) {
@@ -1897,6 +1912,12 @@ void RsBoat_SmoothLinkOnDeck(PlayState* play) {
     const RsBoat* boat;
     s32 index;
 
+    // A swimmer's climb onto a hull, the rest of the way in (RsBoat_ClimbInset).
+    if (player != NULL && sClimbSlideTicks > 0) {
+        player->actor.world.pos.x += sClimbSlide[0];
+        player->actor.world.pos.z += sClimbSlide[1];
+        sClimbSlideTicks--;
+    }
     if (player == NULL || !(player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) ||
         (player->stateFlags1 & (PLAYER_STATE1_CLIMBING_LEDGE | PLAYER_STATE1_JUMPING))) {
         return;

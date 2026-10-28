@@ -4,7 +4,7 @@
  "list": "objects/rs_props/rs_boat_raft/props",
  "kinds": {
   "loc-59496": "rs_59496",
-  "loc-29473": "rs_29473"
+  "loc-29473-raft": "rs_29473_raft"
  },
  "props": [
   {
@@ -19,7 +19,7 @@
   },
   {
    "id": "sails",
-   "kind": "loc-29473",
+   "kind": "loc-29473-raft",
    "pos": [
     0,
     0,
@@ -34,7 +34,8 @@
       226,
       222
      ],
-     "why": "the sail's cloth: RS swings it with skeletal animation, which no stage reads; the wind sway stands in"
+     "why": "the sail's cloth: RS swings it with skeletal animation, which no stage reads; the wind sway stands in. Held still within 5 of the rings and ropes, which it slid on and off by a unit",
+     "stillWithin": 5
     }
    ]
   }
