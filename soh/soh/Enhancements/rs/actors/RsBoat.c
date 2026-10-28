@@ -162,6 +162,16 @@ typedef struct RsBoatRudder {
     f32 pin[3];
 } RsBoatRudder;
 
+// A mast standing on an open deck (#262, the raft's): a box from the deck up to `top` over it, between `x` and `z`
+// (boat space, low to high), so Link walks round it rather than through. The camera passes it (a thin post swinging
+// across the frame); arrows and the hookshot meet it, as they meet the drawn mast. Never a rail: pushing into it
+// counts nothing (RsBoat_CountRailPush). top 0: none.
+typedef struct RsBoatPost {
+    f32 x[2];
+    f32 z[2];
+    f32 top;
+} RsBoatPost;
+
 typedef struct RsBoatKind {
     const char* name;
     const char* list; // the archive's display list: the kind once, at the origin, turn 0 (RsBoatModel.cpp)
@@ -177,6 +187,7 @@ typedef struct RsBoatKind {
     f32 turnAtSpeed;     // added at its default top speed: (rest + this) sets its full-speed turning circle
     // stern to bow, up to the first empty slot (RsBoat_NumStations): counted, not kept by hand beside the list
     RsBoatStation stations[RS_BOAT_MAX_STATIONS];
+    RsBoatPost post;
 } RsBoatKind;
 
 static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
@@ -293,16 +304,19 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
     // The raft, loc 59496 (the 856-face model, in the skiff's tint column; 59494-59500 are its row, the 530-face
     // model from 59497): a flat log platform 48 wide and 140 long, model z -71..69, x -24..24 with two crossbeams
     // standing 5 out each side (model z -46 and 2, left out of the outline), the logs from model y 8 to their top
-    // at 18.5, a post at model z 18. No rail. It floats flat with its logs half under: the top 6 over the water,
-    // the model drawn 12.5 down.
+    // at 18.5, a post at model x 18, z 16. No rail. It floats flat with its logs half under: the top 6 over the water,
+    // the model drawn 12.5 down. Its archive also carries Sailing's still sails (29473), whose mast stands on the post
+    // (#262: no template places a raft's parts; the sail's own frame is the raft's).
     { "raft",
       "objects/rs_props/rs_boat_raft/props",
       6.0f,
       -12.5f,
       0.0f,
-      0,
+      1,
       { 0 },
-      { NULL },
+      // the steering oar (helm-60553, the whole helm, from the raft's stern tile): its pin is where it rests on the
+      // stern's logs, on the centreline at model z -70, the blade trailing under the water behind
+      { "objects/rs_props/rs_boat_raft_rudder/props", { 0.0f, 0.0f, -70.0f } },
       10.0f,
       0.0f,   // no upgrade considered yet
       300.0f, // the best handling: the quickest spin and the tightest circle, ~420 across
@@ -315,7 +329,9 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
           { 26.0f, 22.0f, 24.0f, 0.0f },
           { 50.0f, 22.0f, 24.0f, 0.0f },
           { 68.0f, 21.0f, 23.0f, 0.0f },
-      } },
+      },
+      // the post and the mast on it, to the masthead (model y 115)
+      { { 13.0f, 22.0f }, { 12.0f, 20.0f }, 96.0f } },
 };
 
 static s32 RsBoat_NumStations(const RsBoatKind* kind) {
@@ -392,9 +408,9 @@ s32 RsBoat_KindByName(const char* name) {
 #define RS_BOAT_MIN_ALTITUDE 4.0f
 // The stations' eight each, then a covered bow's: its grid's knots, and a foot (and at the ends a top) for each strip
 // of its aft face; then a skinned stretch's skin and trim corners, eleven at each of its two stations. A skinned side
-// is 26 triangles where the plain rail is 6.
-#define RS_BOAT_MAX_VTX     (RS_BOAT_MAX_STATIONS * 8 + RS_BOAT_FOREDECK_ROWS * RS_BOAT_FOREDECK_COLS + RS_BOAT_FOREDECK_COLS + 4 + RS_BOAT_MAX_SKINNED * 22)
-#define RS_BOAT_MAX_POLYS                             ((RS_BOAT_MAX_STATIONS - 1) * 14 + 12 +            (RS_BOAT_FOREDECK_ROWS - 1) * (RS_BOAT_FOREDECK_COLS - 1) * 2 + (RS_BOAT_FOREDECK_COLS + 1) * 2 + RS_BOAT_MAX_SKINNED * 20)
+// is 26 triangles where the plain rail is 6. Then a post's eight corners, its four sides and top.
+#define RS_BOAT_MAX_VTX     (RS_BOAT_MAX_STATIONS * 8 + RS_BOAT_FOREDECK_ROWS * RS_BOAT_FOREDECK_COLS + RS_BOAT_FOREDECK_COLS + 4 + RS_BOAT_MAX_SKINNED * 22 + 8)
+#define RS_BOAT_MAX_POLYS                             ((RS_BOAT_MAX_STATIONS - 1) * 14 + 12 +            (RS_BOAT_FOREDECK_ROWS - 1) * (RS_BOAT_FOREDECK_COLS - 1) * 2 + (RS_BOAT_FOREDECK_COLS + 1) * 2 + RS_BOAT_MAX_SKINNED * 20 + 10)
 // The shore probes: the floor's edge and the gunwale's edge at every station, both sides, and the stern's middle.
 #define RS_BOAT_MAX_POINTS (RS_BOAT_MAX_STATIONS * 2 + 1)
 #define RS_BOAT_BOX_VTX 24
@@ -440,7 +456,8 @@ static RsBoatHull sHulls[RS_BOAT_KIND_COUNT];
 #define RS_BOAT_SURFACE_PLAIN 0
 #define RS_BOAT_SURFACE_HANDS_CLIMB 1
 #define RS_BOAT_SURFACE_HANDS_RAIL 2
-static SurfaceType sHullSurface[3] = {
+#define RS_BOAT_SURFACE_POST 3
+static SurfaceType sHullSurface[4] = {
     // wood footsteps (material 9, the bridge planks); everything else zero: a plain floor
     { { 0, 9 } },
     // the same, with the hands-climb wall type (#179) in word 0's wall-type field (bits 21-25): a covered bow's aft
@@ -449,12 +466,16 @@ static SurfaceType sHullSurface[3] = {
     // the same again for the interior walls while `boat climb hands` is on: its own row only so the climb can tell
     // a rail from a covered bow and land Link further onto the rail (RsBoat_ClimbInset)
     { { (u32)WALL_TYPE_HANDS_CLIMB << 21, 9 } },
+    // a plain wall again, for a post: its own row so the push count can tell it from a rail (RsBoat_CountRailPush)
+    { { 0, 9 } },
 };
 // A poly's line-test flags (z_bgcheck.c's COLPOLY_IGNORE_*, not in a header). Link's rail over a skinned stretch
 // lets arrows, seeds and the hookshot (RsBoat_HookshotLineTest) pass; its skin is theirs alone, which Link and the
 // camera pass (RsBoat_BuildSkinned).
 #define RS_BOAT_POLY_SHOTS_PASS (1 << 2)
 #define RS_BOAT_POLY_SHOTS_ONLY ((1 << 0) | (1 << 1))
+// What the camera passes and everything else meets: a post (RsBoatPost).
+#define RS_BOAT_POLY_CAMERA_PASS (1 << 0)
 // The sloop's drawn side, the only kind with a skin (measured off its archive at boat z -149 to 81, #262; the same
 // within a unit all along): a plank ~5 thick that flares outward as it rises, from 14 inside the gunwale's line at
 // the deck to its trim, 5 wide and 5 deep on top. Insets from `outerHw`, at heights over the deck.
@@ -805,6 +826,39 @@ static void RsBoat_BuildSkinned(RsBoatHull* hull, const RsBoatKind* kind, s32 i,
     RsBoat_FlagLineTests(hull, first, RS_BOAT_POLY_SHOTS_ONLY);
 }
 
+// A mast on an open deck (RsBoatPost): its four sides from the deck up, and its top. Corners 0-3 on the deck, 4-7
+// over them, round the box from (x0, z0).
+static void RsBoat_BuildPost(RsBoatHull* hull, const RsBoatKind* kind) {
+    const RsBoatPost* post = &kind->post;
+    const s32 v = hull->numVtx;
+    const f32 cx = (post->x[0] + post->x[1]) * 0.5f;
+    const f32 cz = (post->z[0] + post->z[1]) * 0.5f;
+    const s32 first = hull->numPolys;
+    s32 k;
+
+    for (k = 0; k < 8; k++) {
+        const s32 c = k % 4;
+
+        hull->vtx[v + k].x = (s16)lroundf(post->x[(c == 1 || c == 2) ? 1 : 0]);
+        hull->vtx[v + k].y = (s16)lroundf(kind->deckY + (k < 4 ? 0.0f : post->top));
+        hull->vtx[v + k].z = (s16)lroundf(post->z[c >= 2 ? 1 : 0]);
+    }
+    hull->numVtx += 8;
+    for (k = 0; k < 4; k++) {
+        const s32 n = (k + 1) % 4;
+        const Vec3s* a = &hull->vtx[v + k];
+        const Vec3s* b = &hull->vtx[v + n];
+
+        RsBoat_AddQuad(hull, v + k, v + n, v + 4 + n, v + 4 + k, (a->x + b->x) * 0.5f - cx, 0.0f,
+                       (a->z + b->z) * 0.5f - cz);
+    }
+    RsBoat_AddQuad(hull, v + 4, v + 5, v + 6, v + 7, 0.0f, 1.0f, 0.0f);
+    for (k = first; k < hull->numPolys; k++) {
+        hull->polys[k].type = RS_BOAT_SURFACE_POST;
+    }
+    RsBoat_FlagLineTests(hull, first, RS_BOAT_POLY_CAMERA_PASS);
+}
+
 static void RsBoat_BuildHull(s32 kindId) {
     const RsBoatKind* kind = &sRsBoatKinds[kindId];
     RsBoatHull* hull = &sHulls[kindId];
@@ -922,6 +976,9 @@ static void RsBoat_BuildHull(s32 kindId) {
     }
     if (kind->foredeck.rows > 0) {
         RsBoat_BuildForedeck(hull, kind);
+    }
+    if (kind->post.top > 0.0f) {
+        RsBoat_BuildPost(hull, kind);
     }
 
     col->minBounds.x = (s16)-lroundf(hull->halfWidth);
@@ -1638,7 +1695,9 @@ static void RsBoat_CountRailPush(RsBoat* this, PlayState* play, const Player* pl
     const Input* input = &play->state.input[0];
     const f32 stick = sqrtf(SQ((f32)input->cur.stick_x) + SQ((f32)input->cur.stick_y));
     const s32 swimming = (player->stateFlags1 & PLAYER_STATE1_IN_WATER) != 0;
-    const s32 onHull = this->dyna.bgId >= 0 && (u8)player->actor.wallBgId == (u8)this->dyna.bgId;
+    // A post is not a rail: pushing into it hops nothing (RsBoat_RailHop).
+    const s32 onHull = this->dyna.bgId >= 0 && (u8)player->actor.wallBgId == (u8)this->dyna.bgId &&
+                       !(player->actor.wallPoly != NULL && player->actor.wallPoly->type == RS_BOAT_SURFACE_POST);
     // Standing on the shore (anything but a boat) beside the hull (#262): without it nothing counted, and Link could
     // not climb aboard from land at all (RsBoat_ClimbDelay).
     const s32 ashore = !swimming && onHull && (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) &&
