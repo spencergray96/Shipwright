@@ -61,7 +61,25 @@
     -140
    ],
    "rot": 0,
-   "weld": "helm"
+   "weld": "helm",
+   "sway": [
+    {
+     "colour": [
+      226,
+      226,
+      222
+     ],
+     "why": "the sail's cloth: RS swings it with skeletal animation, which no stage reads; the wind sway stands in"
+    },
+    {
+     "colour": [
+      128,
+      15,
+      7
+     ],
+     "why": "the pennant at the masthead"
+    }
+   ]
   }
  ]
 }
