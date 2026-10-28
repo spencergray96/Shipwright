@@ -52,8 +52,10 @@ struct Emitter {
     int16_t sound; // an En_River_Sound param (z_en_river_sound.h)
     // How far the sound reaches, in RS tiles from Link (XZ). Seeded from the loc's own RS radius.
     float radius;
-    // Loudness at the emitter, 0..1, multiplied into the engine's own distance curve. Water sits lower
-    // than fire: the owner's first listen (2026-10-27) found the water the more offensive of the two.
+    // Loudness at the emitter, 0..1, multiplied into the engine's own distance curve. Scale it with how
+    // much of a set piece the thing making the noise is. Fountains 0.6: the owner's pick by ear
+    // (2026-10-27), over a grey-box with nothing to see, so revisit once the visuals match. The fire
+    // and river values are first guesses nobody has judged.
     float gain;
 };
 
@@ -65,8 +67,8 @@ struct Emitter {
  */
 // Radius and gain are the last two fields: the radius is RS's own, the gain a first guess for the ear.
 const Emitter kEmitters[] = {
-    { "fountain_south", 3221, 3210, RS_FOUNTAIN_WATER, 7.0f, 0.5f },   // loc 879 Fountain, r=7, sound 2150
-    { "fountain_north", 3221, 3226, RS_FOUNTAIN_WATER, 7.0f, 0.5f },   // loc 879 Fountain, r=7, sound 2150
+    { "fountain_south", 3221, 3210, RS_FOUNTAIN_WATER, 7.0f, 0.6f },   // loc 879 Fountain, r=7, sound 2150
+    { "fountain_north", 3221, 3226, RS_FOUNTAIN_WATER, 7.0f, 0.6f },   // loc 879 Fountain, r=7, sound 2150
     { "cooking_range", 3212, 3215, RS_TORCH_CRACKLING, 3.0f, 0.7f },   // loc 114 Cooking range (kitchen), r=3
     { "fireplace", 3214, 3249, RS_TORCH_CRACKLING, 5.0f, 0.7f },       // loc 24969 Fireplace, r=5, sound 2198
     { "furnace", 3226, 3256, RS_TORCH_CRACKLING, 10.0f, 0.7f },        // loc 24009 Furnace, r=10, sound 2209
