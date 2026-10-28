@@ -1,12 +1,15 @@
 /*
- * Area ambience, Phase A (sturdy-bassoon#275). RsAmbience.h says what this is and what it is not.
+ * Area ambience (sturdy-bassoon#275). RsAmbience.h says what this is and what it is not.
  */
 
 #include "RsAmbience.h"
+#include "RsAmbienceMixer.h"
 
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <string>
+#include <vector>
 
 #include <libultraship/bridge/consolevariablebridge.h>
 
@@ -22,6 +25,8 @@ extern "C" {
 #include "variables.h"
 #include "overlays/actors/ovl_En_River_Sound/z_en_river_sound.h"
 extern PlayState* gPlayState;
+// code_800EC960.c, not in a header: the engine's own pan for a view-space position, 0 (left) .. 127 (right).
+s8 Audio_ComputeSoundPanSigned(f32 x, f32 z, u8 token);
 }
 
 #define CVAR_RS_AMBIENCE CVAR_ENHANCEMENT("RsAmbience")
@@ -44,12 +49,21 @@ constexpr float kAboveFloor = 40.0f;
 // The env bank has 3 channels (gChannelsPerBank). 2 leaves one for the game's own env sounds - a
 // door, a chest, an RS fire - which this feature must not crowd out.
 constexpr int32_t kDefaultMax = 2;
+// File rows the mixer may play at once, nearest first. Half its voice pool, so a fading voice never blocks
+// a new one.
+constexpr int32_t kMixerVoices = 8;
+// A row's `sound` when it plays an external file through the mixer instead of an OoT sfx.
+constexpr int16_t kFile = -1;
+// pi/2, spelled out: M_PI needs a header this file does not include (RsMenu.cpp has the same note).
+constexpr float kQuarterTurn = 1.57079633f;
 
 struct Emitter {
     const char* name;
     int32_t rsX;
     int32_t rsY;
-    int16_t sound; // an En_River_Sound param (z_en_river_sound.h)
+    // An En_River_Sound param (z_en_river_sound.h): an OoT sfx, through the engine. Or kFile: `files`, through
+    // the mixer (RsAmbienceMixer.h). Both kinds may sit side by side; only OoT rows count against `max`.
+    int16_t sound;
     // How far the sound reaches, in RS tiles from Link (XZ). Seeded from the loc's own RS radius.
     float radius;
     // Loudness at the emitter, 0..1, multiplied into the engine's own distance curve. Scale it with how
@@ -57,6 +71,12 @@ struct Emitter {
     // (2026-10-27), over a grey-box with nothing to see, so revisit once the visuals match. The fire
     // and river values are first guesses nobody has judged.
     float gain;
+    // kFile rows only. One rs-sfx.json id, or several separated by '|' to pick from at random.
+    const char* files;
+    // kFile rows only. 0 loops the first file. Otherwise one file plays once every minTicks..maxTicks game
+    // ticks (20 a second), picked at random: how RS's random ambient sounds (loc opcode 79) retrigger.
+    int16_t minTicks;
+    int16_t maxTicks;
 };
 
 /*
@@ -75,6 +95,12 @@ const Emitter kEmitters[] = {
     { "spit_roast", 3245, 3246, RS_TORCH_CRACKLING, 3.0f, 0.7f },      // loc 5608 Spit roast, r=3, sound 2220
     { "river_lum", 3243, 3229, RS_SMALL_WATERFALL, 20.0f, 0.4f },      // loc 16392 by the River Lum, r=20, sound 2168
     { "river_lum_north", 3235, 3262, RS_SMALL_WATERFALL, 20.0f, 0.4f }, // loc 16392, r=20, sound 2168
+    // External files (2026-10-28), the first through the mixer. Neither is an RS placement: the wiki has no file
+    // for any Lumbridge ambient loop, so these are stand-ins that prove the two kinds. Birds by the south
+    // fountain, so an RS sound and an OoT one are heard together; the waystone loop on its own, east of it.
+    { "birds_fountain", 3224, 3213, kFile, 8.0f, 0.6f,
+      "bird-twitter-1|bird-twitter-2|bird-twitter-3|bird-twitter-4|bird-twitter-5|bird-twitter-6", 40, 120 },
+    { "waystone_test", 3232, 3216, kFile, 5.0f, 0.5f, "waystone-loop", 0, 0 },
 };
 constexpr int32_t kEmitterCount = (int32_t)(sizeof(kEmitters) / sizeof(kEmitters[0]));
 
@@ -93,6 +119,13 @@ bool sTuningSeeded = false;
 // the sound's entry and reads it on every audio update, so it must outlive the request: static storage.
 f32 sVol[kEmitterCount] = {};
 bool sSpawnPending = false;
+// kFile rows: the one-shot state. sTrigger counts plays (the mixer starts a file when it changes), sCountdown
+// is ticks to the next one, sPick which of the row's files it plays.
+uint32_t sTrigger[kEmitterCount] = {};
+int32_t sCountdown[kEmitterCount] = {};
+int32_t sPick[kEmitterCount] = {};
+// kFile rows: whether every file the row names is loaded. A row with a missing file stays silent.
+bool sFilesOk[kEmitterCount] = {};
 
 // Tunable ranges, in RS tiles and as a multiplier. Above 1 the gain would be louder than vanilla.
 constexpr float kRadiusMin = 0.5f;
@@ -123,30 +156,72 @@ bool InTableScene(PlayState* play) {
     return play != nullptr && play->sceneNum == SCENE_F2P_OVERWORLD;
 }
 
-// The sfx En_River_Sound's own draw plays for each param (its soundEffects table).
-u16 SfxFor(int16_t sound) {
-    switch (sound) {
-        case RS_FOUNTAIN_WATER:
-            return NA_SE_EV_FOUNTAIN - SFX_FLAG;
-        case RS_TORCH_CRACKLING:
-            return NA_SE_EV_TORCH - SFX_FLAG;
-        case RS_SMALL_WATERFALL:
-        default:
-            return NA_SE_EV_WATER_WALL - SFX_FLAG;
+// Every En_River_Sound param that is a plain looping sfx, from the actor's own soundEffects table
+// (z_en_river_sound.c), with the name `rsambience status` prints. The params left out (0, 4, 5, 11, 12, 13, 19)
+// are not an sfx at all - a river that follows a path, Saria's song, the fairy fountain's music - and a row
+// naming one stays silent and reads sound=unsupported.
+struct OotSound {
+    int16_t param;
+    u16 sfx;
+    const char* name;
+};
+const OotSound kOotSounds[] = {
+    { RS_SMALL_WATERFALL, NA_SE_EV_WATER_WALL - SFX_FLAG, "small_waterfall" },
+    { RS_LAVA_BUBBLES_1, NA_SE_EV_MAGMA_LEVEL - SFX_FLAG, "lava_bubbles_1" },
+    { RS_LARGE_WATERFALL, NA_SE_EV_WATER_WALL_BIG - SFX_FLAG, "large_waterfall" },
+    { RS_LAVA_BUBBLES_2, NA_SE_EV_MAGMA_LEVEL_M - SFX_FLAG, "lava_bubbles_2" },
+    { RS_LAVA_BUBBLES_3, NA_SE_EV_MAGMA_LEVEL_L - SFX_FLAG, "lava_bubbles_3" },
+    { RS_DRIPPING_WATER, NA_SE_EV_WATERDROP - SFX_FLAG, "dripping_water" },
+    { RS_FOUNTAIN_WATER, NA_SE_EV_FOUNTAIN - SFX_FLAG, "fountain" },
+    { RS_MARKET_CROWD, NA_SE_EV_CROWD - SFX_FLAG, "market_crowd" },
+    { RS_SANDSTORM, NA_SE_EV_SAND_STORM - SFX_FLAG, "sandstorm" },
+    { RS_LAKESIDE_LAB_TANK, NA_SE_EV_WATER_BUBBLE - SFX_FLAG, "water_bubble" },
+    { RS_CHAMBER_OF_SAGES_1, NA_SE_EV_KENJA_ENVIROMENT_0 - SFX_FLAG, "chamber_of_sages_1" },
+    { RS_CHAMBER_OF_SAGES_2, NA_SE_EV_KENJA_ENVIROMENT_1 - SFX_FLAG, "chamber_of_sages_2" },
+    { RS_RUMBLING, NA_SE_EV_EARTHQUAKE - SFX_FLAG, "rumbling" },
+    { RS_TORCH_CRACKLING, NA_SE_EV_TORCH - SFX_FLAG, "torch" },
+    { RS_COW_MOOING, NA_SE_EV_COW_CRY_LV - SFX_FLAG, "cow" },
+};
+
+const OotSound* FindOotSound(int16_t param) {
+    for (const OotSound& s : kOotSounds) {
+        if (s.param == param) {
+            return &s;
+        }
     }
+    return nullptr;
+}
+
+// 0 for a param that is not a plain sfx: EmitterDraw then requests nothing.
+u16 SfxFor(int16_t sound) {
+    const OotSound* s = FindOotSound(sound);
+    return s != nullptr ? s->sfx : 0;
 }
 
 const char* SoundName(int16_t sound) {
-    switch (sound) {
-        case RS_FOUNTAIN_WATER:
-            return "fountain";
-        case RS_TORCH_CRACKLING:
-            return "torch";
-        case RS_SMALL_WATERFALL:
-            return "small_waterfall";
-        default:
-            return "other";
+    const OotSound* s = FindOotSound(sound);
+    return s != nullptr ? s->name : "unsupported";
+}
+
+bool IsFile(const Emitter& e) {
+    return e.sound == kFile;
+}
+
+std::vector<std::string> FileIds(const Emitter& e) {
+    std::vector<std::string> ids;
+    std::string current;
+    for (const char* c = e.files != nullptr ? e.files : ""; *c != 0; c++) {
+        if (*c == '|') {
+            ids.push_back(current);
+            current.clear();
+        } else {
+            current += *c;
+        }
     }
+    if (!current.empty()) {
+        ids.push_back(current);
+    }
+    return ids;
 }
 
 Vec3f TileCentre(const Emitter& e) {
@@ -184,12 +259,23 @@ void SpawnAll(PlayState* play) {
         if (IsLive(play, sActors[i])) {
             continue;
         }
+        if (IsFile(kEmitters[i])) {
+            // Decoded once and kept; a file missing from every archive is logged and the row stays silent.
+            sFilesOk[i] = true;
+            for (const std::string& id : FileIds(kEmitters[i])) {
+                sFilesOk[i] = RsAmbienceMixer_Load(id.c_str()) && sFilesOk[i];
+            }
+        }
         Vec3f pos = TileCentre(kEmitters[i]);
         CollisionPoly* poly = nullptr;
         const f32 floorY = BgCheck_EntityRaycastFloor1(&play->colCtx, &poly, &pos);
         pos.y = (floorY > BGCHECK_Y_MIN ? floorY : 0.0f) + kAboveFloor;
+        // The actor only carries the position: CapToNearest replaces its draw with EmitterDraw (an OoT row) or
+        // none (a file row, which the mixer plays). So every row spawns with the plain fountain param, whose
+        // Init and Update do nothing, never with a param whose actor behaviour is special (a river on a path,
+        // Saria's song).
         sActors[i] = Actor_Spawn(&play->actorCtx, play, ACTOR_EN_RIVER_SOUND, pos.x, pos.y, pos.z, 0, 0, 0,
-                                 kEmitters[i].sound);
+                                 RS_FOUNTAIN_WATER);
         if (sActors[i] != nullptr) {
             // Room -1: a room change kills every actor of the room it leaves, and an emitter belongs
             // to the scene, not to whichever room Link was in when it spawned.
@@ -213,8 +299,11 @@ void KillAll(PlayState* play) {
 void EmitterDraw(Actor* actor, PlayState*) {
     for (int32_t i = 0; i < kEmitterCount; i++) {
         if (sActors[i] == actor) {
-            Audio_PlaySoundGeneral(SfxFor(kEmitters[i].sound), &actor->projectedPos, 4, &gSfxDefaultFreqAndVolScale,
-                                   &sVol[i], &gSfxDefaultReverb);
+            const u16 sfx = SfxFor(kEmitters[i].sound);
+            if (sfx != 0) {
+                Audio_PlaySoundGeneral(sfx, &actor->projectedPos, 4, &gSfxDefaultFreqAndVolScale, &sVol[i],
+                                       &gSfxDefaultReverb);
+            }
             return;
         }
     }
@@ -233,6 +322,12 @@ void EmitterDraw(Actor* actor, PlayState*) {
  * fountain across Lumbridge outranks a fire at Link's feet, and the fires never played at all. So only
  * the nearest N emitters in range keep their draw, which is what asks for the sound. The radius alone
  * does not make the cap redundant: where two radii overlap, the wall is back.
+ *
+ * FILE ROWS (2026-10-28) take none of that: they go to the mixer, which has its own voices. They share the
+ * radius and gain, are capped separately at the nearest kMixerVoices, and are panned with the engine's own
+ * Audio_ComputeSoundPanSigned on the same view-space position the engine would use (projectedPos), so the
+ * two kinds sit in the same place left to right. What they do not get is the engine's distance curve on top
+ * of the fade, so one gain is not quite the same loudness in both kinds: tune each by ear.
  */
 float Fade(float dist, float radiusTiles) {
     const float full = kUnitsPerTile;
@@ -246,6 +341,64 @@ float Fade(float dist, float radiusTiles) {
     return 1.0f - (dist - full) / (edge - full);
 }
 
+// Picks the nearest `max` rows of one kind (file or not) that are in range.
+void PickNearest(const float* dist, bool fileRows, int32_t max) {
+    for (int32_t k = 0; k < max; k++) {
+        int32_t best = -1;
+        for (int32_t i = 0; i < kEmitterCount; i++) {
+            if (IsFile(kEmitters[i]) == fileRows && dist[i] >= 0.0f && !sActive[i] &&
+                (best < 0 || dist[i] < dist[best])) {
+                best = i;
+            }
+        }
+        if (best < 0) {
+            break;
+        }
+        sActive[best] = true;
+    }
+}
+
+// Tells the mixer what the active file rows should play this tick: loops by gain and pan, one-shots by a
+// trigger that moves when the row's countdown runs out.
+void SubmitFiles(PlayState* play, const bool* wasActive) {
+    RsAmbienceVoice voices[kEmitterCount];
+    std::vector<std::string> picked(kEmitterCount);
+    int32_t count = 0;
+    for (int32_t i = 0; i < kEmitterCount; i++) {
+        const Emitter& e = kEmitters[i];
+        if (!IsFile(e) || !sActive[i] || !sFilesOk[i]) {
+            continue;
+        }
+        const std::vector<std::string> ids = FileIds(e);
+        const bool loop = e.maxTicks <= 0;
+        if (!loop) {
+            if (!wasActive[i]) {
+                // Coming into range: the first play lands somewhere in the first interval, not at once.
+                sCountdown[i] = (int32_t)(Rand_ZeroOne() * e.minTicks);
+            }
+            if (--sCountdown[i] <= 0) {
+                sTrigger[i]++;
+                sPick[i] = (int32_t)(Rand_ZeroOne() * ids.size()) % (int32_t)ids.size();
+                sCountdown[i] = e.minTicks + (int32_t)(Rand_ZeroOne() * (e.maxTicks - e.minTicks));
+            }
+        }
+        Vec3f pos = sActors[i]->world.pos;
+        Vec3f view;
+        f32 w;
+        SkinMatrix_Vec3fMtxFMultXYZW(&play->viewProjectionMtxF, &pos, &view, &w);
+        const float pan = (float)Audio_ComputeSoundPanSigned(view.x, view.z, 4) / 127.0f;
+        picked[i] = loop ? ids[0] : ids[sPick[i]];
+        voices[count].key = i;
+        voices[count].id = picked[i].c_str();
+        voices[count].loop = loop;
+        voices[count].trigger = sTrigger[i];
+        voices[count].left = sVol[i] * cosf(pan * kQuarterTurn);
+        voices[count].right = sVol[i] * sinf(pan * kQuarterTurn);
+        count++;
+    }
+    RsAmbienceMixer_Submit(voices, count);
+}
+
 void CapToNearest(PlayState* play) {
     Player* player = GET_PLAYER(play);
     if (player == nullptr) {
@@ -253,7 +406,9 @@ void CapToNearest(PlayState* play) {
     }
     SeedTuning();
     float dist[kEmitterCount];
+    bool wasActive[kEmitterCount];
     for (int32_t i = 0; i < kEmitterCount; i++) {
+        wasActive[i] = sActive[i];
         sActive[i] = false;
         sVol[i] = 0.0f;
         dist[i] = -1.0f;
@@ -265,24 +420,14 @@ void CapToNearest(PlayState* play) {
             }
         }
     }
-    const int32_t max = MaxActive();
-    for (int32_t k = 0; k < max; k++) {
-        int32_t best = -1;
-        for (int32_t i = 0; i < kEmitterCount; i++) {
-            if (dist[i] >= 0.0f && !sActive[i] && (best < 0 || dist[i] < dist[best])) {
-                best = i;
-            }
-        }
-        if (best < 0) {
-            break;
-        }
-        sActive[best] = true;
-    }
+    PickNearest(dist, false, MaxActive());
+    PickNearest(dist, true, kMixerVoices);
     for (int32_t i = 0; i < kEmitterCount; i++) {
         if (IsLive(play, sActors[i])) {
-            sActors[i]->draw = sActive[i] ? EmitterDraw : nullptr;
+            sActors[i]->draw = (sActive[i] && !IsFile(kEmitters[i])) ? EmitterDraw : nullptr;
         }
     }
+    SubmitFiles(play, wasActive);
 }
 
 // Spawning waits for Link's first tick rather than OnSceneSpawnActors, which fires only when the
@@ -290,6 +435,7 @@ void CapToNearest(PlayState* play) {
 void OnPlayerUpdate() {
     if (!InTableScene(gPlayState)) {
         sSpawnPending = false;
+        RsAmbienceMixer_Submit(nullptr, 0);
         return;
     }
     if (sSpawnPending) {
@@ -360,12 +506,14 @@ int32_t Status(const std::string& op, std::vector<std::string>& lines) {
         lines.push_back("op=" + op + " enabled=" + std::to_string(Enabled() ? 1 : 0) + " scene=none here=0 spawned=0");
         return 0;
     }
-    char buf[256];
+    const RsAmbienceMixerStats mixer = RsAmbienceMixer_GetStats();
+    char buf[512];
     std::snprintf(buf, sizeof(buf),
                   "op=%s enabled=%d scene=0x%02X here=%d spawned=%d max=%d env_requested=%d env_playing=%d "
-                  "env_channels=%d",
+                  "env_channels=%d mixer_voices=%d mixer_audible=%d mixer_loaded=%d mixer_batches=%llu",
                   op.c_str(), Enabled() ? 1 : 0, play->sceneNum, InTableScene(play) ? 1 : 0, SpawnedCount(play),
-                  MaxActive(), requested, playing, channels);
+                  MaxActive(), requested, playing, channels, mixer.voices, mixer.audible, mixer.loaded,
+                  (unsigned long long)mixer.batches);
     lines.push_back(buf);
     if (!InTableScene(play)) {
         return 0;
@@ -379,17 +527,29 @@ int32_t Status(const std::string& op, std::vector<std::string>& lines) {
         bool req = false, playingNow = false;
         Vec3f pos = TileCentre(e);
         if (live) {
-            EmitterState(actor, &req, &playingNow);
             pos = actor->world.pos;
+            if (IsFile(e)) {
+                // The mixer's view: submitted this tick, and heard in the last batch it mixed.
+                req = sActive[i] && sFilesOk[i];
+                playingNow = (mixer.keysAudible >> i) & 1;
+            } else {
+                EmitterState(actor, &req, &playingNow);
+            }
         }
         const float dist = (live && player != nullptr) ? Math_Vec3f_DistXZ(&pos, &player->actor.world.pos) : -1.0f;
+        const std::string sound = IsFile(e) ? std::string("file:") + e.files : SoundName(e.sound);
         std::snprintf(buf, sizeof(buf),
                       "emitter=%s sound=%s tile=%d,%d pos=%.0f,%.0f,%.0f dist=%.0f spawned=%d active=%d requested=%d "
                       "playing=%d radius=%.1f gain=%.2f vol=%.2f",
-                      e.name, SoundName(e.sound), e.rsX, e.rsY, pos.x, live ? pos.y : 0.0f, pos.z, dist, live ? 1 : 0,
+                      e.name, sound.c_str(), e.rsX, e.rsY, pos.x, live ? pos.y : 0.0f, pos.z, dist, live ? 1 : 0,
                       (live && sActive[i]) ? 1 : 0, req ? 1 : 0, playingNow ? 1 : 0, sRadius[i], sGain[i],
                       (live && sActive[i]) ? sVol[i] : 0.0f);
-        lines.push_back(buf);
+        std::string line = buf;
+        if (IsFile(e)) {
+            line += live ? (sFilesOk[i] ? " files=ok" : " files=missing") : " files=unknown";
+            line += " plays=" + std::to_string(sTrigger[i]);
+        }
+        lines.push_back(line);
     }
     return 0;
 }
@@ -513,11 +673,12 @@ const ConsoleSink::Command rsAmbienceCommand(
     "rsambience", RsAmbienceConsole_Run,
     "Area ambience experiment (sturdy-bassoon#275): status | on | off | max [<n>|default] | "
     "radius|gain <emitter|all> [<value>|default]. A few of RS's ambient emitters around Lumbridge "
-    "on vanilla En_River_Sound actors. status lists each emitter with its distance, radius, gain "
-    "and whether its sound is playing, plus the env sound budget in use anywhere; on|off switch "
-    "them live for an A/B by ear; max is how many of the nearest in range may sound at once "
-    "(default 2); radius (RS tiles) and gain (0..1) tune one emitter or all of them by ear, "
-    "unsaved.",
+    "playing OoT sounds through the engine and external files (rs/sfx/, npm run fetch:rs-sfx) "
+    "through the ambience mixer. status lists each emitter with its distance, radius, gain and "
+    "whether its sound is playing, plus the env sound budget in use anywhere and the mixer's "
+    "voices; on|off switch them live for an A/B by ear; max is how many of the nearest OoT-sound "
+    "emitters in range may sound at once (default 2; file emitters have their own 8); radius (RS "
+    "tiles) and gain (0..1) tune one emitter or all of them by ear, unsaved.",
     { { "status|on|off|max|radius|gain", Ship::ArgumentType::TEXT, true },
       { "n|emitter", Ship::ArgumentType::TEXT, true },
       { "value", Ship::ArgumentType::TEXT, true } });

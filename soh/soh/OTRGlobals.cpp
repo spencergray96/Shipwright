@@ -120,6 +120,7 @@
 
 #include "soh/config/ConfigUpdaters.h"
 #include "soh/ShipInit.hpp"
+#include "soh/Enhancements/rs/ambience/RsAmbienceMixer.h"
 
 #ifdef _MSC_VER
 #define strdup _strdup
@@ -1071,6 +1072,8 @@ void OTRAudio_Thread() {
             AudioMgr_CreateNextAudioBuffer(audio_buffer + i * (num_audio_samples * NUM_AUDIO_CHANNELS),
                                            num_audio_samples);
         }
+        // SOH [sturdy-bassoon#275] external ambience files, added to the finished batch (RsAmbienceMixer.h)
+        RsAmbienceMixer_Mix(audio_buffer, total_frames);
 
         AudioPlayer_Play(reinterpret_cast<u8*>(audio_buffer), total_samples * sizeof(int16_t));
     };
