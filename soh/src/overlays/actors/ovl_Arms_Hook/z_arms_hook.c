@@ -2,6 +2,7 @@
 #include "objects/object_link_boy/object_link_boy.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
+#include "soh/Enhancements/rs/actors/RsBoat.h"
 
 #define FLAGS (ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED)
 
@@ -265,8 +266,8 @@ void ArmsHook_Shoot(ArmsHook* this, PlayState* play) {
         if (CVarGetInteger(CVAR_ENHANCEMENT("DpadEquips"), 0) != 0) {
             buttonsToCheck |= BTN_DUP | BTN_DDOWN | BTN_DLEFT | BTN_DRIGHT;
         }
-        if (BgCheck_EntityLineTest1(&play->colCtx, &sp60, &this->unk_1E8, &sp78, &poly, true, true, true, true,
-                                    &bgId) &&
+        // SOH [Fork] sturdy-bassoon#262: through a boat's rail openings, whose walls only Link meets.
+        if (RsBoat_HookshotLineTest(play, &sp60, &this->unk_1E8, &sp78, &poly, &bgId) &&
             !func_8002F9EC(play, &this->actor, poly, bgId, &sp78)) {
             sp5C = COLPOLY_GET_NORMAL(poly->normal.x);
             sp58 = COLPOLY_GET_NORMAL(poly->normal.z);

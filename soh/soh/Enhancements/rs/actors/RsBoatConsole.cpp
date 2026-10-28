@@ -36,7 +36,8 @@ using ConsoleSink::Addf;
     "list | spawn [<x> <z> [<yaw>]] | probe <x> <z> | water <x0> <z0> <x1> <z1> <y> | water clear | "            \
     "board [<idx>] | helm on|off [<idx>] | drive <throttle> <turn> <ticks> | lakehylia [on|off] | "             \
     "lakelevel [full|drained] | cam [on|off|default] | cam height|dist|ease <n> | hud [on|off] | "             \
-    "climb [hop|hands] | kind [skiff|sloop|raft] | tune [default] | tune <knob> <value> | contact [<idx>] | clear"
+    "climb [hop|hands] | kind [skiff|sloop|raft] | tune [default] | tune <knob> <value> | contact [<idx>] | "       \
+    "still [on|off] | clear"
 
 const char* kUsage = "op=usage result=error usage=\"boat " RS_BOAT_GRAMMAR "\"";
 
@@ -358,6 +359,23 @@ int32_t Hud(const std::vector<std::string>& args, std::vector<std::string>& line
     return 0;
 }
 
+// Holds every boat level and at its float height, no bob and no rock (not saved: a test aid, #262), so a line test
+// or a capture against the hull meets it where its boat-space numbers say.
+int32_t Still(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() == 2) {
+        if (args[1] != "on" && args[1] != "off") {
+            lines.push_back(kUsage);
+            return 1;
+        }
+        gRsBoatStill = args[1] == "on" ? 1 : 0;
+    } else if (args.size() != 1) {
+        lines.push_back(kUsage);
+        return 1;
+    }
+    Addf(lines, "op=still result=ok still=%s", gRsBoatStill ? "on" : "off");
+    return 0;
+}
+
 // How Link gets from the deck onto a rail (saved): the hands-on climb a prop and a covered bow get (the default, the
 // owner's pick, #262), or the boat's hop. A boat reads it every tick.
 int32_t Climb(const std::vector<std::string>& args, std::vector<std::string>& lines) {
@@ -615,6 +633,9 @@ int32_t RsBoatConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "climb") {
         return Climb(args, lines);
     }
+    if (sub == "still") {
+        return Still(args, lines);
+    }
     if (sub == "tune") {
         return Tune(args, lines);
     }
@@ -675,8 +696,8 @@ const ConsoleSink::Command rsBoatCommand(
     "Hylia's boat back as that kind); tune sets the handling: fwd (top speed for every kind; 0 for each kind's own), "
     "rev (astern, a share of top speed), accel, drag, brake, turnstill and turnmove (binang a tick), steps (0: the "
     "stick's throttle is smooth), upgrade (1: each kind's upgraded top speed); saved; contact lists what the hull's "
-    "outline meets where it is.",
-    { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|kind|tune|contact|clear",
+    "outline meets where it is; still holds every boat level, with no bob or rock (a test aid, not saved).",
+    { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|kind|tune|contact|still|clear",
         Ship::ArgumentType::TEXT },
       { "arg1", Ship::ArgumentType::TEXT, true },
       { "arg2", Ship::ArgumentType::TEXT, true },

@@ -2388,7 +2388,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         if (args.size() < 9 || !ParseFloat(args[3], &a.x) || !ParseFloat(args[4], &a.y) || !ParseFloat(args[5], &a.z) ||
             !ParseFloat(args[6], &b.x) || !ParseFloat(args[7], &b.y) || !ParseFloat(args[8], &b.z)) {
             if (output) {
-                *output += "ray needs <projectile|entity|camera|any> x0 y0 z0 x1 y1 z1";
+                *output += "ray needs <projectile|entity|hookshot|camera|any> x0 y0 z0 x1 y1 z1";
             }
             return 1;
         }
@@ -2402,13 +2402,16 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             found = BgCheck_ProjectileLineTest(colCtx, &a, &b, &hit, &poly, 1, 1, 1, 1, &bgId);
         } else if (kind == "entity") {
             found = BgCheck_EntityLineTest1(colCtx, &a, &b, &hit, &poly, 1, 1, 1, 1, &bgId);
+        } else if (kind == "hookshot") {
+            // The hookshot's own test (sturdy-bassoon#262): entity's, passing a boat's walls only Link meets.
+            found = RsBoat_HookshotLineTest(gPlayState, &a, &b, &hit, &poly, &bgId);
         } else if (kind == "camera") {
             found = BgCheck_CameraLineTest1(colCtx, &a, &b, &hit, &poly, 1, 1, 1, 1, &bgId);
         } else if (kind == "any") {
             found = BgCheck_AnyLineTest3(colCtx, &a, &b, &hit, &poly, 1, 1, 1, 1, &bgId);
         } else {
             if (output) {
-                *output += "ray kind must be projectile, entity, camera or any";
+                *output += "ray kind must be projectile, entity, hookshot, camera or any";
             }
             return 1;
         }

@@ -11396,7 +11396,9 @@ void Player_ProcessSceneCollision(PlayState* play, Player* this) {
             (sShapeYawToTouchedWall < RsBoat_InteractAngle(play, this, 0x3000))) {
             CollisionPoly* wallPoly = this->actor.wallPoly;
 
-            if (GameInteractor_Should(VB_SURFACE_ANGLE_IS_CLIMBABLE, ABS(wallPoly->normal.y) < 600)) {
+            // SOH [Fork] sturdy-bassoon#262: a boat's hull wall may lean a little, from its collision's truncation.
+            if (GameInteractor_Should(VB_SURFACE_ANGLE_IS_CLIMBABLE,
+                                      ABS(wallPoly->normal.y) < RsBoat_WallLean(play, this, 600))) {
                 f32 wallPolyNormalX = COLPOLY_GET_NORMAL(wallPoly->normal.x);
                 f32 wallPolyNormalY = COLPOLY_GET_NORMAL(wallPoly->normal.y);
                 f32 wallPolyNormalZ = COLPOLY_GET_NORMAL(wallPoly->normal.z);

@@ -271,6 +271,18 @@ s32 RsBoat_InteractAngle(PlayState* play, const Player* player, s32 vanilla);
 // hull's wall from its deck, so the notch's sloped ends climb rather than fall back to the hop.
 s32 RsBoat_LedgeFlat(PlayState* play, const Player* player, s32 vanilla);
 
+// How far a wall may lean (its normal's y, s16) and still be climbed: `vanilla` (600), or more for a hull's wall, which
+// the engine's truncation of its moving collision tilts.
+s32 RsBoat_WallLean(PlayState* play, const Player* player, s32 vanilla);
+
+// `boat still`: every boat level at its float height, no bob and no rock (a test aid, not saved; #262).
+extern s32 gRsBoatStill;
+
+// The hookshot's line test (BgCheck_EntityLineTest1, every surface, as ArmsHook_Shoot asks), but passing a boat's walls
+// that only Link meets, as projectiles do (RS_BOAT_POLY_SHOTS_PASS): a rail opening's (#262).
+s32 RsBoat_HookshotLineTest(PlayState* play, Vec3f* from, Vec3f* to, Vec3f* result, CollisionPoly** outPoly,
+                             s32* outBgId);
+
 // How much higher than vanilla a swimming Link reaches to climb out onto the ledge in front of him: some when the
 // wall he swims against is a boat's hull, so both rails are climbable from the water anywhere; 0 otherwise.
 f32 RsBoat_SwimReach(PlayState* play, const Player* player);
