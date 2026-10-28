@@ -7,6 +7,7 @@
   "loc-59642": "rs_59642",
   "loc-59523": "rs_59523",
   "helm-59599": "rs_59599",
+  "helm-59599-rudder": "rs_59599_rudder",
   "loc-29498": "rs_29498"
  },
  "props": [
@@ -50,7 +51,11 @@
     -55,
     -180
    ],
-   "rot": 0
+   "rot": 0,
+   "omit": {
+    "kind": "helm-59599-rudder",
+    "why": "the rudder and tiller, drawn turning on the boat's own rudder list (rs_boat_sloop_rudder_props.json)"
+   }
   },
   {
    "id": "sails",

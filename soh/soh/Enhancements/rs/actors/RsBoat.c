@@ -256,7 +256,9 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
             { -128, -128, -128, -128, -128, 38, 40, 38, -128, -128, -128, -128, -128 },
         },
         10.0f },
-      { NULL },
+      // the rudder and tiller (helm-59599-rudder, built on the helm's origin so its omit matches): its pin is the
+      // block on the transom's top, on the centreline at model z -165
+      { "objects/rs_props/rs_boat_sloop_rudder/props", { 0.0f, 0.0f, -165.0f } },
       12.0f,
       14.0f,
       200.0f, // the widest full-speed circle, ~780 across: 20% wider than the skiff's
