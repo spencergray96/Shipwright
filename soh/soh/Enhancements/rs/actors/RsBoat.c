@@ -110,10 +110,14 @@ f32 RsBoat_Tune(s32 knob) {
 // A rail opening (#262): the sloop's notches are closed over by its trim, two holes a side that arrows and the
 // hookshot pass through. A station with `sill` set opens the rail from it to the next station, as drawn: the side up
 // to `sill`, the trim from `lintel` to the rail top, the posts at both ends, and nothing between - for projectiles.
-// For Link the stretch is solid rail, of walls projectiles pass (RsBoat_BuildOpening), so he climbs onto it as
-// anywhere and never into the hole. Heights are over the deck; 0 is no opening.
+// For Link the stretch is solid rail, of walls projectiles pass, so he climbs onto it as anywhere and never into the
+// hole. Heights are over the deck; 0 is no opening.
+//
+// A skinned stretch (`skin`, #262): projectiles meet the hull's drawn plank there, not Link's 14-wide rail
+// (RsBoat_BuildSkinned). The sloop's around its openings, where shots pass close to the wood; an opening is skinned.
 #define RS_BOAT_MAX_STATIONS 20
-#define RS_BOAT_MAX_OPENINGS 4
+// Skinned stretches, a side each.
+#define RS_BOAT_MAX_SKINNED 10
 
 typedef struct RsBoatStation {
     f32 z;
@@ -122,6 +126,7 @@ typedef struct RsBoatStation {
     f32 railY;
     f32 sill;
     f32 lintel;
+    s32 skin;
 } RsBoatStation;
 
 // A covered bow (#262): a lid over the bow's last stretch, solid in collision from its aft face to the bow. Its top is
@@ -268,13 +273,14 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
           { -149.0f, 46.5f, 61.0f, 37.0f },
           { -129.0f, 50.5f, 66.0f, 37.0f },
           { -109.0f, 56.0f, 69.5f, 37.0f },
-          { -89.0f, 57.5f, 71.5f, 37.0f },
+          // skinned from here to boat z 21, the openings and the posts either side of them (RsBoat_BuildSkinned)
+          { -89.0f, 57.5f, 71.5f, 37.0f, 0.0f, 0.0f, 1 },
           // the two openings each side, drawn from 12 to the trim's underside at 32 between boat z -74.75 and -50.25,
           // and -34.75 and -10.25 (the posts land a quarter unit out: collision is in whole units)
           { -75.0f, 58.4f, 72.7f, 37.0f, 12.0f, 32.0f },
-          { -50.0f, 60.0f, 75.0f, 37.0f },
+          { -50.0f, 60.0f, 75.0f, 37.0f, 0.0f, 0.0f, 1 },
           { -35.0f, 60.0f, 75.0f, 37.0f, 12.0f, 32.0f },
-          { -10.0f, 60.0f, 75.0f, 37.0f },
+          { -10.0f, 60.0f, 75.0f, 37.0f, 0.0f, 0.0f, 1 },
           { 21.0f, 60.0f, 73.0f, 37.0f },
           { 51.0f, 56.5f, 70.0f, 37.0f },
           { 81.0f, 51.0f, 64.5f, 37.0f },
@@ -385,10 +391,10 @@ s32 RsBoat_KindByName(const char* name) {
 // A collision triangle at least this thick at its narrowest, or it is left out (RsBoat_AddTri).
 #define RS_BOAT_MIN_ALTITUDE 4.0f
 // The stations' eight each, then a covered bow's: its grid's knots, and a foot (and at the ends a top) for each strip
-// of its aft face; then a rail opening's corners, seven at each of its two stations. An opening side is 28 triangles
-// where the solid rail is 6.
-#define RS_BOAT_MAX_VTX     (RS_BOAT_MAX_STATIONS * 8 + RS_BOAT_FOREDECK_ROWS * RS_BOAT_FOREDECK_COLS + RS_BOAT_FOREDECK_COLS + 4 + RS_BOAT_MAX_OPENINGS * 16)
-#define RS_BOAT_MAX_POLYS                             ((RS_BOAT_MAX_STATIONS - 1) * 14 + 12 +            (RS_BOAT_FOREDECK_ROWS - 1) * (RS_BOAT_FOREDECK_COLS - 1) * 2 + (RS_BOAT_FOREDECK_COLS + 1) * 2 + RS_BOAT_MAX_OPENINGS * 2 * 12)
+// of its aft face; then a skinned stretch's skin and trim corners, eleven at each of its two stations. A skinned side
+// is 26 triangles where the plain rail is 6.
+#define RS_BOAT_MAX_VTX     (RS_BOAT_MAX_STATIONS * 8 + RS_BOAT_FOREDECK_ROWS * RS_BOAT_FOREDECK_COLS + RS_BOAT_FOREDECK_COLS + 4 + RS_BOAT_MAX_SKINNED * 22)
+#define RS_BOAT_MAX_POLYS                             ((RS_BOAT_MAX_STATIONS - 1) * 14 + 12 +            (RS_BOAT_FOREDECK_ROWS - 1) * (RS_BOAT_FOREDECK_COLS - 1) * 2 + (RS_BOAT_FOREDECK_COLS + 1) * 2 + RS_BOAT_MAX_SKINNED * 20)
 // The shore probes: the floor's edge and the gunwale's edge at every station, both sides, and the stern's middle.
 #define RS_BOAT_MAX_POINTS (RS_BOAT_MAX_STATIONS * 2 + 1)
 #define RS_BOAT_BOX_VTX 24
@@ -444,12 +450,22 @@ static SurfaceType sHullSurface[3] = {
     // a rail from a covered bow and land Link further onto the rail (RsBoat_ClimbInset)
     { { (u32)WALL_TYPE_HANDS_CLIMB << 21, 9 } },
 };
-// A poly's line-test flag (z_bgcheck.c's COLPOLY_IGNORE_PROJECTILES, not in a header): arrows, seeds and the
-// hookshot (RsBoat_HookshotLineTest) pass it, Link does not. A rail opening's walls for Link (RsBoat_BuildOpening).
+// A poly's line-test flags (z_bgcheck.c's COLPOLY_IGNORE_*, not in a header). Link's rail over a skinned stretch
+// lets arrows, seeds and the hookshot (RsBoat_HookshotLineTest) pass; its skin is theirs alone, which Link and the
+// camera pass (RsBoat_BuildSkinned).
 #define RS_BOAT_POLY_SHOTS_PASS (1 << 2)
-// The sloop's trim, the only kind with rail openings: how far it stands out over the hull's side at a hole, and so
-// how wide its lintel is (the drawn sill's outer edge is the trim's inner face).
-#define RS_BOAT_OPENING_TRIM 5.0f
+#define RS_BOAT_POLY_SHOTS_ONLY ((1 << 0) | (1 << 1))
+// The sloop's drawn side, the only kind with a skin (measured off its archive at boat z -149 to 81, #262; the same
+// within a unit all along): a plank ~5 thick that flares outward as it rises, from 14 inside the gunwale's line at
+// the deck to its trim, 5 wide and 5 deep on top. Insets from `outerHw`, at heights over the deck.
+#define RS_BOAT_SKIN_ROWS 4
+static const f32 sSkinY[RS_BOAT_SKIN_ROWS] = { 0.0f, 12.0f, 24.0f, 32.0f };
+static const f32 sSkinOuter[RS_BOAT_SKIN_ROWS] = { 14.0f, 6.5f, 1.5f, 0.0f };
+static const f32 sSkinInner[RS_BOAT_SKIN_ROWS] = { 18.0f, 11.5f, 6.5f, 5.0f };
+// The trim's width: its inner face is the plank's at the top row.
+#define RS_BOAT_SKIN_TRIM 5.0f
+// An opening's sill (row 1, 12 over the deck) reaches further in than the plank, to the notch's drawn bottom.
+#define RS_BOAT_SKIN_SILL_INNER 14.0f
 // The camera reads the floor's camera data under Link, and dereferences the list without a null check
 // (BgCheck_GetBgCamSettingImpl). CAM_SET_NONE is what makes it keep the scene's own setting.
 static CamData sHullCamData[1] = { { CAM_SET_NONE, 0, NULL } };
@@ -677,10 +693,10 @@ static void RsBoat_BuildForedeck(RsBoatHull* hull, const RsBoatKind* kind) {
 // inner wall up to the sill, its top, then the lintel from `lintel` to the rail top (its outer face, the rail top, its
 // inner face and its underside), and a jamb at each end facing into the hole. The two walls under the hole refuse the
 // ledge climb, and are not interior walls: `boat climb hands` leaves them so.
-// The polys from `first` on let projectiles through (RS_BOAT_POLY_SHOTS_PASS).
-static void RsBoat_LetShotsPass(RsBoatHull* hull, s32 first) {
+// The polys from `first` on carry line-test flags (RS_BOAT_POLY_SHOTS_PASS, RS_BOAT_POLY_SHOTS_ONLY).
+static void RsBoat_FlagLineTests(RsBoatHull* hull, s32 first, u32 flags) {
     for (; first < hull->numPolys; first++) {
-        hull->polys[first].flags_vIA |= COLPOLY_VTX(0, RS_BOAT_POLY_SHOTS_PASS);
+        hull->polys[first].flags_vIA |= COLPOLY_VTX(0, flags);
     }
 }
 
@@ -690,95 +706,103 @@ static void RsBoat_FlagPolys(u8* list, s32 first, s32 end) {
     }
 }
 
-// A copy of `from`, `dx` further in (toward the centreline on the side `dx` is signed for) and at height `y`.
-static s32 RsBoat_AddVtx(RsBoatHull* hull, Vec3s from, s16 dx, s16 y) {
+// A point `inset` in from the gunwale's line at station `st` (on the side `sx` is), at height `y`, at that station's z.
+static s32 RsBoat_AddSidePoint(RsBoatHull* hull, const RsBoatStation* st, f32 sx, f32 inset, f32 y, s16 z) {
     const s32 v = hull->numVtx++;
 
-    hull->vtx[v] = from;
-    hull->vtx[v].x -= dx;
-    hull->vtx[v].y = y;
+    hull->vtx[v].x = (s16)lroundf(sx * (st->outerHw - inset));
+    hull->vtx[v].y = (s16)lroundf(y);
+    hull->vtx[v].z = z;
     return v;
 }
 
-// A rail opening, one side (#262), built twice over. For arrows and the hookshot it is the drawn hole: the hull's
-// side up to the sill, inset RS_BOAT_OPENING_TRIM under the trim as drawn, the sill's top, the trim from the lintel
-// to the rail top, and the posts' faces at both stations. For Link it is the rail every other stretch is: walls
-// RS_BOAT_POLY_SHOTS_PASS lets projectiles through close the hole from the deck and from the water, with a rail top
-// over it, so he climbs onto it as anywhere and never into the hole. Heights are over the deck.
-static void RsBoat_BuildOpening(RsBoatHull* hull, const RsBoatKind* kind, s32 i, s32 side) {
+// A skinned stretch of rail, one side, from station i to the next (#262), built twice over.
+// - For Link it is the rail every plain stretch is: the outer wall, the inner wall and the rail top inside the trim,
+//   all letting projectiles through (RS_BOAT_POLY_SHOTS_PASS), and the trim's top and outer face, which everything
+//   meets. He climbs onto it as anywhere, and over an opening never into the hole.
+// - For arrows and the hookshot it is the drawn plank: its outer and inner faces up the flare (sSkinOuter,
+//   sSkinInner) to the trim, whose inner face closes it. Over an opening the plank stops at the sill, which reaches
+//   in to the notch's bottom, the trim has an underside, and the posts' faces close both ends. All of this only they
+//   meet (RS_BOAT_POLY_SHOTS_ONLY): it lies inside Link's rail but where the flare comes in past it, and the camera
+//   keeps the rail it had.
+// Heights over the deck; an opening's sill and lintel are the skin's rows 1 and 3 (12 and 32), as the sloop's are.
+static void RsBoat_BuildSkinned(RsBoatHull* hull, const RsBoatKind* kind, s32 i, s32 side) {
     const f32 sx = side == 0 ? 1.0f : -1.0f;
-    const s16 sillY = (s16)lroundf(kind->deckY + kind->stations[i].sill);
-    const s16 lintelY = (s16)lroundf(kind->deckY + kind->stations[i].lintel);
-    const s16 trim = (s16)lroundf(sx * RS_BOAT_OPENING_TRIM);
-    s32 lintelOut[2];
-    s32 footW[2];
-    s32 sillW[2];
-    s32 lintelW[2];
-    s32 topW[2];
-    s32 sillIn[2];
-    s32 lintelIn[2];
+    const s32 hole = kind->stations[i].sill > 0.0f;
+    const f32 deck = kind->deckY;
+    s32 outer[2][RS_BOAT_SKIN_ROWS];
+    s32 inner[2][RS_BOAT_SKIN_ROWS];
+    s32 foot[2];
+    s32 trim[2];
+    s32 sill[2];
     s32 first;
     s32 k;
+    s32 r;
 
     for (k = 0; k < 2; k++) {
-        const Vec3s foot = hull->vtx[RS_BOAT_V(i + k, side, RS_BOAT_V_FOOT)];
-        const Vec3s top = hull->vtx[RS_BOAT_V(i + k, side, RS_BOAT_V_TOP)];
-        const Vec3s innerTop = hull->vtx[RS_BOAT_V(i + k, side, RS_BOAT_V_INNER_TOP)];
+        const RsBoatStation* st = &kind->stations[i + k];
+        const s16 z = hull->vtx[RS_BOAT_V(i + k, side, RS_BOAT_V_FOOT)].z;
 
-        lintelOut[k] = RsBoat_AddVtx(hull, top, 0, lintelY);
-        footW[k] = RsBoat_AddVtx(hull, foot, trim, foot.y);
-        sillW[k] = RsBoat_AddVtx(hull, foot, trim, sillY);
-        lintelW[k] = RsBoat_AddVtx(hull, top, trim, lintelY);
-        topW[k] = RsBoat_AddVtx(hull, top, trim, top.y);
-        sillIn[k] = RsBoat_AddVtx(hull, innerTop, 0, sillY);
-        lintelIn[k] = RsBoat_AddVtx(hull, innerTop, 0, lintelY);
+        foot[k] = RsBoat_AddSidePoint(hull, st, sx, sSkinOuter[0], RS_BOAT_SIDE_FOOT_Y, z);
+        for (r = 0; r < RS_BOAT_SKIN_ROWS; r++) {
+            outer[k][r] = RsBoat_AddSidePoint(hull, st, sx, sSkinOuter[r], deck + sSkinY[r], z);
+            inner[k][r] = RsBoat_AddSidePoint(hull, st, sx, sSkinInner[r], deck + sSkinY[r], z);
+        }
+        trim[k] = RsBoat_AddSidePoint(hull, st, sx, RS_BOAT_SKIN_TRIM, deck + st->railY, z);
+        sill[k] = RsBoat_AddSidePoint(hull, st, sx, RS_BOAT_SKIN_SILL_INNER, deck + sSkinY[1], z);
     }
 
-    // The drawn hole: the hull's side under the trim, the sill, the inner wall below it.
-    RsBoat_AddQuad(hull, footW[0], sillW[0], sillW[1], footW[1], sx, 0.0f, 0.0f);
-    RsBoat_AddQuad(hull, sillW[0], sillIn[0], sillIn[1], sillW[1], 0.0f, 1.0f, 0.0f);
+    // Link's rail.
     first = hull->numPolys;
-    RsBoat_AddQuad(hull, sillIn[0], RS_BOAT_V(i, side, RS_BOAT_V_DECK), RS_BOAT_V(i + 1, side, RS_BOAT_V_DECK), sillIn[1],
-                   -sx, 0.0f, 0.0f);
-    RsBoat_FlagPolys(hull->interior, first, hull->numPolys);
-    // The trim over it: its outer face, top, inner face and underside.
-    RsBoat_AddQuad(hull, lintelOut[0], RS_BOAT_V(i, side, RS_BOAT_V_TOP), RS_BOAT_V(i + 1, side, RS_BOAT_V_TOP),
-                   lintelOut[1], sx, 0.0f, 0.0f);
-    first = hull->numPolys;
-    RsBoat_AddQuad(hull, topW[0], RS_BOAT_V(i, side, RS_BOAT_V_TOP), RS_BOAT_V(i + 1, side, RS_BOAT_V_TOP), topW[1],
-                   0.0f, 1.0f, 0.0f);
-    RsBoat_FlagPolys(hull->railTop, first, hull->numPolys);
-    RsBoat_AddQuad(hull, lintelW[0], topW[0], topW[1], lintelW[1], -sx, 0.0f, 0.0f);
-    RsBoat_AddQuad(hull, lintelW[0], lintelOut[0], lintelOut[1], lintelW[1], 0.0f, -1.0f, 0.0f);
-    // The posts' faces, into the hole: over the sill, and down the inset side under the trim.
-    for (k = 0; k < 2; k++) {
-        const f32 sz = k == 0 ? 1.0f : -1.0f;
-
-        RsBoat_AddQuad(hull, sillIn[k], sillW[k], lintelW[k], lintelIn[k], 0.0f, 0.0f, sz);
-        RsBoat_AddQuad(hull, footW[k], RS_BOAT_V(i + k, side, RS_BOAT_V_FOOT), lintelOut[k], lintelW[k], 0.0f, 0.0f,
-                       sz);
-    }
-
-    // Link's rail: the outer wall to the lintel, the inner wall from the sill to the rail top, and the rail top inside
-    // the trim, all letting projectiles through.
-    first = hull->numPolys;
-    RsBoat_AddQuad(hull, RS_BOAT_V(i, side, RS_BOAT_V_FOOT), lintelOut[0], lintelOut[1],
+    RsBoat_AddQuad(hull, RS_BOAT_V(i, side, RS_BOAT_V_FOOT), outer[0][3], outer[1][3],
                    RS_BOAT_V(i + 1, side, RS_BOAT_V_FOOT), sx, 0.0f, 0.0f);
     {
-        const s32 inner = hull->numPolys;
+        const s32 wall = hull->numPolys;
 
-        RsBoat_AddQuad(hull, RS_BOAT_V(i, side, RS_BOAT_V_INNER_TOP), sillIn[0], sillIn[1],
-                       RS_BOAT_V(i + 1, side, RS_BOAT_V_INNER_TOP), -sx, 0.0f, 0.0f);
-        RsBoat_FlagPolys(hull->interior, inner, hull->numPolys);
+        RsBoat_AddQuad(hull, RS_BOAT_V(i, side, RS_BOAT_V_INNER_TOP), RS_BOAT_V(i, side, RS_BOAT_V_DECK),
+                       RS_BOAT_V(i + 1, side, RS_BOAT_V_DECK), RS_BOAT_V(i + 1, side, RS_BOAT_V_INNER_TOP), -sx, 0.0f,
+                       0.0f);
+        RsBoat_FlagPolys(hull->interior, wall, hull->numPolys);
     }
     {
         const s32 top = hull->numPolys;
 
-        RsBoat_AddQuad(hull, RS_BOAT_V(i, side, RS_BOAT_V_INNER_TOP), topW[0], topW[1],
+        RsBoat_AddQuad(hull, RS_BOAT_V(i, side, RS_BOAT_V_INNER_TOP), trim[0], trim[1],
                        RS_BOAT_V(i + 1, side, RS_BOAT_V_INNER_TOP), 0.0f, 1.0f, 0.0f);
         RsBoat_FlagPolys(hull->railTop, top, hull->numPolys);
     }
-    RsBoat_LetShotsPass(hull, first);
+    RsBoat_FlagLineTests(hull, first, RS_BOAT_POLY_SHOTS_PASS);
+
+    // The trim's outer face and top, which everything meets.
+    RsBoat_AddQuad(hull, outer[0][3], RS_BOAT_V(i, side, RS_BOAT_V_TOP), RS_BOAT_V(i + 1, side, RS_BOAT_V_TOP),
+                   outer[1][3], sx, 0.0f, 0.0f);
+    first = hull->numPolys;
+    RsBoat_AddQuad(hull, trim[0], RS_BOAT_V(i, side, RS_BOAT_V_TOP), RS_BOAT_V(i + 1, side, RS_BOAT_V_TOP), trim[1], 0.0f,
+                   1.0f, 0.0f);
+    RsBoat_FlagPolys(hull->railTop, first, hull->numPolys);
+
+    // The drawn plank, for projectiles alone: the trim's inner face, the side below the deck, then the flare's bands,
+    // all of them on a plain stretch, the lowest over an opening, where the notch's inner face and sill take over.
+    first = hull->numPolys;
+    RsBoat_AddQuad(hull, inner[0][3], trim[0], trim[1], inner[1][3], -sx, 0.0f, 0.0f);
+    RsBoat_AddQuad(hull, foot[0], outer[0][0], outer[1][0], foot[1], sx, 0.0f, 0.0f);
+    for (r = 0; r + 1 < RS_BOAT_SKIN_ROWS && (!hole || r < 1); r++) {
+        RsBoat_AddQuad(hull, outer[0][r], outer[0][r + 1], outer[1][r + 1], outer[1][r], sx, 0.0f, 0.0f);
+        if (!hole) {
+            RsBoat_AddQuad(hull, inner[0][r], inner[0][r + 1], inner[1][r + 1], inner[1][r], -sx, 0.0f, 0.0f);
+        }
+    }
+    if (hole) {
+        RsBoat_AddQuad(hull, inner[0][0], sill[0], sill[1], inner[1][0], -sx, 0.0f, 0.0f);
+        RsBoat_AddQuad(hull, sill[0], outer[0][1], outer[1][1], sill[1], 0.0f, 1.0f, 0.0f);
+        RsBoat_AddQuad(hull, inner[0][3], outer[0][3], outer[1][3], inner[1][3], 0.0f, -1.0f, 0.0f);
+        // The posts' faces into the hole, sill to trim, across the plank.
+        for (k = 0; k < 2; k++) {
+            RsBoat_AddQuad(hull, inner[k][1], outer[k][1], outer[k][3], inner[k][3], 0.0f, 0.0f,
+                           k == 0 ? 1.0f : -1.0f);
+        }
+    }
+    RsBoat_FlagLineTests(hull, first, RS_BOAT_POLY_SHOTS_ONLY);
 }
 
 static void RsBoat_BuildHull(s32 kindId) {
@@ -790,6 +814,7 @@ static void RsBoat_BuildHull(s32 kindId) {
     s32 first;
     s32 i;
     s32 side;
+    s32 skinned = 0;
 
     hull->sternZ = kind->stations[0].z;
     hull->bowZ = kind->stations[n - 1].z;
@@ -852,8 +877,9 @@ static void RsBoat_BuildHull(s32 kindId) {
         for (side = 0; side < 2; side++) {
             const f32 sx = side == 0 ? 1.0f : -1.0f;
 
-            if (kind->stations[i].sill > 0.0f) {
-                RsBoat_BuildOpening(hull, kind, i, side);
+            if ((kind->stations[i].skin || kind->stations[i].sill > 0.0f) && skinned < RS_BOAT_MAX_SKINNED) {
+                RsBoat_BuildSkinned(hull, kind, i, side);
+                skinned++;
                 continue;
             }
             RsBoat_AddQuad(hull, RS_BOAT_V(i, side, RS_BOAT_V_FOOT), RS_BOAT_V(i, side, RS_BOAT_V_TOP),
@@ -1822,6 +1848,13 @@ f32 RsBoat_InteractReach(PlayState* play, const Player* player, f32 vanilla) {
 s32 RsBoat_HookshotLineTest(PlayState* play, Vec3f* from, Vec3f* to, Vec3f* result, CollisionPoly** outPoly,
                              s32* outBgId) {
     Vec3f a = *from;
+    Vec3f hullAt;
+    CollisionPoly* hullPoly;
+    s32 hullBg;
+    // A hull as an arrow meets it: past the walls only Link meets, onto the plank only projectiles meet.
+    const s32 hull = BgCheck_ProjectileLineTest(&play->colCtx, from, to, &hullAt, &hullPoly, true, true, true, true,
+                                                &hullBg) &&
+                     hullBg != BGCHECK_SCENE && RsBoat_HullOf(play, hullBg) != NULL;
     f32 dx = to->x - from->x;
     f32 dy = to->y - from->y;
     f32 dz = to->z - from->z;
@@ -1833,21 +1866,28 @@ s32 RsBoat_HookshotLineTest(PlayState* play, Vec3f* from, Vec3f* to, Vec3f* resu
         dy /= len;
         dz /= len;
     }
-    // A few rail walls at most lie on one line (in and out of a hole); each passed is stepped past by a quarter unit:
-    // a whole one skipped the sill's top where it meets the inner wall Link meets.
-    for (tries = 0; tries < 4; tries++) {
+    // Everything else as the hookshot meets it, stepping a quarter unit past each hull poly on the line (a handful at
+    // most: in and out of a rail); then the nearer of that and the hull.
+    for (tries = 0; tries < 8; tries++) {
         if (!BgCheck_EntityLineTest1(&play->colCtx, &a, to, result, outPoly, true, true, true, true, outBgId)) {
-            return 0;
+            break;
         }
-        if (*outBgId == BGCHECK_SCENE || RsBoat_HullOf(play, *outBgId) == NULL ||
-            !COLPOLY_VIA_FLAG_TEST((*outPoly)->flags_vIA, RS_BOAT_POLY_SHOTS_PASS)) {
+        if (*outBgId == BGCHECK_SCENE || RsBoat_HullOf(play, *outBgId) == NULL) {
+            if (hull && Math_Vec3f_DistXYZ(from, &hullAt) < Math_Vec3f_DistXYZ(from, result)) {
+                break;
+            }
             return 1;
         }
         a.x = result->x + dx * 0.25f;
         a.y = result->y + dy * 0.25f;
         a.z = result->z + dz * 0.25f;
     }
-    return 0;
+    if (hull) {
+        *result = hullAt;
+        *outPoly = hullPoly;
+        *outBgId = hullBg;
+    }
+    return hull;
 }
 
 s32 gRsBoatStill = 0;

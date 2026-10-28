@@ -278,8 +278,9 @@ s32 RsBoat_WallLean(PlayState* play, const Player* player, s32 vanilla);
 // `boat still`: every boat level at its float height, no bob and no rock (a test aid, not saved; #262).
 extern s32 gRsBoatStill;
 
-// The hookshot's line test (BgCheck_EntityLineTest1, every surface, as ArmsHook_Shoot asks), but passing a boat's walls
-// that only Link meets, as projectiles do (RS_BOAT_POLY_SHOTS_PASS): a rail opening's (#262).
+// The hookshot's line test (BgCheck_EntityLineTest1, every surface, as ArmsHook_Shoot asks), but meeting a boat's hull
+// as projectiles do (#262): past the walls only Link meets (RS_BOAT_POLY_SHOTS_PASS), onto the drawn plank only they
+// meet (RS_BOAT_POLY_SHOTS_ONLY), on a skinned stretch of rail.
 s32 RsBoat_HookshotLineTest(PlayState* play, Vec3f* from, Vec3f* to, Vec3f* result, CollisionPoly** outPoly,
                              s32* outBgId);
 
