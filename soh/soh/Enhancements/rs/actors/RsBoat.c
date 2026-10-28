@@ -29,15 +29,16 @@ RsBoatTestWater gRsBoatTestWater = { 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
 //
 // The handling is live (`boat tune`, RsBoat.h): per 20 Hz tick, Link's run being ~6 units a tick as adult. Top speed is
 // the kind's own (sRsBoatKinds: the owner's first pass, 2026-10-25, sturdy-bassoon#263); `fwd` overrides it for every
-// kind while it is above 0. Reverse is a share of the top speed in use, so an upgrade backs up faster too (25%: the
-// raft's 2.5 at 10, which the owner liked, and the skiff's 3.5 at 14). Accel and drag were tuned and kept; brake is
+// kind while it is above 0. Reverse is a share of the top speed in use, so an upgrade backs up faster too: the kind's
+// own (sRsBoatKinds), and `rev` overrides it for every kind while above 0. 25% for all at first (the raft's 2.5 at 10);
+// the owner then doubled the raft's and raised the others' by half (2026-10-28). Accel and drag were tuned and kept; brake is
 // the rate when the stick opposes the way the boat moves (pulling back while going ahead took 4.7 s at the drag
 // rate before the skiff began to back up; 0.6 then felt too strong, and 0.4 takes half as long again: ~1.75 s from
 // the skiff's 14). Turn rates are the kind's own too (sRsBoatKinds), and turnstill / turnmove override them for every
 // kind while above 0. The fwd, rev and turn CVars are new names: the old ones held one value for every kind.
 const RsBoatTuneInfo gRsBoatTune[RS_BOAT_TUNE_COUNT] = {
     { "fwd", CVAR_ENHANCEMENT("RsBoatTuneTopSpeed"), 0.0f, 0.0f, 40.0f },
-    { "rev", CVAR_ENHANCEMENT("RsBoatTuneReverseShare"), 0.25f, 0.05f, 1.0f },
+    { "rev", CVAR_ENHANCEMENT("RsBoatTuneReverseShare"), 0.0f, 0.0f, 1.0f },
     { "accel", CVAR_ENHANCEMENT("RsBoatTuneAccel"), 0.25f, 0.01f, 5.0f },
     { "drag", CVAR_ENHANCEMENT("RsBoatTuneDrag"), 0.15f, 0.01f, 5.0f },
     { "brake", CVAR_ENHANCEMENT("RsBoatTuneBrake"), 0.4f, 0.01f, 5.0f },
@@ -185,6 +186,7 @@ typedef struct RsBoatKind {
     f32 topSpeedUpgrade; // with its speed upgrade unlocked (sturdy-bassoon#263), or 0 for none
     f32 turnAtRest;      // binang a tick at full tiller, standing still: how lively it feels, not a balance
     f32 turnAtSpeed;     // added at its default top speed: (rest + this) sets its full-speed turning circle
+    f32 reverseShare;    // top speed astern, as a share of the top speed in use
     // stern to bow, up to the first empty slot (RsBoat_NumStations): counted, not kept by hand beside the list
     RsBoatStation stations[RS_BOAT_MAX_STATIONS];
     RsBoatPost post;
@@ -224,6 +226,7 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
       18.0f,
       220.0f, // full-speed circle ~650 across
       230.0f,
+      0.375f, // 5.25 astern at 14
       {
           { -112.0f, 24.0f, 35.0f, 25.0f },
           { -91.0f, 30.0f, 40.0f, 25.0f },
@@ -279,6 +282,7 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
       14.0f,
       200.0f, // the widest full-speed circle, ~780 across: 20% wider than the skiff's
       121.0f,
+      0.375f, // 4.5 astern at 12
       {
           { -170.0f, 40.0f, 55.0f, 37.0f },
           { -149.0f, 46.5f, 61.0f, 37.0f },
@@ -321,6 +325,7 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
       0.0f,   // no upgrade considered yet
       300.0f, // the best handling: the quickest spin and the tightest circle, ~420 across
       200.0f,
+      0.5f, // 5 astern at 10
       {
           { -70.0f, 22.0f, 24.0f, 0.0f },
           { -46.0f, 22.0f, 24.0f, 0.0f },
@@ -1636,6 +1641,12 @@ s32 RsBoat_LinkWasAboard(PlayState* play) {
 // RsBoat_ExactFloorY trusts its exact height only this close to the engine's truncated one.
 #define RS_BOAT_SMOOTH_MAX 2.0f
 #define RS_BOAT_RAIL_CLIMB_INSET 1.5f
+// How far inside the hull's outline a swimmer lands at least (RsBoat_ClimbInset): onto a rail, 6 (the 14-wide rail
+// top's outer half, where the trim is drawn); onto an open deck (the raft's), 12. No further than this past where
+// Player would have put him.
+#define RS_BOAT_SWIM_LAND_RAIL 6.0f
+#define RS_BOAT_SWIM_LAND_OPEN 12.0f
+#define RS_BOAT_SWIM_LAND_MAX 16.0f
 
 // The boat whose collision `bgId` is, or NULL.
 static const RsBoat* RsBoat_HullOf(PlayState* play, s32 bgId) {
@@ -1725,10 +1736,52 @@ static void RsBoat_CountRailPush(RsBoat* this, PlayState* play, const Player* pl
     }
 }
 
+static f32 RsBoat_OuterHwAt(const RsBoatKind* kind, f32 z);
+
+// How far a swimmer climbing onto the hull must move, against the wall he touches, to land `inset` inside its
+// outline: across from a side, along from the stern or the bow, whichever the wall faces more.
+static f32 RsBoat_SwimLanding(const RsBoat* boat, const Player* player, f32 inset) {
+    const RsBoatHull* hull = &sHulls[boat->kind];
+    const s16 yaw = boat->dyna.actor.shape.rot.y;
+    const f32 c = Math_CosS(yaw);
+    const f32 s = Math_SinS(yaw);
+    const f32 dx = player->actor.world.pos.x - boat->dyna.actor.world.pos.x;
+    const f32 dz = player->actor.world.pos.z - boat->dyna.actor.world.pos.z;
+    // boat space, as the hull's matrix turns it (RsBoat_SmoothLinkOnDeck): x across, z toward the bow
+    const f32 lx = dx * c - dz * s;
+    const f32 lz = dx * s + dz * c;
+    const f32 wx = COLPOLY_GET_NORMAL(player->actor.wallPoly->normal.x);
+    const f32 wz = COLPOLY_GET_NORMAL(player->actor.wallPoly->normal.z);
+    const f32 nlx = wx * c - wz * s;
+    const f32 nlz = wx * s + wz * c;
+
+    if (fabsf(nlx) >= fabsf(nlz)) {
+        const f32 hw = RsBoat_OuterHwAt(&sRsBoatKinds[boat->kind], CLAMP(lz, hull->sternZ, hull->bowZ));
+
+        return (fabsf(lx) - (hw - inset)) / MAX(fabsf(nlx), 0.5f);
+    }
+    return (fabsf(lz - ((nlz < 0.0f) ? hull->sternZ : hull->bowZ)) + inset) / MAX(fabsf(nlz), 0.5f);
+}
+
 f32 RsBoat_ClimbInset(PlayState* play, const Player* player, f32 vanilla) {
+    const RsBoat* boat = RsBoat_HullOf(play, player->actor.wallBgId);
+
+    if (boat == NULL) {
+        return vanilla;
+    }
+    // Out of the water, at least a set way inside the outline where he is. Player moves him by its measure of the
+    // wall, which at an angle and with the hull rolling came up to ~4 short: he was set down past the edge, fell,
+    // caught it and was pushed out, over and over (the owner's flicker on the raft, 2026-10-28; the skiff's rail
+    // did it too, at 30 degrees).
+    if ((player->stateFlags1 & PLAYER_STATE1_IN_WATER) && player->actor.wallPoly != NULL) {
+        const f32 land = RsBoat_SwimLanding(boat, player, (sRsBoatKinds[boat->kind].stations[0].railY <= 0.0f)
+                                                              ? RS_BOAT_SWIM_LAND_OPEN
+                                                              : RS_BOAT_SWIM_LAND_RAIL);
+
+        return CLAMP(land, vanilla, vanilla + RS_BOAT_SWIM_LAND_MAX);
+    }
     // The rails' own surface row (RS_BOAT_SURFACE_HANDS_RAIL), and on a hull: a scene poly may use that index too.
-    if (player->actor.wallPoly != NULL && player->actor.wallPoly->type == RS_BOAT_SURFACE_HANDS_RAIL &&
-        RsBoat_HullOf(play, player->actor.wallBgId) != NULL) {
+    if (player->actor.wallPoly != NULL && player->actor.wallPoly->type == RS_BOAT_SURFACE_HANDS_RAIL) {
         return vanilla * RS_BOAT_RAIL_CLIMB_INSET;
     }
     return vanilla;
@@ -2383,7 +2436,10 @@ void RsBoat_Update(Actor* thisx, PlayState* play) {
 
     // Speed toward the throttle's target: braking while the stick opposes the way the boat moves, gaining toward a
     // higher target, coasting toward a lower one. The tiller eases toward the stick, and turns harder with way on.
-    target = throttle > 0.0f ? throttle * top : throttle * top * RsBoat_Tune(RS_BOAT_TUNE_REVERSE);
+    target = throttle > 0.0f ? throttle * top
+                             : throttle * top *
+                                   (RsBoat_Tune(RS_BOAT_TUNE_REVERSE) > 0.0f ? RsBoat_Tune(RS_BOAT_TUNE_REVERSE)
+                                                                            : sRsBoatKinds[this->kind].reverseShare);
     if ((this->speed > 0.0f && target < 0.0f) || (this->speed < 0.0f && target > 0.0f)) {
         rate = RsBoat_Tune(RS_BOAT_TUNE_BRAKE);
     } else if (fabsf(target) > fabsf(this->speed)) {

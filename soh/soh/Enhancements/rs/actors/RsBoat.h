@@ -109,7 +109,7 @@ typedef enum RsBoatKindId {
 // kind's own (RsBoat_TopSpeed); the rest are one set for every kind (sturdy-bassoon#263).
 typedef enum RsBoatTuneKnob {
     RS_BOAT_TUNE_FORWARD,     // top speed ahead for every kind, overriding each kind's own; 0: the kind's
-    RS_BOAT_TUNE_REVERSE,     // top speed astern, as a share of the top speed in use
+    RS_BOAT_TUNE_REVERSE,     // top speed astern, as a share of the top speed in use; 0 is each kind's own
     RS_BOAT_TUNE_ACCEL,       // speed gained a tick, toward the throttle's target
     RS_BOAT_TUNE_DRAG,        // speed lost a tick, coasting toward a lower target
     RS_BOAT_TUNE_BRAKE,       // speed lost a tick while the stick opposes the way the boat moves

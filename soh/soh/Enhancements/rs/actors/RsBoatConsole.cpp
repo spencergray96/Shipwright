@@ -694,7 +694,7 @@ const ConsoleSink::Command rsBoatCommand(
     "cam sets the steering camera (height over the deck, distance behind, ease in percent a tick; saved); "
     "hud switches the steering label; kind picks the hull Lake Hylia's boat and spawn use (saved; puts Lake "
     "Hylia's boat back as that kind); tune sets the handling: fwd (top speed for every kind; 0 for each kind's own), "
-    "rev (astern, a share of top speed), accel, drag, brake, turnstill and turnmove (binang a tick), steps (0: the "
+    "rev (astern, a share of top speed, for every kind; 0 for each kind's own), accel, drag, brake, turnstill and turnmove (binang a tick), steps (0: the "
     "stick's throttle is smooth), upgrade (1: each kind's upgraded top speed); saved; contact lists what the hull's "
     "outline meets where it is; still holds every boat level, with no bob or rock (a test aid, not saved).",
     { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|kind|tune|contact|still|clear",
