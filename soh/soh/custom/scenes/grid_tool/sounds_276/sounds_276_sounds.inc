@@ -11,5 +11,6 @@
 RS_GEN_SOUND(SCENE_SOUNDS_276, "birds-1", "birds", 300, 0, 140, 5.0f, -1.00f) // Sounds 276, level 0 at (3, 9.5)
 RS_GEN_SOUND(SCENE_SOUNDS_276, "test-fountain", "fountain", 0, 0, 140, -1.0f, -1.00f) // Sounds 276, level 0 at (10.5, 9.5)
 RS_GEN_SOUND(SCENE_SOUNDS_276, "waystone-hum-1", "waystone-hum", -320, 0, 140, -1.0f, 0.30f) // Sounds 276, level 0 at (18.5, 9.5)
+RS_GEN_SOUND(SCENE_SOUNDS_276, "oak-birds", "birds", -270, 0, 120, 3.0f, -1.00f) // Sounds 276, level 0 at (17.25, 9)
 RS_GEN_SOUND(SCENE_SOUNDS_276, "fire-1", "fire", 320, 80, -100, -1.0f, -1.00f) // Sounds 276, level 1 at (2.5, 3.5)
 RS_GEN_SOUND(SCENE_SOUNDS_276, "fire-2", "fire", -80, 130, -100, -1.0f, -1.00f) // Sounds 276, level 1 at (12.5, 3.5)
