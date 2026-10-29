@@ -1667,10 +1667,11 @@ s32 RsBoat_LinkWasAboard(PlayState* play) {
 // RsBoat_ExactFloorY trusts its exact height only this close to the engine's truncated one.
 #define RS_BOAT_SMOOTH_MAX 2.0f
 #define RS_BOAT_RAIL_CLIMB_INSET 1.5f
-// How far inside the hull's outline a swimmer lands at least (RsBoat_ClimbInset): onto a rail, 6 (the 14-wide rail
-// top's outer half, where the trim is drawn); onto an open deck (the raft's), 8. No further than this past where
-// Player would have put him.
-#define RS_BOAT_SWIM_LAND_RAIL 6.0f
+// How far inside the hull's outline a swimmer lands at least (RsBoat_ClimbInset): onto a rail, where the rail's ease
+// holds him once he stands (RS_BOAT_RAIL_STAND_IN, across x); onto an open deck (the raft's), 8. No further than
+// this past where Player would have put him. At 6 the ease slid him 3 back out as the climb ended (the owner,
+// 2026-10-29).
+#define RS_BOAT_SWIM_LAND_RAIL RS_BOAT_RAIL_STAND_IN
 #define RS_BOAT_SWIM_LAND_OPEN 8.0f
 #define RS_BOAT_SWIM_LAND_MAX 16.0f
 // ... of which at once, at most: as far as this inside the outline, so the climb starts over the deck. Every unit of
@@ -1786,8 +1787,9 @@ static void RsBoat_CountRailPush(RsBoat* this, PlayState* play, const Player* pl
 static f32 RsBoat_OuterHwAt(const RsBoatKind* kind, f32 z);
 
 // How far a swimmer climbing onto the hull must move, against the wall he touches, to land `inset` inside its
-// outline: across from a side, along from the stern or the bow, whichever the wall faces more.
-static f32 RsBoat_SwimLanding(const RsBoat* boat, const Player* player, f32 inset) {
+// outline: across from a side, along from the stern or the bow, whichever the wall faces more. From a side `inset`
+// is at right angles to the outline, or across x when `acrossX` (as the rail's ease measures it).
+static f32 RsBoat_SwimLanding(const RsBoat* boat, const Player* player, f32 inset, s32 acrossX) {
     const RsBoatHull* hull = &sHulls[boat->kind];
     const s16 yaw = boat->dyna.actor.shape.rot.y;
     const f32 c = Math_CosS(yaw);
@@ -1824,6 +1826,9 @@ static f32 RsBoat_SwimLanding(const RsBoat* boat, const Player* player, f32 inse
         len = sqrtf(SQ(du) + SQ(dv));
         nu = dv / len; // the edge's outward normal
         nv = -du / len;
+        if (acrossX) {
+            inset *= nu; // a point `inset` across x inside a straight edge is this far from it at right angles
+        }
         return ((fabsf(lx) - kind->stations[i].outerHw) * nu + (lz - kind->stations[i].z) * nv + inset) /
                MAX((lx < 0.0f ? -nlx : nlx) * nu + nlz * nv, 0.5f);
     }
@@ -1845,11 +1850,11 @@ f32 RsBoat_ClimbInset(PlayState* play, const Player* player, f32 vanilla) {
     // at once for want of a floor); the rest is a slide in over the climb (RsBoat_SmoothLinkOnDeck). Landing the whole
     // way at once started the animation inside the raft (the owner, 2026-10-28).
     if ((player->stateFlags1 & PLAYER_STATE1_IN_WATER) && player->actor.wallPoly != NULL) {
-        const f32 land = RsBoat_SwimLanding(boat, player, (sRsBoatKinds[boat->kind].stations[0].railY <= 0.0f)
-                                                              ? RS_BOAT_SWIM_LAND_OPEN
-                                                              : RS_BOAT_SWIM_LAND_RAIL);
+        const s32 open = sRsBoatKinds[boat->kind].stations[0].railY <= 0.0f;
+        const f32 land =
+            RsBoat_SwimLanding(boat, player, open ? RS_BOAT_SWIM_LAND_OPEN : RS_BOAT_SWIM_LAND_RAIL, !open);
         const f32 extra = CLAMP(land - vanilla, 0.0f, RS_BOAT_SWIM_LAND_MAX);
-        const f32 now = CLAMP(RsBoat_SwimLanding(boat, player, RS_BOAT_SWIM_LAND_EDGE) - vanilla, 0.0f, extra);
+        const f32 now = CLAMP(RsBoat_SwimLanding(boat, player, RS_BOAT_SWIM_LAND_EDGE, 0) - vanilla, 0.0f, extra);
         const f32 slide = extra - now;
 
         sClimbSlide[0] = -COLPOLY_GET_NORMAL(player->actor.wallPoly->normal.x) * slide / RS_BOAT_CLIMB_SLIDE_TICKS;
