@@ -10260,16 +10260,14 @@ void Player_Action_80845668(Player* this, PlayState* play) {
             // a tick - enough for every vanilla 100-step (picked from 41 up, so it starts at or below
             // the animation). A hands-climb under 41 starts the model up to 23 units above it (adult),
             // and the rest stayed on after the climb: Link stood floating (4.5 at a 20-unit ledge,
-            // measured). Step fast enough to land by the time the stick can take over (endFrame - 4,
-            // Player_TryActionInterrupt). Only a raised start takes this path, so vanilla keeps its 150.
+            // measured). Only a raised start takes this path, so vanilla keeps its 150.
+            // sturdy-bassoon#262: held whole while the stance foot is on the floor, then gone at once while the
+            // stepping foot is over the ledge, so both phases look as they do at 41. Stepped evenly over the
+            // climb, half of it was still on as that foot planted: on the skiff's 25-unit rail the adult planted
+            // it ~8 high and sank 5 after (the owner, 2026-10-29); the stance foot sank into the floor before.
             if ((this->actor.shape.yOffset > 0.0f) &&
                 (this->skelAnime.animation == &gPlayerAnim_link_normal_100step_up)) {
-                // whole ticks only: the climb ends on the tick its frame passes endFrame - 4, and a
-                // part tick left over does not get a step (measured: 0.65 left when this was a fraction)
-                s32 ticksLeft =
-                    (s32)((this->skelAnime.endFrame - 4.0f - this->skelAnime.curFrame) / this->skelAnime.playSpeed);
-
-                yOffsetStep = MAX(yOffsetStep, this->actor.shape.yOffset / MAX(ticksLeft, 1));
+                yOffsetStep = (this->skelAnime.curFrame < 9.0f) ? 0.0f : this->actor.shape.yOffset;
             }
             Math_StepToF(&this->actor.shape.yOffset, 0.0f, yOffsetStep);
         }
