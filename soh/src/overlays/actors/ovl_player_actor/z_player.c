@@ -10224,7 +10224,16 @@ void Player_Action_80845668(Player* this, PlayState* play) {
         }
 
         if ((sp3C != 0) || (temp2 > 0)) {
-            func_8083C0E8(this, play);
+            // SOH [Fork] sturdy-bassoon#262: onto a boat, func_8083C0E8 with the climb's last pose blended into
+            // standing, as Link's other changes of animation are. Cut straight to it, as vanilla does, he jumped ~1
+            // to his left as the climb ended (the owner, 2026-10-29).
+            if (RsBoat_IsBoatFloor(play, this->actor.floorBgId)) {
+                Player_SetupAction(play, this, Player_Action_Idle, 1);
+                Player_AnimChangeOnceMorph(play, this, Player_GetIdleAnim(this));
+                this->yaw = this->actor.shape.rot.y;
+            } else {
+                func_8083C0E8(this, play);
+            }
             this->stateFlags1 &= ~(PLAYER_STATE1_CLIMBING_LEDGE | PLAYER_STATE1_JUMPING);
             return;
         }
