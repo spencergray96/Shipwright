@@ -543,6 +543,9 @@ static s32 sPrevFloorProperty = FLOOR_PROPERTY_0; // floor property from the pre
 static s32 sShapeYawToTouchedWall = 0;
 static s32 sWorldYawToTouchedWall = 0;
 static s16 sFloorShapePitch = 0;
+// SOH [Fork] sturdy-bassoon#262: the 100-step's model raise as the climb began, over a ledge under 41
+// (Player_Action_80845668 takes it away as the animation rises).
+static f32 sStepUpRaise = 0.0f;
 static s32 sUseHeldItem = false; // When true, the current held item is used. Is reset to false every frame.
 static s32 sHeldItemButtonIsHeldDown = false; // Indicates if the button for the current held item is held down.
 
@@ -4995,6 +4998,7 @@ s32 Player_ActionHandler_12(Player* this, PlayState* play) {
                 }
 
                 this->actor.shape.yOffset -= sp34 * 100.0f;
+                sStepUpRaise = this->actor.shape.yOffset;
 
                 this->actor.world.pos.x -= sp24 * wallPolyNormalX;
                 this->actor.world.pos.y += this->yDistToLedge;
@@ -10261,13 +10265,21 @@ void Player_Action_80845668(Player* this, PlayState* play) {
             // the animation). A hands-climb under 41 starts the model up to 23 units above it (adult),
             // and the rest stayed on after the climb: Link stood floating (4.5 at a 20-unit ledge,
             // measured). Only a raised start takes this path, so vanilla keeps its 150.
-            // sturdy-bassoon#262: held whole while the stance foot is on the floor, then gone at once while the
-            // stepping foot is over the ledge, so both phases look as they do at 41. Stepped evenly over the
-            // climb, half of it was still on as that foot planted: on the skiff's 25-unit rail the adult planted
-            // it ~8 high and sank 5 after (the owner, 2026-10-29); the stance foot sank into the floor before.
+            // sturdy-bassoon#262: held whole while the stance foot is on the floor (to frame 6), then taken away
+            // as the animation lifts him (frames 6-11.5: the waist rises ~25, ~5 of it by frame 8 and ~19 by 10),
+            // so the stepping foot plants where it stays and the body only rises. Stepped evenly over the climb,
+            // half of it was still on as that foot planted: on the skiff's 25-unit rail the adult planted it ~8
+            // high and sank 5 after (the owner, 2026-10-29). Taken all at once at frame 9, the waist dipped 3
+            // mid-rise, a snap.
             if ((this->actor.shape.yOffset > 0.0f) &&
                 (this->skelAnime.animation == &gPlayerAnim_link_normal_100step_up)) {
-                yOffsetStep = (this->skelAnime.curFrame < 9.0f) ? 0.0f : this->actor.shape.yOffset;
+                const f32 f = this->skelAnime.curFrame;
+                const f32 share = (f <= 6.0f)    ? 1.0f
+                                  : (f <= 8.0f)  ? 1.0f - 0.125f * (f - 6.0f)
+                                  : (f <= 10.0f) ? 0.75f - 0.25f * (f - 8.0f)
+                                                 : MAX(0.0f, 0.25f - (f - 10.0f) / 6.0f);
+
+                yOffsetStep = MAX(0.0f, this->actor.shape.yOffset - sStepUpRaise * share);
             }
             Math_StepToF(&this->actor.shape.yOffset, 0.0f, yOffsetStep);
         }

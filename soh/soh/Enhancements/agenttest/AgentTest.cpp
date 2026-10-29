@@ -1320,9 +1320,15 @@ void EmitTrace(const char* phase) {
     size_t used = std::strlen(buf);
     used += std::snprintf(buf + used, sizeof(buf) - used, " cprobe=yaw:%d,oy:%.1f,line:%d@%.1f", cd.probeYaw,
                           cd.probeOriginY, cd.probeLinePoly, cd.probeLineDist);
-    // The animation's frame and the feet's height as last drawn (sturdy-bassoon#262: where a climb plants a foot).
-    used += std::snprintf(buf + used, sizeof(buf) - used, " anf=%.1f feet=%.1f,%.1f", player->skelAnime.curFrame,
-                          player->actor.shape.feetPos[FOOT_LEFT].y, player->actor.shape.feetPos[FOOT_RIGHT].y);
+    // The animation's frame, the feet's height and the waist as last drawn (sturdy-bassoon#262: where a climb plants
+    // a foot, and whether the body jumps as it ends), and the feet across (x,z, left then right).
+    used += std::snprintf(buf + used, sizeof(buf) - used,
+                          " anf=%.1f feet=%.1f,%.1f waist=%.1f,%.1f,%.1f feetxz=%.1f,%.1f,%.1f,%.1f",
+                          player->skelAnime.curFrame, player->actor.shape.feetPos[FOOT_LEFT].y,
+                          player->actor.shape.feetPos[FOOT_RIGHT].y, player->bodyPartsPos[PLAYER_BODYPART_WAIST].x,
+                          player->bodyPartsPos[PLAYER_BODYPART_WAIST].y, player->bodyPartsPos[PLAYER_BODYPART_WAIST].z,
+                          player->actor.shape.feetPos[FOOT_LEFT].x, player->actor.shape.feetPos[FOOT_LEFT].z,
+                          player->actor.shape.feetPos[FOOT_RIGHT].x, player->actor.shape.feetPos[FOOT_RIGHT].z);
     for (int i = 0; i < 2 && used < sizeof(buf); i++) {
         const CamProbePointDiag& p = cd.probe[i];
         used += std::snprintf(buf + used, sizeof(buf) - used, " %s=%.1f,%.1f,f:%.1f#%d,v:%d#%d@%.1f",
