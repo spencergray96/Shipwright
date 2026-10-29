@@ -5677,7 +5677,7 @@ s32 func_8083A4A8(Player* this, PlayState* play) {
     // climb onto the rail, Link leaves its edge at ~4, under the 5.9 the full hop takes, and got a ~2 hop. Off its
     // rail onto its own deck, the small one at any pace: the full hop at a run carried him across the deck and over
     // the far side, and no hop at all (a walk off) was the owner's miss.
-    if (RsBoat_IsBoatFloor(play, this->actor.floorBgId)) {
+    if (RsBoat_StepOntoOwnDeck(play, this)) {
         temp = (IREG(68) / 100.0f) + ((IREG(69) * this->linearVelocity) / 1000.0f);
     } else if ((this->linearVelocity > (IREG(66) / 100.0f)) || RsBoat_LinkWasAboard(play)) {
         temp = IREG(67) / 100.0f;
@@ -5833,11 +5833,14 @@ void func_8083AA10(Player* this, PlayState* play) {
                     // SOH [Fork] sturdy-bassoon#262: running off a boat always hops, even onto a bank close
                     // below its rail, where the vanilla 20-unit drop test made Link step off without one.
                     (sPrevFloorProperty != FLOOR_PROPERTY_9) &&
-                    // Onto the boat's own deck, vanilla's 20-unit drop test still holds (so no hop over a seam on a
-                    // rocking deck); off its rail, a drop of ~37, the small hop (func_8083A4A8).
-                    ((sYDistToFloor > 20.0f) ||
-                     (RsBoat_LinkWasAboard(play) && !RsBoat_IsBoatFloor(play, this->actor.floorBgId))) &&
-                    (this->meleeWeaponState == 0) && (ABS(sp5C) < 0x2000) && (this->linearVelocity > 3.0f)) {
+                    // Onto the boat's own deck (the small hop, func_8083A4A8), from any drop over 10 and at any pace
+                    // over 0.5: Link leaves the skiff's rail ~18 over its deck, under vanilla's 20, and a walk off
+                    // the sloop's covered bow (~1) is under vanilla's 3. A seam on a rocking deck is a unit or two.
+                    (RsBoat_StepOntoOwnDeck(play, this)
+                         ? ((sYDistToFloor > 10.0f) && (this->linearVelocity > 0.5f))
+                         : (((sYDistToFloor > 20.0f) || RsBoat_LinkWasAboard(play)) &&
+                            (this->linearVelocity > 3.0f))) &&
+                    (this->meleeWeaponState == 0) && (ABS(sp5C) < 0x2000)) {
 
                     if ((sPrevFloorProperty == FLOOR_PROPERTY_11) &&
                         !(this->stateFlags1 & PLAYER_STATE1_CARRYING_ACTOR)) {

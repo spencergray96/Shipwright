@@ -230,9 +230,13 @@ s32 RsBoat_LinkWasAboard(PlayState* play);
 // it, never leaving the ground, so the hop above is never asked about. Player hops him there too.
 s32 RsBoat_SteppedOffBoat(PlayState* play, const Player* player);
 
-// 1 when `bgId` is a live boat's collision. Player reads it for the floor under Link as he leaves an edge: stepping
-// off the rail onto the deck below is a drop, not a hop, which at a run could carry him over the far side.
+// 1 when `bgId` is a live boat's collision.
 s32 RsBoat_IsBoatFloor(PlayState* play, s32 bgId);
+
+// 1 when Link, aboard as of last tick, is leaving an edge over a boat's own floor: off its rail or its covered bow onto
+// its deck. Player gives that the small hop at any pace over 0.5, a walk included (the full one at a run carried him
+// over the far side), from any drop over 10.
+s32 RsBoat_StepOntoOwnDeck(PlayState* play, const Player* player);
 
 // After Player's update (OnPlayerUpdate): Link standing on a boat is put on the floor under him as the hull's own
 // float transform has it (#262). The engine truncates a moving hull's collision to whole units each tick

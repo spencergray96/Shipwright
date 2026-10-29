@@ -299,11 +299,19 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
           { 21.0f, 60.0f, 73.0f, 37.0f },
           { 51.0f, 56.5f, 70.0f, 37.0f },
           { 81.0f, 51.0f, 64.5f, 37.0f },
+          // the bow's curve is convex: 111 and 151 follow the drawn hull where a straight run between the stations
+          // fell 1.2-1.6 inside it, and the outline runs on to the keel's stem post (12 wide, to boat z 175), which
+          // stood 5 past the hull's own tip at 170 (the owner, 2026-10-28: hands in the wood climbing the bow from
+          // the sea). 166, not 170: the bow's rail end steps in 8 behind the station before it (RsBoat_BuildHull).
+          // Past the covered bow (160) the top is solid across (RsBoat_InnerHw), as the drawn stem is.
           { 101.0f, 43.5f, 58.5f, 37.0f },
+          { 111.0f, 35.5f, 55.0f, 37.0f },
           { 121.0f, 27.5f, 49.0f, 37.0f },
           { 141.0f, 10.0f, 36.0f, 37.0f },
-          { 161.0f, 4.0f, 16.0f, 37.0f },
-          { 170.0f, 2.0f, 6.0f, 37.0f },
+          { 151.0f, 7.0f, 27.6f, 37.0f },
+          { 161.0f, 4.0f, 17.0f, 37.0f },
+          { 166.0f, 3.0f, 11.4f, 37.0f },
+          { 175.0f, 2.0f, 6.0f, 37.0f },
       } },
     // The raft, loc 59496 (the 856-face model, in the skiff's tint column; 59494-59500 are its row, the 530-face
     // model from 59497): a flat log platform 48 wide and 140 long, model z -71..69, x -24..24 with two crossbeams
@@ -597,8 +605,13 @@ static void RsBoat_AddStationProbes(RsBoatProbe* probes, s32* count, f32 z, f32 
 }
 
 // The inner rail wall's half-width at a station: the rail is RS_BOAT_RAIL_THICK wide, or half the gunwale where the
-// hull is narrower than two of it.
-static f32 RsBoat_InnerHw(const RsBoatStation* st) {
+// hull is narrower than two of it. Past a covered bow's last row, 0: the two rail tops meet, and the stem is solid
+// across at rail height as drawn. Left open, it was a pit down to the deck under a climb onto the stem from the sea,
+// which dropped Link back into the water (#262).
+static f32 RsBoat_InnerHw(const RsBoatKind* kind, const RsBoatStation* st) {
+    if (kind->foredeck.rows > 0 && st->z > kind->foredeck.rowZ[kind->foredeck.rows - 1]) {
+        return 0.0f;
+    }
     return MAX(st->outerHw - RS_BOAT_RAIL_THICK, st->outerHw * 0.5f);
 }
 
@@ -674,7 +687,8 @@ static void RsBoat_BuildForedeck(RsBoatHull* hull, const RsBoatKind* kind) {
         const RsBoatStation* b = &kind->stations[r + 1];
 
         if (z0 >= a->z && z0 < b->z) {
-            innerHw = RsBoat_InnerHw(a) + (RsBoat_InnerHw(b) - RsBoat_InnerHw(a)) * (z0 - a->z) / (b->z - a->z);
+            innerHw = RsBoat_InnerHw(kind, a) +
+                      (RsBoat_InnerHw(kind, b) - RsBoat_InnerHw(kind, a)) * (z0 - a->z) / (b->z - a->z);
         }
     }
     if (innerHw <= 0.0f) {
@@ -889,7 +903,7 @@ static void RsBoat_BuildHull(s32 kindId) {
 
     for (i = 0; i < n; i++) {
         const RsBoatStation* st = &kind->stations[i];
-        const f32 innerHw = RsBoat_InnerHw(st);
+        const f32 innerHw = RsBoat_InnerHw(kind, st);
         // The rail's inner edge steps in from the stern and the bow too, so the ends have a rail top of their own -
         // but never past the next station in: at the skiff's bow (112, the one before at 99) a full step crossed
         // it and folded the deck and rail top into slivers (RS_BOAT_MIN_ALTITUDE). 8 short, not 4: a 4-deep strip of
@@ -1981,7 +1995,8 @@ void RsBoat_SmoothLinkOnDeck(PlayState* play) {
         const f32 target = RsBoat_OuterHwAt(&sRsBoatKinds[boat->kind], lz) - RS_BOAT_RAIL_STAND_IN;
         const f32 step = MIN(target - fabsf(lx), RS_BOAT_RAIL_EASE);
 
-        if (step > 0.0f) {
+        // Only while he stands: a walk inward (~1 a tick) was held on the rail by it and never stepped down.
+        if ((step > 0.0f) && (player->linearVelocity < 0.5f)) {
             const f32 out = (lx < 0.0f) ? -step : step;
 
             player->actor.world.pos.x += out * Math_CosS(yaw);
@@ -2088,6 +2103,10 @@ f32 RsBoat_LedgeMin(PlayState* play, const Player* player, f32 vanilla) {
 
 s32 RsBoat_IsBoatFloor(PlayState* play, s32 bgId) {
     return RsBoat_IsHullBg(play, bgId);
+}
+
+s32 RsBoat_StepOntoOwnDeck(PlayState* play, const Player* player) {
+    return RsBoat_LinkWasAboard(play) && RsBoat_IsHullBg(play, player->actor.floorBgId);
 }
 
 s32 RsBoat_SteppedOffBoat(PlayState* play, const Player* player) {
