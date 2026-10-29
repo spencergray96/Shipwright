@@ -1861,7 +1861,24 @@ f32 RsBoat_ClimbInset(PlayState* play, const Player* player, f32 vanilla) {
         return vanilla + now;
     }
     // The rails' own surface row (RS_BOAT_SURFACE_HANDS_RAIL), and on a hull: a scene poly may use that index too.
+    // From the deck onto a side rail, at least as far out as the rail's ease would take him once he stood
+    // (RS_BOAT_RAIL_STAND_IN): set down short of it, the ease slid him 1.3-1.5 outward as the climb ended (the owner,
+    // 2026-10-29).
     if (player->actor.wallPoly != NULL && player->actor.wallPoly->type == RS_BOAT_SURFACE_HANDS_RAIL) {
+        const s16 yaw = boat->dyna.actor.shape.rot.y;
+        const f32 dx = player->actor.world.pos.x - boat->dyna.actor.world.pos.x;
+        const f32 dz = player->actor.world.pos.z - boat->dyna.actor.world.pos.z;
+        const f32 lx = dx * Math_CosS(yaw) - dz * Math_SinS(yaw);
+        const f32 lz = dx * Math_SinS(yaw) + dz * Math_CosS(yaw);
+        const f32 wx = COLPOLY_GET_NORMAL(player->actor.wallPoly->normal.x);
+        const f32 wz = COLPOLY_GET_NORMAL(player->actor.wallPoly->normal.z);
+        // the climb's move across the boat, a unit along it: against the wall, outward from a side rail
+        const f32 across = fabsf(wx * Math_CosS(yaw) - wz * Math_SinS(yaw));
+        const f32 gap = RsBoat_OuterHwAt(&sRsBoatKinds[boat->kind], lz) - RS_BOAT_RAIL_STAND_IN - fabsf(lx);
+
+        if (across >= 0.7f && gap > 0.0f) {
+            return CLAMP(gap / across, vanilla * RS_BOAT_RAIL_CLIMB_INSET, vanilla * RS_BOAT_RAIL_CLIMB_INSET + 4.0f);
+        }
         return vanilla * RS_BOAT_RAIL_CLIMB_INSET;
     }
     return vanilla;
