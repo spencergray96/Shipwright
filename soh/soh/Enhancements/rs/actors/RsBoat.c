@@ -1584,10 +1584,12 @@ s32 RsBoat_LinkWasAboard(PlayState* play) {
     return RsBoat_Find(play, RsBoat_LinkWasOn) != NULL;
 }
 
-// A swimmer reaches this much higher against a hull than against a bank. Vanilla's climb-out takes a ledge at most
-// 70 over him (sAgeProperties unk_10, adult) and he floats ~46 under the surface, so ~24 over the water; the
-// skiff's rail is 26 over it and the sloop's 36, plus the bob. 20 more covers both, with the sloop's raised bow.
-#define RS_BOAT_SWIM_REACH 20.0f
+// Against a hull a swimmer climbs out onto any ledge up to this far over the water, either age; against a bank,
+// vanilla's reach. Vanilla's climb-out takes a ledge under sAgeProperties unk_14 over his feet (adult 79.4, child 47),
+// and he floats with his feet ~46 under the surface as an adult and ~31 as a child, so ~33 and ~16 over the water: the
+// skiff's rail is 26 over it and the sloop's ~40, plus the bob. A flat 20 more (the adult's ~53, below) left the child
+// 4 short of the sloop's rail (#262). Measured from his feet each tick, so the bob does not eat into it.
+#define RS_BOAT_SWIM_REACH_OVER_WATER 54.0f
 // Pushing into a hull's inner wall this many ticks before Link hops onto its rail: 0.6 s, a run at the side on
 // purpose rather than brushing past it (the far side then hops him off, RsBoat_SteppedOffBoat). The boat counts it
 // itself (RsBoat_CountRailPush), because Player's own count cannot: against a hull, the wall-contact flag drops
@@ -1672,7 +1674,10 @@ static s32 RsBoat_IsHullBg(PlayState* play, s32 bgId) {
 }
 
 f32 RsBoat_SwimReach(PlayState* play, const Player* player) {
-    return RsBoat_IsHullBg(play, player->actor.wallBgId) ? RS_BOAT_SWIM_REACH : 0.0f;
+    if (!RsBoat_IsHullBg(play, player->actor.wallBgId)) {
+        return 0.0f;
+    }
+    return MAX(0.0f, RS_BOAT_SWIM_REACH_OVER_WATER + player->actor.yDistToWater - player->ageProperties->unk_14);
 }
 
 s32 RsBoat_ClimbDelay(PlayState* play, const Player* player, s32 vanilla) {
