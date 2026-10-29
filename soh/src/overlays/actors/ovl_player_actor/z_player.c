@@ -10224,13 +10224,32 @@ void Player_Action_80845668(Player* this, PlayState* play) {
         }
 
         if ((sp3C != 0) || (temp2 > 0)) {
-            // SOH [Fork] sturdy-bassoon#262: onto a boat, func_8083C0E8 with the climb's last pose blended into
-            // standing, as Link's other changes of animation are. Cut straight to it, as vanilla does, he jumped ~1
-            // to his left as the climb ended (the owner, 2026-10-29).
+            // SOH [Fork] sturdy-bassoon#262: onto a boat, standing takes over where the climb left him. The climb's
+            // last pose carries the whole body ~1 to Link's right of the idle's first (the root joint's x/z), so cut
+            // straight to it, as vanilla does, his feet jumped ~1 to his left (the owner, 2026-10-29); blended,
+            // they slid there instead. Move him by that difference so his feet stay put, and blend the limbs alone
+            // (the root left at the idle's) from the climb's pose, as Link's other changes of animation are.
             if (RsBoat_IsBoatFloor(play, this->actor.floorBgId)) {
-                Player_SetupAction(play, this, Player_Action_Idle, 1);
-                Player_AnimChangeOnceMorph(play, this, Player_GetIdleAnim(this));
-                this->yaw = this->actor.shape.rot.y;
+                Vec3s* joints = this->skelAnime.jointTable;
+                const s32 count = MIN(this->skelAnime.limbCount + 1, PLAYER_LIMB_BUF_COUNT); // + the face
+                Vec3s pose[PLAYER_LIMB_BUF_COUNT];
+                f32 dx;
+                f32 dz;
+
+                memcpy(pose, joints, sizeof(Vec3s) * count);
+                func_8083C0E8(this, play); // loads the idle's first frame into the joints at once
+                // the child's root is drawn at 0.64 (Player_OverrideLimbDrawGameplayCommon)
+                dx = (pose[0].x - joints[0].x) * this->actor.scale.x * (LINK_IS_ADULT ? 1.0f : 0.64f);
+                dz = (pose[0].z - joints[0].z) * this->actor.scale.z * (LINK_IS_ADULT ? 1.0f : 0.64f);
+                this->actor.world.pos.x +=
+                    dx * Math_CosS(this->actor.shape.rot.y) + dz * Math_SinS(this->actor.shape.rot.y);
+                this->actor.world.pos.z +=
+                    dz * Math_CosS(this->actor.shape.rot.y) - dx * Math_SinS(this->actor.shape.rot.y);
+                pose[0] = joints[0];
+                memcpy(this->skelAnime.morphTable, pose, sizeof(Vec3s) * count);
+                memcpy(joints, pose, sizeof(Vec3s) * count);
+                this->skelAnime.morphWeight = 1.0f;
+                this->skelAnime.morphRate = 1.0f / 6.0f;
             } else {
                 func_8083C0E8(this, play);
             }
