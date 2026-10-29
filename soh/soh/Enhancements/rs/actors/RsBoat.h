@@ -260,7 +260,7 @@ f32 RsBoat_LedgeMin(PlayState* play, const Player* player, f32 vanilla);
 f32 RsBoat_InteractHeight(PlayState* play, const Player* player, f32 vanilla);
 
 // How far past his wall radius that line reaches: `vanilla` (10), or further on a boat, so a run into the rail at an
-// angle still finds it and climbs.
+// angle still finds it and climbs, and further again for a swimmer at a hull, who is held further off it.
 f32 RsBoat_InteractReach(PlayState* play, const Player* player, f32 vanilla);
 
 // How far off straight at a wall Link may face for Player to look for a ledge on it: `vanilla` (0x3000), or wider

@@ -1608,8 +1608,10 @@ s32 RsBoat_LinkWasAboard(PlayState* play) {
 #define RS_BOAT_SWIM_CLIMB_DELAY 4
 #define RS_BOAT_SWIM_PUSH_GRACE 6
 // A swimmer glancing along a hull turns to face along it; his push still counts, and Player still looks for the ledge,
-// up to this far off straight at it (both are 0x3000, 67 degrees, elsewhere).
-#define RS_BOAT_SWIM_PUSH_ANGLE 0x3800
+// up to this far off straight at it (both are 0x3000, 67 degrees, elsewhere). 0x3800 (79) left him climbing out only
+// up to ~70 degrees off square, where the deck climbs at 80: along the sloop's curving side the wall he meets turns a
+// further ~6 away from him (the owner, 2026-10-28).
+#define RS_BOAT_SWIM_PUSH_ANGLE 0x3C00
 // A push into a hull counts at up to this far off straight at it, from the deck or the water: Player's ledge test's
 // own reach (0x3000, 67 degrees), so running or swimming in at an angle climbs; 0x2000 refused the owner's.
 #define RS_BOAT_PUSH_ANGLE 0x3000
@@ -1626,6 +1628,10 @@ s32 RsBoat_LinkWasAboard(PlayState* play) {
 // along the rail does; 20 reaches it at 60).
 #define RS_BOAT_INTERACT_HEIGHT 12.0f
 #define RS_BOAT_INTERACT_REACH 20.0f
+// ... and for a swimmer at a hull, who is held ~18-19 off it, so the line meets it at that over cos(angle): at 20 he
+// climbed out only up to ~60 degrees off square where the deck climbs at 80 (the owner, 2026-10-28). At 60 the
+// child climbs out at 75, the adult at 70; 80 gained nothing, as at 75 the adult turns to swim along the hull.
+#define RS_BOAT_SWIM_INTERACT_REACH 60.0f
 // How flat a hull's ledge top must be for the hands-on climb, as a normal's y in the engine's s16 units: Player's
 // 28000 (31 degrees) left the notch's sloped ends to its hop; 16384 is 60 degrees.
 #define RS_BOAT_LEDGE_FLAT 16384
@@ -1651,10 +1657,14 @@ s32 RsBoat_LinkWasAboard(PlayState* play) {
 #define RS_BOAT_SWIM_LAND_MAX 16.0f
 // ... of which at once, at most: as far as this inside the outline, so the climb starts over the deck.
 #define RS_BOAT_SWIM_LAND_EDGE 2.0f
-// The landing's slide in, world units a tick (sClimbSlide), over the first ticks of the climb.
+// The landing's slide in, world units a tick (sClimbSlide), over this many ticks of the climb once its first
+// RS_BOAT_CLIMB_SLIDE_DELAY are past: while his hands hold the edge, a slide carried them past the trim and into the
+// hull (the owner, 2026-10-28; 3.5 at the sloop's side).
 #define RS_BOAT_CLIMB_SLIDE_TICKS 8
+#define RS_BOAT_CLIMB_SLIDE_DELAY 8
 static f32 sClimbSlide[2];
 static s32 sClimbSlideTicks;
+static s32 sClimbSlideDelay;
 // A swimmer's climb onto a hull draws him lowered by the whole rise (Player sets him on the top at once), and the
 // animation's raised hands meet the top only for a rise up to vanilla's own climb-out limit (unk_14). The part over it
 // (adult ~6-10 at the sloop, child ~24) is lifted over this many ticks at the climb's start (RsBoat_ClimbLift);
@@ -1806,6 +1816,7 @@ f32 RsBoat_ClimbInset(PlayState* play, const Player* player, f32 vanilla) {
         sClimbSlide[0] = -COLPOLY_GET_NORMAL(player->actor.wallPoly->normal.x) * slide / RS_BOAT_CLIMB_SLIDE_TICKS;
         sClimbSlide[1] = -COLPOLY_GET_NORMAL(player->actor.wallPoly->normal.z) * slide / RS_BOAT_CLIMB_SLIDE_TICKS;
         sClimbSlideTicks = (slide > 0.0f) ? RS_BOAT_CLIMB_SLIDE_TICKS : 0;
+        sClimbSlideDelay = RS_BOAT_CLIMB_SLIDE_DELAY;
         sClimbLift = MAX(0.0f, player->yDistToLedge - player->ageProperties->unk_14) * 100.0f / RS_BOAT_CLIMB_LIFT_TICKS;
         sClimbLiftTicks = (sClimbLift > 0.0f) ? RS_BOAT_CLIMB_LIFT_TICKS : 0;
         return vanilla + now;
@@ -1936,9 +1947,13 @@ void RsBoat_SmoothLinkOnDeck(PlayState* play) {
 
     // A swimmer's climb onto a hull, the rest of the way in (RsBoat_ClimbInset).
     if (player != NULL && sClimbSlideTicks > 0) {
-        player->actor.world.pos.x += sClimbSlide[0];
-        player->actor.world.pos.z += sClimbSlide[1];
-        sClimbSlideTicks--;
+        if (sClimbSlideDelay > 0) {
+            sClimbSlideDelay--;
+        } else {
+            player->actor.world.pos.x += sClimbSlide[0];
+            player->actor.world.pos.z += sClimbSlide[1];
+            sClimbSlideTicks--;
+        }
     }
     if (player == NULL || !(player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) ||
         (player->stateFlags1 & (PLAYER_STATE1_CLIMBING_LEDGE | PLAYER_STATE1_JUMPING))) {
@@ -1995,6 +2010,9 @@ static s32 RsBoat_LinkSwimmingAtHull(PlayState* play, const Player* player) {
 
 f32 RsBoat_InteractReach(PlayState* play, const Player* player, f32 vanilla) {
     // On a deck, or against a hull from the water or the shore.
+    if (RsBoat_LinkSwimmingAtHull(play, player)) {
+        return RS_BOAT_SWIM_INTERACT_REACH;
+    }
     return (RsBoat_LinkOnBoatFloor(play, player) || RsBoat_HullOf(play, player->actor.wallBgId) != NULL)
                ? RS_BOAT_INTERACT_REACH
                : vanilla;

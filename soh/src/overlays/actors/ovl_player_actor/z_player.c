@@ -5671,7 +5671,9 @@ s32 func_8083A4A8(Player* this, PlayState* play) {
         anim = &gPlayerAnim_link_normal_jump;
     }
 
-    if (this->linearVelocity > (IREG(66) / 100.0f)) {
+    // SOH [Fork] sturdy-bassoon#262: off a boat, the full hop at any pace that hops at all (over 3): run on from a
+    // climb onto the rail, Link leaves its edge at ~4, under the 5.9 the full hop takes, and got a ~2 hop.
+    if ((this->linearVelocity > (IREG(66) / 100.0f)) || RsBoat_LinkWasAboard(play)) {
         temp = IREG(67) / 100.0f;
     } else {
         temp = (IREG(68) / 100.0f) + ((IREG(69) * this->linearVelocity) / 1000.0f);
