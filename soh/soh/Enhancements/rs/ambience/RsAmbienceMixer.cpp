@@ -80,7 +80,10 @@ std::atomic<int32_t> sStatVoices{ 0 };
 std::atomic<int32_t> sStatAudible{ 0 };
 std::atomic<int32_t> sStatLoaded{ 0 };
 std::atomic<uint64_t> sStatBatches{ 0 };
-std::atomic<uint64_t> sStatKeys{ 0 };
+// The keys heard in the last batch, for the console. Written by the audio thread under sStatMutex.
+std::mutex sStatMutex;
+int32_t sStatKeys[kMaxVoices] = {};
+int32_t sStatKeyCount = 0;
 
 bool DecodeWav(const std::vector<char>& bytes, Sample* out) {
     drwav wav;
@@ -271,7 +274,11 @@ RsAmbienceMixerStats RsAmbienceMixer_GetStats() {
     s.audible = sStatAudible;
     s.loaded = sStatLoaded;
     s.batches = sStatBatches;
-    s.keysAudible = sStatKeys;
+    std::lock_guard<std::mutex> lock(sStatMutex);
+    s.audibleKeyCount = sStatKeyCount;
+    for (int32_t i = 0; i < sStatKeyCount; i++) {
+        s.audibleKeys[i] = sStatKeys[i];
+    }
     return s;
 }
 
@@ -287,7 +294,7 @@ void RsAmbienceMixer_Mix(int16_t* stereo, uint32_t frames) {
 
     sAccum.assign((size_t)frames * 2, 0.0f);
     int32_t held = 0, audible = 0;
-    uint64_t keys = 0;
+    int32_t keys[kMaxVoices];
     for (Voice& v : sVoices) {
         if (!v.used) {
             continue;
@@ -321,10 +328,7 @@ void RsAmbienceMixer_Mix(int16_t* stereo, uint32_t frames) {
         }
         held++;
         if (heard) {
-            audible++;
-            if (v.key >= 0 && v.key < 64) {
-                keys |= 1ull << v.key;
-            }
+            keys[audible++] = v.key;
         }
     }
     for (uint32_t i = 0; i < frames * 2; i++) {
@@ -333,6 +337,12 @@ void RsAmbienceMixer_Mix(int16_t* stereo, uint32_t frames) {
     }
     sStatVoices = held;
     sStatAudible = audible;
-    sStatKeys = keys;
+    {
+        std::lock_guard<std::mutex> lock(sStatMutex);
+        sStatKeyCount = audible;
+        for (int32_t i = 0; i < audible; i++) {
+            sStatKeys[i] = keys[i];
+        }
+    }
     sStatBatches++;
 }

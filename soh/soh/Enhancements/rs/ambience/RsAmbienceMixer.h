@@ -45,7 +45,9 @@ struct RsAmbienceMixerStats {
     int32_t audible;      // of those, the ones it added to the last batch with a gain above zero
     int32_t loaded;       // files decoded
     uint64_t batches;     // batches mixed since start; it stops advancing if the hook is not being called
-    uint64_t keysAudible; // bit k set when the voice with key k was audible in the last batch (keys 0..63)
+    // The keys of the voices audible in the last batch, at most 16 (the voice pool).
+    int32_t audibleKeys[16];
+    int32_t audibleKeyCount;
 };
 RsAmbienceMixerStats RsAmbienceMixer_GetStats();
 
