@@ -1799,9 +1799,29 @@ static f32 RsBoat_SwimLanding(const RsBoat* boat, const Player* player, f32 inse
     const f32 nlz = wx * s + wz * c;
 
     if (fabsf(nlx) >= fabsf(nlz)) {
-        const f32 hw = RsBoat_OuterHwAt(&sRsBoatKinds[boat->kind], CLAMP(lz, hull->sternZ, hull->bowZ));
+        // At right angles to the outline's edge between the stations either side, in (|x|, z): where the hull
+        // narrows to the bow the wall faces partly forward, and measuring across x (over the wall's x) set him down
+        // ~twice as far in, onto the covered bow, with the camera's look-at left under it (the owner, 2026-10-29).
+        const RsBoatKind* kind = &sRsBoatKinds[boat->kind];
+        const s32 n = RsBoat_NumStations(kind);
+        const f32 z = CLAMP(lz, hull->sternZ, hull->bowZ);
+        s32 i = 0;
+        f32 du;
+        f32 dv;
+        f32 len;
+        f32 nu;
+        f32 nv;
 
-        return (fabsf(lx) - (hw - inset)) / MAX(fabsf(nlx), 0.5f);
+        while (i + 2 < n && z > kind->stations[i + 1].z) {
+            i++;
+        }
+        du = kind->stations[i + 1].outerHw - kind->stations[i].outerHw;
+        dv = kind->stations[i + 1].z - kind->stations[i].z;
+        len = sqrtf(SQ(du) + SQ(dv));
+        nu = dv / len; // the edge's outward normal
+        nv = -du / len;
+        return ((fabsf(lx) - kind->stations[i].outerHw) * nu + (lz - kind->stations[i].z) * nv + inset) /
+               MAX((lx < 0.0f ? -nlx : nlx) * nu + nlz * nv, 0.5f);
     }
     return (fabsf(lz - ((nlz < 0.0f) ? hull->sternZ : hull->bowZ)) + inset) / MAX(fabsf(nlz), 0.5f);
 }
