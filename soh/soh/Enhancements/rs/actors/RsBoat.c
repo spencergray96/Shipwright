@@ -180,6 +180,7 @@ typedef struct RsBoatKind {
     f32 modelY; // where the model's origin is drawn, over the waterline
     f32 modelZ;
     s32 helmInModel;     // its archive carries Sailing's helm as well as the hull: no placeholder tiller post
+    s32 hopInward;       // off its rail or covered bow onto its own deck, the small hop; 0 walks off (RsBoat_HopOntoOwnDeck)
     RsBoatForedeck foredeck;
     RsBoatRudder rudder;
     f32 topSpeed;       // units a tick ahead, by default
@@ -207,6 +208,7 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
       RS_BOAT_DECK_Y,
       -25.0f,
       1,
+      0, // the owner's call: its rail is ~18 over the deck, and walking off it reads right
       { 7,
         { 60.0f, 68.0f, 76.0f, 84.0f, 92.0f, 100.0f, 107.0f },
         {
@@ -261,6 +263,7 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
       RS_BOAT_DECK_Y,
       RS_BOAT_DECK_Y,
       -3.0f,
+      1,
       1,
       { 7,
         { 77.0f, 90.0f, 104.0f, 118.0f, 132.0f, 146.0f, 160.0f },
@@ -325,6 +328,7 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
       -12.5f,
       0.0f,
       1,
+      0, // no rail: its logs are the deck
       { 0 },
       // the steering oar (helm-60553, the whole helm, from the raft's stern tile): its pin is where it rests on the
       // stern's logs, on the centreline at model z -70, the blade trailing under the water behind
@@ -2127,6 +2131,12 @@ s32 RsBoat_IsBoatFloor(PlayState* play, s32 bgId) {
 
 s32 RsBoat_StepOntoOwnDeck(PlayState* play, const Player* player) {
     return RsBoat_LinkWasAboard(play) && RsBoat_IsHullBg(play, player->actor.floorBgId);
+}
+
+s32 RsBoat_HopOntoOwnDeck(PlayState* play, const Player* player) {
+    const RsBoat* boat = RsBoat_HullOf(play, player->actor.floorBgId);
+
+    return RsBoat_StepOntoOwnDeck(play, player) && boat != NULL && sRsBoatKinds[boat->kind].hopInward;
 }
 
 s32 RsBoat_SteppedOffBoat(PlayState* play, const Player* player) {

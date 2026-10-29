@@ -234,9 +234,12 @@ s32 RsBoat_SteppedOffBoat(PlayState* play, const Player* player);
 s32 RsBoat_IsBoatFloor(PlayState* play, s32 bgId);
 
 // 1 when Link, aboard as of last tick, is leaving an edge over a boat's own floor: off its rail or its covered bow onto
-// its deck. Player gives that the small hop at any pace over 0.5, a walk included (the full one at a run carried him
-// over the far side), from any drop over 10.
+// its deck. Player gives that no hop (a walk off), or on a kind that hops inward the small hop at any pace over 0.5, a
+// walk included (the full one at a run carried him over the far side), from any drop over 10.
 s32 RsBoat_StepOntoOwnDeck(PlayState* play, const Player* player);
+
+// RsBoat_StepOntoOwnDeck, onto a boat whose kind hops inward (the sloop). Onto the others' decks Link walks off.
+s32 RsBoat_HopOntoOwnDeck(PlayState* play, const Player* player);
 
 // After Player's update (OnPlayerUpdate): Link standing on a boat is put on the floor under him as the hull's own
 // float transform has it (#262). The engine truncates a moving hull's collision to whole units each tick

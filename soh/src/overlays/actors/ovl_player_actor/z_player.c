@@ -5833,11 +5833,12 @@ void func_8083AA10(Player* this, PlayState* play) {
                     // SOH [Fork] sturdy-bassoon#262: running off a boat always hops, even onto a bank close
                     // below its rail, where the vanilla 20-unit drop test made Link step off without one.
                     (sPrevFloorProperty != FLOOR_PROPERTY_9) &&
-                    // Onto the boat's own deck (the small hop, func_8083A4A8), from any drop over 10 and at any pace
-                    // over 0.5: Link leaves the skiff's rail ~18 over its deck, under vanilla's 20, and a walk off
-                    // the sloop's covered bow (~1) is under vanilla's 3. A seam on a rocking deck is a unit or two.
+                    // Onto the boat's own deck, a walk off, except onto a kind that hops inward (the sloop): the
+                    // small hop (func_8083A4A8) from any drop over 10 and at any pace over 0.5, since a walk off
+                    // its covered bow (~1) is under vanilla's 3. A seam on a rocking deck is a unit or two.
                     (RsBoat_StepOntoOwnDeck(play, this)
-                         ? ((sYDistToFloor > 10.0f) && (this->linearVelocity > 0.5f))
+                         ? (RsBoat_HopOntoOwnDeck(play, this) && (sYDistToFloor > 10.0f) &&
+                            (this->linearVelocity > 0.5f))
                          : (((sYDistToFloor > 20.0f) || RsBoat_LinkWasAboard(play)) &&
                             (this->linearVelocity > 3.0f))) &&
                     (this->meleeWeaponState == 0) && (ABS(sp5C) < 0x2000)) {
