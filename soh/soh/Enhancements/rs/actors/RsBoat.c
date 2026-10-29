@@ -1655,6 +1655,13 @@ s32 RsBoat_LinkWasAboard(PlayState* play) {
 #define RS_BOAT_CLIMB_SLIDE_TICKS 8
 static f32 sClimbSlide[2];
 static s32 sClimbSlideTicks;
+// A swimmer's climb onto a hull draws him lowered by the whole rise (Player sets him on the top at once), and the
+// animation's raised hands meet the top only for a rise up to vanilla's own climb-out limit (unk_14). The part over it
+// (adult ~6-10 at the sloop, child ~24) is lifted over this many ticks at the climb's start (RsBoat_ClimbLift);
+// vanilla's 1.5 a tick from frame 5 left the hands in the trim for most of the climb (the owner, 2026-10-28).
+#define RS_BOAT_CLIMB_LIFT_TICKS 4
+static f32 sClimbLift; // model units (shape.yOffset) a tick
+static s32 sClimbLiftTicks;
 
 // The boat whose collision `bgId` is, or NULL.
 static const RsBoat* RsBoat_HullOf(PlayState* play, s32 bgId) {
@@ -1777,6 +1784,7 @@ static f32 RsBoat_SwimLanding(const RsBoat* boat, const Player* player, f32 inse
 f32 RsBoat_ClimbInset(PlayState* play, const Player* player, f32 vanilla) {
     const RsBoat* boat = RsBoat_HullOf(play, player->actor.wallBgId);
 
+    sClimbLiftTicks = 0;
     if (boat == NULL) {
         return vanilla;
     }
@@ -1798,6 +1806,8 @@ f32 RsBoat_ClimbInset(PlayState* play, const Player* player, f32 vanilla) {
         sClimbSlide[0] = -COLPOLY_GET_NORMAL(player->actor.wallPoly->normal.x) * slide / RS_BOAT_CLIMB_SLIDE_TICKS;
         sClimbSlide[1] = -COLPOLY_GET_NORMAL(player->actor.wallPoly->normal.z) * slide / RS_BOAT_CLIMB_SLIDE_TICKS;
         sClimbSlideTicks = (slide > 0.0f) ? RS_BOAT_CLIMB_SLIDE_TICKS : 0;
+        sClimbLift = MAX(0.0f, player->yDistToLedge - player->ageProperties->unk_14) * 100.0f / RS_BOAT_CLIMB_LIFT_TICKS;
+        sClimbLiftTicks = (sClimbLift > 0.0f) ? RS_BOAT_CLIMB_LIFT_TICKS : 0;
         return vanilla + now;
     }
     // The rails' own surface row (RS_BOAT_SURFACE_HANDS_RAIL), and on a hull: a scene poly may use that index too.
@@ -1805,6 +1815,13 @@ f32 RsBoat_ClimbInset(PlayState* play, const Player* player, f32 vanilla) {
         return vanilla * RS_BOAT_RAIL_CLIMB_INSET;
     }
     return vanilla;
+}
+
+void RsBoat_ClimbLift(Player* player) {
+    if (sClimbLiftTicks > 0) {
+        player->actor.shape.yOffset = MIN(0.0f, player->actor.shape.yOffset + sClimbLift);
+        sClimbLiftTicks--;
+    }
 }
 
 f32 RsBoat_RailHop(PlayState* play, const Player* player) {

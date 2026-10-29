@@ -10231,6 +10231,12 @@ void Player_Action_80845668(Player* this, PlayState* play) {
             Player_PlayVoiceSfx(this, NA_SE_VO_LI_CLIMB_END);
         }
 
+        // SOH [Fork] sturdy-bassoon#262: a swimmer climbing a boat's hull rises from lower than the animation was made
+        // for; lift the extra over the first ticks so his hands meet the top. Nothing elsewhere.
+        if (this->skelAnime.animation == &gPlayerAnim_link_swimer_swim_15step_up) {
+            RsBoat_ClimbLift(this);
+        }
+
         if ((this->skelAnime.animation == &gPlayerAnim_link_normal_100step_up) || (this->skelAnime.curFrame > 5.0f)) {
             f32 yOffsetStep = 150.0f;
 

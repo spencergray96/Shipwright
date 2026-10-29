@@ -298,6 +298,10 @@ s32 RsBoat_ClimbDelay(PlayState* play, const Player* player, s32 vanilla);
 // inner edge (the owner's pick, #262). Every other climb, a covered bow's and a prop's included, is vanilla's.
 f32 RsBoat_ClimbInset(PlayState* play, const Player* player, f32 vanilla);
 
+// Each tick of a swimmer's climb onto a hull: lifts his lowered model through the part of the rise over vanilla's
+// climb-out limit, over the climb's first ticks, so his hands meet the top. Nothing on any other climb.
+void RsBoat_ClimbLift(Player* player);
+
 // The height of the rail Link should hop onto now, or 0: he has pushed into a boat's hull from its deck for 0.6 s,
 // so brushing past the rail does not put him over the side. Player hops him as onto a ledge that high.
 f32 RsBoat_RailHop(PlayState* play, const Player* player);
