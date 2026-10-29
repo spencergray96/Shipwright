@@ -11430,6 +11430,13 @@ void Player_ProcessSceneCollision(PlayState* play, Player* this) {
                 ledgeCheckPos.x = this->actor.world.pos.x - (vLedgeCheckOffsetXZ * wallPolyNormalX);
                 ledgeCheckPos.z = this->actor.world.pos.z - (vLedgeCheckOffsetXZ * wallPolyNormalZ);
                 ledgeCheckPos.y = this->actor.world.pos.y + this->ageProperties->unk_0C;
+                // SOH [Fork] sturdy-bassoon#262: a swimmer's look for a boat's rail starts as much higher as he reaches
+                // higher against it. The child's starts 71 over his feet, which is where the sloop's rail is: whenever
+                // the boat rolled that side up, it started under the rail top and found the deck (the owner: hard to
+                // climb out on one side as the child).
+                if (this->stateFlags1 & PLAYER_STATE1_IN_WATER) {
+                    ledgeCheckPos.y += RsBoat_SwimReach(play, this);
+                }
 
                 ledgePosY = BgCheck_EntityRaycastFloor1(&play->colCtx, &ledgeFloorPoly, &ledgeCheckPos);
                 yDistToLedge = ledgePosY - this->actor.world.pos.y;
