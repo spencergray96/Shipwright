@@ -475,8 +475,8 @@ static SurfaceType sHullSurface[4] = {
     { { 0, 9 } },
 };
 // A poly's line-test flags (z_bgcheck.c's COLPOLY_IGNORE_*, not in a header). Link's rail over a skinned stretch
-// lets arrows, seeds and the hookshot (RsBoat_HookshotLineTest) pass; its skin is theirs alone, which Link and the
-// camera pass (RsBoat_BuildSkinned).
+// lets arrows, seeds, the hookshot and the boomerang (RsBoat_ShotLineTest) pass; its skin is theirs alone, which Link
+// and the camera pass (RsBoat_BuildSkinned).
 #define RS_BOAT_POLY_SHOTS_PASS (1 << 2)
 #define RS_BOAT_POLY_SHOTS_ONLY ((1 << 0) | (1 << 1))
 // What the camera passes and everything else meets: a post (RsBoatPost).
@@ -1978,8 +1978,8 @@ f32 RsBoat_InteractReach(PlayState* play, const Player* player, f32 vanilla) {
                : vanilla;
 }
 
-s32 RsBoat_HookshotLineTest(PlayState* play, Vec3f* from, Vec3f* to, Vec3f* result, CollisionPoly** outPoly,
-                             s32* outBgId) {
+s32 RsBoat_ShotLineTest(PlayState* play, Vec3f* from, Vec3f* to, Vec3f* result, CollisionPoly** outPoly,
+                        s32* outBgId) {
     Vec3f a = *from;
     Vec3f hullAt;
     CollisionPoly* hullPoly;

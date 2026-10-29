@@ -267,7 +267,7 @@ void ArmsHook_Shoot(ArmsHook* this, PlayState* play) {
             buttonsToCheck |= BTN_DUP | BTN_DDOWN | BTN_DLEFT | BTN_DRIGHT;
         }
         // SOH [Fork] sturdy-bassoon#262: through a boat's rail openings, whose walls only Link meets.
-        if (RsBoat_HookshotLineTest(play, &sp60, &this->unk_1E8, &sp78, &poly, &bgId) &&
+        if (RsBoat_ShotLineTest(play, &sp60, &this->unk_1E8, &sp78, &poly, &bgId) &&
             !func_8002F9EC(play, &this->actor, poly, bgId, &sp78)) {
             sp5C = COLPOLY_GET_NORMAL(poly->normal.x);
             sp58 = COLPOLY_GET_NORMAL(poly->normal.z);

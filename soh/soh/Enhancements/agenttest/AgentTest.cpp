@@ -439,7 +439,8 @@
  *                                          32 units. The measurable form of "walls clip" (sturdy-bassoon#103)
  *   agenttest ray <kind> x0 y0 z0 x1 y1 z1  one "ray" marker: the first poly the engine's line test of that
  *                                          kind meets from (x0,y0,z0) to (x1,y1,z1) - projectile (arrows),
- *                                          entity (Link, hookshot), camera, or any - with the hit point,
+ *                                          entity (Link), hookshot or boomerang (the boat's shot test, #262),
+ *                                          camera, or any - with the hit point,
  *                                          distance and the poly's exclusion flags (sturdy-bassoon#145)
  *   agenttest time <dawn|day|dusk|night|value>  set the time of day: dayTime and skyboxTime together, plus
  *                                          nightFlag by the engine's own threshold (night when > 0xC000 or
@@ -2378,7 +2379,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     // One engine line test between two points, as a given kind of caller runs it
     // (sturdy-bassoon#145). Each kind skips a different set of polys by their exclusion flags, which
     // is the whole of what a carved wall's projectile layer relies on: `projectile` is what an arrow,
-    // seed or thrown nut flies on, `entity` what Link's probes, the hookshot and the boomerang use,
+    // seed or thrown nut flies on, `entity` what Link's probes use, `hookshot` and `boomerang` theirs,
     // `camera` what the camera's line tests use, and `any` skips nothing. All four take the arrow's
     // own arguments - walls, floors and ceilings, front faces only - so they differ only in the flags.
     // flags= is the hit poly's xpFlags (1 camera, 2 entity, 4 projectiles).
@@ -2388,7 +2389,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         if (args.size() < 9 || !ParseFloat(args[3], &a.x) || !ParseFloat(args[4], &a.y) || !ParseFloat(args[5], &a.z) ||
             !ParseFloat(args[6], &b.x) || !ParseFloat(args[7], &b.y) || !ParseFloat(args[8], &b.z)) {
             if (output) {
-                *output += "ray needs <projectile|entity|hookshot|camera|any> x0 y0 z0 x1 y1 z1";
+                *output += "ray needs <projectile|entity|hookshot|boomerang|camera|any> x0 y0 z0 x1 y1 z1";
             }
             return 1;
         }
@@ -2402,9 +2403,9 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             found = BgCheck_ProjectileLineTest(colCtx, &a, &b, &hit, &poly, 1, 1, 1, 1, &bgId);
         } else if (kind == "entity") {
             found = BgCheck_EntityLineTest1(colCtx, &a, &b, &hit, &poly, 1, 1, 1, 1, &bgId);
-        } else if (kind == "hookshot") {
-            // The hookshot's own test (sturdy-bassoon#262): entity's, passing a boat's walls only Link meets.
-            found = RsBoat_HookshotLineTest(gPlayState, &a, &b, &hit, &poly, &bgId);
+        } else if (kind == "hookshot" || kind == "boomerang") {
+            // Their own test (sturdy-bassoon#262): entity's, passing a boat's walls only Link meets.
+            found = RsBoat_ShotLineTest(gPlayState, &a, &b, &hit, &poly, &bgId);
         } else if (kind == "camera") {
             found = BgCheck_CameraLineTest1(colCtx, &a, &b, &hit, &poly, 1, 1, 1, 1, &bgId);
         } else if (kind == "any") {

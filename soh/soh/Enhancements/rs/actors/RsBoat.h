@@ -278,11 +278,11 @@ s32 RsBoat_WallLean(PlayState* play, const Player* player, s32 vanilla);
 // `boat still`: every boat level at its float height, no bob and no rock (a test aid, not saved; #262).
 extern s32 gRsBoatStill;
 
-// The hookshot's line test (BgCheck_EntityLineTest1, every surface, as ArmsHook_Shoot asks), but meeting a boat's hull
-// as projectiles do (#262): past the walls only Link meets (RS_BOAT_POLY_SHOTS_PASS), onto the drawn plank only they
-// meet (RS_BOAT_POLY_SHOTS_ONLY), on a skinned stretch of rail.
-s32 RsBoat_HookshotLineTest(PlayState* play, Vec3f* from, Vec3f* to, Vec3f* result, CollisionPoly** outPoly,
-                             s32* outBgId);
+// The hookshot's and the boomerang's line test (BgCheck_EntityLineTest1, every surface, as ArmsHook_Shoot and EnBoom_Fly
+// ask), but meeting a boat's hull as projectiles do (#262): past the walls only Link meets (RS_BOAT_POLY_SHOTS_PASS),
+// so through the sloop's holes, onto the drawn plank only they meet (RS_BOAT_POLY_SHOTS_ONLY), on a skinned stretch.
+s32 RsBoat_ShotLineTest(PlayState* play, Vec3f* from, Vec3f* to, Vec3f* result, CollisionPoly** outPoly,
+                        s32* outBgId);
 
 // How much higher than vanilla a swimming Link reaches to climb out onto the ledge in front of him: some when the
 // wall he swims against is a boat's hull, so both rails are climbable from the water anywhere; 0 otherwise.
