@@ -4968,8 +4968,10 @@ s32 Player_ActionHandler_12(Player* this, PlayState* play) {
             sp34 = this->yDistToLedge;
 
             // SOH [Fork] sturdy-bassoon#262: a swimmer climbing a hull keeps the swim climb, even past the height
-            // where on land Link would take the big jump-up.
-            if ((this->ageProperties->unk_14 <= sp34) && !(func_808332B8(this) && (swimReach > 0.0f))) {
+            // where on land Link would take the big jump-up; and a boat's hands-climb wall (a covered bow's aft face,
+            // 38-51 high: past the child's 47) is climbed hand over hand at either age, never jumped.
+            if ((this->ageProperties->unk_14 <= sp34) && !(func_808332B8(this) && (swimReach > 0.0f)) &&
+                !((sTouchedWallFlags & WALL_FLAG_HANDS_CLIMB) && RsBoat_IsBoatFloor(play, this->actor.wallBgId))) {
                 anim = &gPlayerAnim_link_normal_250jump_start;
                 this->linearVelocity = 1.0f;
             } else {

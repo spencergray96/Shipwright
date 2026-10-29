@@ -1655,13 +1655,14 @@ s32 RsBoat_LinkWasAboard(PlayState* play) {
 #define RS_BOAT_SWIM_LAND_RAIL 6.0f
 #define RS_BOAT_SWIM_LAND_OPEN 8.0f
 #define RS_BOAT_SWIM_LAND_MAX 16.0f
-// ... of which at once, at most: as far as this inside the outline, so the climb starts over the deck.
-#define RS_BOAT_SWIM_LAND_EDGE 2.0f
+// ... of which at once, at most: as far as this inside the outline, so the climb starts over the deck. Every unit of
+// it carries his hands past the trim's edge (2 left them clipping the hull at its side, the owner, 2026-10-28).
+#define RS_BOAT_SWIM_LAND_EDGE 1.0f
 // The landing's slide in, world units a tick (sClimbSlide), over this many ticks of the climb once its first
 // RS_BOAT_CLIMB_SLIDE_DELAY are past: while his hands hold the edge, a slide carried them past the trim and into the
-// hull (the owner, 2026-10-28; 3.5 at the sloop's side).
+// hull (the owner, 2026-10-28; 3.5 at the sloop's side). His hands hold it for ~10 ticks of a climb of ~30.
 #define RS_BOAT_CLIMB_SLIDE_TICKS 8
-#define RS_BOAT_CLIMB_SLIDE_DELAY 8
+#define RS_BOAT_CLIMB_SLIDE_DELAY 12
 static f32 sClimbSlide[2];
 static s32 sClimbSlideTicks;
 static s32 sClimbSlideDelay;
