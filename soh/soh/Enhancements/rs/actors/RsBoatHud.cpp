@@ -1,4 +1,5 @@
-// The boat prototype's steering label (sturdy-bassoon#256): "Not steering" in white or "Steering boat" in green,
+// The boat prototype's steering label (sturdy-bassoon#256): "Not steering" in white or "Steering boat" in green
+// ("Steering balloon" at a balloon's controls, #274),
 // just under the C buttons, while there are no steering animations or poses to say it. On at all times in a
 // build of the prototype, scene with a boat or not; `boat hud off` (CVAR_RS_BOAT_HUD) hides it.
 //
@@ -18,6 +19,7 @@
 #include <ship/window/gui/GuiWindow.h>
 
 #include "RsBoat.h"
+#include "RsBalloon.h"
 #include "soh/ShipInit.hpp"
 #include "soh/cvar_prefixes.h"
 
@@ -56,7 +58,8 @@ class RsBoatHudWindow final : public Ship::GuiWindow {
             sShown = RS_BOAT_HUD_HIDDEN;
             return;
         }
-        const bool steering = RsBoatHud_LinkSteering() != 0;
+        const int32_t what = RsBoatHud_LinkSteering();
+        const bool steering = what != RS_BOAT_HUD_NOT_STEERING;
 
         const ImGuiViewport* vp = ImGui::GetMainViewport();
         ImGui::SetNextWindowViewport(vp->ID);
@@ -74,11 +77,14 @@ class RsBoatHudWindow final : public Ship::GuiWindow {
                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
                          ImGuiWindowFlags_NoSavedSettings);
         ImGui::SetWindowFontScale(1.4f);
-        ImGui::TextColored(steering ? kSteering : kNotSteering, "%s", steering ? "Steering boat" : "Not steering");
+        ImGui::TextColored(steering ? kSteering : kNotSteering, "%s",
+                           what == RS_BOAT_HUD_STEERING_BALLOON ? "Steering balloon"
+                           : steering                           ? "Steering boat"
+                                                                : "Not steering");
         ImGui::End();
         ImGui::PopStyleVar(1);
         ImGui::PopStyleColor(2);
-        sShown = steering ? RS_BOAT_HUD_STEERING : RS_BOAT_HUD_NOT_STEERING;
+        sShown = what;
     }
 };
 
@@ -98,14 +104,14 @@ RegisterShipInitFunc rsBoatHudInitFunc(RegisterRsBoatHud);
 
 int32_t RsBoatHud_LinkSteering() {
     if (gPlayState == nullptr) {
-        return 0;
+        return RS_BOAT_HUD_NOT_STEERING;
     }
     for (Actor* a = gPlayState->actorCtx.actorLists[ACTORCAT_BG].head; a != nullptr; a = a->next) {
         if (a->id == ACTOR_RS_BOAT && a->update != nullptr && reinterpret_cast<const RsBoat*>(a)->helm) {
-            return 1;
+            return RS_BOAT_HUD_STEERING;
         }
     }
-    return 0;
+    return RsBalloon_LinkAtControls(gPlayState) ? RS_BOAT_HUD_STEERING_BALLOON : RS_BOAT_HUD_NOT_STEERING;
 }
 
 int32_t RsBoatHud_Shown() {
@@ -116,6 +122,8 @@ const char* RsBoatHud_ShownName(int32_t shown) {
     switch (shown) {
         case RS_BOAT_HUD_STEERING:
             return "steering";
+        case RS_BOAT_HUD_STEERING_BALLOON:
+            return "steering_balloon";
         case RS_BOAT_HUD_NOT_STEERING:
             return "not_steering";
         default:

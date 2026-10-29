@@ -22,7 +22,7 @@
 //                   link_input_disabled=0|1 link_swimming=0|1 link_can_take_helm=0|1 tiller_in_reach=0|1
 //                   link_focus_boat=0|1 a_label_check=0|1 a_label=<DO_ACTION_*>
 //                   link_ledge=<climb type>/<delay ticks>/<ledge height> link_lin=<x100> drive_ticks=<n>
-//                   hud=<hidden|not_steering|steering>`.
+//                   hud=<hidden|not_steering|steering|steering_balloon>`.
 //                   top: the top speed in use (RsBoat_TopSpeed); throttle: what the helm asked for last tick
 //                   (-100..100); rudder: the drawn rudder's deflection, the tiller ahead and mirrored astern
 //                   (-100..100); blocked: why the last move was
@@ -73,8 +73,10 @@
 //                   it moves a tick, in percent (5..100, default 25; 100 is a snap). Read every tick, so a change
 //                   shows at the helm at once. `op=cam result=ok cam=on|off height= dist= ease=`. Works with no
 //                   scene loaded
-//   hud [on|off]    the "Not steering" / "Steering boat" label under the C buttons (saved, default on).
-//                   `op=hud result=ok hud=on|off shown=<hidden|not_steering|steering>`. Works with no scene
+//   hud [on|off]    the "Not steering" / "Steering boat" label under the C buttons (saved, default on; it also
+//                   says "Steering balloon" at a balloon's controls, #274, and `off` hides that too).
+//                   `op=hud result=ok hud=on|off shown=<hidden|not_steering|steering|steering_balloon>`. Works with no
+//                   scene
 //   climb [hop|hands]
 //                   how Link gets from the deck onto a rail, by pushing into it (saved): `hands`, the default (#262,
 //                   the owner's pick), the hands-on climb a prop and a covered bow get, after 0.3 s and landing half

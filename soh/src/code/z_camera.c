@@ -142,8 +142,8 @@ static void Camera_ReloadOnHeightChange(Camera* camera) {
 }
 
 /**
- * Where the #155 ledge rules apply: grid-tool scenes, Link standing on a boat's deck in any scene
- * (sturdy-bassoon#256), or every scene with CamLedgeAllScenes on. CameraIndoorTuning.h says why.
+ * Where the #155 ledge rules apply: grid-tool scenes, Link standing on a boat's deck or in a balloon's
+ * basket in any scene (sturdy-bassoon#256, #274), or every scene with CamLedgeAllScenes on. CameraIndoorTuning.h says why.
  */
 static s32 Camera_LedgeRulesApply(Camera* camera) {
     Player* player = camera->player;
@@ -155,7 +155,8 @@ static s32 Camera_LedgeRulesApply(Camera* camera) {
     if (player != NULL && DynaPoly_IsBgIdBgActor(player->actor.floorBgId)) {
         DynaPolyActor* floor = DynaPoly_GetActor(&camera->play->colCtx, player->actor.floorBgId);
 
-        return floor != NULL && floor->actor.id == ACTOR_RS_BOAT;
+        // A balloon's basket too (#274): at its edge in the air, vanilla's look-down pitches over the whole drop.
+        return floor != NULL && (floor->actor.id == ACTOR_RS_BOAT || floor->actor.id == ACTOR_RS_BALLOON);
     }
     return false;
 }

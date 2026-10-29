@@ -7,6 +7,7 @@
 #include "RsFire.h"
 #include "RsAnimProp.h"
 #include "RsBoat.h"
+#include "RsBalloon.h"
 
 #include <cstdio>
 #include <string>
@@ -68,6 +69,11 @@ void RsBoat_Init(Actor* thisx, PlayState* play);
 void RsBoat_Destroy(Actor* thisx, PlayState* play);
 void RsBoat_Update(Actor* thisx, PlayState* play);
 void RsBoat_Draw(Actor* thisx, PlayState* play);
+
+void RsBalloon_Init(Actor* thisx, PlayState* play);
+void RsBalloon_Destroy(Actor* thisx, PlayState* play);
+void RsBalloon_Update(Actor* thisx, PlayState* play);
+void RsBalloon_Draw(Actor* thisx, PlayState* play);
 }
 
 // The C++ half of the mod's actors (sturdy-bassoon#58 P3 / #64):
@@ -660,6 +666,24 @@ void RegisterRsActors() {
             nullptr,
         };
         ActorDB::Instance->AddEntry(boat);
+
+        // The balloon prototype (sturdy-bassoon#274): a basket Link climbs into, lifts off, flies and lands
+        // (RsBalloon.h). ACTORCAT_BG for the boat's reason: it takes the pad from Link before Player updates.
+        ActorDBInit balloon = {
+            "Rs_Balloon",
+            "RS balloon (prototype: climb in, take the controls, fly)",
+            ACTOR_RS_BALLOON,
+            ACTORCAT_BG,
+            (u32)(ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED),
+            OBJECT_GAMEPLAY_KEEP,
+            sizeof(RsBalloon),
+            (ActorFunc)RsBalloon_Init,
+            (ActorFunc)RsBalloon_Destroy,
+            (ActorFunc)RsBalloon_Update,
+            (ActorFunc)RsBalloon_Draw,
+            nullptr,
+        };
+        ActorDB::Instance->AddEntry(balloon);
 
         sAddedToActorDB = true;
     }

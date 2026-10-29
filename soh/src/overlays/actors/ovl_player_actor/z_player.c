@@ -32,6 +32,7 @@
 #include "soh/OTRGlobals.h"
 #include "soh/Enhancements/savestate_serialize.h"
 #include "soh/Enhancements/rs/actors/RsBoat.h"
+#include "soh/Enhancements/rs/actors/RsBalloon.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -11136,15 +11137,17 @@ void Player_UpdateInterface(PlayState* play, Player* this) {
 
         // SOH [Fork] sturdy-bassoon#256: a boat's tiller in reach reads "Check" on A, as a sign does, in place
         // of an idle label only - never over a door, an item, a climb or a real talk offer. The boat takes the
-        // A press itself before Player updates; this is only the label that says so.
+        // A press itself before Player updates; this is only the label that says so. A balloon's controls in
+        // reach read the same (#274).
         if ((doAction == DO_ACTION_NONE || doAction == DO_ACTION_ATTACK || doAction == DO_ACTION_JUMP ||
              doAction == DO_ACTION_PUTAWAY) &&
-            RsBoat_TillerInReach(play)) {
+            (RsBoat_TillerInReach(play) || RsBalloon_ControlsInReach(play))) {
             doAction = DO_ACTION_CHECK;
         }
         // SOH [Fork] sturdy-bassoon#262: at a boat's helm the stick drives and A does nothing, so it says nothing
-        // (it kept whatever it read before the helm was taken, "Put Away" with Navi up).
-        if (RsBoat_LinkAtHelm(play)) {
+        // (it kept whatever it read before the helm was taken, "Put Away" with Navi up). A balloon's controls too
+        // (#274).
+        if (RsBoat_LinkAtHelm(play) || RsBalloon_LinkAtControls(play)) {
             doAction = DO_ACTION_NONE;
         }
 
