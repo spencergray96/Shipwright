@@ -2016,13 +2016,18 @@ void RsBoat_SmoothLinkOnDeck(PlayState* play) {
             sClimbSlideTicks--;
         }
     }
+    // A ledge climb (Player sets JUMPING with it) stands on the floor too: left on the truncated floor through it, he
+    // sank up to ~1.7 onto the exact one as it ended (the owner saw it climbing the rocking skiff, 2026-10-29).
     if (player == NULL || !(player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) ||
-        (player->stateFlags1 & (PLAYER_STATE1_CLIMBING_LEDGE | PLAYER_STATE1_JUMPING))) {
+        ((player->stateFlags1 & PLAYER_STATE1_JUMPING) && !(player->stateFlags1 & PLAYER_STATE1_CLIMBING_LEDGE))) {
         return;
     }
     player->actor.world.pos.y =
         RsBoat_ExactFloorY(play, player->actor.floorPoly, player->actor.floorBgId, player->actor.world.pos.x,
                            player->actor.world.pos.z, player->actor.world.pos.y);
+    if (player->stateFlags1 & PLAYER_STATE1_CLIMBING_LEDGE) {
+        return; // the rail's ease waits until he stands
+    }
 
     // On a rail top inside the drawn trim: ease him out onto it (RS_BOAT_RAIL_STAND_IN).
     boat = RsBoat_HullOf(play, player->actor.floorBgId);
