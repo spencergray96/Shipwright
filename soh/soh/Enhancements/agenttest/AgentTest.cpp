@@ -315,6 +315,14 @@
  *                                        markers
  *   rs_boat <line>                       one line of RsBoatConsole_Run output per marker, from
  *                                        `agenttest boat ...` - `boat idx=...` or `op=...`, never `event=...`
+ *   rs_balloon event=<spawn|controls_on|controls_off|liftoff|landed|blocked|abandoned|home> x= y= z= yaw= vy=
+ *              speed= controls= landed= on_water= blocked= ground= height=
+ *                                        the balloon prototype (sturdy-bassoon#274): spawned, the controls
+ *                                        taken or let go, off the ground or down on it, a move or climb
+ *                                        refused, left alone in the air, put back home. Gameplay markers
+ *   rs_balloon <line>                    one line of RsBalloonConsole_Run output per marker, from
+ *                                        `agenttest balloon ...` - `balloon idx=...` or `op=...`, never
+ *                                        `event=...`
  *   rs_fire <line>                       one line of RsFireConsole_Run output per marker, from
  *                                        `agenttest rsfire ...` - `fire idx=...` or `op=...`, never
  *                                        `event=...`
@@ -631,6 +639,12 @@
  *                                          its speed, helm and why it last stopped; put one down, stand Link
  *                                          at its tiller, take the helm, steer it without the pad.
  *                                          RsBoatConsole.h documents every line
+ *   agenttest balloon list|spawn [<x> <z> [<yaw> [<height>]]]|board [<idx>]|controls on|off [<idx>]|
+ *                  drive <t> <turn> <lift> <ticks>|tune [..]|cam [..]|abandon [sink|hang|home]|field [on|off]|clear
+ *                                          the balloon prototype (sturdy-bassoon#274): where each is, its
+ *                                          height, climb rate, speed and why it last stopped; put one down,
+ *                                          stand Link at its controls, fly it without the pad.
+ *                                          RsBalloonConsole.h documents every line
  *   agenttest rsfire list|pool|distance [<n>|default]|glow [on|off|default]
  *                                          the RS torch fires (sturdy-bassoon#232): where each is, its size,
  *                                          lit and by what, its world flag, whether it holds a light node,
@@ -736,6 +750,7 @@
 #include "soh/Enhancements/rs/dialogue/NpcConsole.h"
 #include "soh/Enhancements/rs/prefs/RegionConsole.h"
 #include "soh/Enhancements/rs/actors/RsBoatConsole.h"
+#include "soh/Enhancements/rs/actors/RsBalloonConsole.h"
 #include "soh/Enhancements/rs/actors/RsFireConsole.h"
 #include "soh/Enhancements/rs/ambience/RsAmbience.h"
 #include "soh/Enhancements/rs/actors/RsAnimPropConsole.h"
@@ -3158,6 +3173,12 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(RsBoatConsole_Run, sub, "rs_boat ", output, WriteMarker);
     }
+    // The balloon prototype (sturdy-bassoon#274), the boats' arrangement: `rs_balloon balloon idx=...` is an
+    // answer, `rs_balloon event=...` a balloon reporting.
+    if (args.size() >= 3 && args[1] == "balloon") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(RsBalloonConsole_Run, sub, "rs_balloon ", output, WriteMarker);
+    }
     // RS torch fires (sturdy-bassoon#232). Same prefix as the fires' own event markers, for the
     // interaction's reason: `rs_fire fire idx=...` is an answer, `rs_fire event=...` a fire reporting.
     if (args.size() >= 3 && args[1] == "rsfire") {
@@ -3263,6 +3284,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
               "boat list|spawn [<x> <z> [<yaw>]]|probe <x> <z>|water <x0> <z0> <x1> <z1> <y>|water clear|board [<idx>]|helm on|off [<idx>]|drive <t> <turn> <ticks>|"
               "lakehylia [on|off]|lakelevel [full|drained]|cam [..]|hud [on|off]|clear | "
+              "balloon list|spawn [<x> <z> [<yaw> [<height>]]]|board [<idx>]|controls on|off [<idx>]|"
+              "drive <t> <turn> <lift> <ticks>|tune [..]|cam [..]|abandon [..]|field [on|off]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
               "rsambience [status]|on|off|max [<n>|default]|radius|gain <emitter|all> [<v>|default] | "
               "animprop status|list|pose <k|rest|clock>|reset|pick <tick|frame|default>|trace [<idx> <frames>]|"
@@ -3323,6 +3346,8 @@ void RegisterAgentTest() {
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
               "boat list|spawn [<x> <z> [<yaw>]]|probe <x> <z>|water <x0> <z0> <x1> <z1> <y>|water clear|board [<idx>]|helm on|off [<idx>]|drive <t> <turn> <ticks>|"
               "lakehylia [on|off]|lakelevel [full|drained]|cam [..]|hud [on|off]|clear | "
+              "balloon list|spawn [<x> <z> [<yaw> [<height>]]]|board [<idx>]|controls on|off [<idx>]|"
+              "drive <t> <turn> <lift> <ticks>|tune [..]|cam [..]|abandon [..]|field [on|off]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
               "rsambience [status]|on|off|max [<n>|default]|radius|gain <emitter|all> [<v>|default] | "
               "animprop status|list|pose <k|rest|clock>|reset|pick <tick|frame|default>|trace [<idx> <frames>]|"
