@@ -2150,6 +2150,19 @@ s32 RsBoat_IsBoatFloor(PlayState* play, s32 bgId) {
     return RsBoat_IsHullBg(play, bgId);
 }
 
+f32 RsBoat_DeckShadow(PlayState* play, const Actor* actor) {
+    const Player* player = GET_PLAYER(play);
+    s32 size;
+
+    if (player == NULL || actor != &player->actor ||
+        !CVarGetInteger(CVAR_RS_BOAT_DECK_SHADOW, RS_BOAT_DECK_SHADOW_DEFAULT) ||
+        !RsBoat_IsHullBg(play, actor->floorBgId)) {
+        return 0.0f;
+    }
+    size = CVarGetInteger(CVAR_RS_BOAT_DECK_SHADOW_SIZE, RS_BOAT_DECK_SHADOW_SIZE_DEFAULT);
+    return CLAMP(size, RS_BOAT_DECK_SHADOW_SIZE_MIN, RS_BOAT_DECK_SHADOW_SIZE_MAX) / 100.0f;
+}
+
 s32 RsBoat_StepOntoOwnDeck(PlayState* play, const Player* player) {
     return RsBoat_LinkWasAboard(play) && RsBoat_IsHullBg(play, player->actor.floorBgId);
 }

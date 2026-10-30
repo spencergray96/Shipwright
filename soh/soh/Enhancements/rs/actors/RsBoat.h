@@ -108,6 +108,14 @@ typedef enum RsBoatKindId {
 #define CVAR_RS_BOAT_INTERIOR_CLIMB CVAR_ENHANCEMENT("RsBoatInteriorClimb") // 0: the rails hop, not climb hands-on
 #define RS_BOAT_INTERIOR_CLIMB_DEFAULT 1 // the owner's pick (#262): onto a rail hands-on, as onto a prop
 #define CVAR_RS_BOAT_KIND CVAR_ENHANCEMENT("RsBoatKind") // the kind Lake Hylia's boat and `boat spawn` put down
+// Link's shadow over a deck (#267): a plain circle under him (RsBoat_DeckShadow), its size a percent of his shadow
+// scale. 30 is vanilla's own circle under a Link in the air (ActorShadow_DrawFeet).
+#define CVAR_RS_BOAT_DECK_SHADOW CVAR_ENHANCEMENT("RsBoatDeckShadow") // 0: his feet shadows, as on land
+#define RS_BOAT_DECK_SHADOW_DEFAULT 1
+#define CVAR_RS_BOAT_DECK_SHADOW_SIZE CVAR_ENHANCEMENT("RsBoatDeckShadowSize")
+#define RS_BOAT_DECK_SHADOW_SIZE_DEFAULT 30
+#define RS_BOAT_DECK_SHADOW_SIZE_MIN 5
+#define RS_BOAT_DECK_SHADOW_SIZE_MAX 100
 #define RS_BOAT_CAM_HEIGHT_DEFAULT 120 // the owner's pick: high enough to see obstacles in the water ahead
 #define RS_BOAT_CAM_DIST_DEFAULT 240
 #define RS_BOAT_CAM_EASE_DEFAULT 25 // ~90% of the way in 8 ticks (0.4 s): a fast catch-up, not a snap
@@ -286,6 +294,13 @@ s32 RsBoat_SteppedOffBoat(PlayState* play, const Player* player);
 
 // 1 when `bgId` is a live boat's collision.
 s32 RsBoat_IsBoatFloor(PlayState* play, s32 bgId);
+
+// Link's shadow over a deck (#267): his feet shadows each point away from a light, so Navi circling him turns them
+// round him, and from the rail they reach out over the water. Over a boat's collision (standing, or in the air over
+// it) ActorShadow_DrawFeet draws him a plain circle instead, which no light turns. Returns the circle's size as a
+// fraction of his shadow scale (CVAR_RS_BOAT_DECK_SHADOW_SIZE), or 0 for his feet shadows: `actor` is not Link, he
+// is not over a boat, or CVAR_RS_BOAT_DECK_SHADOW is off.
+f32 RsBoat_DeckShadow(PlayState* play, const Actor* actor);
 
 // 1 when Link, aboard as of last tick, is leaving an edge over a boat's own floor: off its rail or its covered bow onto
 // its deck. Player gives that no hop (a walk off), or on a kind that hops inward the small hop at any pace over 0.5, a
