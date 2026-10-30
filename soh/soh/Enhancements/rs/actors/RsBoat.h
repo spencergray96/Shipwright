@@ -61,10 +61,11 @@
 // and going ahead a bow wave as well, rings off alternate bow shoulders that the hull leaves behind as a widening V.
 // They are spaced by the distance the hull travels, as Link's are, so their density is the boat's speed and a stopped
 // boat leaves none. Sized from the hull's beam and grown more the faster it goes; near top speed a splash at the
-// trailing end now and then (foam). Every knob is a live CVar (`boat wake`). The rings share the scene's 85-slot
-// soft-sprite pool with every other effect, so they never cost one its slot: they spawn at the lowest priority there
-// is, which EffectSs_FindSlot hands to any other spawn first once the table is full (z_effect_soft_sprite.c), and only
-// while more than `reserve` slots are free, so the wake thins out under pressure rather than churning.
+// trailing end now and then (foam). Every knob is a live CVar (`boat wake`). The rings share the scene's soft-sprite
+// pool with every other effect: 160 slots since #268 (the game's 85 overflowed when Link dove beside a moving boat,
+// z_play.c), and they never cost another effect its slot. They spawn at the lowest priority there is, which
+// EffectSs_FindSlot hands to any other spawn first once the table is full (z_effect_soft_sprite.c), and only while
+// more than `reserve` slots are free, so the wake thins out under pressure rather than churning.
 //
 // Console: `boat ...` and `agenttest boat ...` (RsBoatConsole.h). Markers: `rs_boat event=<spawn|helm_on|
 // helm_off|blocked> ...` (agent mode).
@@ -167,16 +168,18 @@ f32 RsBoat_WakeTune(s32 knob);
 
 // The scene's soft-sprite pool (EffectSs_InitInfo's table) as it stands. 0s outside a scene, but for the counts.
 typedef struct RsBoatEffectPool {
-    s32 size;    // its slots (85)
+    s32 size;    // its slots (160; `boat wake slots`)
     s32 used;    // those holding an effect
     s32 ripples; // of those, water rings: anyone's, Link's and other actors' included
     s32 wake;    // of those, the wake's own (spawned at the priority that yields its slot first)
     s32 yielded; // EffectSs_FindSlot's counts since the game started: slots handed over by a wake effect,
     s32 evicted; // taken from any other live effect (vanilla's own overflow),
     s32 refused; // and spawns that found no slot at all
+    s32 peak;    // the most slots alive at the end of a tick since the scene loaded or RsBoat_EffectPoolResetPeak
 } RsBoatEffectPool;
 
 void RsBoat_EffectPool(RsBoatEffectPool* pool);
+void RsBoat_EffectPoolResetPeak(void);
 
 // The pool's slot `index` while it holds an effect, else NULL (free, or out of range). For the console's breakdown.
 const EffectSs* RsBoat_EffectSlot(s32 index);

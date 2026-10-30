@@ -57,7 +57,7 @@ f32 RsBoat_Tune(s32 knob) {
 
 // The wake (#268, RsBoat.h). A first pass for the owner's look in game: Link's ring half as big again behind the
 // skiff, one every 24 units (the skiff's 14 a tick drops ~0.6 a tick, a bow ring with each: ~25 alive at once), both
-// lines and the bow wave on, foam at 90% of top speed, and 20 of the pool's 85 slots kept for everything else.
+// lines and the bow wave on, foam at 90% of top speed, and 20 of the pool's slots kept for everything else.
 const RsBoatTuneInfo gRsBoatWake[RS_BOAT_WAKE_COUNT] = {
     { "on", CVAR_ENHANCEMENT("RsBoatWake"), 1.0f, 0.0f, 1.0f },
     { "spacing", CVAR_ENHANCEMENT("RsBoatWakeSpacing"), 24.0f, 5.0f, 200.0f },
@@ -2460,6 +2460,7 @@ extern EffectSsInfo sEffectSsInfo;
 extern s32 gEffectSsYielded;
 extern s32 gEffectSsEvicted;
 extern s32 gEffectSsRefused;
+extern s32 gEffectSsPeak;
 
 // Every wake effect spawns at the lowest priority there is, EFFECT_SS_PRIORITY_YIELD in z_effect_soft_sprite.c: on a full
 // table EffectSs_FindSlot gives a wake effect's slot to any other spawn before it looks at anyone else's.
@@ -2500,6 +2501,11 @@ void RsBoat_EffectPool(RsBoatEffectPool* pool) {
     pool->yielded = gEffectSsYielded;
     pool->evicted = gEffectSsEvicted;
     pool->refused = gEffectSsRefused;
+    pool->peak = gEffectSsPeak;
+}
+
+void RsBoat_EffectPoolResetPeak(void) {
+    gEffectSsPeak = 0;
 }
 
 // 1 when the pool has more than the reserve free; else counts the effect as held back and returns 0. A wake effect

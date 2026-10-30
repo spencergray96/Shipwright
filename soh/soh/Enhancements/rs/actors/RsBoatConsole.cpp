@@ -27,6 +27,8 @@ extern PlayState* gPlayState;
 // Lake Hylia's boat (sturdy-bassoon#256): the issue's first test water, a large vanilla waterbox, so no scene
 // work. On by default while the prototype lives on its branch, so a human trying the branch finds a boat there.
 #define CVAR_RS_BOAT_LAKE_HYLIA CVAR_ENHANCEMENT("RsBoatLakeHylia")
+// The soft-sprite table's size, read by z_play.c at each scene load (sturdy-bassoon#268); unset is its default.
+#define CVAR_RS_EFFECT_SLOTS CVAR_ENHANCEMENT("RsEffectSlots")
 
 namespace {
 
@@ -37,7 +39,8 @@ using ConsoleSink::Addf;
     "list | spawn [<x> <z> [<yaw>]] | probe <x> <z> | water <x0> <z0> <x1> <z1> <y> | water clear | "            \
     "board [<idx>] | helm on|off [<idx>] | drive <throttle> <turn> <ticks> | lakehylia [on|off] | "             \
     "lakelevel [full|drained] | cam [on|off|default] | cam height|dist|ease <n> | hud [on|off] | "             \
-    "climb [hop|hands] | kind [skiff|sloop|raft] | tune [default] | tune <knob> <value> | wake [default] | "       \
+    "climb [hop|hands] | kind [skiff|sloop|raft] | tune [default] | tune <knob> <value> | wake [default|reset] | "  \
+    "wake slots [<n>|default] | "                                                                                   \
     "wake <knob> <value> | contact [<idx>] | still [on|off] | clear"
 
 const char* kUsage = "op=usage result=error usage=\"boat " RS_BOAT_GRAMMAR "\"";
@@ -474,9 +477,10 @@ std::string PoolCensus() {
     }
     char line[256];
     snprintf(line, sizeof(line),
-             " pool_size=%d pool_used=%d ripples=%d wake=%d yielded=%d evicted=%d refused=%d rings=%d held=%d types=",
-             (int)pool.size, (int)pool.used, (int)pool.ripples, (int)pool.wake, (int)pool.yielded, (int)pool.evicted,
-             (int)pool.refused, rings, held);
+             " pool_size=%d pool_used=%d pool_peak=%d ripples=%d wake=%d yielded=%d evicted=%d refused=%d rings=%d "
+             "held=%d types=",
+             (int)pool.size, (int)pool.used, (int)pool.peak, (int)pool.ripples, (int)pool.wake, (int)pool.yielded,
+             (int)pool.evicted, (int)pool.refused, rings, held);
     int count[256] = { 0 }; // EffectSs.type is a u8
     for (s32 i = 0; i < pool.size; i++) {
         const EffectSs* e = RsBoat_EffectSlot(i);
@@ -692,6 +696,32 @@ int32_t RsBoatConsole_Run(const std::vector<std::string>& args, std::vector<std:
         return KnobCommand(kTune, args, lines);
     }
     if (sub == "wake") {
+        // `wake reset` zeroes the pool's peak, so a run can read one moment's demand; not a knob.
+        if (args.size() == 2 && args[1] == "reset") {
+            RsBoat_EffectPoolResetPeak();
+            lines.push_back("op=wake result=ok reset=1" + PoolCensus());
+            return 0;
+        }
+        // `wake slots [<n>|default]`: the soft-sprite table's size, which z_play.c reads at each scene load (saved;
+        // shows on the next load). Not a wake knob, but the lever the wake's share of it pulls. 85 is the game's size
+        // and 512 z_play.c's PLAY_EFFECT_SS_SLOTS_MAX, which it clamps to anyway.
+        if (args.size() >= 2 && args[1] == "slots") {
+            long slots = 0;
+            if (args.size() == 3 && args[2] == "default") {
+                CVarClear(CVAR_RS_EFFECT_SLOTS);
+                CVarSave();
+            } else if (args.size() == 3 && ParseInt(args[2], &slots) && slots >= 0x55 && slots <= 512) {
+                CVarSetInteger(CVAR_RS_EFFECT_SLOTS, (int32_t)slots);
+                CVarSave();
+            } else if (args.size() != 2) {
+                Addf(lines, "op=wake result=error error=bad_value slots=85..512|default");
+                return 1;
+            }
+            Addf(lines, "op=wake result=ok slots=%d set=%d", (int)CVarGetInteger(CVAR_RS_EFFECT_SLOTS, 0),
+                 CVarGetInteger(CVAR_RS_EFFECT_SLOTS, 0) != 0 ? 1 : 0);
+            lines.back() += PoolCensus();
+            return 0;
+        }
         return KnobCommand(kWake, args, lines, PoolCensus());
     }
     if (sub == "kind") {

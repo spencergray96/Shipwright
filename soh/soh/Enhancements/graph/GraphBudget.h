@@ -34,9 +34,15 @@
 // is Link's, 233 opaque and 28 translucent words (a fire's is 23). After the loop a quiet frame
 // writes about 150 opaque and 36 translucent words; bombs bursting round Link, at most 1,185 and 1,383
 // (12 bombs on the kind bench; Kakariko read 958 and 1,244 at 8 bombs and at 24, the effect tables'
-// ceiling). So about 1,420 of each; 0x800 leaves about 45% over both. A frame that still overruns falls
-// to Graph_Update's backstop.
-#define GRAPH_ACTOR_RESERVE_WORDS 0x800
+// ceiling). So about 1,420 of each, and 0x800 left about 45% over both.
+//
+// Raised to 0xC00 with the soft-sprite table (sturdy-bassoon#268: 85 slots to 160, z_play.c). Effects the old
+// table threw away early now live and draw: 12 bombs with a boat's wake read 1,368 opaque and 1,940 translucent
+// after the loop, and a table full at about 14 translucent words an effect comes to about 2,400 with the quiet
+// frame's writes. With Link's draw that is about 2,630, and 0xC00 leaves about 15% over it. The price: the
+// guard stops actors 1,024 words sooner, about 60 fewer fires in view before it skips. A frame that still
+// overruns falls to Graph_Update's backstop.
+#define GRAPH_ACTOR_RESERVE_WORDS 0xC00
 
 #ifdef __cplusplus
 extern "C" {

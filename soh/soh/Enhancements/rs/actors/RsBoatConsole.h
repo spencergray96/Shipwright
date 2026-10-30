@@ -103,19 +103,23 @@
 //                   steps (0, the default: the throttle follows the stick smoothly; n: n steps), upgrade (1:
 //                   each kind's upgraded top speed, skiff 18, sloop 14, raft none; 0). `op=tune result=ok fwd=
 //                   rev= accel= drag= brake= turnstill= turnmove= steps= upgrade=`. Works with no scene
-//   wake [default] | wake <knob> <value>
+//   wake [default|reset] | wake <knob> <value> | wake slots [<n>|default]
 //                   the trail a moving boat leaves (#268; saved, read as each ring is due; RsBoat.h's
 //                   RsBoatWakeKnob): on (1), spacing (units between rings, 24), size (times the hull's own, 1), grow
 //                   (how many times its first size a ring grows at top speed, 5), lines (1 or 2, 2), bow (the bow
 //                   wave, 1), foam (share of top speed for a stern splash, 0.9; 0 none), reserve (effect slots
 //                   kept free for everything else, 20). `op=wake result=ok on= spacing= size= grow= lines= bow= foam=
-//                   reserve= pool_size=<n> pool_used=<n> ripples=<n> wake=<n> yielded=<n> evicted=<n> refused=<n>
-//                   rings=<n> held=<n> types=<id>:<n>,...`: the soft-sprite pool as it stands (its slots, those in
-//                   use, the water rings among them, the wake's own among them), EffectSs_FindSlot's counts since the
-//                   game started (slots a wake effect handed over, slots taken from any other live effect, spawns
-//                   that found none: evicted and refused are the game's own effects failing), every boat's
-//                   wake_rings and wake_held summed, and the slots in use by EFFECT_SS_* id. The pool reads 0 with no
-//                   scene; the knobs work anyway
+//                   reserve= pool_size=<n> pool_used=<n> pool_peak=<n> ripples=<n> wake=<n> yielded=<n> evicted=<n>
+//                   refused=<n> rings=<n> held=<n> types=<id>:<n>,...`: the soft-sprite pool as it stands (its slots,
+//                   those in use, the most alive at the end of a tick since the scene loaded or `wake reset`, the
+//                   water rings in use, the wake's own in use), EffectSs_FindSlot's counts since the game started
+//                   (slots a wake effect handed over, slots taken from any other live effect, spawns that found none:
+//                   evicted and refused are the game's own effects failing), every boat's wake_rings and wake_held
+//                   summed, and the slots in use by EFFECT_SS_* id. The pool reads 0 with no scene; the knobs work
+//                   anyway. `wake reset` zeroes pool_peak (`op=wake result=ok reset=1 pool_size= ...`).
+//                   `wake slots [<n>|default]` sets the pool's size, 85..512, or clears it back to 160 (saved; z_play.c
+//                   reads it at each scene load, so it shows on the next): `op=wake result=ok slots=<n, 0 unset>
+//                   set=0|1 pool_size= ...`, pool_size being the scene's table as loaded
 //   contact [<idx>] what the boat's outline meets where it is now: `op=contact result=ok deepest=<none|no_water|
 //                   shallow|wall|headroom> points= <reason>:<depth>@<push x>,<push z> ...`, one entry per probe in
 //                   trouble, depth in world units and the push a unit vector x100 on the world axes. Empty
@@ -130,6 +134,8 @@
 //   op=tune result=error error=bad_value fwd=<min>..<max> ...
 //   op=wake result=error error=bad_value on=<min>..<max> ...
 //                                            the same, for tune and wake
+//   op=wake result=error error=bad_value slots=85..512|default
+//                                            wake slots with a size out of range
 //   op=kind result=error error=bad_value kinds=<the kinds' names>
 //                                            no such kind
 //   op=<sub> result=error error=bad_value    a number that does not parse or is out of range (spawn, probe,
