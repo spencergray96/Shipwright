@@ -329,8 +329,10 @@ void OnPlayerUpdateSwim() {
     sState.depth = player->actor.yDistToWater;
     sState.holdReason = "none";
 
-    // The refuge is spent by standing on anything but the boat it names.
-    if (sState.refuge.set && sState.grounded) {
+    // The refuge is spent by standing on anything but the boat it names - but not while a drown plays out. On the
+    // move's teleport tick this tick's floor is still the one he sank to (the lakebed), and the move has already
+    // taken him out of the swim state (Stairs.cpp, Teleport), so he reads as standing on land there (#273).
+    if (sState.refuge.set && sState.grounded && sState.phase != PHASE_SINKING && sState.phase != PHASE_MOVING) {
         DynaPolyActor* floor = player->actor.floorBgId != BGCHECK_SCENE
                                    ? DynaPoly_GetActor(&play->colCtx, player->actor.floorBgId)
                                    : nullptr;

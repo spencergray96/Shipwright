@@ -714,6 +714,23 @@ void Teleport(PlayState* play, Player* player, const Vec3f& pos, s16 yaw) {
     player->actor.world.rot.y = yaw;
     player->actor.shape.rot.y = yaw;
     player->yaw = yaw;
+    // Out of the water onto dry ground (the swim respawn, #273), he must stop swimming here. The move's freeze is
+    // CsAction 1, which while PLAYER_STATE1_IN_WATER is set swims him up toward the surface (func_808513BC: no
+    // gravity, rising) - and Player's own water check, which would clear the flag, does not run in a cutscene. So he
+    // rose ~11 off the deck, `landed` read ground=0, and he dropped only once released. Clearing the swim flags and
+    // re-running the action's setup (prevCsAction) stands him in the wait pose instead. "Dry" is the line Player
+    // itself leaves the water at (func_8083D53C): the surface shallower over his feet than ageProperties->unk_24 (36
+    // adult). A landing at swimming depth (`swim refuge here` in the water, ~41 down) keeps him swimming.
+    if (player->stateFlags1 & PLAYER_STATE1_IN_WATER) {
+        f32 surface = pos.y;
+        WaterBox* box = nullptr;
+        if (!WaterBox_GetSurface1(play, &play->colCtx, pos.x, pos.z, &surface, &box) ||
+            surface - pos.y < player->ageProperties->unk_24) {
+            player->stateFlags1 &= ~PLAYER_STATE1_IN_WATER;
+            player->stateFlags2 &= ~PLAYER_STATE2_UNDERWATER;
+            player->prevCsAction = PLAYER_CSACTION_NONE;
+        }
+    }
     // A lock-on survives a teleport if the target is still inside its leash, and the staircase he
     // just used is: he would come out of the move turned to face the storey he left.
     Player_ReleaseLockOn(player);
