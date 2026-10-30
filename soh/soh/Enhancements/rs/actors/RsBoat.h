@@ -56,6 +56,16 @@
 // push cannot clear is refused; then the turn alone and the move alone are tried, and either is taken if it
 // fits or leaves the hull less deep in trouble than it was, so a hull already touching land can always drive off.
 //
+// THE WAKE (#268). A moving boat leaves water rings behind it, the ones swimming Link leaves (EffectSsGRipple): off
+// the stern going ahead, off the bow going astern, on one line down the middle or alternating between the quarters,
+// and going ahead a bow wave as well, rings off alternate bow shoulders that the hull leaves behind as a widening V.
+// They are spaced by the distance the hull travels, as Link's are, so their density is the boat's speed and a stopped
+// boat leaves none. Sized from the hull's beam and grown more the faster it goes; near top speed a splash at the
+// trailing end now and then (foam). Every knob is a live CVar (`boat wake`). The rings share the scene's 85-slot
+// soft-sprite pool with every other effect, so they never cost one its slot: they spawn at the lowest priority there
+// is, which EffectSs_FindSlot hands to any other spawn first once the table is full (z_effect_soft_sprite.c), and only
+// while more than `reserve` slots are free, so the wake thins out under pressure rather than churning.
+//
 // Console: `boat ...` and `agenttest boat ...` (RsBoatConsole.h). Markers: `rs_boat event=<spawn|helm_on|
 // helm_off|blocked> ...` (agent mode).
 
@@ -136,6 +146,41 @@ extern const RsBoatTuneInfo gRsBoatTune[RS_BOAT_TUNE_COUNT];
 // A knob's live value, clamped to its range.
 f32 RsBoat_Tune(s32 knob);
 
+// The wake's knobs (#268): `boat wake <knob> <value>`, saved, read every time a ring is due. RsBoatTuneInfo's shape.
+typedef enum RsBoatWakeKnob {
+    RS_BOAT_WAKE_ON,      // 0: no wake
+    RS_BOAT_WAKE_SPACING, // units the hull travels between rings: the trail's density
+    RS_BOAT_WAKE_SIZE,    // ring size, times the hull's own (its beam's share of the skiff's)
+    RS_BOAT_WAKE_GROW,    // how many times its first size a ring grows to at top speed (Link's are 5); half-way there
+                          // at a crawl
+    RS_BOAT_WAKE_LINES,   // 1: the trail down the middle; 2: alternating between the trailing end's quarters
+    RS_BOAT_WAKE_BOW,     // 1: going ahead, a bow wave off alternate shoulders as well
+    RS_BOAT_WAKE_FOAM,    // a splash at the trailing end every third ring at this share of top speed and over; 0: none
+    RS_BOAT_WAKE_RESERVE, // soft-sprite slots kept free for every other effect: no ring while this few are free
+    RS_BOAT_WAKE_COUNT,
+} RsBoatWakeKnob;
+
+extern const RsBoatTuneInfo gRsBoatWake[RS_BOAT_WAKE_COUNT];
+
+// A wake knob's live value, clamped to its range.
+f32 RsBoat_WakeTune(s32 knob);
+
+// The scene's soft-sprite pool (EffectSs_InitInfo's table) as it stands. 0s outside a scene, but for the counts.
+typedef struct RsBoatEffectPool {
+    s32 size;    // its slots (85)
+    s32 used;    // those holding an effect
+    s32 ripples; // of those, water rings: anyone's, Link's and other actors' included
+    s32 wake;    // of those, the wake's own (spawned at the priority that yields its slot first)
+    s32 yielded; // EffectSs_FindSlot's counts since the game started: slots handed over by a wake effect,
+    s32 evicted; // taken from any other live effect (vanilla's own overflow),
+    s32 refused; // and spawns that found no slot at all
+} RsBoatEffectPool;
+
+void RsBoat_EffectPool(RsBoatEffectPool* pool);
+
+// The pool's slot `index` while it holds an effect, else NULL (free, or out of range). For the console's breakdown.
+const EffectSs* RsBoat_EffectSlot(s32 index);
+
 struct RsBoat;
 // The top speed this boat uses now, units a tick: `fwd` when it is set, else its kind's upgraded speed while
 // `upgrade` is on and the kind has one, else its kind's own.
@@ -180,6 +225,11 @@ typedef struct RsBoat {
     f32 lift;        // how far the hull is raised this tick to keep its rocking floor out of the water
     f32 floorLow;    // the floor's lowest drawn point over the water this tick, lift included (`boat list`)
     f32 throttle;    // what the helm asked for on the last tick, -1..1, for the console
+    f32 wakeRun;     // units travelled since the last wake ring (#268)
+    s32 wakeSide;    // +1 or -1: the quarter and the bow shoulder the next rings go off
+    s32 wakeRings;   // wake rings spawned since spawn, splashes included, for the console
+    s32 wakeHeld;    // rings held back because the pool was down to its reserve
+    s32 wakeFoam;    // rings due at foam speed: every RS_BOAT_WAKE_FOAM_EVERY-th brings a splash
     RsSteerCam cam;  // the steering camera while the helm is held (RsSteer.h)
 } RsBoat;
 

@@ -17,7 +17,7 @@
 //                   throttle=<x100>
 //                   tiller=<x100> rudder=<x100> helm=0|1 on_water=0|1 surface=<y> blocked=<none|no_water|shallow|wall|headroom>
 //                   blocks=<n> touch=<same names> touches=<n> lift=<x100> floor_low=<x100> link_on=0|1
-//                   helm_dist=<n> cam=0|1 map_arrow=<drawn|controls|no_minimap>` line per live
+//                   helm_dist=<n> cam=0|1 map_arrow=<drawn|controls|no_minimap> wake_rings=<n> wake_held=<n>` line per live
 //                   boat, then `op=list result=ok count=<n> link_x= link_y= link_z= link_yaw= link_floor_bg=<n>
 //                   link_input_disabled=0|1 link_swimming=0|1 link_can_take_helm=0|1 tiller_in_reach=0|1
 //                   link_focus_boat=0|1 a_label_check=0|1 a_label=<DO_ACTION_*>
@@ -39,7 +39,9 @@
 //                   wall Link pushes into: what he would climb, how long he has pushed, how high its top is);
 //                   link_lin: his linearVelocity; hud: what the steering label drew on the last frame (RsBoatHud.h);
 //                   map_arrow: what the last minimap draw did with that boat's blue arrow (RsVehicleMinimap.h):
-//                   drawn, or left out because Link holds its helm, or no_minimap when none was drawn
+//                   drawn, or left out because Link holds its helm, or no_minimap when none was drawn;
+//                   wake_rings: wake rings and splashes it has spawned (#268), wake_held: ones held back because the
+//                   effect pool was down to the wake's reserve
 //   spawn [<x> <z> [<yaw>]]
 //                   puts a boat of the `kind` kind down: at (x, z), or 220 units in front of Link facing his
 //                   way, on the water's surface there. `op=spawn result=ok idx=<i> x= y= z= yaw=`
@@ -101,6 +103,19 @@
 //                   steps (0, the default: the throttle follows the stick smoothly; n: n steps), upgrade (1:
 //                   each kind's upgraded top speed, skiff 18, sloop 14, raft none; 0). `op=tune result=ok fwd=
 //                   rev= accel= drag= brake= turnstill= turnmove= steps= upgrade=`. Works with no scene
+//   wake [default] | wake <knob> <value>
+//                   the trail a moving boat leaves (#268; saved, read as each ring is due; RsBoat.h's
+//                   RsBoatWakeKnob): on (1), spacing (units between rings, 24), size (times the hull's own, 1), grow
+//                   (how many times its first size a ring grows at top speed, 5), lines (1 or 2, 2), bow (the bow
+//                   wave, 1), foam (share of top speed for a stern splash, 0.9; 0 none), reserve (effect slots
+//                   kept free for everything else, 20). `op=wake result=ok on= spacing= size= grow= lines= bow= foam=
+//                   reserve= pool_size=<n> pool_used=<n> ripples=<n> wake=<n> yielded=<n> evicted=<n> refused=<n>
+//                   rings=<n> held=<n> types=<id>:<n>,...`: the soft-sprite pool as it stands (its slots, those in
+//                   use, the water rings among them, the wake's own among them), EffectSs_FindSlot's counts since the
+//                   game started (slots a wake effect handed over, slots taken from any other live effect, spawns
+//                   that found none: evicted and refused are the game's own effects failing), every boat's
+//                   wake_rings and wake_held summed, and the slots in use by EFFECT_SS_* id. The pool reads 0 with no
+//                   scene; the knobs work anyway
 //   contact [<idx>] what the boat's outline meets where it is now: `op=contact result=ok deepest=<none|no_water|
 //                   shallow|wall|headroom> points= <reason>:<depth>@<push x>,<push z> ...`, one entry per probe in
 //                   trouble, depth in world units and the push a unit vector x100 on the world axes. Empty
@@ -109,11 +124,12 @@
 //
 // Refusals, each with rc 1:
 //   op=boat result=error error=no_scene      no play state (title screen, file select); lakehylia, cam,
-//                                            hud, kind and tune still work
+//                                            hud, kind, tune and wake still work
 //   op=cam result=error error=bad_value height=..  dist=.. ease=..
 //                                            a knob not named, or a value outside its range
 //   op=tune result=error error=bad_value fwd=<min>..<max> ...
-//                                            the same, for tune
+//   op=wake result=error error=bad_value on=<min>..<max> ...
+//                                            the same, for tune and wake
 //   op=kind result=error error=bad_value kinds=<the kinds' names>
 //                                            no such kind
 //   op=<sub> result=error error=bad_value    a number that does not parse or is out of range (spawn, probe,
