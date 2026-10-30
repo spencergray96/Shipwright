@@ -9,6 +9,7 @@
 
 #include "RsBalloon.h"
 #include "RsBoatHud.h"
+#include "RsVehicleMinimap.h"
 #include "soh/Enhancements/console/ConsoleSink.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/ShipInit.hpp"
@@ -91,7 +92,7 @@ int32_t List(std::vector<std::string>& lines) {
         Addf(lines,
              "balloon idx=%d x=%d y=%d z=%d yaw=%d alt=%d vy=%d speed=%d throttle=%d lift=%d tiller=%d controls=%d "
              "landed=%d on_water=%d ground=%d height=%d ceiling=%d blocked=%s blocks=%d link_on=%d away=%d "
-             "abandoned=%d stand_dist=%d cam=%d",
+             "abandoned=%d stand_dist=%d cam=%d map_arrow=%s",
              (int)idx, (int)lroundf(a->world.pos.x), (int)lroundf(a->world.pos.y), (int)lroundf(a->world.pos.z),
              (int)(u16)a->shape.rot.y, (int)lroundf(b->alt * 100.0f), (int)lroundf(b->vy * 100.0f),
              (int)lroundf(b->speed * 100.0f), (int)lroundf(b->throttle * 100.0f), (int)lroundf(b->lift * 100.0f),
@@ -100,7 +101,7 @@ int32_t List(std::vector<std::string>& lines) {
              (int)lroundf(b->launchY + RsBalloon_Tune(RS_BALLOON_TUNE_CEILING)), RsBalloon_BlockName(b->blocked),
              b->blockCount, RsBalloon_LinkAboard(b, player) ? 1 : 0, b->awayTicks, b->abandoned,
              (int)lroundf(Math_Vec3f_DistXZ(&stand, (Vec3f*)&player->actor.world.pos)),
-             b->cam.subCamId != SUBCAM_NONE ? 1 : 0);
+             b->cam.subCamId != SUBCAM_NONE ? 1 : 0, RsVehicleMinimap_ArrowName(RsVehicleMinimap_Arrow(a)));
     }
     Addf(lines,
          "op=list result=ok count=%d link_x=%d link_y=%d link_z=%d link_yaw=%d link_floor_bg=%d link_ground=%d "

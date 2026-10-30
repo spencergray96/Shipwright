@@ -611,6 +611,103 @@ void Map_Init(PlayState* play) {
     }
 }
 
+// #region SOH [Enhancement] sturdy-bassoon#270
+// The compass arrows' x offset, mirrored world included: the yellow arrow's (Minimap_DrawCompassArrow) and the red's.
+static s16 Minimap_CompassXOffset(PlayState* play) {
+    s16 mapWidth = 0;
+    s16 mapStartPosX = 0;
+    if (play->sceneNum >= SCENE_HYRULE_FIELD && play->sceneNum <= SCENE_OUTSIDE_GANONS_CASTLE) { // Overworld
+        mapStartPosX = R_OW_MINIMAP_X;
+        mapWidth = gMapData->owMinimapWidth[R_MAP_INDEX];
+    } else if (play->sceneNum >= SCENE_DEKU_TREE && play->sceneNum <= SCENE_ICE_CAVERN) { // Dungeons
+        mapStartPosX = R_DGN_MINIMAP_X;
+        mapWidth = 96;
+    }
+
+    // The compass offset value is a factor of 10 compared to N64 screen pixels and originates in the center of the
+    // screen Compute the additional mirror offset value by normalizing the original offset position and taking it's
+    // distance to the center of the map, duplicating that result and casting back to a factor of 10
+    s16 mirrorOffset = ((mapWidth / 2) - ((R_COMPASS_OFFSET_X / 10) - (mapStartPosX - SCREEN_WIDTH / 2))) * 2 * 10;
+
+    return R_COMPASS_OFFSET_X + (CVarGetInteger(CVAR_ENHANCEMENT("MirroredWorld"), 0) ? mirrorOffset : 0);
+}
+
+// One arrow the way the yellow (current position) arrow is drawn - its shape, size, anchor, margins and mirroring - at
+// world (x, z), turned to `yaw`, in `color`. The yellow arrow is drawn through it, and the rs/ boats' blue ones
+// (sturdy-bassoon#270), so the two always agree. Expects Gfx_SetupDL_42Overlay already applied to OVERLAY_DISP.
+void Minimap_DrawCompassArrow(PlayState* play, f32 x, f32 z, s16 yaw, Color_RGB8 color) {
+    s16 tempX, tempZ;
+    s16 X_Margins_Minimap = 0;
+    s16 Y_Margins_Minimap = 0;
+    if (CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.UseMargins"), 0) != 0) {
+        if (CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosType"), 0) == ORIGINAL_LOCATION) {
+            X_Margins_Minimap = Right_MM_Margin;
+        };
+        Y_Margins_Minimap = Bottom_MM_Margin;
+    }
+
+    OPEN_DISPS(play->state.gfxCtx);
+
+    gSPMatrix(OVERLAY_DISP++, &gMtxClear, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    gDPSetCombineLERP(OVERLAY_DISP++, PRIMITIVE, ENVIRONMENT, TEXEL0, ENVIRONMENT, TEXEL0, 0, PRIMITIVE, 0, PRIMITIVE,
+                      ENVIRONMENT, TEXEL0, ENVIRONMENT, TEXEL0, 0, PRIMITIVE, 0);
+    gDPSetEnvColor(OVERLAY_DISP++, 0, 0, 0, 255);
+    gDPSetCombineMode(OVERLAY_DISP++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
+
+    tempX = x;
+    tempZ = z;
+    tempX /= R_COMPASS_SCALE_X * (CVarGetInteger(CVAR_ENHANCEMENT("MirroredWorld"), 0) ? -1 : 1);
+    tempZ /= R_COMPASS_SCALE_Y;
+
+    s16 tempXOffset = Minimap_CompassXOffset(play);
+    if (CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosType"), 0) != ORIGINAL_LOCATION) {
+        if (CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosType"), 0) == ANCHOR_LEFT) {
+            if (CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.UseMargins"), 0) != 0) {
+                X_Margins_Minimap = Left_MM_Margin;
+            };
+            Matrix_Translate(OTRGetDimensionFromLeftEdge((tempXOffset + (X_Margins_Minimap * 10) + tempX +
+                                                          (CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosX"), 0) * 10)) /
+                                                         10.0f),
+                             (R_COMPASS_OFFSET_Y + ((Y_Margins_Minimap * 10) * -1) - tempZ +
+                              ((CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosY"), 0) * 10) * -1)) /
+                                 10.0f,
+                             0.0f, MTXMODE_NEW);
+        } else if (CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosType"), 0) == ANCHOR_RIGHT) {
+            if (CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.UseMargins"), 0) != 0) {
+                X_Margins_Minimap = Right_MM_Margin;
+            };
+            Matrix_Translate(OTRGetDimensionFromRightEdge((tempXOffset + (X_Margins_Minimap * 10) + tempX +
+                                                           (CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosX"), 0) * 10)) /
+                                                          10.0f),
+                             (R_COMPASS_OFFSET_Y + ((Y_Margins_Minimap * 10) * -1) - tempZ +
+                              ((CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosY"), 0) * 10) * -1)) /
+                                 10.0f,
+                             0.0f, MTXMODE_NEW);
+        } else if (CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosType"), 0) == ANCHOR_NONE) {
+            Matrix_Translate(
+                (tempXOffset + tempX + (CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosX"), 0) * 10) / 10.0f),
+                (R_COMPASS_OFFSET_Y + ((Y_Margins_Minimap * 10) * -1) - tempZ +
+                 ((CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosY"), 0) * 10) * -1)) /
+                    10.0f,
+                0.0f, MTXMODE_NEW);
+        }
+    } else {
+        Matrix_Translate(OTRGetDimensionFromRightEdge((tempXOffset + (X_Margins_Minimap * 10) + tempX) / 10.0f),
+                         (R_COMPASS_OFFSET_Y + ((Y_Margins_Minimap * 10) * -1) - tempZ) / 10.0f, 0.0f, MTXMODE_NEW);
+    }
+    Matrix_Scale(0.4f, 0.4f, 0.4f, MTXMODE_APPLY);
+    Matrix_RotateX(-1.6f, MTXMODE_APPLY);
+    tempX = ((0x7FFF - yaw) / 0x400) * (CVarGetInteger(CVAR_ENHANCEMENT("MirroredWorld"), 0) ? -1 : 1);
+    Matrix_RotateY(tempX / 10.0f, MTXMODE_APPLY);
+    gSPMatrix(OVERLAY_DISP++, MATRIX_NEWMTX(play->state.gfxCtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+
+    gDPSetPrimColor(OVERLAY_DISP++, 0, 0xFF, color.r, color.g, color.b, 255);
+    gSPDisplayList(OVERLAY_DISP++, gCompassArrowDL);
+
+    CLOSE_DISPS(play->state.gfxCtx);
+}
+// #endregion
+
 void Minimap_DrawCompassIcons(PlayState* play) {
     s32 pad;
     Player* player = GET_PLAYER(play);
@@ -640,82 +737,15 @@ void Minimap_DrawCompassIcons(PlayState* play) {
     if (play->interfaceCtx.minimapAlpha >= 0xAA) {
         Gfx_SetupDL_42Overlay(play->state.gfxCtx);
 
-        // Player current position (yellow arrow)
-        gSPMatrix(OVERLAY_DISP++, &gMtxClear, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
-        gDPSetCombineLERP(OVERLAY_DISP++, PRIMITIVE, ENVIRONMENT, TEXEL0, ENVIRONMENT, TEXEL0, 0, PRIMITIVE, 0,
-                          PRIMITIVE, ENVIRONMENT, TEXEL0, ENVIRONMENT, TEXEL0, 0, PRIMITIVE, 0);
-        gDPSetEnvColor(OVERLAY_DISP++, 0, 0, 0, 255);
-        gDPSetCombineMode(OVERLAY_DISP++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
+        // #region SOH [Enhancement] sturdy-bassoon#270
+        // Under Link's arrow: the rs/ vehicles' arrows, so his is drawn over theirs where they overlap.
+        GameInteractor_ExecuteOnMinimapDrawCompassIconsUnderPlayer();
 
-        s16 mapWidth = 0;
-        s16 mapStartPosX = 0;
-        if (play->sceneNum >= SCENE_HYRULE_FIELD && play->sceneNum <= SCENE_OUTSIDE_GANONS_CASTLE) { // Overworld
-            mapStartPosX = R_OW_MINIMAP_X;
-            mapWidth = gMapData->owMinimapWidth[R_MAP_INDEX];
-        } else if (play->sceneNum >= SCENE_DEKU_TREE && play->sceneNum <= SCENE_ICE_CAVERN) { // Dungeons
-            mapStartPosX = R_DGN_MINIMAP_X;
-            mapWidth = 96;
-        }
-
-        // The compass offset value is a factor of 10 compared to N64 screen pixels and originates in the center of the
-        // screen Compute the additional mirror offset value by normalizing the original offset position and taking it's
-        // distance to the center of the map, duplicating that result and casting back to a factor of 10
-        s16 mirrorOffset = ((mapWidth / 2) - ((R_COMPASS_OFFSET_X / 10) - (mapStartPosX - SCREEN_WIDTH / 2))) * 2 * 10;
-
-        tempX = player->actor.world.pos.x;
-        tempZ = player->actor.world.pos.z;
-        tempX /= R_COMPASS_SCALE_X * (CVarGetInteger(CVAR_ENHANCEMENT("MirroredWorld"), 0) ? -1 : 1);
-        tempZ /= R_COMPASS_SCALE_Y;
-
-        s16 tempXOffset =
-            R_COMPASS_OFFSET_X + (CVarGetInteger(CVAR_ENHANCEMENT("MirroredWorld"), 0) ? mirrorOffset : 0);
-        if (CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosType"), 0) != ORIGINAL_LOCATION) {
-            if (CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosType"), 0) == ANCHOR_LEFT) {
-                if (CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.UseMargins"), 0) != 0) {
-                    X_Margins_Minimap = Left_MM_Margin;
-                };
-                Matrix_Translate(
-                    OTRGetDimensionFromLeftEdge((tempXOffset + (X_Margins_Minimap * 10) + tempX +
-                                                 (CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosX"), 0) * 10)) /
-                                                10.0f),
-                    (R_COMPASS_OFFSET_Y + ((Y_Margins_Minimap * 10) * -1) - tempZ +
-                     ((CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosY"), 0) * 10) * -1)) /
-                        10.0f,
-                    0.0f, MTXMODE_NEW);
-            } else if (CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosType"), 0) == ANCHOR_RIGHT) {
-                if (CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.UseMargins"), 0) != 0) {
-                    X_Margins_Minimap = Right_MM_Margin;
-                };
-                Matrix_Translate(
-                    OTRGetDimensionFromRightEdge((tempXOffset + (X_Margins_Minimap * 10) + tempX +
-                                                  (CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosX"), 0) * 10)) /
-                                                 10.0f),
-                    (R_COMPASS_OFFSET_Y + ((Y_Margins_Minimap * 10) * -1) - tempZ +
-                     ((CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosY"), 0) * 10) * -1)) /
-                        10.0f,
-                    0.0f, MTXMODE_NEW);
-            } else if (CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosType"), 0) == ANCHOR_NONE) {
-                Matrix_Translate(
-                    (tempXOffset + tempX + (CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosX"), 0) * 10) / 10.0f),
-                    (R_COMPASS_OFFSET_Y + ((Y_Margins_Minimap * 10) * -1) - tempZ +
-                     ((CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosY"), 0) * 10) * -1)) /
-                        10.0f,
-                    0.0f, MTXMODE_NEW);
-            }
-        } else {
-            Matrix_Translate(OTRGetDimensionFromRightEdge((tempXOffset + (X_Margins_Minimap * 10) + tempX) / 10.0f),
-                             (R_COMPASS_OFFSET_Y + ((Y_Margins_Minimap * 10) * -1) - tempZ) / 10.0f, 0.0f, MTXMODE_NEW);
-        }
-        Matrix_Scale(0.4f, 0.4f, 0.4f, MTXMODE_APPLY);
-        Matrix_RotateX(-1.6f, MTXMODE_APPLY);
-        tempX = ((0x7FFF - player->actor.shape.rot.y) / 0x400) *
-                (CVarGetInteger(CVAR_ENHANCEMENT("MirroredWorld"), 0) ? -1 : 1);
-        Matrix_RotateY(tempX / 10.0f, MTXMODE_APPLY);
-        gSPMatrix(OVERLAY_DISP++, MATRIX_NEWMTX(play->state.gfxCtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
-
-        gDPSetPrimColor(OVERLAY_DISP++, 0, 0xFF, currentPositionColor.r, currentPositionColor.g, currentPositionColor.b,
-                        255);
-        gSPDisplayList(OVERLAY_DISP++, gCompassArrowDL);
+        // Player current position (yellow arrow), through the helper the vehicles' arrows share
+        Minimap_DrawCompassArrow(play, player->actor.world.pos.x, player->actor.world.pos.z, player->actor.shape.rot.y,
+                                 currentPositionColor);
+        s16 tempXOffset = Minimap_CompassXOffset(play);
+        // #endregion
 
         // Player map entry (red arrow)
         tempX = sPlayerInitialPosX;
