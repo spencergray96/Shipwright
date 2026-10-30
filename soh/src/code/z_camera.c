@@ -7939,6 +7939,21 @@ void Camera_Init(Camera* camera, View* view, CollisionContext* colCtx, PlayState
     osSyncPrintf(VT_FGCOL(BLUE) "camera: initialize --- " VT_RST " UID %d\n", camera->uid);
 }
 
+// #region SOH [sturdy-bassoon#270] The scene-entry HUD hold, kept across a sub-camera made mid-play
+// Camera_Init arms D_8011D3F0 for every camera, sub-cameras included. It makes the main camera's first three
+// active ticks force the scene-entry interface flags (0x0200: the HUD hidden), which is only right on a scene
+// load. A sub-camera made mid-play arms it too, and the main camera, waiting while the sub-camera runs, spends it
+// the moment it is active again: the minimap and buttons fade out and back. RsSteerCam reads the hold before
+// Play_CreateSubCamera and puts it back after, so taking a vehicle's controls leaves it as it was.
+s32 Camera_GetEntryInterfaceHold(void) {
+    return D_8011D3F0;
+}
+
+void Camera_SetEntryInterfaceHold(s32 ticks) {
+    D_8011D3F0 = ticks;
+}
+// #endregion
+
 void func_80057FC4(Camera* camera) {
     if (camera != &camera->play->mainCamera) {
         camera->prevSetting = camera->setting = CAM_SET_FREE0;

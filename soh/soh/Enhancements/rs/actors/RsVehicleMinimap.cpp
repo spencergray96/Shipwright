@@ -15,6 +15,7 @@
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/ShipInit.hpp"
 #include "soh/cvar_prefixes.h"
+#include "soh/frame_interpolation.h"
 
 extern "C" {
 #include <z64.h>
@@ -87,7 +88,12 @@ void DrawVehicleArrows() {
             continue;
         }
         // The heading is the yaw the hull or basket draws with, the way it moves (sin, cos), as Link's own.
+        // Each arrow is its own interpolation child, keyed by its vehicle. Unkeyed, the frames drawn between two
+        // ticks pair every draw at the helper's line by its place in the order, so when one arrow goes (a boat
+        // cleared, a helm taken) the next is paired with it and slides over from where it was.
+        FrameInterpolation_RecordOpenChild(a, 0);
         Minimap_DrawCompassArrow(gPlayState, a->world.pos.x, a->world.pos.z, a->shape.rot.y, ArrowColor(a));
+        FrameInterpolation_RecordCloseChild();
         sDrawn.push_back({ a, RS_VEHICLE_ARROW_DRAWN });
     }
 }
