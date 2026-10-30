@@ -308,6 +308,10 @@ void GameInteractor_ExecuteOnKaleidoscopeUpdate(int16_t inDungeonScene) {
     GameInteractor::Instance->ExecuteHooks<GameInteractor::OnKaleidoscopeUpdate>(inDungeonScene);
 }
 
+void GameInteractor_ExecuteOnMinimapDrawCompassIconsUnderPlayer() {
+    GameInteractor::Instance->ExecuteHooks<GameInteractor::OnMinimapDrawCompassIconsUnderPlayer>();
+}
+
 void GameInteractor_ExecuteOnMinimapDrawCompassIcons() {
     GameInteractor::Instance->ExecuteHooks<GameInteractor::OnMinimapDrawCompassIcons>();
 }

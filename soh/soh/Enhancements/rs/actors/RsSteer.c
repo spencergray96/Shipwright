@@ -14,6 +14,9 @@
 s32 Camera_BGCheck(Camera* camera, Vec3f* from, Vec3f* to);
 // z_camera.c's too: sets the letterbox (and the HUD's alpha) from a camera mode's interface flags.
 void Camera_UpdateInterface(s16 flags);
+// z_camera.c's (#270): the scene-entry HUD hold every Camera_Init arms, read and put back around a sub-camera.
+s32 Camera_GetEntryInterfaceHold(void);
+void Camera_SetEntryInterfaceHold(s32 ticks);
 
 // Bar size 0, the HUD nibble left alone (0xF is "keep"): what a camera mode with no bars asks for, so the
 // letterbox retracts the way it does when Z is let go.
@@ -96,12 +99,17 @@ void RsSteer_ReadStick(const Input* input, f32* ahead, f32* back, f32* turn) {
 
 void RsSteerCam_Start(RsSteerCam* cam, PlayState* play, s32 on) {
     Camera* main;
+    s32 entryHold;
 
     cam->subCamId = SUBCAM_NONE;
     if (!on) {
         return;
     }
+    // #270: creating the sub-camera arms the scene-entry HUD hold, which the main camera would spend the moment the
+    // controls are let go, fading the minimap and buttons out and back. Keep it as it was.
+    entryHold = Camera_GetEntryInterfaceHold();
     cam->subCamId = Play_CreateSubCamera(play);
+    Camera_SetEntryInterfaceHold(entryHold);
     if (cam->subCamId == SUBCAM_NONE) {
         return;
     }

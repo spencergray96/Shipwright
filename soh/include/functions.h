@@ -1062,6 +1062,7 @@ void Map_InitRoomData(PlayState* play, s16 room);
 void Map_Destroy(PlayState* play);
 void Map_Init(PlayState* play);
 void Minimap_Draw(PlayState* play);
+void Minimap_DrawCompassArrow(PlayState* play, f32 x, f32 z, s16 yaw, Color_RGB8 color);
 void Map_Update(PlayState* play);
 void Interface_ChangeHudVisibilityMode(u16 alphaType);
 void Interface_SetSceneRestrictions(PlayState* play);

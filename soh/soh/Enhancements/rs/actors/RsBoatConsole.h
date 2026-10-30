@@ -17,7 +17,7 @@
 //                   throttle=<x100>
 //                   tiller=<x100> rudder=<x100> helm=0|1 on_water=0|1 surface=<y> blocked=<none|no_water|shallow|wall|headroom>
 //                   blocks=<n> touch=<same names> touches=<n> lift=<x100> floor_low=<x100> link_on=0|1
-//                   helm_dist=<n> cam=0|1` line per live
+//                   helm_dist=<n> cam=0|1 map_arrow=<drawn|controls|no_minimap>` line per live
 //                   boat, then `op=list result=ok count=<n> link_x= link_y= link_z= link_yaw= link_floor_bg=<n>
 //                   link_input_disabled=0|1 link_swimming=0|1 link_can_take_helm=0|1 tiller_in_reach=0|1
 //                   link_focus_boat=0|1 a_label_check=0|1 a_label=<DO_ACTION_*>
@@ -37,7 +37,9 @@
 //                   a_label_check: the A button reads "Check"; a_label: its do-action id (0 is none, as at
 //                   the helm); link_ledge: Player's ledgeClimbType, ledgeClimbDelayTimer and yDistToLedge (a
 //                   wall Link pushes into: what he would climb, how long he has pushed, how high its top is);
-//                   link_lin: his linearVelocity; hud: what the steering label drew on the last frame (RsBoatHud.h)
+//                   link_lin: his linearVelocity; hud: what the steering label drew on the last frame (RsBoatHud.h);
+//                   map_arrow: what the last minimap draw did with that boat's blue arrow (RsVehicleMinimap.h):
+//                   drawn, or left out because Link holds its helm, or no_minimap when none was drawn
 //   spawn [<x> <z> [<yaw>]]
 //                   puts a boat of the `kind` kind down: at (x, z), or 220 units in front of Link facing his
 //                   way, on the water's surface there. `op=spawn result=ok idx=<i> x= y= z= yaw=`

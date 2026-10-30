@@ -149,7 +149,7 @@
  *                                        because it is the only field that can contain a space
  *   trace <pre|post> frame=<n> lbox=<cur>/<target> pos=... prev=... velY=... lin=... bg=0x<hex> floorH=... yoff=...
  *         sf1..sf3=0x<hex> anim=0x<hex> trans=<n> rdown=<x>,<y>,<z> rdent=0x<hex> ... rot=<n> wyaw=<n> wny=<n>
- *         ledge=<type>/<timer>/<y> push=<ticks>/<hands>
+ *         ledge=<type>/<timer>/<y> push=<ticks>/<hands> hud=<HUD_VISIBILITY_*> mma=<minimap alpha>
  *                                        per-tick Player diagnostic while "agenttest trace" is active: position,
  *                                        prevPos, velocity, bgCheckFlags, floor height, the model's draw offset
  *                                        above pos (shape.yOffset in world units: a ledge climb's lift, #179),
@@ -1331,7 +1331,7 @@ void EmitTrace(const char* phase) {
     Camera* camera = GET_ACTIVE_CAM(gPlayState);
     CameraFrameDiag cd;
     Camera_GetFrameDiag(&cd);
-    char buf[1280];
+    char buf[1536];
     // lbox= is the letterbox: current bar size / animation target, per tick - the readout for
     // the hold-off before camera-requested bars start (sturdy-bassoon#42).
     std::snprintf(buf, sizeof(buf),
@@ -1391,10 +1391,15 @@ void EmitTrace(const char* phase) {
         }
     }
     used = std::strlen(buf);
-    std::snprintf(buf + used, sizeof(buf) - used, " rot=%d wyaw=%d wny=%d ledge=%d/%d/%.1f push=%d/%d",
-                  player->actor.shape.rot.y, player->actor.wallYaw,
-                  player->actor.wallPoly != nullptr ? player->actor.wallPoly->normal.y : 0, player->ledgeClimbType,
-                  player->ledgeClimbDelayTimer, player->yDistToLedge, railPush, railHands);
+    used += std::snprintf(buf + used, sizeof(buf) - used, " rot=%d wyaw=%d wny=%d ledge=%d/%d/%.1f push=%d/%d",
+                          player->actor.shape.rot.y, player->actor.wallYaw,
+                          player->actor.wallPoly != nullptr ? player->actor.wallPoly->normal.y : 0,
+                          player->ledgeClimbType, player->ledgeClimbDelayTimer, player->yDistToLedge, railPush,
+                          railHands);
+    // The HUD (sturdy-bassoon#270): its visibility mode and the minimap's alpha, per tick - what fades the minimap
+    // when a vehicle's controls are let go.
+    std::snprintf(buf + used, sizeof(buf) - used, " hud=%d mma=%d", (int)gSaveContext.hudVisibilityMode,
+                  (int)gPlayState->interfaceCtx.minimapAlpha);
     WriteMarker(buf);
 }
 
