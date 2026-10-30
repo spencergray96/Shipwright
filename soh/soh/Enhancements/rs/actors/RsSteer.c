@@ -12,6 +12,12 @@
 // z_camera.c's, not in functions.h; RemoteBombchu.cpp declares it the same way. Pulls `to` back to the first
 // wall between `from` and it, so the steering camera never sits inside the scenery.
 s32 Camera_BGCheck(Camera* camera, Vec3f* from, Vec3f* to);
+// z_camera.c's too: sets the letterbox (and the HUD's alpha) from a camera mode's interface flags.
+void Camera_UpdateInterface(s16 flags);
+
+// Bar size 0, the HUD nibble left alone (0xF is "keep"): what a camera mode with no bars asks for, so the
+// letterbox retracts the way it does when Z is let go.
+#define RS_STEER_IFACE_NO_BARS 0x0F00
 
 // The stick reads -85..85 a side. Inside the dead zone it is centred; at RS_STEER_STICK_FULL from the centre it is
 // full, so the rim is reached a little before the gate. Radians: 45 and 70 degrees up, 30 and 55 down.
@@ -105,6 +111,11 @@ void RsSteerCam_Start(RsSteerCam* cam, PlayState* play, s32 on) {
     Play_ChangeCameraStatus(play, CAM_ID_MAIN, CAM_STAT_WAIT);
     Play_ChangeCameraStatus(play, cam->subCamId, CAM_STAT_ACTIVE);
     Play_CameraSetAtEye(play, cam->subCamId, &cam->at, &cam->eye);
+    // #272: a fresh sub-camera is CAM_SET_FREE0, whose interface flags (0xFF00) leave the letterbox as it is,
+    // and the main camera stops setting it once it waits. Taken with Z held, the lock-on bars froze on for
+    // the whole time at the controls. So retract them here, as releasing Z would; letting go hands the view
+    // back to the main camera, whose own mode puts them back only if Link is still Z-targeting.
+    Camera_UpdateInterface(RS_STEER_IFACE_NO_BARS);
 }
 
 void RsSteerCam_Update(RsSteerCam* cam, PlayState* play, const Vec3f* at, const Vec3f* eye, f32 ease) {

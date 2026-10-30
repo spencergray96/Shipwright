@@ -51,7 +51,9 @@ typedef struct RsSteerCam {
 } RsSteerCam;
 
 // Takes the view over from wherever the normal camera is, so the first ticks ease out of it. `on` 0, or no
-// sub-camera free (a cutscene holds them), leaves the normal camera where it is.
+// sub-camera free (a cutscene holds them), leaves the normal camera where it is. Taking the view also retracts
+// the letterbox, which nothing would otherwise move while the sub-camera holds it: Z held as the controls were
+// taken left the lock-on bars up (#272).
 void RsSteerCam_Start(RsSteerCam* cam, PlayState* play, s32 on);
 // One tick toward (at, eye): each coordinate `ease` (0..1) of the way there.
 void RsSteerCam_Update(RsSteerCam* cam, PlayState* play, const Vec3f* at, const Vec3f* eye, f32 ease);
