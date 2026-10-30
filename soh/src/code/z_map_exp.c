@@ -611,7 +611,7 @@ void Map_Init(PlayState* play) {
     }
 }
 
-// #region SOH [Enhancement] sturdy-bassoon#270
+// #region SOH [sturdy-bassoon#270] The compass arrows' x offset, and one arrow drawn the yellow arrow's way
 // The compass arrows' x offset, mirrored world included: the yellow arrow's (Minimap_DrawCompassArrow) and the red's.
 static s16 Minimap_CompassXOffset(PlayState* play) {
     s16 mapWidth = 0;
@@ -633,8 +633,8 @@ static s16 Minimap_CompassXOffset(PlayState* play) {
 }
 
 // One arrow the way the yellow (current position) arrow is drawn - its shape, size, anchor, margins and mirroring - at
-// world (x, z), turned to `yaw`, in `color`. The yellow arrow is drawn through it, and the rs/ boats' blue ones
-// (sturdy-bassoon#270), so the two always agree. Expects Gfx_SetupDL_42Overlay already applied to OVERLAY_DISP.
+// world (x, z), turned to `yaw`, in `color`. The yellow arrow is drawn through it, and so are the rs/ boats' blue and
+// balloons' orange ones (sturdy-bassoon#270), so they always agree. Expects Gfx_SetupDL_42Overlay already applied to OVERLAY_DISP.
 void Minimap_DrawCompassArrow(PlayState* play, f32 x, f32 z, s16 yaw, Color_RGB8 color) {
     s16 tempX, tempZ;
     s16 X_Margins_Minimap = 0;
@@ -737,7 +737,7 @@ void Minimap_DrawCompassIcons(PlayState* play) {
     if (play->interfaceCtx.minimapAlpha >= 0xAA) {
         Gfx_SetupDL_42Overlay(play->state.gfxCtx);
 
-        // #region SOH [Enhancement] sturdy-bassoon#270
+        // #region SOH [sturdy-bassoon#270] The vehicles' arrows, then Link's through the shared helper
         // Under Link's arrow: the rs/ vehicles' arrows, so his is drawn over theirs where they overlap.
         GameInteractor_ExecuteOnMinimapDrawCompassIconsUnderPlayer();
 

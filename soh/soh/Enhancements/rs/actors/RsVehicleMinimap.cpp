@@ -26,8 +26,8 @@ extern PlayState* gPlayState;
 
 namespace {
 
-// The default colours; a cosmetic override in the yellow and red arrows' pattern (`set gCosmetics.HUD.MinimapBoat.
-// Changed 1` and `.Value`), with no editor entry yet.
+// The default colours. Each has a cosmetic override in the yellow and red arrows' pattern (`HUD.MinimapBoat` and
+// `HUD.MinimapBalloon`, `.Changed` and `.Value`), set only from the console for now: no editor entry yet.
 const Color_RGB8 kBoatColor = { 30, 120, 255 };
 const Color_RGB8 kBalloonColor = { 255, 130, 0 };
 
@@ -41,13 +41,13 @@ std::vector<Drawn> sDrawn;
 u32 sDrawnFrame = 0;
 bool sEverDrawn = false;
 
-// Whether a vehicle's arrow is drawn at all: every boat and balloon in the scene for now. The one place to narrow it
-// when boat ownership (#263) decides which are the player's.
-bool IsPlayersVehicle(const Actor* a) {
+// Whether an actor gets a vehicle arrow at all: every boat and balloon in the scene for now. The one place to narrow
+// it when boat ownership (#263) decides which are the player's.
+bool ShowsOnMinimap(const Actor* a) {
     return a->id == ACTOR_RS_BOAT || a->id == ACTOR_RS_BALLOON;
 }
 
-// 1 while Link holds this vehicle's controls.
+// Link holds this vehicle's controls: a boat's helm, a balloon's panel.
 bool LinkAtControls(const Actor* a) {
     if (a->id == ACTOR_RS_BOAT) {
         return reinterpret_cast<const RsBoat*>(a)->helm != 0;
@@ -58,15 +58,16 @@ bool LinkAtControls(const Actor* a) {
     return false;
 }
 
+Color_RGB8 CosmeticColor(const char* changed, const char* value, Color_RGB8 def) {
+    return CVarGetInteger(changed, 0) ? CVarGetColor24(value, def) : def;
+}
+
 Color_RGB8 ArrowColor(const Actor* a) {
     if (a->id == ACTOR_RS_BALLOON) {
-        return CVarGetInteger(CVAR_COSMETIC("HUD.MinimapBalloon.Changed"), 0)
-                   ? CVarGetColor24(CVAR_COSMETIC("HUD.MinimapBalloon.Value"), kBalloonColor)
-                   : kBalloonColor;
+        return CosmeticColor(CVAR_COSMETIC("HUD.MinimapBalloon.Changed"), CVAR_COSMETIC("HUD.MinimapBalloon.Value"),
+                             kBalloonColor);
     }
-    return CVarGetInteger(CVAR_COSMETIC("HUD.MinimapBoat.Changed"), 0)
-               ? CVarGetColor24(CVAR_COSMETIC("HUD.MinimapBoat.Value"), kBoatColor)
-               : kBoatColor;
+    return CosmeticColor(CVAR_COSMETIC("HUD.MinimapBoat.Changed"), CVAR_COSMETIC("HUD.MinimapBoat.Value"), kBoatColor);
 }
 
 void DrawVehicleArrows() {
@@ -78,7 +79,7 @@ void DrawVehicleArrows() {
     sEverDrawn = true;
     for (Actor* a = gPlayState->actorCtx.actorLists[ACTORCAT_BG].head; a != nullptr; a = a->next) {
         // A killed vehicle (update cleared, still listed until the end of the tick) is gone.
-        if (a->update == nullptr || !IsPlayersVehicle(a)) {
+        if (a->update == nullptr || !ShowsOnMinimap(a)) {
             continue;
         }
         if (LinkAtControls(a)) {

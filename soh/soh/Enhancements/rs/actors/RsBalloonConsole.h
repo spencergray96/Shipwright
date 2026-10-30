@@ -16,7 +16,8 @@
 //   list            one `balloon idx=<i> x= y= z= yaw=<binang> alt=<x100> vy=<x100> speed=<x100> throttle=<x100>
 //                   lift=<x100> tiller=<x100> controls=0|1 landed=0|1 on_water=0|1 ground=<y> height=<over the
 //                   ground> ceiling=<y> blocked=<none|wall|ground|overhead|ceiling> blocks=<n> link_on=0|1
-//                   away=<ticks> abandoned=0|1 stand_dist=<n> cam=0|1` line per live balloon, then `op=list
+//                   away=<ticks> abandoned=0|1 stand_dist=<n> cam=0|1 map_arrow=<drawn|controls|no_minimap>` line
+//                   per live balloon, then `op=list
 //                   result=ok count=<n> link_x= link_y= link_z= link_yaw= link_floor_bg=<n> link_ground=0|1
 //                   link_input_disabled=0|1 link_can_take=0|1 controls_in_reach=0|1 a_label=<DO_ACTION_*>
 //                   link_ledge=<climb type>/<delay ticks>/<ledge height> link_health=<n> drive_ticks=<n>
@@ -31,7 +32,8 @@
 //                   link_can_take: Link is free to take controls (RsSteer_LinkCanTake); controls_in_reach: A would
 //                   take some balloon's now; a_label: the A button's do-action id (0 is none, as at the controls);
 //                   link_ledge: Player's ledgeClimbType, ledgeClimbDelayTimer and yDistToLedge; link_health: his
-//                   health in sixteenths of a heart, for fall damage; hud: what the steering label drew last frame
+//                   health in sixteenths of a heart, for fall damage; hud: what the steering label drew last frame;
+//                   map_arrow: what the last minimap draw did with that balloon's orange arrow, as `boat list`'s
 //   spawn [<x> <z> [<yaw> [<height>]]]
 //                   puts a balloon down: at (x, z), or 200 units in front of Link facing his way, on the ground (or
 //                   open water) there, or <height> units over it, hovering. `op=spawn result=ok idx=<i> x= y= z= yaw=

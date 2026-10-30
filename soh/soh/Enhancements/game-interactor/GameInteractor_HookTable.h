@@ -66,8 +66,8 @@ DEFINE_HOOK(OnInterfaceUpdate, ());
 // something over the HUD's buttons (the rs/ pause scroll's flying equip icon).
 DEFINE_HOOK(OnInterfaceDrawItemButtonsEnd, ());
 DEFINE_HOOK(OnKaleidoscopeUpdate, (int16_t inDungeonScene));
-// Inside Minimap_DrawCompassIcons, before Link's (yellow) arrow - the point to draw an arrow his is drawn over (the
-// rs/ boats' and balloons' arrows, sturdy-bassoon#270). Same gate as the other: only while the minimap shows.
+// Inside Minimap_DrawCompassIcons, just before Link's (yellow) arrow, so anything drawn here sits under it (the rs/
+// boats' and balloons' arrows, sturdy-bassoon#270). Same gate as OnMinimapDrawCompassIcons: only while the minimap shows.
 DEFINE_HOOK(OnMinimapDrawCompassIconsUnderPlayer, ());
 DEFINE_HOOK(OnMinimapDrawCompassIcons, ());
 
