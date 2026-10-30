@@ -25,6 +25,8 @@
 // A takes the helm only from a Link who is free to (RsSteer_LinkCanTake: not aiming, in first person,
 // holding or carrying anything, airborne, talking or in a cutscene), and the helm lets go of itself when Link
 // is hurt, dies or is knocked away from the tiller. Speeds and turn rates are live CVars (`boat tune`).
+// Every let-go makes the boat Link's drown refuge (#273, SwimStamina.h): a drowned Link lands mid-deck on it, wherever
+// it has drifted, until he stands on anything else. Taking the helm, or only walking aboard, sets nothing.
 // Taking and letting go, being knocked off, standing Link at the tiller and the steering camera are the
 // shared vehicle pieces in RsSteer.h (#272); where the tiller is and how far is knocked off stay here.
 //

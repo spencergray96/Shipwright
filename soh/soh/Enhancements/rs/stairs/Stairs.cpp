@@ -691,6 +691,31 @@ void SnapCamera(PlayState* play, Player* player, s16 yaw) {
     FrameInterpolation_DontInterpolateCamera();
 }
 
+// A move out of the water onto dry ground (the swim respawn, #273) must stop him swimming there.
+// The move's freeze is CsAction 1, which while PLAYER_STATE1_IN_WATER is set swims him up toward
+// the surface (func_808513BC: no gravity, rising), and Player's own water check, which would clear
+// the flag, does not run in a cutscene. So he rose ~11 off a boat's deck, `landed` read ground=0,
+// and he dropped only once released. This is Player's own exit (func_8083D0A8) without the jump:
+// the swim flags go, the boots' dry settings come back, and re-running the action's setup
+// (prevCsAction) stands him in the wait pose. "Dry" is the line Player leaves the water at
+// (func_8083D53C): shallower over his feet than ageProperties->unk_24 (36 adult). A landing at
+// swimming depth (`swim refuge here` in the water, ~41 down) keeps him swimming.
+void LeaveWaterIfDry(PlayState* play, Player* player, const Vec3f& pos) {
+    if (!(player->stateFlags1 & PLAYER_STATE1_IN_WATER)) {
+        return;
+    }
+    f32 surface = pos.y;
+    WaterBox* box = nullptr;
+    if (WaterBox_GetSurface1(play, &play->colCtx, pos.x, pos.z, &surface, &box) &&
+        surface - pos.y >= player->ageProperties->unk_24) {
+        return;
+    }
+    player->stateFlags1 &= ~PLAYER_STATE1_IN_WATER;
+    player->stateFlags2 &= ~(PLAYER_STATE2_UNDERWATER | PLAYER_STATE2_DIVING);
+    Player_SetBootData(play, player);
+    player->prevCsAction = PLAYER_CSACTION_NONE;
+}
+
 // THE MOVE ITSELF - every field #134's source dig found an in-place move must write, and the two
 // `agenttest goto` does not.
 void Teleport(PlayState* play, Player* player, const Vec3f& pos, s16 yaw) {
@@ -714,6 +739,7 @@ void Teleport(PlayState* play, Player* player, const Vec3f& pos, s16 yaw) {
     player->actor.world.rot.y = yaw;
     player->actor.shape.rot.y = yaw;
     player->yaw = yaw;
+    LeaveWaterIfDry(play, player, pos);
     // A lock-on survives a teleport if the target is still inside its leash, and the staircase he
     // just used is: he would come out of the move turned to face the storey he left.
     Player_ReleaseLockOn(player);

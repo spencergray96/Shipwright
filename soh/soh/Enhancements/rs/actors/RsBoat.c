@@ -14,6 +14,7 @@
 #include "global.h"
 #include "overlays/effects/ovl_Effect_Ss_G_Ripple/z_eff_ss_g_ripple.h" // the wake's rings and splash, spawned at
 #include "overlays/effects/ovl_Effect_Ss_G_Splash/z_eff_ss_g_splash.h" // its own priority
+#include "soh/Enhancements/rs/swim/SwimStamina.h"
 
 void RsBoat_Init(Actor* thisx, PlayState* play);
 void RsBoat_Destroy(Actor* thisx, PlayState* play);
@@ -1537,6 +1538,40 @@ void RsBoat_StandAtHelm(const RsBoat* this, Player* player, f32 lift) {
     RsSteer_StandLinkAt(player, &helm, this->dyna.actor.shape.rot.y);
 }
 
+// THE DROWN REFUGE (sturdy-bassoon#273). Letting go of the helm makes this boat where a drowned Link goes back to
+// (SwimStamina.h). The spot is mid-deck on the centreline, not the helm: the warp move fixes its landing as it begins
+// and puts him there after a ~7-tick fade (RsStair_BeginWarpMove), and a boat still moving goes on without him
+// meanwhile, while the helm is only RS_BOAT_HELM_FROM_STERN from the stern. In play the boat has stopped long before:
+// his swim budget refills on the deck, so he drowns a full budget after leaving it, and drag stops any hull within
+// ~6 s. Only a drown forced just after letting go (`swim drown`, a short `swim length`) meets a boat still moving -
+// a skiff doing 2 a tick carried the spot ~65 under the fade, and he still landed on its deck.
+#define RS_BOAT_REFUGE_POST_CLEAR 30.0f // the spot's distance (z) from a deck post: Link's wall radius plus room
+#define RS_BOAT_REFUGE_LIFT 2.0f        // over the deck, so a deck rocking up under him meets his feet, not his shins
+
+// The refuge's z, boat space (x is 0): halfway along the open deck - the stern to the covered bow's aft edge, or to
+// the bow for a kind without one - moved off a post standing there (the raft's mast).
+static f32 RsBoat_RefugeZ(s32 kindId) {
+    const RsBoatKind* kind = &sRsBoatKinds[kindId];
+    const RsBoatHull* hull = &sHulls[kindId];
+    const f32 deckEnd = kind->foredeck.rows > 0 ? kind->foredeck.rowZ[0] : hull->bowZ;
+    f32 z = (hull->sternZ + deckEnd) * 0.5f;
+
+    if (kind->post.top > 0.0f) {
+        const f32 postMid = (kind->post.z[0] + kind->post.z[1]) * 0.5f;
+
+        if (z <= postMid) {
+            z = MIN(z, kind->post.z[0] - RS_BOAT_REFUGE_POST_CLEAR);
+        } else {
+            z = MAX(z, kind->post.z[1] + RS_BOAT_REFUGE_POST_CLEAR);
+        }
+    }
+    return z;
+}
+
+static void RsBoat_SetRefuge(RsBoat* this) {
+    RsSwim_SetRefuge(&this->dyna.actor, 0.0f, RsBoat_DeckY(this) + RS_BOAT_REFUGE_LIFT, RsBoat_RefugeZ(this->kind), 0);
+}
+
 // Link could take this boat's helm with A now: on its deck, free to, and either within reach of the tiller or
 // locked on to it with Z, which works from anywhere on the skiff's deck (its bow is ~200 from the tiller) and the
 // sloop's stern half (RsBoat_Init's targetMode).
@@ -2234,6 +2269,8 @@ s32 RsBoat_SetHelm(RsBoat* this, PlayState* play, s32 on) {
         RsSteer_LetGo(player);
         this->helm = 0;
         RsSteerCam_Stop(&this->cam, play);
+        // Every let-go, B or knocked off: he steered this boat. Taking the helm, or only standing aboard, sets nothing.
+        RsBoat_SetRefuge(this);
         RsBoat_Mark(this, "helm_off");
     }
     return 1;
