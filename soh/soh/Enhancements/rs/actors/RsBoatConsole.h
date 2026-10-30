@@ -32,7 +32,7 @@
 //                   over the water (never under RS_BOAT_FLOAT_MARGIN while afloat);
 //                   link_on: Link is standing on that boat's deck; helm_dist: Link's xz distance from its
 //                   tiller; cam: the steering camera holds the view; link_swimming: PLAYER_STATE1_IN_WATER;
-//                   link_can_take_helm: Link is free to take a helm (RsBoat_LinkCanTakeHelm); tiller_in_reach:
+//                   link_can_take_helm: Link is free to take a helm (RsSteer_LinkCanTake); tiller_in_reach:
 //                   A would take one now (RsBoat_TillerInReach); link_focus_boat: Z is locked on to a boat;
 //                   a_label_check: the A button reads "Check"; a_label: its do-action id (0 is none, as at
 //                   the helm); link_ledge: Player's ledgeClimbType, ledgeClimbDelayTimer and yDistToLedge (a

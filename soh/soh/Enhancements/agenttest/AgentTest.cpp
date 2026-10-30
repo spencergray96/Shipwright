@@ -130,7 +130,8 @@
  *                                        console command, so the two cannot drift
  *   state scene=0x<hex> room=<n> entrance=0x<hex> pos=<x>,<y>,<z> yaw=<n> age=<adult|child> time=0x<hex>
  *         night=<0|1> rupees=<n> rupees_pending=<n> frame=<n> cam_at=<x>,<y>,<z> cam_eye=<x>,<y>,<z>
- *         cam_setting=<n> cam_mode=<n> cam_dist=<f> name="<scene name>"
+ *         cam_setting=<n> cam_mode=<n> cam_dist=<f> lbox=<cur>/<target> main_cam=<status>/<mode>
+ *         zflags=0x<hex> name="<scene name>"
  *                                        rupees is gSaveContext.rupees and rupees_pending the
  *                                        accumulator Interface_Update drains into it one per frame
  *                                        (wallet-capped) - together they are the witness for a quest
@@ -139,8 +140,13 @@
  *                                        cam_* is the active camera: where it looks, where it sits,
  *                                        which CameraSettingType/mode is live, and the at-eye distance -
  *                                        the measurable form of "the camera is sitting on the floor
- *                                        looking up" (issue #38). name is last and quoted because it is
- *                                        the only field that can contain a space
+ *                                        looking up" (issue #38). lbox is the letterbox, current bar
+ *                                        size / animation target; main_cam the main camera's status and
+ *                                        mode, which differ from cam_* while a sub-camera holds the view;
+ *                                        zflags Link's Z-target bits of stateFlags1 (0x10 hostile lock-on,
+ *                                        0x8000 Z-targeting, 0x10000 friendly focus, 0x20000 parallel) -
+ *                                        the readouts for the lock-on bars (#272). name is last and quoted
+ *                                        because it is the only field that can contain a space
  *   trace <pre|post> frame=<n> lbox=<cur>/<target> pos=... prev=... velY=... lin=... bg=0x<hex> floorH=... yoff=...
  *         sf1..sf3=0x<hex> anim=0x<hex> trans=<n> rdown=<x>,<y>,<z> rdent=0x<hex> ... rot=<n> wyaw=<n> wny=<n>
  *         ledge=<type>/<timer>/<y> push=<ticks>/<hands>
@@ -1958,7 +1964,11 @@ void OnPlayerUpdateAgentTest() {
 std::string StateLine() {
     Player* player = GET_PLAYER(gPlayState);
     Camera* camera = GET_ACTIVE_CAM(gPlayState);
-    // The fixed fields run to about 230 characters, so this leaves ~280 for the scene name -
+    Camera* mainCam = gPlayState->cameraPtrs[CAM_ID_MAIN];
+    // Link's Z-targeting state: hostile lock-on, Z-targeting, friendly focus, parallel (sturdy-bassoon#272).
+    const u32 zFlags = player->stateFlags1 & (PLAYER_STATE1_HOSTILE_LOCK_ON | PLAYER_STATE1_Z_TARGETING |
+                                              PLAYER_STATE1_FRIENDLY_ACTOR_FOCUS | PLAYER_STATE1_PARALLEL);
+    // The fixed fields run to about 270 characters, so this leaves ~280 for the scene name -
     // several times the longest the scene table can produce. snprintf truncates rather than
     // overflows either way; the headroom is so the name is not what gets truncated.
     char buf[512];
@@ -1968,7 +1978,7 @@ std::string StateLine() {
                   "state scene=%s room=%d entrance=%s pos=%.1f,%.1f,%.1f yaw=%d age=%s time=%s night=%d "
                   "rupees=%d rupees_pending=%d frame=%u "
                   "cam_at=%.1f,%.1f,%.1f cam_eye=%.1f,%.1f,%.1f cam_setting=%d cam_mode=%d cam_dist=%.1f "
-                  "name=\"%s\"",
+                  "lbox=%u/%u main_cam=%d/%d zflags=0x%X name=\"%s\"",
                   Hex(gPlayState->sceneNum).c_str(), gPlayState->roomCtx.curRoom.num,
                   Hex(gSaveContext.entranceIndex).c_str(), player->actor.world.pos.x, player->actor.world.pos.y,
                   player->actor.world.pos.z, player->actor.shape.rot.y,
@@ -1976,7 +1986,8 @@ std::string StateLine() {
                   gSaveContext.nightFlag, gSaveContext.rupees, gSaveContext.rupeeAccumulator, gPlayState->state.frames,
                   camera->at.x, camera->at.y, camera->at.z,
                   camera->eye.x, camera->eye.y, camera->eye.z, camera->setting, camera->mode, camera->dist,
-                  SohUtils::GetSceneName(gPlayState->sceneNum).c_str());
+                  ShrinkWindow_GetCurrentVal(), ShrinkWindow_GetVal(), mainCam->status, mainCam->mode,
+                  static_cast<unsigned>(zFlags), SohUtils::GetSceneName(gPlayState->sceneNum).c_str());
     return buf;
 }
 

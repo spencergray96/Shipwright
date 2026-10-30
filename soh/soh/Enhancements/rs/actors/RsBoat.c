@@ -13,10 +13,6 @@
 #include "RsActors.h"
 #include "global.h"
 
-// z_camera.c's, not in functions.h; RemoteBombchu.cpp declares it the same way. Pulls `to` back to the first
-// wall between `from` and it, so the steering camera never sits inside the scenery.
-s32 Camera_BGCheck(Camera* camera, Vec3f* from, Vec3f* to);
-
 void RsBoat_Init(Actor* thisx, PlayState* play);
 void RsBoat_Destroy(Actor* thisx, PlayState* play);
 void RsBoat_Update(Actor* thisx, PlayState* play);
@@ -1510,37 +1506,12 @@ void RsBoat_StandAtHelm(const RsBoat* this, Player* player, f32 lift) {
     Vec3f helm;
 
     RsBoat_HelmPos(this, &helm);
-    player->actor.world.pos.x = helm.x;
-    player->actor.world.pos.z = helm.z;
-    player->actor.world.pos.y = (lift > 0.0f) ? helm.y + lift : player->actor.world.pos.y;
-    // agenttest goto's recipe: prevPos and home.pos too, or the wall sweep clamps him back where he was, and
-    // fallStartHeight so a drop onto the deck does not read as a fall.
-    player->actor.prevPos = player->actor.world.pos;
-    player->actor.home.pos = player->actor.world.pos;
-    player->fallStartHeight = (s16)player->actor.world.pos.y;
-    player->actor.shape.rot.y = this->dyna.actor.shape.rot.y;
-    player->actor.world.rot.y = this->dyna.actor.shape.rot.y;
-    player->yaw = this->dyna.actor.shape.rot.y;
-    player->linearVelocity = 0.0f;
-    player->actor.speedXZ = 0.0f;
-}
-
-s32 RsBoat_LinkCanTakeHelm(const Player* player) {
-    const u32 busy = PLAYER_STATE1_HOOKSHOT_FALLING | PLAYER_STATE1_ITEM_IN_HAND | PLAYER_STATE1_INPUT_DISABLED |
-                     PLAYER_STATE1_TALKING | PLAYER_STATE1_DEAD | PLAYER_STATE1_START_CHANGING_HELD_ITEM |
-                     PLAYER_STATE1_READY_TO_FIRE | PLAYER_STATE1_GETTING_ITEM | PLAYER_STATE1_CARRYING_ACTOR |
-                     PLAYER_STATE1_CHARGING_SPIN_ATTACK | PLAYER_STATE1_HANGING_OFF_LEDGE |
-                     PLAYER_STATE1_CLIMBING_LEDGE | PLAYER_STATE1_JUMPING | PLAYER_STATE1_FREEFALL |
-                     PLAYER_STATE1_FIRST_PERSON | PLAYER_STATE1_CLIMBING_LADDER | PLAYER_STATE1_SHIELDING |
-                     PLAYER_STATE1_ON_HORSE | PLAYER_STATE1_USING_BOOMERANG | PLAYER_STATE1_DAMAGED |
-                     PLAYER_STATE1_IN_WATER | PLAYER_STATE1_IN_ITEM_CS | PLAYER_STATE1_IN_CUTSCENE;
-
-    // unk_6AD is Player's camera mode: 0 is the normal third-person view; 1 and 2 are first person, with
-    // and without an item drawn. The bow's zoom is 2, and A at the tiller while it was up locked Link into it.
-    // heldItemAction is what is in his hand: a drawn sword too, when A is "Put Away" and vanilla's sheathe
-    // should win - the next A then takes the helm, rather than Link steering in his sword stance.
-    return (player->stateFlags1 & busy) == 0 && player->unk_6AD == 0 && player->heldActor == NULL &&
-           player->talkActor == NULL && player->heldItemAction == PLAYER_IA_NONE;
+    if (lift > 0.0f) {
+        helm.y += lift;
+    } else {
+        helm.y = player->actor.world.pos.y;
+    }
+    RsSteer_StandLinkAt(player, &helm, this->dyna.actor.shape.rot.y);
 }
 
 // Link could take this boat's helm with A now: on its deck, free to, and either within reach of the tiller or
@@ -1549,7 +1520,7 @@ s32 RsBoat_LinkCanTakeHelm(const Player* player) {
 static s32 RsBoat_TillerReachable(const RsBoat* this, const Player* player) {
     Vec3f helm;
 
-    if (this->helm || !RsBoat_LinkOnDeck(this, player) || !RsBoat_LinkCanTakeHelm(player)) {
+    if (this->helm || !RsBoat_LinkOnDeck(this, player) || !RsSteer_LinkCanTake(player)) {
         return 0;
     }
     if (player->focusActor == &this->dyna.actor) {
@@ -2206,62 +2177,17 @@ static void RsBoat_CamTarget(const RsBoat* this, const Player* player, Vec3f* at
     eye->z = player->actor.world.pos.z - c * dist;
 }
 
-// Takes the view over, from wherever the normal camera is now, so the first ticks ease out of it. No camera is
-// a quiet no: CVar off, or no sub-camera free (a cutscene holds them), and the normal camera simply stays.
-static void RsBoat_CamStart(RsBoat* this, PlayState* play) {
-    Camera* main;
-
-    this->subCamId = SUBCAM_NONE;
-    if (!CVarGetInteger(CVAR_RS_BOAT_CAM, 1)) {
-        return;
-    }
-    this->subCamId = Play_CreateSubCamera(play);
-    if (this->subCamId == SUBCAM_NONE) {
-        return;
-    }
-    main = Play_GetCamera(play, CAM_ID_MAIN);
-    this->camEye = main->eye;
-    this->camAt = main->at;
-    Play_ChangeCameraStatus(play, CAM_ID_MAIN, CAM_STAT_WAIT);
-    Play_ChangeCameraStatus(play, this->subCamId, CAM_STAT_ACTIVE);
-    Play_CameraSetAtEye(play, this->subCamId, &this->camAt, &this->camEye);
-}
-
-// One tick of the follow: each coordinate a fixed share of the way to its target (RsBoat_CamTarget), so a far
-// camera closes fast and a near one settles, then pulled in front of any wall between Link and it.
+// One tick of the follow (RsSteerCam_Update): each coordinate a fixed share of the way to its target
+// (RsBoat_CamTarget), so a far camera closes fast and a near one settles.
 static void RsBoat_CamUpdate(RsBoat* this, PlayState* play, const Player* player) {
     Vec3f at;
     Vec3f eye;
-    f32 ease;
 
-    if (this->subCamId == SUBCAM_NONE) {
-        return;
-    }
-    ease = (f32)CLAMP(CVarGetInteger(CVAR_RS_BOAT_CAM_EASE, RS_BOAT_CAM_EASE_DEFAULT), RS_BOAT_CAM_EASE_MIN,
-                      RS_BOAT_CAM_EASE_MAX) /
-           100.0f;
     RsBoat_CamTarget(this, player, &at, &eye);
-    Math_ApproachF(&this->camAt.x, at.x, ease, 400.0f);
-    Math_ApproachF(&this->camAt.y, at.y, ease, 400.0f);
-    Math_ApproachF(&this->camAt.z, at.z, ease, 400.0f);
-    Math_ApproachF(&this->camEye.x, eye.x, ease, 400.0f);
-    Math_ApproachF(&this->camEye.y, eye.y, ease, 400.0f);
-    Math_ApproachF(&this->camEye.z, eye.z, ease, 400.0f);
-    eye = this->camEye;
-    Camera_BGCheck(Play_GetCamera(play, this->subCamId), &this->camAt, &eye);
-    Play_CameraSetAtEye(play, this->subCamId, &this->camAt, &eye);
-}
-
-// Hands the view back where the steering camera left it, so the normal camera picks up from there rather than
-// from where it was when the helm was taken.
-static void RsBoat_CamStop(RsBoat* this, PlayState* play) {
-    if (this->subCamId == SUBCAM_NONE) {
-        return;
-    }
-    Play_CameraSetAtEye(play, CAM_ID_MAIN, &this->camAt, &this->camEye);
-    Play_ChangeCameraStatus(play, CAM_ID_MAIN, CAM_STAT_ACTIVE);
-    Play_ClearCamera(play, this->subCamId);
-    this->subCamId = SUBCAM_NONE;
+    RsSteerCam_Update(&this->cam, play, &at, &eye,
+                      (f32)CLAMP(CVarGetInteger(CVAR_RS_BOAT_CAM_EASE, RS_BOAT_CAM_EASE_DEFAULT),
+                                 RS_BOAT_CAM_EASE_MIN, RS_BOAT_CAM_EASE_MAX) /
+                          100.0f);
 }
 
 s32 RsBoat_SetHelm(RsBoat* this, PlayState* play, s32 on) {
@@ -2277,17 +2203,14 @@ s32 RsBoat_SetHelm(RsBoat* this, PlayState* play, s32 on) {
         // Stand Link at the tiller facing the bow, so the stick's left is the boat's left, and on the deck: A from
         // the rail, which is deck too (RsBoat_LinkOnDeck), would otherwise leave him in the air over the tiller.
         RsBoat_StandAtHelm(this, player, 1.0f);
-        player->stateFlags1 |= PLAYER_STATE1_INPUT_DISABLED;
+        RsSteer_Take(player);
         this->helm = 1;
-        RsBoat_CamStart(this, play);
+        RsSteerCam_Start(&this->cam, play, CVarGetInteger(CVAR_RS_BOAT_CAM, 1));
         RsBoat_Mark(this, "helm_on");
     } else {
-        player->stateFlags1 &= ~PLAYER_STATE1_INPUT_DISABLED;
-        // The B that let go reaches Player this same tick (the boat updates first): without the cooldown it
-        // swings the sword.
-        player->textboxBtnCooldownTimer = 4;
+        RsSteer_LetGo(player);
         this->helm = 0;
-        RsBoat_CamStop(this, play);
+        RsSteerCam_Stop(&this->cam, play);
         RsBoat_Mark(this, "helm_off");
     }
     return 1;
@@ -2361,7 +2284,7 @@ void RsBoat_Init(Actor* thisx, PlayState* play) {
     this->railGrace = 0;
     this->railPushHands = 0;
     this->throttle = 0.0f;
-    this->subCamId = SUBCAM_NONE;
+    this->cam.subCamId = SUBCAM_NONE;
     this->surfaceY = thisx->world.pos.y;
     this->onWater = RsBoat_SurfaceBox(play, thisx->world.pos.x, thisx->world.pos.z, &this->surfaceY, thisx,
                                       &this->waterBox);
@@ -2375,8 +2298,8 @@ void RsBoat_Destroy(Actor* thisx, PlayState* play) {
     RsBoat* this = (RsBoat*)thisx;
 
     if (this->helm) {
-        GET_PLAYER(play)->stateFlags1 &= ~PLAYER_STATE1_INPUT_DISABLED;
-        RsBoat_CamStop(this, play);
+        RsSteer_LetGo(GET_PLAYER(play));
+        RsSteerCam_Stop(&this->cam, play);
     }
     DynaPoly_DeleteBgActor(play, &play->colCtx.dyna, this->dyna.bgId);
 }
@@ -2386,6 +2309,8 @@ void RsBoat_Destroy(Actor* thisx, PlayState* play) {
 // The stick does both (#262 point 3): how far it is pushed is the throttle, which way it points scales it ahead,
 // astern or to nothing (RS_BOAT_ARC_*), and its left-right is the tiller. So up-left at the rim is full ahead and
 // full left, and straight left only turns. A is left free for something else at the helm.
+// Not RsSteer_ReadStick, the same split: `boat tune steps` rounds the push before the arc scales it, which that
+// split's output cannot be rounded back into.
 static void RsBoat_ReadHelm(RsBoat* this, PlayState* play, f32* throttle, f32* turn, s32* letGo) {
     Input* input = &play->state.input[0];
     const f32 stickX = (f32)input->cur.stick_x;
@@ -2556,15 +2481,12 @@ void RsBoat_Update(Actor* thisx, PlayState* play) {
 
     if (this->helm) {
         Vec3f helm;
-        s32 knocked;
 
         RsBoat_ReadHelm(this, play, &throttle, &turn, &letGo);
         // Hurt, dead, or shoved off the tiller (a bomb's blast moves him even with his input off): any of
         // them lets go, as falling off the deck does.
         RsBoat_HelmPos(this, &helm);
-        knocked = (player->stateFlags1 & (PLAYER_STATE1_DAMAGED | PLAYER_STATE1_DEAD)) != 0 ||
-                  Math_Vec3f_DistXZ(&helm, &player->actor.world.pos) > RS_BOAT_HELM_KNOCKED;
-        if (letGo || knocked || !RsBoat_LinkOnDeck(this, player)) {
+        if (letGo || RsSteer_Knocked(player, &helm, RS_BOAT_HELM_KNOCKED) || !RsBoat_LinkOnDeck(this, player)) {
             RsBoat_SetHelm(this, play, 0);
             throttle = 0.0f;
             turn = 0.0f;
