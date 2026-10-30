@@ -106,6 +106,9 @@ void CollectPlaced(std::vector<PlacedSound>& rows) {
  * the two file rows are stand-ins that prove the mixer. They go when the owner has placed the same sounds
  * in the world map with the grid tool (#276 P2); until then a scene's exported placements and these sit
  * side by side.
+ * The two fountains went first (2026-10-30), at the owner's say: fountain-879's kind carries the "fountain"
+ * sound (#276 P3), so a fountain placed in the Lumbridge chunk plays it, and keeping these would have played
+ * each fountain twice. Until fountains are placed there, Lumbridge's fountains are silent.
  */
 // Where the overworld sits in RS's frame: f2p_overworld_world.inc's RS_WORLD_SCENE row (the RS tile whose
 // NORTH-west corner is OoT (0, 0)). Copied, not included, because these rows are going.
@@ -123,8 +126,6 @@ struct BuiltIn {
 };
 
 const BuiltIn kBuiltIn[] = {
-    { "fountain_south", 3221, 3210, "fountain", -1.0f },   // loc 879 Fountain, r=7, sound 2150
-    { "fountain_north", 3221, 3226, "fountain", -1.0f },   // loc 879 Fountain, r=7, sound 2150
     { "cooking_range", 3212, 3215, "fire", -1.0f },        // loc 114 Cooking range (kitchen), r=3
     { "fireplace", 3214, 3249, "fire", 5.0f },             // loc 24969 Fireplace, r=5, sound 2198
     { "furnace", 3226, 3256, "fire", 10.0f },              // loc 24009 Furnace, r=10, sound 2209
