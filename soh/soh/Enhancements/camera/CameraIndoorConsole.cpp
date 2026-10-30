@@ -142,8 +142,11 @@ void AddTunables(std::vector<std::string>& lines) {
          CVarGetFloat(CVAR_CAM_CEIL_HOLD, CAM_CEIL_HOLD_DEFAULT),
          CVarGetInteger(CVAR_CAM_FLOOR_AHEAD_ON, CAM_FLOOR_AHEAD_ON_DEFAULT),
          CVarGetInteger(CVAR_CAM_PROBE_CEIL_ON, CAM_PROBE_CEIL_ON_DEFAULT));
-    Addf(lines, "ledge cap=%.1f rail=%d", CVarGetFloat(CVAR_CAM_LEDGE_DROP_CAP, CAM_LEDGE_DROP_CAP_DEFAULT),
-         CVarGetInteger(CVAR_CAM_LEDGE_RAIL, CAM_LEDGE_RAIL_DEFAULT));
+    Addf(lines, "ledge lean=%d cap=%.1f rail=%d all_scenes=%d",
+         CVarGetInteger(CVAR_CAM_LEDGE_LEAN, CAM_LEDGE_LEAN_DEFAULT),
+         CVarGetFloat(CVAR_CAM_LEDGE_DROP_CAP, CAM_LEDGE_DROP_CAP_DEFAULT),
+         CVarGetInteger(CVAR_CAM_LEDGE_RAIL, CAM_LEDGE_RAIL_DEFAULT),
+         CVarGetInteger(CVAR_CAM_LEDGE_ALL_SCENES, CAM_LEDGE_ALL_SCENES_DEFAULT));
     Addf(lines, "rise wall=%d stage=%d", CVarGetInteger(CVAR_CAM_RISE_WALL, CAM_RISE_WALL_DEFAULT),
          CVarGetInteger(CVAR_CAM_RISE_WALL_STAGE, CAM_RISE_WALL_STAGE_DEFAULT));
     Addf(lines, "height t=%.3f", CVarGetFloat(CVAR_CAM_ADULT_HEIGHT_T, CAM_ADULT_HEIGHT_T_DEFAULT));
@@ -206,6 +209,8 @@ int32_t Defaults(std::vector<std::string>& lines) {
     CVarClear(CVAR_CAM_PROBE_CEIL_ON);
     CVarClear(CVAR_CAM_LEDGE_DROP_CAP);
     CVarClear(CVAR_CAM_LEDGE_RAIL);
+    CVarClear(CVAR_CAM_LEDGE_ALL_SCENES);
+    CVarClear(CVAR_CAM_LEDGE_LEAN);
     CVarClear(CVAR_CAM_RISE_WALL);
     CVarClear(CVAR_CAM_RISE_WALL_STAGE);
     CVarClear(CVAR_CAM_ADULT_HEIGHT_T);
@@ -282,6 +287,14 @@ int32_t CameraIndoorConsole_Run(const std::vector<std::string>& args, std::vecto
     if (sub == "ledgerail") {
         return SetSwitch(args, lines, CVAR_CAM_LEDGE_RAIL, "ledgerail");
     }
+    // #256: the two ledge rules in vanilla scenes too (they always apply in grid-tool scenes and on a boat).
+    if (sub == "ledgeall") {
+        return SetSwitch(args, lines, CVAR_CAM_LEDGE_ALL_SCENES, "ledgeall");
+    }
+    // #256: off (the default) = no ledge look-down at all; on = #155's capped lean (ledgecap).
+    if (sub == "ledgelean") {
+        return SetSwitch(args, lines, CVAR_CAM_LEDGE_LEAN, "ledgelean");
+    }
     // #223 a rise behind a wall reads level, grid-tool scenes only.
     if (sub == "risewall") {
         return SetSwitch(args, lines, CVAR_CAM_RISE_WALL, "risewall");
@@ -316,7 +329,8 @@ const ConsoleSink::Command cameraIndoorCommand(
     "camindoor", CameraIndoorConsole_Run,
     "Grid-tool camera tuning (sturdy-bassoon#108, #152, #155, #136, #174, #223): status | on | off | scale <f> | "
     "height <f> | ease <f> | ring <n> | radius <f> | bias <f> | k <n> | ceilclamp|floorahead|probeceil "
-    "on|off | corner <f> | hold <f> | ledgecap <f> | ledgerail|risewall on|off | risestage <1-3> | "
+    "on|off | corner <f> | hold <f> | ledgecap <f> | ledgerail|ledgeall|ledgelean|risewall on|off | "
+    "risestage <1-3> | "
     "heightt <f>|+<f>|-<f> | release <f> | "
     "defaults. The follow distance "
     "is multiplied by `scale` while a ceiling is found within `height` of the floor the player is on, "
@@ -332,7 +346,10 @@ const ConsoleSink::Command cameraIndoorCommand(
     "clamp); `hold` is how much further the clamp's test reaches on the frame after it found a "
     "ceiling (0 = none). ledgecap is the deepest a drop ahead counts as, in units (0 = no cap: the "
     "camera looks down harder the further the drop goes); ledgerail ignores a low top with a drop "
-    "behind it (a parapet) rather than reading it as a step up; risewall reads a rise with a wall "
+    "behind it (a parapet) rather than reading it as a step up; ledgeall applies those two in vanilla scenes "
+    "too (they always apply in grid-tool scenes and on a boat's deck); ledgelean off (the default) reads a drop "
+    "ahead as level ground, so there is no look-down at an edge at all, and on brings back ledgecap's lean; "
+    "risewall reads a rise with a wall "
     "between Link's feet and it (a prop's tier, a crate) as level, so the camera does not dip to look up it; "
     "risestage bisects that rule: 1 walls only, 2 undersides too, 3 (default) the line also reaches 1.5 past "
     "the probe point. "
@@ -340,7 +357,7 @@ const ConsoleSink::Command cameraIndoorCommand(
     "release is how much faster than Link the eye may move away from him per frame, so an eye coming "
     "free of a wall glides back out instead of jumping (0 = off: vanilla).",
     { { "status|on|off|scale|height|ease|ring|radius|bias|k|ceilclamp|corner|hold|floorahead|probeceil|ledgecap|"
-        "ledgerail|risewall|risestage|heightt|release|defaults",
+        "ledgerail|ledgeall|ledgelean|risewall|risestage|heightt|release|defaults",
         Ship::ArgumentType::TEXT },
       { "value", Ship::ArgumentType::TEXT, true } });
 

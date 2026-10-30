@@ -366,6 +366,36 @@ add_custom_target(
 )
 add_dependencies(SohOtrBesideExe soh)
 
+# Package the boats' RS prop archives into mods/ on every build (sturdy-bassoon#262 point 4). Rs_Boat
+# draws its hull, parts and rudder from rs-props-rs_boat_<list>.o2r, made from the placement lists in
+# soh/soh/custom/rs_boats/ by sturdy-bassoon's prop generator; with no archive it draws a placeholder
+# box. package_props.py runs the generator over every list in that folder (well under a second) and
+# copies an archive over the one in mods/ only when its bytes changed. RS bytes never come from this
+# repo (the clean-distribution ADR), so no Python, no sturdy-bassoon beside this tree, no RS props
+# install root or a list the generator refuses is a warning, never a failed build.
+set(SOH_STURDY_BASSOON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../sturdy-bassoon" CACHE PATH
+    "The sturdy-bassoon checkout whose prop generator packages the boats' archives")
+set(SOH_PACKAGE_PROPS "${SOH_STURDY_BASSOON_DIR}/tools/props/scripts/package_props.py")
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND AND EXISTS "${SOH_PACKAGE_PROPS}")
+    add_custom_target(
+        RsBoatArchives ALL
+        COMMAND ${Python3_EXECUTABLE} ${SOH_PACKAGE_PROPS}
+                --mods $<TARGET_FILE_DIR:soh>/mods
+                ${CMAKE_CURRENT_SOURCE_DIR}/soh/soh/custom/rs_boats
+        COMMENT "Packaging the boats' RS prop archives into mods/..."
+        VERBATIM
+    )
+else()
+    message(STATUS "RsBoatArchives: no Python 3 or no ${SOH_PACKAGE_PROPS}; the boats will draw placeholder boxes")
+    add_custom_target(
+        RsBoatArchives ALL
+        COMMAND ${CMAKE_COMMAND} -E echo "RsBoatArchives : warning RSPROPS : the boats' archives were not packaged: no Python 3 or no ${SOH_PACKAGE_PROPS} at configure time; the boats draw placeholder boxes"
+        VERBATIM
+    )
+endif()
+add_dependencies(RsBoatArchives soh)
+
 set_property(TARGET soh PROPERTY APPIMAGE_DESKTOP_FILE_TERMINAL YES)
 set_property(TARGET soh PROPERTY APPIMAGE_DESKTOP_FILE "${CMAKE_SOURCE_DIR}/scripts/linux/appimage/soh.desktop")
 set_property(TARGET soh PROPERTY APPIMAGE_ICON_FILE "${CMAKE_BINARY_DIR}/sohIcon.png")

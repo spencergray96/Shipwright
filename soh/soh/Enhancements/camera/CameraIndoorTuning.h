@@ -213,6 +213,20 @@ extern "C" {
 // more than 1 unit off Link's ground, the tolerance Camera_FloorAheadIfReachable calls level.
 #define CVAR_CAM_LEDGE_RAIL CVAR_ENHANCEMENT("CamLedgeRail")
 #define CAM_LEDGE_RAIL_DEFAULT 1
+// Where the two rules above apply (sturdy-bassoon#256). Always in grid-tool scenes, and on a boat's deck in
+// any scene: a deck in vanilla Lake Hylia is a ledge on every side, and the owner met the full vanilla
+// look-down at its edge. 1 = vanilla scenes as well (the square platform in Lake Hylia leans the same way);
+// 0 = vanilla scenes keep vanilla's look-down, the default, so a vanilla scene still plays as vanilla unless
+// asked. `camindoor ledgeall on|off`.
+#define CVAR_CAM_LEDGE_ALL_SCENES CVAR_ENHANCEMENT("CamLedgeAllScenes")
+#define CAM_LEDGE_ALL_SCENES_DEFAULT 0
+// 0 = a drop ahead reads as level ground: no ledge look-down at all, wherever the rules above apply. The
+// owner's pick on 2026-10-24 (sturdy-bassoon#256), replacing #155's "a little" (the cap's 20, which still
+// applies with this on). Cost: the slope probe cannot tell a drop from a downhill slope, so walking down a
+// terrain hill no longer tips the camera down either; a rise (uphill) keeps vanilla's damped look-up.
+// `camindoor ledgelean on|off`.
+#define CVAR_CAM_LEDGE_LEAN CVAR_ENHANCEMENT("CamLedgeLean")
+#define CAM_LEDGE_LEAN_DEFAULT 0
 
 /*
  * A rise behind a wall (sturdy-bassoon#223). Grid-tool scenes only; the rule is in

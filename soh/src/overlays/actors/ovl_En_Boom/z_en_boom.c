@@ -6,6 +6,7 @@
 
 #include "z_en_boom.h"
 #include "objects/gameplay_keep/gameplay_keep.h"
+#include "soh/Enhancements/rs/actors/RsBoat.h"
 
 #define FLAGS (ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED)
 
@@ -199,8 +200,10 @@ void EnBoom_Fly(EnBoom* this, PlayState* play) {
             // Copy the position from the prevous frame to the boomerang to start the bounce back.
             Math_Vec3f_Copy(&this->actor.world.pos, &this->actor.prevPos);
         } else {
-            collided = BgCheck_EntityLineTest1(&play->colCtx, &this->actor.prevPos, &this->actor.world.pos, &hitPoint,
-                                               &this->actor.wallPoly, true, true, true, true, &hitDynaID);
+            // SOH [Fork] sturdy-bassoon#262: through a boat's rail openings, whose walls only Link meets, as the
+            // hookshot does; every other surface as before (every kind of poly, BgCheck_EntityLineTest1).
+            collided = RsBoat_ShotLineTest(play, &this->actor.prevPos, &this->actor.world.pos, &hitPoint,
+                                           &this->actor.wallPoly, &hitDynaID);
 
             if (collided) {
                 // If the boomerang collides with something and it's is a Jabu Object actor with params equal to 0, then

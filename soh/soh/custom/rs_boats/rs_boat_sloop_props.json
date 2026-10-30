@@ -1,0 +1,90 @@
+{
+ "format": 2,
+ "scene": "rs_boat",
+ "list": "objects/rs_props/rs_boat_sloop/props",
+ "kinds": {
+  "loc-59508": "rs_59508",
+  "loc-59642": "rs_59642",
+  "loc-59523": "rs_59523",
+  "helm-59599": "rs_59599",
+  "helm-59599-rudder": "rs_59599_rudder",
+  "loc-29498": "rs_29498"
+ },
+ "props": [
+  {
+   "id": "sloop",
+   "kind": "loc-59508",
+   "pos": [
+    0,
+    0,
+    0
+   ],
+   "rot": 0
+  },
+  {
+   "id": "trim",
+   "kind": "loc-59642",
+   "pos": [
+    0,
+    32,
+    0
+   ],
+   "rot": 0,
+   "weld": "sloop"
+  },
+  {
+   "id": "keel",
+   "kind": "loc-59523",
+   "pos": [
+    -80,
+    -102,
+    140
+   ],
+   "rot": 0,
+   "weld": "sloop"
+  },
+  {
+   "id": "helm",
+   "kind": "helm-59599",
+   "pos": [
+    0,
+    -55,
+    -180
+   ],
+   "rot": 0,
+   "omit": {
+    "kind": "helm-59599-rudder",
+    "why": "the rudder and tiller, drawn turning on the boat's own rudder list (rs_boat_sloop_rudder_props.json)"
+   }
+  },
+  {
+   "id": "sails",
+   "kind": "loc-29498",
+   "pos": [
+    40,
+    0,
+    -140
+   ],
+   "rot": 0,
+   "weld": "helm",
+   "sway": [
+    {
+     "colour": [
+      226,
+      226,
+      222
+     ],
+     "why": "the sail's cloth: RS swings it with skeletal animation, which no stage reads; the wind sway stands in"
+    },
+    {
+     "colour": [
+      128,
+      15,
+      7
+     ],
+     "why": "the pennant at the masthead"
+    }
+   ]
+  }
+ ]
+}

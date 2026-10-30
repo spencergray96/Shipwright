@@ -38,9 +38,14 @@
 //                        ceiling over the wall hit, this far back toward `at`. 0 = #103's rule
 //   hold <f>             #152: on the frame after the ceiling clamp found a ceiling, its test reaches
 //                        this much higher, so it does not let go of an eye it just lowered. 0 = off
-//   ledgecap <f>         #155, grid-tool scenes: deepest a drop ahead counts as (ships 20; 0 = no cap)
+//   ledgecap <f>         #155, grid-tool scenes: deepest a drop ahead counts as (ships 20; 0 = no cap),
+//                        with ledgelean on; off (the default since #256) reads every drop as level
 //   ledgerail on|off     #155: ignore a rise the near probe reads when the far probe reads a drop (a
 //                        parapet's top). Ships on
+//   ledgeall on|off      #256: apply ledgecap and ledgerail in vanilla scenes too. Ships off; they always
+//                        apply in grid-tool scenes and with Link on a boat's deck
+//   ledgelean on|off     #256: off (ships) = a drop ahead reads level, no look-down at an edge at all; on =
+//                        #155's lean, capped by ledgecap
 //   heightt <f>          #136, grid-tool scenes: adult camera height lerp(68, 44, t); `+0.1` / `-0.1`
 //                        step it. A change forces a parameter reload on the main camera
 //   release <f>          #174, grid-tool scenes: per frame, the eye may move away from `at` by `at`'s

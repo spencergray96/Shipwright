@@ -6,6 +6,7 @@
 #include "RsInteraction.h"
 #include "RsFire.h"
 #include "RsAnimProp.h"
+#include "RsBoat.h"
 
 #include <cstdio>
 #include <string>
@@ -62,6 +63,11 @@ void RsAnimProp_Init(Actor* thisx, PlayState* play);
 void RsAnimProp_Destroy(Actor* thisx, PlayState* play);
 void RsAnimProp_Update(Actor* thisx, PlayState* play);
 void RsAnimProp_Draw(Actor* thisx, PlayState* play);
+
+void RsBoat_Init(Actor* thisx, PlayState* play);
+void RsBoat_Destroy(Actor* thisx, PlayState* play);
+void RsBoat_Update(Actor* thisx, PlayState* play);
+void RsBoat_Draw(Actor* thisx, PlayState* play);
 }
 
 // The C++ half of the mod's actors (sturdy-bassoon#58 P3 / #64):
@@ -633,6 +639,27 @@ void RegisterRsActors() {
             nullptr,
         };
         ActorDB::Instance->AddEntry(animProp);
+
+        // The sailing prototype (sturdy-bassoon#256): a moving platform Link stands on and steers (RsBoat.h).
+        // ACTORCAT_BG so it updates before Player, which is what lets it take the stick away from Link on the tick
+        // A takes the helm.
+        ActorDBInit boat = {
+            "Rs_Boat",
+            "RS boat (sailing prototype: board, take the helm, steer)",
+            ACTOR_RS_BOAT,
+            ACTORCAT_BG,
+            // FRIENDLY: the tiller is targeted like a sign. ATTENTION_ENABLED is set by RsBoat_Update while
+            // the helm is free, not here.
+            (u32)(ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED | ACTOR_FLAG_FRIENDLY),
+            OBJECT_GAMEPLAY_KEEP,
+            sizeof(RsBoat),
+            (ActorFunc)RsBoat_Init,
+            (ActorFunc)RsBoat_Destroy,
+            (ActorFunc)RsBoat_Update,
+            (ActorFunc)RsBoat_Draw,
+            nullptr,
+        };
+        ActorDB::Instance->AddEntry(boat);
 
         sAddedToActorDB = true;
     }

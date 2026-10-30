@@ -31,6 +31,7 @@
 #include "soh/frame_interpolation.h"
 #include "soh/OTRGlobals.h"
 #include "soh/Enhancements/savestate_serialize.h"
+#include "soh/Enhancements/rs/actors/RsBoat.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -542,6 +543,9 @@ static s32 sPrevFloorProperty = FLOOR_PROPERTY_0; // floor property from the pre
 static s32 sShapeYawToTouchedWall = 0;
 static s32 sWorldYawToTouchedWall = 0;
 static s16 sFloorShapePitch = 0;
+// SOH [Fork] sturdy-bassoon#262: the 100-step's model raise as the climb began, over a ledge under 41
+// (Player_Action_80845668 takes it away as the animation rises).
+static f32 sStepUpRaise = 0.0f;
 static s32 sUseHeldItem = false; // When true, the current held item is used. Is reset to false every frame.
 static s32 sHeldItemButtonIsHeldDown = false; // Indicates if the button for the current held item is held down.
 
@@ -4922,15 +4926,20 @@ s32 Player_ActionHandler_12(Player* this, PlayState* play) {
     f32 wallPolyNormalX;
     f32 wallPolyNormalZ;
     f32 sp24;
+    // SOH [Fork] sturdy-bassoon#262: a swimmer reaches higher against a boat's hull, so its rail is climbable from
+    // the water anywhere; 0 against anything else.
+    f32 swimReach = RsBoat_SwimReach(play, this);
+    f32 railHop = 0.0f;
 
     if (!(this->stateFlags1 & PLAYER_STATE1_CARRYING_ACTOR) && (this->ledgeClimbType >= 2) &&
-        (!(this->stateFlags1 & PLAYER_STATE1_IN_WATER) || (this->ageProperties->unk_14 > this->yDistToLedge))) {
+        (!(this->stateFlags1 & PLAYER_STATE1_IN_WATER) ||
+         (this->ageProperties->unk_14 + swimReach > this->yDistToLedge))) {
         sp3C = 0;
 
         if (func_808332B8(this)) {
             if (this->actor.yDistToWater < 50.0f) {
                 if ((this->ledgeClimbType < PLAYER_LEDGE_CLIMB_2) ||
-                    (this->yDistToLedge > this->ageProperties->unk_10)) {
+                    (this->yDistToLedge > this->ageProperties->unk_10 + swimReach)) {
                     return 0;
                 }
             } else if ((this->currentBoots != PLAYER_BOOTS_IRON) || (this->ledgeClimbType > PLAYER_LEDGE_CLIMB_2)) {
@@ -4949,7 +4958,8 @@ s32 Player_ActionHandler_12(Player* this, PlayState* play) {
                     sp3C = 1;
                 }
             }
-        } else if ((this->ledgeClimbDelayTimer >= 6) || CHECK_BTN_ALL(sControlInput->press.button, BTN_A)) {
+        } else if ((this->ledgeClimbDelayTimer >= RsBoat_ClimbDelay(play, this, 6)) ||
+                   CHECK_BTN_ALL(sControlInput->press.button, BTN_A)) {
             sp3C = 1;
         }
 
@@ -4960,13 +4970,18 @@ s32 Player_ActionHandler_12(Player* this, PlayState* play) {
 
             sp34 = this->yDistToLedge;
 
-            if (this->ageProperties->unk_14 <= sp34) {
+            // SOH [Fork] sturdy-bassoon#262: a swimmer climbing a hull keeps the swim climb, even past the height
+            // where on land Link would take the big jump-up; and a boat's hands-climb wall (a covered bow's aft face,
+            // 38-51 high: past the child's 47) is climbed hand over hand at either age, never jumped.
+            if ((this->ageProperties->unk_14 <= sp34) && !(func_808332B8(this) && (swimReach > 0.0f)) &&
+                !((sTouchedWallFlags & WALL_FLAG_HANDS_CLIMB) && RsBoat_IsBoatFloor(play, this->actor.wallBgId))) {
                 anim = &gPlayerAnim_link_normal_250jump_start;
                 this->linearVelocity = 1.0f;
             } else {
                 wallPolyNormalX = COLPOLY_GET_NORMAL(this->actor.wallPoly->normal.x);
                 wallPolyNormalZ = COLPOLY_GET_NORMAL(this->actor.wallPoly->normal.z);
-                sp24 = this->distToInteractWall + 0.5f;
+                // SOH [Fork] sturdy-bassoon#262: further onto a boat's rail climbed hands-on; vanilla elsewhere.
+                sp24 = RsBoat_ClimbInset(play, this, this->distToInteractWall + 0.5f);
 
                 this->stateFlags1 |= PLAYER_STATE1_CLIMBING_LEDGE;
 
@@ -4983,6 +4998,7 @@ s32 Player_ActionHandler_12(Player* this, PlayState* play) {
                 }
 
                 this->actor.shape.yOffset -= sp34 * 100.0f;
+                sStepUpRaise = this->actor.shape.yOffset;
 
                 this->actor.world.pos.x -= sp24 * wallPolyNormalX;
                 this->actor.world.pos.y += this->yDistToLedge;
@@ -5000,9 +5016,12 @@ s32 Player_ActionHandler_12(Player* this, PlayState* play) {
 
             return 1;
         }
-    } else if ((this->actor.bgCheckFlags & BGCHECKFLAG_GROUND) && (this->ledgeClimbType == 1) &&
-               (this->ledgeClimbDelayTimer >= 3)) {
-        temp = (this->yDistToLedge * 0.08f) + 5.5f;
+    } else if ((this->actor.bgCheckFlags & BGCHECKFLAG_GROUND) &&
+               (((this->ledgeClimbType == 1) && (this->ledgeClimbDelayTimer >= RsBoat_ClimbDelay(play, this, 3))) ||
+                // SOH [Fork] sturdy-bassoon#262: a boat counts the push into its rail itself (Player's count
+                // resets on every tick the hull's wall contact drops) and says when to hop, and how high.
+                ((railHop = RsBoat_RailHop(play, this)) > 0.0f))) {
+        temp = ((railHop > 0.0f ? railHop : this->yDistToLedge) * 0.08f) + 5.5f;
         func_808389E8(this, &gPlayerAnim_link_normal_jump, temp, play);
         this->linearVelocity = 2.5f;
 
@@ -5658,7 +5677,13 @@ s32 func_8083A4A8(Player* this, PlayState* play) {
         anim = &gPlayerAnim_link_normal_jump;
     }
 
-    if (this->linearVelocity > (IREG(66) / 100.0f)) {
+    // SOH [Fork] sturdy-bassoon#262: off a boat, the full hop at any pace that hops at all (over 3): run on from a
+    // climb onto the rail, Link leaves its edge at ~4, under the 5.9 the full hop takes, and got a ~2 hop. Off its
+    // rail onto its own deck, the small one at any pace: the full hop at a run carried him across the deck and over
+    // the far side, and no hop at all (a walk off) was the owner's miss.
+    if (RsBoat_StepOntoOwnDeck(play, this)) {
+        temp = (IREG(68) / 100.0f) + ((IREG(69) * this->linearVelocity) / 1000.0f);
+    } else if ((this->linearVelocity > (IREG(66) / 100.0f)) || RsBoat_LinkWasAboard(play)) {
         temp = IREG(67) / 100.0f;
     } else {
         temp = (IREG(68) / 100.0f) + ((IREG(69) * this->linearVelocity) / 1000.0f);
@@ -5809,8 +5834,18 @@ void func_8083AA10(Player* this, PlayState* play) {
 
                 if ((this->actor.bgCheckFlags & BGCHECKFLAG_GROUND_LEAVE) &&
                     !(this->stateFlags1 & PLAYER_STATE1_IN_WATER) && (sPrevFloorProperty != FLOOR_PROPERTY_6) &&
-                    (sPrevFloorProperty != FLOOR_PROPERTY_9) && (sYDistToFloor > 20.0f) &&
-                    (this->meleeWeaponState == 0) && (ABS(sp5C) < 0x2000) && (this->linearVelocity > 3.0f)) {
+                    // SOH [Fork] sturdy-bassoon#262: running off a boat always hops, even onto a bank close
+                    // below its rail, where the vanilla 20-unit drop test made Link step off without one.
+                    (sPrevFloorProperty != FLOOR_PROPERTY_9) &&
+                    // Onto the boat's own deck, a walk off, except onto a kind that hops inward (the sloop): the
+                    // small hop (func_8083A4A8) from any drop over 10 and at any pace over 0.5, since a walk off
+                    // its covered bow (~1) is under vanilla's 3. A seam on a rocking deck is a unit or two.
+                    (RsBoat_StepOntoOwnDeck(play, this)
+                         ? (RsBoat_HopOntoOwnDeck(play, this) && (sYDistToFloor > 10.0f) &&
+                            (this->linearVelocity > 0.5f))
+                         : (((sYDistToFloor > 20.0f) || RsBoat_LinkWasAboard(play)) &&
+                            (this->linearVelocity > 3.0f))) &&
+                    (this->meleeWeaponState == 0) && (ABS(sp5C) < 0x2000)) {
 
                     if ((sPrevFloorProperty == FLOOR_PROPERTY_11) &&
                         !(this->stateFlags1 & PLAYER_STATE1_CARRYING_ACTOR)) {
@@ -5839,6 +5874,15 @@ void func_8083AA10(Player* this, PlayState* play) {
             }
         }
     } else {
+        // SOH [Fork] sturdy-bassoon#262: running off a boat onto a bank level with its rail never leaves the
+        // ground, so the hop above is never asked about. Hop there too, on the same terms as the hop off an edge.
+        if (!(this->stateFlags1 & (PLAYER_STATE1_IN_WATER | PLAYER_STATE1_IN_CUTSCENE | PLAYER_STATE1_JUMPING |
+                                   PLAYER_STATE1_CLIMBING_LEDGE | PLAYER_STATE1_HANGING_OFF_LEDGE)) &&
+            (this->meleeWeaponState == 0) && (this->linearVelocity > 3.0f) &&
+            (ABS((s16)(this->yaw - this->actor.shape.rot.y)) < 0x2000) && RsBoat_SteppedOffBoat(play, this)) {
+            func_8083A4A8(this, play);
+            return;
+        }
         this->fallStartHeight = this->actor.world.pos.y;
     }
 }
@@ -10180,7 +10224,35 @@ void Player_Action_80845668(Player* this, PlayState* play) {
         }
 
         if ((sp3C != 0) || (temp2 > 0)) {
-            func_8083C0E8(this, play);
+            // SOH [Fork] sturdy-bassoon#262: onto a boat, standing takes over where the climb left him. The climb's
+            // last pose carries the whole body ~1 to Link's right of the idle's first (the root joint's x/z), so cut
+            // straight to it, as vanilla does, his feet jumped ~1 to his left (the owner, 2026-10-29); blended,
+            // they slid there instead. Move him by that difference so his feet stay put, and blend the limbs alone
+            // (the root left at the idle's) from the climb's pose, as Link's other changes of animation are.
+            if (RsBoat_IsBoatFloor(play, this->actor.floorBgId)) {
+                Vec3s* joints = this->skelAnime.jointTable;
+                const s32 count = MIN(this->skelAnime.limbCount + 1, PLAYER_LIMB_BUF_COUNT); // + the face
+                Vec3s pose[PLAYER_LIMB_BUF_COUNT];
+                f32 dx;
+                f32 dz;
+
+                memcpy(pose, joints, sizeof(Vec3s) * count);
+                func_8083C0E8(this, play); // loads the idle's first frame into the joints at once
+                // the child's root is drawn at 0.64 (Player_OverrideLimbDrawGameplayCommon)
+                dx = (pose[0].x - joints[0].x) * this->actor.scale.x * (LINK_IS_ADULT ? 1.0f : 0.64f);
+                dz = (pose[0].z - joints[0].z) * this->actor.scale.z * (LINK_IS_ADULT ? 1.0f : 0.64f);
+                this->actor.world.pos.x +=
+                    dx * Math_CosS(this->actor.shape.rot.y) + dz * Math_SinS(this->actor.shape.rot.y);
+                this->actor.world.pos.z +=
+                    dz * Math_CosS(this->actor.shape.rot.y) - dx * Math_SinS(this->actor.shape.rot.y);
+                pose[0] = joints[0];
+                memcpy(this->skelAnime.morphTable, pose, sizeof(Vec3s) * count);
+                memcpy(joints, pose, sizeof(Vec3s) * count);
+                this->skelAnime.morphWeight = 1.0f;
+                this->skelAnime.morphRate = 1.0f / 6.0f;
+            } else {
+                func_8083C0E8(this, play);
+            }
             this->stateFlags1 &= ~(PLAYER_STATE1_CLIMBING_LEDGE | PLAYER_STATE1_JUMPING);
             return;
         }
@@ -10203,6 +10275,12 @@ void Player_Action_80845668(Player* this, PlayState* play) {
             Player_PlayVoiceSfx(this, NA_SE_VO_LI_CLIMB_END);
         }
 
+        // SOH [Fork] sturdy-bassoon#262: a swimmer climbing a boat's hull rises from lower than the animation was made
+        // for; lift the extra over the first ticks so his hands meet the top. Nothing elsewhere.
+        if (this->skelAnime.animation == &gPlayerAnim_link_swimer_swim_15step_up) {
+            RsBoat_ClimbLift(this);
+        }
+
         if ((this->skelAnime.animation == &gPlayerAnim_link_normal_100step_up) || (this->skelAnime.curFrame > 5.0f)) {
             f32 yOffsetStep = 150.0f;
 
@@ -10214,16 +10292,22 @@ void Player_Action_80845668(Player* this, PlayState* play) {
             // a tick - enough for every vanilla 100-step (picked from 41 up, so it starts at or below
             // the animation). A hands-climb under 41 starts the model up to 23 units above it (adult),
             // and the rest stayed on after the climb: Link stood floating (4.5 at a 20-unit ledge,
-            // measured). Step fast enough to land by the time the stick can take over (endFrame - 4,
-            // Player_TryActionInterrupt). Only a raised start takes this path, so vanilla keeps its 150.
+            // measured). Only a raised start takes this path, so vanilla keeps its 150.
+            // sturdy-bassoon#262: held whole while the stance foot is on the floor (to frame 6), then taken away
+            // as the animation lifts him (frames 6-11.5: the waist rises ~25, ~5 of it by frame 8 and ~19 by 10),
+            // so the stepping foot plants where it stays and the body only rises. Stepped evenly over the climb,
+            // half of it was still on as that foot planted: on the skiff's 25-unit rail the adult planted it ~8
+            // high and sank 5 after (the owner, 2026-10-29). Taken all at once at frame 9, the waist dipped 3
+            // mid-rise, a snap.
             if ((this->actor.shape.yOffset > 0.0f) &&
                 (this->skelAnime.animation == &gPlayerAnim_link_normal_100step_up)) {
-                // whole ticks only: the climb ends on the tick its frame passes endFrame - 4, and a
-                // part tick left over does not get a step (measured: 0.65 left when this was a fraction)
-                s32 ticksLeft =
-                    (s32)((this->skelAnime.endFrame - 4.0f - this->skelAnime.curFrame) / this->skelAnime.playSpeed);
+                const f32 f = this->skelAnime.curFrame;
+                const f32 share = (f <= 6.0f)    ? 1.0f
+                                  : (f <= 8.0f)  ? 1.0f - 0.125f * (f - 6.0f)
+                                  : (f <= 10.0f) ? 0.75f - 0.25f * (f - 8.0f)
+                                                 : MAX(0.0f, 0.25f - (f - 10.0f) / 6.0f);
 
-                yOffsetStep = MAX(yOffsetStep, this->actor.shape.yOffset / MAX(ticksLeft, 1));
+                yOffsetStep = MAX(0.0f, this->actor.shape.yOffset - sStepUpRaise * share);
             }
             Math_StepToF(&this->actor.shape.yOffset, 0.0f, yOffsetStep);
         }
@@ -11106,6 +11190,20 @@ void Player_UpdateInterface(PlayState* play, Player* this) {
             }
         }
 
+        // SOH [Fork] sturdy-bassoon#256: a boat's tiller in reach reads "Check" on A, as a sign does, in place
+        // of an idle label only - never over a door, an item, a climb or a real talk offer. The boat takes the
+        // A press itself before Player updates; this is only the label that says so.
+        if ((doAction == DO_ACTION_NONE || doAction == DO_ACTION_ATTACK || doAction == DO_ACTION_JUMP ||
+             doAction == DO_ACTION_PUTAWAY) &&
+            RsBoat_TillerInReach(play)) {
+            doAction = DO_ACTION_CHECK;
+        }
+        // SOH [Fork] sturdy-bassoon#262: at a boat's helm the stick drives and A does nothing, so it says nothing
+        // (it kept whatever it read before the helm was taken, "Put Away" with Navi up).
+        if (RsBoat_LinkAtHelm(play)) {
+            doAction = DO_ACTION_NONE;
+        }
+
         if (doAction != DO_ACTION_PUTAWAY) {
             this->putAwayCooldownTimer = 20;
         } else if (this->putAwayCooldownTimer != 0) {
@@ -11213,7 +11311,8 @@ void Player_ProcessSceneCollision(PlayState* play, Player* this) {
         ceilingCheckHeight = 30.0f;
     } else {
         vWallCheckRadius = this->ageProperties->wallCheckRadius;
-        vWallCheckHeight = 26.0f;
+        // SOH [Fork] sturdy-bassoon#262: lower on a boat's deck, so its low boarding notch stays a wall there.
+        vWallCheckHeight = RsBoat_WallCheckHeight(play, this, 26.0f);
         ceilingCheckHeight = this->ageProperties->ceilingCheckHeight;
     }
 
@@ -11305,8 +11404,10 @@ void Player_ProcessSceneCollision(PlayState* play, Player* this) {
         s16 yawDiff;
         s32 pad;
 
-        sInteractWallCheckOffset.y = 18.0f;
-        sInteractWallCheckOffset.z = this->ageProperties->wallCheckRadius + 10.0f;
+        // SOH [Fork] sturdy-bassoon#262: lower on a boat, so the line meets its boarding notch's low inner wall, and
+        // longer, so it meets the rail from an angle.
+        sInteractWallCheckOffset.y = RsBoat_InteractHeight(play, this, 18.0f);
+        sInteractWallCheckOffset.z = this->ageProperties->wallCheckRadius + RsBoat_InteractReach(play, this, 10.0f);
 
         if (!(this->stateFlags2 & PLAYER_STATE2_CRAWLING) &&
             Player_PosVsWallLineTest(play, this, &sInteractWallCheckOffset, &wallPoly, &wallBgId,
@@ -11346,10 +11447,14 @@ void Player_ProcessSceneCollision(PlayState* play, Player* this) {
             }
         }
 
-        if ((this->actor.bgCheckFlags & BGCHECKFLAG_PLAYER_WALL_INTERACT) && (sShapeYawToTouchedWall < 0x3000)) {
+        // SOH [Fork] sturdy-bassoon#262: wider for a swimmer at a boat's hull, so climbing aboard forgives an angle.
+        if ((this->actor.bgCheckFlags & BGCHECKFLAG_PLAYER_WALL_INTERACT) &&
+            (sShapeYawToTouchedWall < RsBoat_InteractAngle(play, this, 0x3000))) {
             CollisionPoly* wallPoly = this->actor.wallPoly;
 
-            if (GameInteractor_Should(VB_SURFACE_ANGLE_IS_CLIMBABLE, ABS(wallPoly->normal.y) < 600)) {
+            // SOH [Fork] sturdy-bassoon#262: a boat's hull wall may lean a little, from its collision's truncation.
+            if (GameInteractor_Should(VB_SURFACE_ANGLE_IS_CLIMBABLE,
+                                      ABS(wallPoly->normal.y) < RsBoat_WallLean(play, this, 600))) {
                 f32 wallPolyNormalX = COLPOLY_GET_NORMAL(wallPoly->normal.x);
                 f32 wallPolyNormalY = COLPOLY_GET_NORMAL(wallPoly->normal.y);
                 f32 wallPolyNormalZ = COLPOLY_GET_NORMAL(wallPoly->normal.z);
@@ -11371,12 +11476,20 @@ void Player_ProcessSceneCollision(PlayState* play, Player* this) {
                 ledgeCheckPos.x = this->actor.world.pos.x - (vLedgeCheckOffsetXZ * wallPolyNormalX);
                 ledgeCheckPos.z = this->actor.world.pos.z - (vLedgeCheckOffsetXZ * wallPolyNormalZ);
                 ledgeCheckPos.y = this->actor.world.pos.y + this->ageProperties->unk_0C;
+                // SOH [Fork] sturdy-bassoon#262: a swimmer's look for a boat's rail starts as much higher as he reaches
+                // higher against it. The child's starts 71 over his feet, which is where the sloop's rail is: whenever
+                // the boat rolled that side up, it started under the rail top and found the deck (the owner: hard to
+                // climb out on one side as the child).
+                if (this->stateFlags1 & PLAYER_STATE1_IN_WATER) {
+                    ledgeCheckPos.y += RsBoat_SwimReach(play, this);
+                }
 
                 ledgePosY = BgCheck_EntityRaycastFloor1(&play->colCtx, &ledgeFloorPoly, &ledgeCheckPos);
                 yDistToLedge = ledgePosY - this->actor.world.pos.y;
                 this->yDistToLedge = yDistToLedge;
 
-                if ((this->yDistToLedge < 18.0f) ||
+                // SOH [Fork] sturdy-bassoon#262: a boat's notch, under 18, is still a ledge to climb from its deck.
+                if ((this->yDistToLedge < RsBoat_LedgeMin(play, this, 18.0f)) ||
                     BgCheck_EntityCheckCeiling(&play->colCtx, &ceillingPosY, &this->actor.world.pos,
                                                (ledgePosY - this->actor.world.pos.y) + 20.0f, &poly, &bgId,
                                                &this->actor)) {
@@ -11403,7 +11516,8 @@ void Player_ProcessSceneCollision(PlayState* play, Player* this) {
                             }
                         } else if ((SurfaceType_GetWallFlags(&play->colCtx, wallPoly, this->actor.wallBgId) &
                                     WALL_FLAG_HANDS_CLIMB) &&
-                                   (ABS(ledgeFloorPoly->normal.y) > 28000)) {
+                                   // SOH [Fork] sturdy-bassoon#262: a boat's sloped notch ends climb too.
+                                   (ABS(ledgeFloorPoly->normal.y) > RsBoat_LedgeFlat(play, this, 28000))) {
                             // sturdy-bassoon#179: under unk_1C (adult 41, child 27) the climb is a hop,
                             // which carries Link 24-32 past the face: over a short prop, or onto its far
                             // edge. A hands-climb wall gets the 100-step climb instead, which puts him 0.5

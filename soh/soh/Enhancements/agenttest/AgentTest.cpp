@@ -142,7 +142,8 @@
  *                                        looking up" (issue #38). name is last and quoted because it is
  *                                        the only field that can contain a space
  *   trace <pre|post> frame=<n> lbox=<cur>/<target> pos=... prev=... velY=... lin=... bg=0x<hex> floorH=... yoff=...
- *         sf1..sf3=0x<hex> anim=0x<hex> trans=<n> rdown=<x>,<y>,<z> rdent=0x<hex>
+ *         sf1..sf3=0x<hex> anim=0x<hex> trans=<n> rdown=<x>,<y>,<z> rdent=0x<hex> ... rot=<n> wyaw=<n> wny=<n>
+ *         ledge=<type>/<timer>/<y> push=<ticks>/<hands>
  *                                        per-tick Player diagnostic while "agenttest trace" is active: position,
  *                                        prevPos, velocity, bgCheckFlags, floor height, the model's draw offset
  *                                        above pos (shape.yOffset in world units: a ledge climb's lift, #179),
@@ -308,6 +309,12 @@
  *   rs_animprop <line>                   one line of RsAnimPropConsole_Run output per marker, from
  *                                        `agenttest animprop ...` - `copy idx=...` or `op=...`, never
  *                                        `event=...`
+ *   rs_boat event=<spawn|helm_on|helm_off|blocked> x= y= z= yaw= speed= helm= blocked= surface=
+ *                                        the sailing prototype's boat (sturdy-bassoon#256): spawned, the helm
+ *                                        taken or let go, a move refused at the shore or a wall. Gameplay
+ *                                        markers
+ *   rs_boat <line>                       one line of RsBoatConsole_Run output per marker, from
+ *                                        `agenttest boat ...` - `boat idx=...` or `op=...`, never `event=...`
  *   rs_fire <line>                       one line of RsFireConsole_Run output per marker, from
  *                                        `agenttest rsfire ...` - `fire idx=...` or `op=...`, never
  *                                        `event=...`
@@ -401,6 +408,8 @@
  *                                          full speed away from the camera. Optional buttons (comma list) land
  *                                          with a fresh press edge on the at_frame-th injected frame (default 1)
  *                                          and stay held to the end - e.g. "walk 80 0 80 A 40" rolls mid-run.
+ *   agenttest walkyaw <frames> <yaw> [mag] walk toward a world yaw (s16, as goto's) at stick magnitude mag (default
+ *                                          80), the stick re-aimed through the camera every frame
  *                                          Ends with input_done.
  *   agenttest look <frames> [rx] [ry]      hold the RIGHT stick (default 80,0) for N frames, left stick centred -
  *                                          SoH's free-look camera input. Ends with input_done.
@@ -433,7 +442,8 @@
  *                                          32 units. The measurable form of "walls clip" (sturdy-bassoon#103)
  *   agenttest ray <kind> x0 y0 z0 x1 y1 z1  one "ray" marker: the first poly the engine's line test of that
  *                                          kind meets from (x0,y0,z0) to (x1,y1,z1) - projectile (arrows),
- *                                          entity (Link, hookshot), camera, or any - with the hit point,
+ *                                          entity (Link), hookshot or boomerang (the boat's shot test, #262),
+ *                                          camera, or any - with the hit point,
  *                                          distance and the poly's exclusion flags (sturdy-bassoon#145)
  *   agenttest time <dawn|day|dusk|night|value>  set the time of day: dayTime and skyboxTime together, plus
  *                                          nightFlag by the engine's own threshold (night when > 0xC000 or
@@ -615,6 +625,12 @@
  *                                          the pose is picked (this session only), a per-frame pose trace, the
  *                                          two picks' self-test and the recorder's planted refusal.
  *                                          RsAnimPropConsole.h documents every line
+ *   agenttest boat list|spawn [<x> <z> [<yaw>]]|probe <x> <z>|water <x0> <z0> <x1> <z1> <y>|water clear|board [<idx>]|helm on|off [<idx>]|drive <t> <turn> <ticks>|
+ *                  lakehylia [on|off]|lakelevel [full|drained]|cam [..]|hud [on|off]|clear
+ *                                          the sailing prototype's boats (sturdy-bassoon#256): where each is,
+ *                                          its speed, helm and why it last stopped; put one down, stand Link
+ *                                          at its tiller, take the helm, steer it without the pad.
+ *                                          RsBoatConsole.h documents every line
  *   agenttest rsfire list|pool|distance [<n>|default]|glow [on|off|default]
  *                                          the RS torch fires (sturdy-bassoon#232): where each is, its size,
  *                                          lit and by what, its world flag, whether it holds a light node,
@@ -719,6 +735,7 @@
 #include "soh/Enhancements/rs/quest/QuestConsole.h"
 #include "soh/Enhancements/rs/dialogue/NpcConsole.h"
 #include "soh/Enhancements/rs/prefs/RegionConsole.h"
+#include "soh/Enhancements/rs/actors/RsBoatConsole.h"
 #include "soh/Enhancements/rs/actors/RsFireConsole.h"
 #include "soh/Enhancements/rs/ambience/RsAmbience.h"
 #include "soh/Enhancements/rs/actors/RsAnimPropConsole.h"
@@ -767,6 +784,8 @@ void Message_GetOcarinaStaffShown(s32* shown, s32* bufPos);
 void Environment_GetOutdoorLightPair(u8 config, u16 time, u8* from, u8* to);
 u8 Environment_UsableLightConfig(EnvironmentContext* envCtx, u8 config);
 }
+// The boat's push count, for the trace's climbing fields (sturdy-bassoon#262).
+#include "soh/Enhancements/rs/actors/RsBoat.h"
 
 #ifdef _WIN32
 #include <process.h>
@@ -807,6 +826,11 @@ bool sAgentMode = false; // decided once at the console logo from SOH_AGENT_TEST
 int32_t sInputFramesLeft = 0;
 int8_t sInputStickX = 0;
 int8_t sInputStickY = 0;
+// `walkyaw` (sturdy-bassoon#262): the stick is re-aimed every frame so Link runs toward this world yaw whatever the
+// camera does, at this magnitude; off (sInputYawMag 0) for every other injection. The camera turning behind a running
+// Link swung a fixed stick tens of degrees off its aim within a second.
+int16_t sInputYaw = 0;
+int32_t sInputYawMag = 0;
 // How far an injected stick may be pushed, either stick, either axis: a real N64 stick's reach.
 constexpr int32_t kInjectStickMax = 85;
 // The right stick, for `look` (sturdy-bassoon#138): SoH's free look reads it, and a guard on free look
@@ -1316,12 +1340,40 @@ void EmitTrace(const char* phase) {
     size_t used = std::strlen(buf);
     used += std::snprintf(buf + used, sizeof(buf) - used, " cprobe=yaw:%d,oy:%.1f,line:%d@%.1f", cd.probeYaw,
                           cd.probeOriginY, cd.probeLinePoly, cd.probeLineDist);
+    // The animation's frame, the feet's height and the waist as last drawn (sturdy-bassoon#262: where a climb plants
+    // a foot, and whether the body jumps as it ends), and the feet across (x,z, left then right).
+    used += std::snprintf(buf + used, sizeof(buf) - used,
+                          " anf=%.1f feet=%.1f,%.1f waist=%.1f,%.1f,%.1f feetxz=%.1f,%.1f,%.1f,%.1f head=%.1f,%.1f,%.1f",
+                          player->skelAnime.curFrame, player->actor.shape.feetPos[FOOT_LEFT].y,
+                          player->actor.shape.feetPos[FOOT_RIGHT].y, player->bodyPartsPos[PLAYER_BODYPART_WAIST].x,
+                          player->bodyPartsPos[PLAYER_BODYPART_WAIST].y, player->bodyPartsPos[PLAYER_BODYPART_WAIST].z,
+                          player->actor.shape.feetPos[FOOT_LEFT].x, player->actor.shape.feetPos[FOOT_LEFT].z,
+                          player->actor.shape.feetPos[FOOT_RIGHT].x, player->actor.shape.feetPos[FOOT_RIGHT].z,
+                          player->bodyPartsPos[PLAYER_BODYPART_HEAD].x, player->bodyPartsPos[PLAYER_BODYPART_HEAD].y,
+                          player->bodyPartsPos[PLAYER_BODYPART_HEAD].z);
     for (int i = 0; i < 2 && used < sizeof(buf); i++) {
         const CamProbePointDiag& p = cd.probe[i];
         used += std::snprintf(buf + used, sizeof(buf) - used, " %s=%.1f,%.1f,f:%.1f#%d,v:%d#%d@%.1f",
                               i == 0 ? "near" : "far", p.x, p.z, p.floorRaw, p.floorPoly, p.verdict, p.reachPoly,
                               p.reachY);
     }
+    // Climbing (sturdy-bassoon#262): Link's facing, the touched wall's yaw and lean (its normal's y: Player climbs
+    // none leaning past 600), Player's ledge climb (type/delay timer/height to the ledge), and the first boat's own
+    // count of a push into its hull (ticks/hands-on).
+    s32 railPush = -1;
+    s32 railHands = -1;
+    for (Actor* a = gPlayState->actorCtx.actorLists[ACTORCAT_BG].head; a != nullptr; a = a->next) {
+        if (a->id == ACTOR_RS_BOAT && a->update != nullptr) {
+            railPush = reinterpret_cast<RsBoat*>(a)->railPush;
+            railHands = reinterpret_cast<RsBoat*>(a)->railPushHands;
+            break;
+        }
+    }
+    used = std::strlen(buf);
+    std::snprintf(buf + used, sizeof(buf) - used, " rot=%d wyaw=%d wny=%d ledge=%d/%d/%.1f push=%d/%d",
+                  player->actor.shape.rot.y, player->actor.wallYaw,
+                  player->actor.wallPoly != nullptr ? player->actor.wallPoly->normal.y : 0, player->ledgeClimbType,
+                  player->ledgeClimbDelayTimer, player->yDistToLedge, railPush, railHands);
     WriteMarker(buf);
 }
 
@@ -1591,6 +1643,13 @@ void InjectPad(Input* input) {
         sInputPressPending = true;
         sDeferredButtons = 0;
     }
+    // `walkyaw`: the stick that runs Link toward sInputYaw through the camera as it stands this frame (Player's move
+    // yaw is the camera's input yaw plus the stick's angle).
+    if (sInputYawMag > 0) {
+        const s16 rel = (s16)(sInputYaw - Camera_GetInputDirYaw(GET_ACTIVE_CAM(gPlayState)));
+        sInputStickX = static_cast<int8_t>(lroundf(-sInputYawMag * Math_SinS(rel)));
+        sInputStickY = static_cast<int8_t>(lroundf(sInputYawMag * Math_CosS(rel)));
+    }
     // The stick replaces the real pad's; PadMgr_ProcessInputs applies the dead zone and clamp a real pad
     // gets (PadUtils_UpdateRelXY) right after this returns.
     input->cur.stick_x = sInputStickX;
@@ -1616,6 +1675,7 @@ void StartInput(int32_t frames, int8_t stickX, int8_t stickY, CONTROLLERBUTTONS_
                 CONTROLLERBUTTONS_T deferredButtons = 0, int32_t deferredAtFrame = 0) {
     sInputStickX = stickX;
     sInputStickY = stickY;
+    sInputYawMag = 0;
     sInputRightX = 0;
     sInputRightY = 0;
     sInputButtons = buttons;
@@ -1933,7 +1993,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         return 0;
     }
     if (args.size() >= 2 &&
-        (args[1] == "state" || args[1] == "goto" || args[1] == "walk" || args[1] == "look" || args[1] == "press" ||
+        (args[1] == "state" || args[1] == "goto" || args[1] == "walk" || args[1] == "walkyaw" || args[1] == "look" ||
+         args[1] == "press" ||
          args[1] == "rooms" || args[1] == "camclear" || args[1] == "ray" ||
          args[1] == "time" || args[1] == "trace" || args[1] == "octrace" || args[1] == "ocstall" ||
          args[1] == "fog" || args[1] == "uncull" || args[1] == "env" ||
@@ -2042,6 +2103,29 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         // misfire on fast travel and on cutscene camera moves.
         RsMusic_NotifyWarped("teleport");
         return EmitState(output);
+    }
+    // walkyaw <frames> <world yaw> [magnitude]: walk toward a world heading, the stick re-aimed through the camera
+    // every frame (sturdy-bassoon#262).
+    if (args.size() >= 4 && args[1] == "walkyaw") {
+        int32_t frames = 0;
+        int32_t yaw = 0;
+        int32_t mag = 80;
+        if (!ParseInt(args[2], &frames) || frames <= 0 || frames > MAX_INPUT_FRAMES || !ParseInt(args[3], &yaw) ||
+            !ParseIntArg(args, 4, 80, &mag) || mag < 1 || mag > kInjectStickMax) {
+            if (output) {
+                *output += "walkyaw needs frames in 1.." + std::to_string(MAX_INPUT_FRAMES) +
+                           ", a world yaw and a magnitude in 1.." + std::to_string(kInjectStickMax);
+            }
+            return 1;
+        }
+        StartInput(frames, 0, 0, 0);
+        sInputYaw = static_cast<int16_t>(yaw);
+        sInputYawMag = mag;
+        if (output) {
+            *output += "walking " + std::to_string(frames) + " frames toward yaw " + std::to_string((int16_t)yaw) +
+                       ", magnitude " + std::to_string(mag) + "; wait for input_done";
+        }
+        return 0;
     }
     if (args.size() >= 3 && args[1] == "walk") {
         int32_t frames = 0;
@@ -2326,7 +2410,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     // One engine line test between two points, as a given kind of caller runs it
     // (sturdy-bassoon#145). Each kind skips a different set of polys by their exclusion flags, which
     // is the whole of what a carved wall's projectile layer relies on: `projectile` is what an arrow,
-    // seed or thrown nut flies on, `entity` what Link's probes, the hookshot and the boomerang use,
+    // seed or thrown nut flies on, `entity` what Link's probes use, `hookshot` and `boomerang` theirs,
     // `camera` what the camera's line tests use, and `any` skips nothing. All four take the arrow's
     // own arguments - walls, floors and ceilings, front faces only - so they differ only in the flags.
     // flags= is the hit poly's xpFlags (1 camera, 2 entity, 4 projectiles).
@@ -2336,7 +2420,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         if (args.size() < 9 || !ParseFloat(args[3], &a.x) || !ParseFloat(args[4], &a.y) || !ParseFloat(args[5], &a.z) ||
             !ParseFloat(args[6], &b.x) || !ParseFloat(args[7], &b.y) || !ParseFloat(args[8], &b.z)) {
             if (output) {
-                *output += "ray needs <projectile|entity|camera|any> x0 y0 z0 x1 y1 z1";
+                *output += "ray needs <projectile|entity|hookshot|boomerang|camera|any> x0 y0 z0 x1 y1 z1";
             }
             return 1;
         }
@@ -2350,13 +2434,16 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
             found = BgCheck_ProjectileLineTest(colCtx, &a, &b, &hit, &poly, 1, 1, 1, 1, &bgId);
         } else if (kind == "entity") {
             found = BgCheck_EntityLineTest1(colCtx, &a, &b, &hit, &poly, 1, 1, 1, 1, &bgId);
+        } else if (kind == "hookshot" || kind == "boomerang") {
+            // Their own test (sturdy-bassoon#262): entity's, passing a boat's walls only Link meets.
+            found = RsBoat_ShotLineTest(gPlayState, &a, &b, &hit, &poly, &bgId);
         } else if (kind == "camera") {
             found = BgCheck_CameraLineTest1(colCtx, &a, &b, &hit, &poly, 1, 1, 1, 1, &bgId);
         } else if (kind == "any") {
             found = BgCheck_AnyLineTest3(colCtx, &a, &b, &hit, &poly, 1, 1, 1, 1, &bgId);
         } else {
             if (output) {
-                *output += "ray kind must be projectile, entity, camera or any";
+                *output += "ray kind must be projectile, entity, hookshot, camera or any";
             }
             return 1;
         }
@@ -3065,6 +3152,12 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(RsInteractionConsole_Run, sub, "rs_interaction ", output, WriteMarker);
     }
+    // The sailing prototype's boats (sturdy-bassoon#256). Same prefix as the boats' own event markers, for the
+    // interaction's reason: `rs_boat boat idx=...` is an answer, `rs_boat event=...` a boat reporting.
+    if (args.size() >= 3 && args[1] == "boat") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(RsBoatConsole_Run, sub, "rs_boat ", output, WriteMarker);
+    }
     // RS torch fires (sturdy-bassoon#232). Same prefix as the fires' own event markers, for the
     // interaction's reason: `rs_fire fire idx=...` is an answer, `rs_fire event=...` a fire reporting.
     if (args.size() >= 3 && args[1] == "rsfire") {
@@ -3148,7 +3241,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     if (output) {
         *output +=
             "usage: agenttest perf <ticks> | state | goto <x> <y> <z> [yaw] | "
-            "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | look <frames> [rx] [ry] | "
+            "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | walkyaw <frames> <yaw> [mag] | "
+            "look <frames> [rx] [ry] | "
             "press <BUTTONS> [frames] | hold [<BUTTONS>|none] | ocarina <NOTES> [hold] [gap] | song <name> | stats | "
               "rooms | time <dawn|day|dusk|night|value> | eventflag <flag> [on|off] | sunssong | display | "
             "trace <ticks> | octrace <ticks> | ocstall <ms> <tick>|off | "
@@ -3167,6 +3261,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
               "warps list|dump|where|status|badcheck | "
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
+              "boat list|spawn [<x> <z> [<yaw>]]|probe <x> <z>|water <x0> <z0> <x1> <z1> <y>|water clear|board [<idx>]|helm on|off [<idx>]|drive <t> <turn> <ticks>|"
+              "lakehylia [on|off]|lakelevel [full|drained]|cam [..]|hud [on|off]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
               "rsambience [status]|on|off|max [<n>|default]|radius|gain <emitter|all> [<v>|default] | "
               "animprop status|list|pose <k|rest|clock>|reset|pick <tick|frame|default>|trace [<idx> <frames>]|"
@@ -3205,7 +3301,8 @@ void RegisterAgentTest() {
             "agenttest",
             { AgentTestCommand,
               "Agent test loop: perf <ticks> | state | goto <x> <y> <z> [yaw] | "
-              "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | look <frames> [rx] [ry] | "
+              "walk <frames> [stick_x] [stick_y] [buttons] [at_frame] | walkyaw <frames> <yaw> [mag] | "
+              "look <frames> [rx] [ry] | "
               "press <BUTTONS> [frames] | hold [<BUTTONS>|none] | ocarina <NOTES> [hold] [gap] | song <name> | stats | "
               "rooms | time <dawn|day|dusk|night|value> | eventflag <flag> [on|off] | sunssong | display | "
               "trace <ticks> | octrace <ticks> | ocstall <ms> <tick>|off | "
@@ -3224,6 +3321,8 @@ void RegisterAgentTest() {
               "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
               "warps list|dump|where|status|badcheck | "
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
+              "boat list|spawn [<x> <z> [<yaw>]]|probe <x> <z>|water <x0> <z0> <x1> <z1> <y>|water clear|board [<idx>]|helm on|off [<idx>]|drive <t> <turn> <ticks>|"
+              "lakehylia [on|off]|lakelevel [full|drained]|cam [..]|hud [on|off]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
               "rsambience [status]|on|off|max [<n>|default]|radius|gain <emitter|all> [<v>|default] | "
               "animprop status|list|pose <k|rest|clock>|reset|pick <tick|frame|default>|trace [<idx> <frames>]|"
