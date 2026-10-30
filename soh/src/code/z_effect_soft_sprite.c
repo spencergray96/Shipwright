@@ -6,6 +6,16 @@
 
 EffectSsInfo sEffectSsInfo = { 0 }; // "EffectSS2Info"
 
+// sturdy-bassoon#268: the lowest priority there is, which EffectSs_FindSlot hands over first on a full table. RsBoat.c
+// spawns the boat wake at it and reads these counts (`boat wake`): slots taken from a yielding effect, from any other
+// live effect, and spawns that found no slot at all, since the game started; and the most slots alive at the end of
+// a tick's update since the last `boat wake reset` or scene load.
+#define EFFECT_SS_PRIORITY_YIELD 255
+s32 gEffectSsYielded = 0;
+s32 gEffectSsEvicted = 0;
+s32 gEffectSsRefused = 0;
+s32 gEffectSsPeak = 0;
+
 void EffectSs_InitInfo(PlayState* play, s32 tableSize) {
     u32 i;
     EffectSs* effectSs;
@@ -20,6 +30,7 @@ void EffectSs_InitInfo(PlayState* play, s32 tableSize) {
 
     sEffectSsInfo.table = GAMESTATE_ALLOC_MC(&play->state, tableSize * sizeof(EffectSs));
     assert(sEffectSsInfo.table != NULL);
+    gEffectSsPeak = 0;
 
     sEffectSsInfo.searchStartIndex = 0;
     sEffectSsInfo.tableSize = tableSize;
@@ -130,6 +141,22 @@ s32 EffectSs_FindSlot(s32 priority, s32* pIndex) {
         return 0;
     }
 
+    // sturdy-bassoon#268: with every slot in use, an effect at EFFECT_SS_PRIORITY_YIELD (the boat wake's rings,
+    // RsBoat.c) gives its slot up before any other is looked at, so a spawn at a game priority never takes a game
+    // effect's slot while a yielding one is there to take. Nothing in the game spawns at that priority, so with no
+    // wake about the table behaves as it always has.
+    if (priority < EFFECT_SS_PRIORITY_YIELD) {
+        i = sEffectSsInfo.searchStartIndex;
+        do {
+            if (sEffectSsInfo.table[i].priority == EFFECT_SS_PRIORITY_YIELD) {
+                gEffectSsYielded++;
+                *pIndex = i;
+                return 0;
+            }
+            i = (i + 1 >= sEffectSsInfo.tableSize) ? 0 : i + 1;
+        } while (i != sEffectSsInfo.searchStartIndex);
+    }
+
     // If all slots are in use, search for a slot with a lower priority
     // Note that a lower priority is representend by a higher value
     i = sEffectSsInfo.searchStartIndex;
@@ -148,10 +175,12 @@ s32 EffectSs_FindSlot(s32 priority, s32* pIndex) {
 
         // After a full loop, return 1 to indicate that we failed to find a suitable slot
         if (i == sEffectSsInfo.searchStartIndex) {
+            gEffectSsRefused++;
             return 1;
         }
     }
 
+    gEffectSsEvicted++;
     *pIndex = i;
     return 0;
 }
@@ -269,6 +298,7 @@ void EffectSs_Update(PlayState* play, s32 index) {
 
 void EffectSs_UpdateAll(PlayState* play) {
     s32 i;
+    s32 live = 0;
 
     for (i = 0; i < sEffectSsInfo.tableSize; i++) {
         if (sEffectSsInfo.table[i].life > -1) {
@@ -281,8 +311,10 @@ void EffectSs_UpdateAll(PlayState* play) {
 
         if (sEffectSsInfo.table[i].life > -1) {
             EffectSs_Update(play, i);
+            live++;
         }
     }
+    gEffectSsPeak = MAX(gEffectSsPeak, live);
 }
 
 void EffectSs_Draw(PlayState* play, s32 index) {

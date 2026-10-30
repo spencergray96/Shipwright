@@ -41,6 +41,11 @@ s16 firstInit = 0;
 
 void Play_SpawnScene(PlayState* play, s32 sceneId, s32 spawn);
 
+// The soft-sprite table's size (sturdy-bassoon#268), and the most `RsEffectSlots` may ask for. 0x60 bytes a slot, from
+// the play arena.
+#define PLAY_EFFECT_SS_SLOTS 160
+#define PLAY_EFFECT_SS_SLOTS_MAX 512
+
 // This macro prints the number "1" with a file and line number if R_ENABLE_PLAY_LOGS is enabled.
 // For example, it can be used to trace the play state execution at a high level.
 // SOHTODO: Revert log statements everywhere back to authentic, and deal with dynamic line/file names via macro
@@ -439,7 +444,11 @@ void Play_Init(GameState* thisx) {
     GameOver_Init(play);
     SoundSource_InitAll(play);
     Effect_InitContext(play);
-    EffectSs_InitInfo(play, 0x55);
+    // sturdy-bassoon#268: the soft-sprite table holds PLAY_EFFECT_SS_SLOTS rather than the game's 0x55 (85), so a dive
+    // beside a moving boat fits it with the boat's wake. Read at each scene load, so `boat wake slots <n>` (the
+    // RsEffectSlots CVar) shows on the next. ENGINE_BUDGETS.md, "The soft-sprite pool".
+    EffectSs_InitInfo(play, CLAMP(CVarGetInteger(CVAR_ENHANCEMENT("RsEffectSlots"), PLAY_EFFECT_SS_SLOTS), 0x55,
+                                  PLAY_EFFECT_SS_SLOTS_MAX));
     CollisionCheck_InitContext(play, &play->colChkCtx);
     AnimationContext_Reset(&play->animationCtx);
     func_8006450C(play, &play->csCtx);

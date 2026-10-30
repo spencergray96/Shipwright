@@ -12,6 +12,8 @@
 #include "RsBoat.h"
 #include "RsActors.h"
 #include "global.h"
+#include "overlays/effects/ovl_Effect_Ss_G_Ripple/z_eff_ss_g_ripple.h" // the wake's rings and splash, spawned at
+#include "overlays/effects/ovl_Effect_Ss_G_Splash/z_eff_ss_g_splash.h" // its own priority
 
 void RsBoat_Init(Actor* thisx, PlayState* play);
 void RsBoat_Destroy(Actor* thisx, PlayState* play);
@@ -44,10 +46,31 @@ const RsBoatTuneInfo gRsBoatTune[RS_BOAT_TUNE_COUNT] = {
     { "upgrade", CVAR_ENHANCEMENT("RsBoatTuneUpgrade"), 0.0f, 0.0f, 1.0f },
 };
 
-f32 RsBoat_Tune(s32 knob) {
-    const RsBoatTuneInfo* info = &gRsBoatTune[knob];
-
+// A saved knob's live value, clamped to its range: the handling's and the wake's.
+static f32 RsBoat_KnobValue(const RsBoatTuneInfo* info) {
     return CLAMP(CVarGetFloat(info->cvar, info->def), info->min, info->max);
+}
+
+f32 RsBoat_Tune(s32 knob) {
+    return RsBoat_KnobValue(&gRsBoatTune[knob]);
+}
+
+// The wake (#268, RsBoat.h). A first pass for the owner's look in game: Link's ring half as big again behind the
+// skiff, one every 24 units (the skiff's 14 a tick drops ~0.6 a tick, a bow ring with each: ~25 alive at once), both
+// lines and the bow wave on, foam at 90% of top speed, and 20 of the pool's slots kept for everything else.
+const RsBoatTuneInfo gRsBoatWake[RS_BOAT_WAKE_COUNT] = {
+    { "on", CVAR_ENHANCEMENT("RsBoatWake"), 1.0f, 0.0f, 1.0f },
+    { "spacing", CVAR_ENHANCEMENT("RsBoatWakeSpacing"), 24.0f, 5.0f, 200.0f },
+    { "size", CVAR_ENHANCEMENT("RsBoatWakeSize"), 1.0f, 0.2f, 4.0f },
+    { "grow", CVAR_ENHANCEMENT("RsBoatWakeGrow"), 5.0f, 1.0f, 10.0f },
+    { "lines", CVAR_ENHANCEMENT("RsBoatWakeLines"), 2.0f, 1.0f, 2.0f },
+    { "bow", CVAR_ENHANCEMENT("RsBoatWakeBow"), 1.0f, 0.0f, 1.0f },
+    { "foam", CVAR_ENHANCEMENT("RsBoatWakeFoam"), 0.9f, 0.0f, 1.0f },
+    { "reserve", CVAR_ENHANCEMENT("RsBoatWakeReserve"), 20.0f, 0.0f, 80.0f },
+};
+
+f32 RsBoat_WakeTune(s32 knob) {
+    return RsBoat_KnobValue(&gRsBoatWake[knob]);
 }
 
 #define RS_BOAT_TILLER_EASE 0.25f // of the way to the stick's target, each tick: turning has some weight
@@ -2284,6 +2307,11 @@ void RsBoat_Init(Actor* thisx, PlayState* play) {
     this->railGrace = 0;
     this->railPushHands = 0;
     this->throttle = 0.0f;
+    this->wakeRun = 0.0f;
+    this->wakeSide = 1;
+    this->wakeRings = 0;
+    this->wakeHeld = 0;
+    this->wakeFoam = 0;
     this->cam.subCamId = SUBCAM_NONE;
     this->surfaceY = thisx->world.pos.y;
     this->onWater = RsBoat_SurfaceBox(play, thisx->world.pos.x, thisx->world.pos.z, &this->surfaceY, thisx,
@@ -2421,6 +2449,185 @@ static void RsBoat_Move(RsBoat* this, PlayState* play, f32 nextX, f32 nextZ, s16
     }
 }
 
+// --- the wake (#268) ----------------------------------------------------------------------------
+//
+// Link's swim ring (func_8083D6EC: radius 100 growing to 500, one per 15 units his waist moves, jittered) scaled to a
+// hull. Rings do not move once spawned (the ripple zeroes its velocity), so a trail of them is where the hull has
+// been, and the oldest have grown the most: the bow wave's two lines widen behind the boat by themselves.
+
+// z_effect_soft_sprite.c's, which no header declares: the table, and EffectSs_FindSlot's counts.
+extern EffectSsInfo sEffectSsInfo;
+extern s32 gEffectSsYielded;
+extern s32 gEffectSsEvicted;
+extern s32 gEffectSsRefused;
+extern s32 gEffectSsPeak;
+
+// Every wake effect spawns at the lowest priority there is, EFFECT_SS_PRIORITY_YIELD in z_effect_soft_sprite.c: on a full
+// table EffectSs_FindSlot gives a wake effect's slot to any other spawn before it looks at anyone else's.
+#define RS_BOAT_WAKE_PRIORITY 255
+
+#define RS_BOAT_WAKE_RADIUS 150      // a ring's first radius (EffectSsGRipple's units) behind the skiff at size 1
+#define RS_BOAT_WAKE_BEAM 51.0f      // the skiff's widest outerHw: a hull's rings scale with its own over this
+#define RS_BOAT_WAKE_MIN_SCALE 0.67f // never smaller than Link's swim ring (100) at size 1: the raft's beam alone gives 71
+#define RS_BOAT_WAKE_BEHIND 6.0f     // how far past the trailing end of the hull a ring starts
+#define RS_BOAT_WAKE_QUARTER 0.6f    // with two lines, how far out each is, a share of the trailing end's half-width
+#define RS_BOAT_WAKE_SHOULDER 0.25f  // where the bow wave starts, that share of the hull's length back from the bow
+#define RS_BOAT_WAKE_BOW_SIZE 0.6f   // a bow-wave ring's size, a share of the trail's
+#define RS_BOAT_WAKE_JITTER 8.0f     // the spread in x and z, half of it either way, at size 1 on the skiff (Link's: 10)
+#define RS_BOAT_WAKE_MIN_SPEED 0.5f  // slower than this is drifting (a push off the bank), not under way
+#define RS_BOAT_WAKE_FOAM_EVERY 3    // at foam speed, a splash with every third trail ring
+#define RS_BOAT_WAKE_FOAM_SCALE 300  // the splash's scale behind the skiff at size 1 (Link's at a swim is ~250-350)
+
+const EffectSs* RsBoat_EffectSlot(s32 index) {
+    return (index >= 0 && index < sEffectSsInfo.tableSize && sEffectSsInfo.table[index].life != -1)
+               ? &sEffectSsInfo.table[index]
+               : NULL;
+}
+
+void RsBoat_EffectPool(RsBoatEffectPool* pool) {
+    s32 i;
+
+    memset(pool, 0, sizeof(*pool));
+    pool->size = sEffectSsInfo.tableSize;
+    for (i = 0; i < sEffectSsInfo.tableSize; i++) {
+        const EffectSs* e = RsBoat_EffectSlot(i);
+
+        if (e != NULL) {
+            pool->used++;
+            pool->ripples += e->type == EFFECT_SS_G_RIPPLE ? 1 : 0;
+            pool->wake += e->priority == RS_BOAT_WAKE_PRIORITY ? 1 : 0;
+        }
+    }
+    pool->yielded = gEffectSsYielded;
+    pool->evicted = gEffectSsEvicted;
+    pool->refused = gEffectSsRefused;
+    pool->peak = gEffectSsPeak;
+}
+
+void RsBoat_EffectPoolResetPeak(void) {
+    gEffectSsPeak = 0;
+}
+
+// 1 when the pool has more than the reserve free; else counts the effect as held back and returns 0. A wake effect
+// that could only spawn by taking a slot is better not spawned (its own would be the one taken), and the reserve
+// keeps a burst of other effects from having to evict the wake's to start.
+static s32 RsBoat_WakeRoomElseHold(RsBoat* this) {
+    RsBoatEffectPool pool;
+
+    RsBoat_EffectPool(&pool);
+    if (pool.size - pool.used > (s32)lroundf(RsBoat_WakeTune(RS_BOAT_WAKE_RESERVE))) {
+        return 1;
+    }
+    this->wakeHeld++;
+    return 0;
+}
+
+// Where a wake effect at (lx, lz) in boat space lands on the water, jittered; 0 when that is not the boat's water
+// (a ring on the bank would draw on the ground).
+static s32 RsBoat_WakePos(RsBoat* this, PlayState* play, f32 lx, f32 lz, f32 jitter, Vec3f* pos) {
+    const Actor* thisx = &this->dyna.actor;
+
+    RsBoat_LocalToWorld(thisx->world.pos.x, thisx->world.pos.z, thisx->shape.rot.y, lx + Rand_CenteredFloat(jitter),
+                        lz + Rand_CenteredFloat(jitter), &pos->x, &pos->z);
+    pos->y = this->surfaceY;
+    return RsBoat_InOwnBox(this, play, pos->x, pos->z);
+}
+
+// EffectSsGRipple_Spawn's ring, at the wake's priority rather than its 128.
+static void RsBoat_WakeRing(RsBoat* this, PlayState* play, f32 lx, f32 lz, f32 jitter, f32 radius, f32 grow) {
+    EffectSsGRippleInitParams ring;
+
+    if (RsBoat_WakePos(this, play, lx, lz, jitter, &ring.pos) && RsBoat_WakeRoomElseHold(this)) {
+        ring.radius = (s16)radius;
+        ring.radiusMax = (s16)MIN(radius * grow, 32000.0f);
+        ring.life = 0;
+        EffectSs_Spawn(play, EFFECT_SS_G_RIPPLE, RS_BOAT_WAKE_PRIORITY, &ring);
+        this->wakeRings++;
+    }
+}
+
+// EffectSsGSplash_Spawn's splash, the plain white one (type 0), at the wake's priority.
+static void RsBoat_WakeSplash(RsBoat* this, PlayState* play, f32 lz, f32 jitter, f32 scale) {
+    EffectSsGSplashInitParams splash;
+
+    memset(&splash, 0, sizeof(splash));
+    if (RsBoat_WakePos(this, play, 0.0f, lz, jitter, &splash.pos) && RsBoat_WakeRoomElseHold(this)) {
+        splash.type = 0;
+        splash.scale = (s16)scale;
+        splash.customColor = false;
+        EffectSs_Spawn(play, EFFECT_SS_G_SPLASH, RS_BOAT_WAKE_PRIORITY, &splash);
+        this->wakeRings++;
+    }
+}
+
+static f32 RsBoat_Beam(const RsBoatKind* kind) {
+    const s32 n = RsBoat_NumStations(kind);
+    f32 beam = 0.0f;
+    s32 i;
+
+    for (i = 0; i < n; i++) {
+        beam = MAX(beam, kind->stations[i].outerHw);
+    }
+    return beam;
+}
+
+// After the tick's move: `moved` is how far the hull's centre went (xz), whatever pushed it.
+static void RsBoat_Wake(RsBoat* this, PlayState* play, f32 moved) {
+    const RsBoatKind* kind = &sRsBoatKinds[this->kind];
+    const s32 n = RsBoat_NumStations(kind);
+    const f32 spacing = RsBoat_WakeTune(RS_BOAT_WAKE_SPACING);
+    const f32 foam = RsBoat_WakeTune(RS_BOAT_WAKE_FOAM);
+    const s32 ahead = this->speed > 0.0f;
+    const RsBoatStation* end = ahead ? &kind->stations[0] : &kind->stations[n - 1];
+    f32 share;
+    f32 scale;
+    f32 radius;
+    f32 grow;
+    f32 endZ;
+
+    if (RsBoat_WakeTune(RS_BOAT_WAKE_ON) < 0.5f || !this->onWater || fabsf(this->speed) < RS_BOAT_WAKE_MIN_SPEED) {
+        this->wakeRun = 0.0f;
+        return;
+    }
+    this->wakeRun += moved;
+    if (this->wakeRun < spacing) {
+        return;
+    }
+    // A lurch (pushed off a bank) owes one ring, not a burst.
+    this->wakeRun = MIN(this->wakeRun - spacing, spacing);
+    this->wakeSide = -this->wakeSide;
+
+    share = CLAMP(fabsf(this->speed) / MAX(RsBoat_TopSpeed(this), 1.0f), 0.0f, 1.0f);
+    scale = RsBoat_WakeTune(RS_BOAT_WAKE_SIZE) * MAX(RsBoat_Beam(kind) / RS_BOAT_WAKE_BEAM, RS_BOAT_WAKE_MIN_SCALE);
+    radius = (f32)RS_BOAT_WAKE_RADIUS * scale;
+    grow = 1.0f + (RsBoat_WakeTune(RS_BOAT_WAKE_GROW) - 1.0f) * (0.5f + 0.5f * share);
+
+    // The trail, off the trailing end: the stern going ahead, the bow astern.
+    endZ = ahead ? end->z - RS_BOAT_WAKE_BEHIND : end->z + RS_BOAT_WAKE_BEHIND;
+    RsBoat_WakeRing(this, play,
+                    lroundf(RsBoat_WakeTune(RS_BOAT_WAKE_LINES)) >= 2
+                        ? (f32)this->wakeSide * end->outerHw * RS_BOAT_WAKE_QUARTER
+                        : 0.0f,
+                    endZ, RS_BOAT_WAKE_JITTER * scale, radius, grow);
+
+    // The bow wave, going ahead: centred on the hull's side at the shoulder, its outer half on the open water.
+    if (ahead && RsBoat_WakeTune(RS_BOAT_WAKE_BOW) >= 0.5f) {
+        const f32 bowZ = kind->stations[n - 1].z - RS_BOAT_WAKE_SHOULDER * (kind->stations[n - 1].z - kind->stations[0].z);
+
+        RsBoat_WakeRing(this, play, (f32)this->wakeSide * RsBoat_OuterHwAt(kind, bowZ), bowZ,
+                        RS_BOAT_WAKE_JITTER * scale * RS_BOAT_WAKE_BOW_SIZE, radius * RS_BOAT_WAKE_BOW_SIZE, grow);
+    }
+
+    // Foam near top speed: a splash at the trailing end, sparingly.
+    if (foam > 0.0f && share >= foam - 0.001f) {
+        if (++this->wakeFoam % RS_BOAT_WAKE_FOAM_EVERY == 0) {
+            RsBoat_WakeSplash(this, play, endZ, RS_BOAT_WAKE_JITTER * scale, RS_BOAT_WAKE_FOAM_SCALE * scale);
+        }
+    } else {
+        this->wakeFoam = 0;
+    }
+}
+
 void RsBoat_Update(Actor* thisx, PlayState* play) {
     RsBoat* this = (RsBoat*)thisx;
     const RsBoatHull* hull = &sHulls[this->kind];
@@ -2536,9 +2743,15 @@ void RsBoat_Update(Actor* thisx, PlayState* play) {
     }
 
     nextYaw = (s16)(thisx->shape.rot.y + this->yawVel);
-    if (this->onWater && (this->speed != 0.0f || this->yawVel != 0)) {
-        RsBoat_Move(this, play, thisx->world.pos.x + Math_SinS(nextYaw) * this->speed,
-                    thisx->world.pos.z + Math_CosS(nextYaw) * this->speed, nextYaw);
+    {
+        const f32 fromX = thisx->world.pos.x;
+        const f32 fromZ = thisx->world.pos.z;
+
+        if (this->onWater && (this->speed != 0.0f || this->yawVel != 0)) {
+            RsBoat_Move(this, play, thisx->world.pos.x + Math_SinS(nextYaw) * this->speed,
+                        thisx->world.pos.z + Math_CosS(nextYaw) * this->speed, nextYaw);
+        }
+        RsBoat_Wake(this, play, sqrtf(SQ(thisx->world.pos.x - fromX) + SQ(thisx->world.pos.z - fromZ)));
     }
     thisx->world.rot.y = thisx->shape.rot.y;
     if (this->helm) {

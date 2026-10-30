@@ -27,6 +27,8 @@ extern PlayState* gPlayState;
 // Lake Hylia's boat (sturdy-bassoon#256): the issue's first test water, a large vanilla waterbox, so no scene
 // work. On by default while the prototype lives on its branch, so a human trying the branch finds a boat there.
 #define CVAR_RS_BOAT_LAKE_HYLIA CVAR_ENHANCEMENT("RsBoatLakeHylia")
+// The soft-sprite table's size, read by z_play.c at each scene load (sturdy-bassoon#268); unset is its default.
+#define CVAR_RS_EFFECT_SLOTS CVAR_ENHANCEMENT("RsEffectSlots")
 
 namespace {
 
@@ -37,8 +39,9 @@ using ConsoleSink::Addf;
     "list | spawn [<x> <z> [<yaw>]] | probe <x> <z> | water <x0> <z0> <x1> <z1> <y> | water clear | "            \
     "board [<idx>] | helm on|off [<idx>] | drive <throttle> <turn> <ticks> | lakehylia [on|off] | "             \
     "lakelevel [full|drained] | cam [on|off|default] | cam height|dist|ease <n> | hud [on|off] | "             \
-    "climb [hop|hands] | kind [skiff|sloop|raft] | tune [default] | tune <knob> <value> | contact [<idx>] | "       \
-    "still [on|off] | clear"
+    "climb [hop|hands] | kind [skiff|sloop|raft] | tune [default] | tune <knob> <value> | wake [default|reset] | "  \
+    "wake slots [<n>|default] | "                                                                                   \
+    "wake <knob> <value> | contact [<idx>] | still [on|off] | clear"
 
 const char* kUsage = "op=usage result=error usage=\"boat " RS_BOAT_GRAMMAR "\"";
 
@@ -108,7 +111,7 @@ int32_t List(std::vector<std::string>& lines) {
         Addf(lines,
              "boat idx=%d kind=%s x=%d y=%d z=%d yaw=%d speed=%d top=%d throttle=%d tiller=%d rudder=%d helm=%d on_water=%d "
              "surface=%d blocked=%s blocks=%d touch=%s touches=%d lift=%d floor_low=%d link_on=%d helm_dist=%d "
-             "cam=%d map_arrow=%s",
+             "cam=%d map_arrow=%s wake_rings=%d wake_held=%d",
              (int)idx, RsBoat_KindName(boat->kind), (int)lroundf(a->world.pos.x), (int)lroundf(a->world.pos.y),
              (int)lroundf(a->world.pos.z), (int)(u16)a->shape.rot.y, (int)lroundf(boat->speed * 100.0f),
              (int)lroundf(RsBoat_TopSpeed(boat) * 100.0f),
@@ -118,7 +121,8 @@ int32_t List(std::vector<std::string>& lines) {
              RsBoat_BlockName(boat->touch), boat->touchCount, (int)lroundf(boat->lift * 100.0f),
              (int)lroundf(boat->floorLow * 100.0f), RsBoat_LinkOnDeck(boat, player) ? 1 : 0,
              (int)lroundf(Math_Vec3f_DistXZ(&helm, (Vec3f*)&player->actor.world.pos)),
-             boat->cam.subCamId != SUBCAM_NONE ? 1 : 0, RsVehicleMinimap_ArrowName(RsVehicleMinimap_Arrow(a)));
+             boat->cam.subCamId != SUBCAM_NONE ? 1 : 0, RsVehicleMinimap_ArrowName(RsVehicleMinimap_Arrow(a)),
+             boat->wakeRings, boat->wakeHeld);
     }
     Addf(lines,
          "op=list result=ok count=%d link_x=%d link_y=%d link_z=%d link_yaw=%d link_floor_bg=%d "
@@ -395,51 +399,102 @@ int32_t Climb(const std::vector<std::string>& args, std::vector<std::string>& li
     return 0;
 }
 
-// The handling knobs (RsBoat.h's RsBoatTuneKnob), saved: a boat reads them every tick, so a change shows at once.
-void AddTune(std::vector<std::string>& lines, const char* op) {
-    std::string line = std::string("op=") + op + " result=ok";
-    for (int k = 0; k < RS_BOAT_TUNE_COUNT; k++) {
+// A table of saved float knobs (RsBoatTuneInfo): the handling's (`tune`) and the wake's (`wake`). A boat reads them
+// every tick, so a change shows at once. `read` is the table's clamped getter.
+struct KnobTable {
+    const char* op;
+    const RsBoatTuneInfo* knobs;
+    int count;
+    f32 (*read)(s32 knob);
+};
+
+std::string KnobValues(const KnobTable& table) {
+    std::string line;
+    for (int k = 0; k < table.count; k++) {
         char part[64];
-        snprintf(part, sizeof(part), " %s=%g", gRsBoatTune[k].name, (double)RsBoat_Tune(k));
+        snprintf(part, sizeof(part), " %s=%g", table.knobs[k].name, (double)table.read(k));
         line += part;
     }
-    lines.push_back(line);
+    return line;
 }
 
-int32_t Tune(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+// `<op>` reads the knobs, `<op> default` clears them, `<op> <knob> <value>` sets one. `extra` is appended to the
+// result line (the wake's pool figures).
+int32_t KnobCommand(const KnobTable& table, const std::vector<std::string>& args, std::vector<std::string>& lines,
+                    const std::string& extra = "") {
     if (args.size() == 2 && args[1] == "default") {
-        for (int k = 0; k < RS_BOAT_TUNE_COUNT; k++) {
-            CVarClear(gRsBoatTune[k].cvar);
+        for (int k = 0; k < table.count; k++) {
+            CVarClear(table.knobs[k].cvar);
         }
         CVarSave();
     } else if (args.size() == 3) {
         int knob = -1;
-        for (int k = 0; k < RS_BOAT_TUNE_COUNT; k++) {
-            if (args[1] == gRsBoatTune[k].name) {
+        for (int k = 0; k < table.count; k++) {
+            if (args[1] == table.knobs[k].name) {
                 knob = k;
             }
         }
         float value = 0.0f;
-        if (knob < 0 || !ParseFloat(args[2], &value) || value < gRsBoatTune[knob].min ||
-            value > gRsBoatTune[knob].max) {
+        if (knob < 0 || !ParseFloat(args[2], &value) || value < table.knobs[knob].min ||
+            value > table.knobs[knob].max) {
             std::string ranges;
-            for (int k = 0; k < RS_BOAT_TUNE_COUNT; k++) {
+            for (int k = 0; k < table.count; k++) {
                 char part[64];
-                snprintf(part, sizeof(part), " %s=%g..%g", gRsBoatTune[k].name, (double)gRsBoatTune[k].min,
-                         (double)gRsBoatTune[k].max);
+                snprintf(part, sizeof(part), " %s=%g..%g", table.knobs[k].name, (double)table.knobs[k].min,
+                         (double)table.knobs[k].max);
                 ranges += part;
             }
-            lines.push_back("op=tune result=error error=bad_value" + ranges);
+            lines.push_back(std::string("op=") + table.op + " result=error error=bad_value" + ranges);
             return 1;
         }
-        CVarSetFloat(gRsBoatTune[knob].cvar, value);
+        CVarSetFloat(table.knobs[knob].cvar, value);
         CVarSave();
     } else if (args.size() != 1) {
         lines.push_back(kUsage);
         return 1;
     }
-    AddTune(lines, "tune");
+    lines.push_back(std::string("op=") + table.op + " result=ok" + KnobValues(table) + extra);
     return 0;
+}
+
+const KnobTable kTune = { "tune", gRsBoatTune, RS_BOAT_TUNE_COUNT, RsBoat_Tune };
+const KnobTable kWake = { "wake", gRsBoatWake, RS_BOAT_WAKE_COUNT, RsBoat_WakeTune };
+
+// The soft-sprite pool as it stands (RsBoat_EffectPool), for the `wake` line: `pool_used` of `pool_size` slots,
+// `ripples` of them water rings (anyone's), `wake` of them the wake's own, EffectSs_FindSlot's counts since the game
+// started (`yielded` by a wake effect, `evicted` from any other, `refused`), every boat's own counts summed (`rings`
+// spawned, `held` for want of room) and `types=<EFFECT_SS_* id>:<count>,...` (effect_ss_table.h).
+std::string PoolCensus() {
+    RsBoatEffectPool pool = {};
+    int rings = 0;
+    int held = 0;
+    if (gPlayState != nullptr) {
+        RsBoat_EffectPool(&pool);
+        for (const RsBoat* boat : Boats()) {
+            rings += boat->wakeRings;
+            held += boat->wakeHeld;
+        }
+    }
+    char line[256];
+    snprintf(line, sizeof(line),
+             " pool_size=%d pool_used=%d pool_peak=%d ripples=%d wake=%d yielded=%d evicted=%d refused=%d rings=%d "
+             "held=%d types=",
+             (int)pool.size, (int)pool.used, (int)pool.peak, (int)pool.ripples, (int)pool.wake, (int)pool.yielded,
+             (int)pool.evicted, (int)pool.refused, rings, held);
+    int count[256] = { 0 }; // EffectSs.type is a u8
+    for (s32 i = 0; i < pool.size; i++) {
+        const EffectSs* e = RsBoat_EffectSlot(i);
+        if (e != nullptr) {
+            count[e->type]++;
+        }
+    }
+    std::string types;
+    for (int t = 0; t < 256; t++) {
+        if (count[t] > 0) {
+            types += (types.empty() ? "" : ",") + std::to_string(t) + ":" + std::to_string(count[t]);
+        }
+    }
+    return line + types;
 }
 
 // The kind Lake Hylia's boat and `boat spawn` put down (saved). In Lake Hylia, with its boat on, every boat is
@@ -638,7 +693,36 @@ int32_t RsBoatConsole_Run(const std::vector<std::string>& args, std::vector<std:
         return Still(args, lines);
     }
     if (sub == "tune") {
-        return Tune(args, lines);
+        return KnobCommand(kTune, args, lines);
+    }
+    if (sub == "wake") {
+        // `wake reset` zeroes the pool's peak, so a run can read one moment's demand; not a knob.
+        if (args.size() == 2 && args[1] == "reset") {
+            RsBoat_EffectPoolResetPeak();
+            lines.push_back("op=wake result=ok reset=1" + PoolCensus());
+            return 0;
+        }
+        // `wake slots [<n>|default]`: the soft-sprite table's size, which z_play.c reads at each scene load (saved;
+        // shows on the next load). Not a wake knob, but the lever the wake's share of it pulls. 85 is the game's size
+        // and 512 z_play.c's PLAY_EFFECT_SS_SLOTS_MAX, which it clamps to anyway.
+        if (args.size() >= 2 && args[1] == "slots") {
+            long slots = 0;
+            if (args.size() == 3 && args[2] == "default") {
+                CVarClear(CVAR_RS_EFFECT_SLOTS);
+                CVarSave();
+            } else if (args.size() == 3 && ParseInt(args[2], &slots) && slots >= 0x55 && slots <= 512) {
+                CVarSetInteger(CVAR_RS_EFFECT_SLOTS, (int32_t)slots);
+                CVarSave();
+            } else if (args.size() != 2) {
+                Addf(lines, "op=wake result=error error=bad_value slots=85..512|default");
+                return 1;
+            }
+            Addf(lines, "op=wake result=ok slots=%d set=%d", (int)CVarGetInteger(CVAR_RS_EFFECT_SLOTS, 0),
+                 CVarGetInteger(CVAR_RS_EFFECT_SLOTS, 0) != 0 ? 1 : 0);
+            lines.back() += PoolCensus();
+            return 0;
+        }
+        return KnobCommand(kWake, args, lines, PoolCensus());
     }
     if (sub == "kind") {
         return Kind(args, lines);
@@ -696,9 +780,12 @@ const ConsoleSink::Command rsBoatCommand(
     "hud switches the steering label; kind picks the hull Lake Hylia's boat and spawn use (saved; puts Lake "
     "Hylia's boat back as that kind); tune sets the handling: fwd (top speed for every kind; 0 for each kind's own), "
     "rev (astern, a share of top speed, for every kind; 0 for each kind's own), accel, drag, brake, turnstill and turnmove (binang a tick), steps (0: the "
-    "stick's throttle is smooth), upgrade (1: each kind's upgraded top speed); saved; contact lists what the hull's "
-    "outline meets where it is; still holds every boat level, with no bob or rock (a test aid, not saved).",
-    { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|kind|tune|contact|still|clear",
+    "stick's throttle is smooth), upgrade (1: each kind's upgraded top speed); saved; wake sets the trail a moving "
+    "boat leaves: on, spacing (units between rings), size (times the hull's own), grow (how much a ring grows at top "
+    "speed), lines (1 or 2), bow (the bow wave), foam (share of top speed for a stern splash; 0: none), reserve "
+    "(effect slots kept free for everything else); saved; it also reports the effect pool; contact lists what the "
+    "hull's outline meets where it is; still holds every boat level, with no bob or rock (a test aid, not saved).",
+    { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|kind|tune|wake|contact|still|clear",
         Ship::ArgumentType::TEXT },
       { "arg1", Ship::ArgumentType::TEXT, true },
       { "arg2", Ship::ArgumentType::TEXT, true },
