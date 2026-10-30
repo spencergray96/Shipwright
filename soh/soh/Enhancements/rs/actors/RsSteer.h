@@ -2,10 +2,10 @@
 #define SOH_RS_STEER_H
 
 // Taking the controls of a vehicle (sturdy-bassoon#274): the pieces the balloon shares with the boat's helm (#256),
-// written once so the next vehicle does not copy them a third time. The balloon uses all of them. The boat still
-// has its own copies in RsBoat.c, kept there while #262 is in flight on that file; moving it onto these is a
-// follow-up, and it is where #272's fix belongs (the lock-on letterbox staying when Z is held as the controls are
-// taken), so that it lands for every vehicle at once.
+// written once so the next vehicle does not copy them a third time. The balloon uses all of them; the boat all but
+// RsSteer_ReadStick (#272: its `boat tune steps` rounds the push before the arc, which this split cannot). What a
+// vehicle keeps is where its controls are, how far is knocked off, and what the stick means: the boat reverses
+// on stick back, the balloon brakes.
 //
 // THE HAND-OVER. Taking the controls sets PLAYER_STATE1_INPUT_DISABLED (RemoteBombchu's trick: Player zeroes its
 // input copy while it is set) and the vehicle reads play->state.input[0] itself. That only works from a vehicle in

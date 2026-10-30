@@ -22,9 +22,11 @@
 // forward drives, by how far it is pushed (#262), pulled back reverses, and its left-right turns, so a diagonal
 // does both; B lets go. A does nothing at the helm, and its label is blank. The boat is ACTORCAT_BG, which
 // updates before ACTORCAT_PLAYER, so the frame A takes the helm Player already sees no input and does not roll.
-// A takes the helm only from a Link who is free to (RsBoat_LinkCanTakeHelm: not aiming, in first person,
+// A takes the helm only from a Link who is free to (RsSteer_LinkCanTake: not aiming, in first person,
 // holding or carrying anything, airborne, talking or in a cutscene), and the helm lets go of itself when Link
 // is hurt, dies or is knocked away from the tiller. Speeds and turn rates are live CVars (`boat tune`).
+// Taking and letting go, being knocked off, standing Link at the tiller and the steering camera are the
+// shared vehicle pieces in RsSteer.h (#272); where the tiller is and how far is knocked off stay here.
 //
 // THE CAMERA. At the helm a sub-camera follows behind the hull at a locked height over the deck, easing from
 // wherever the normal camera was rather than snapping to it, and hands its place back to the normal camera
@@ -58,6 +60,7 @@
 // helm_off|blocked> ...` (agent mode).
 
 #include "z64.h"
+#include "RsSteer.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -177,9 +180,7 @@ typedef struct RsBoat {
     f32 lift;        // how far the hull is raised this tick to keep its rocking floor out of the water
     f32 floorLow;    // the floor's lowest drawn point over the water this tick, lift included (`boat list`)
     f32 throttle;    // what the helm asked for on the last tick, -1..1, for the console
-    s16 subCamId;    // the steering camera while the helm is held, else SUBCAM_NONE
-    Vec3f camEye;    // where it is now, eased toward its target each tick
-    Vec3f camAt;
+    RsSteerCam cam;  // the steering camera while the helm is held (RsSteer.h)
 } RsBoat;
 
 // The drive override for the agent loop: when `ticks` > 0 the boat at the helm reads these instead of the
@@ -214,7 +215,7 @@ s32 RsBoat_SetHelm(RsBoat* boat, PlayState* play, s32 on);
 // Link is standing on this boat's deck (or its rail).
 s32 RsBoat_LinkOnDeck(const RsBoat* boat, const Player* player);
 
-// 1 when A would take some boat's helm right now: Link on its deck, free to (RsBoat_LinkCanTakeHelm), and
+// 1 when A would take some boat's helm right now: Link on its deck, free to (RsSteer_LinkCanTake), and
 // within reach of its tiller (RS_BOAT_HELM_RANGE), or anywhere on its deck while locked on to it. Player
 // reads it for the A button's label.
 s32 RsBoat_TillerInReach(PlayState* play);
@@ -312,12 +313,6 @@ void RsBoat_ClimbLift(Player* player);
 // The height of the rail Link should hop onto now, or 0: he has pushed into a boat's hull from its deck for 0.6 s,
 // so brushing past the rail does not put him over the side. Player hops him as onto a ledge that high.
 f32 RsBoat_RailHop(PlayState* play, const Player* player);
-
-// Link is free to take the helm: on nothing but his feet, empty-handed and doing nothing else. 0 while he aims
-// or looks in first person, has a sword or item out, holds, carries or throws something, shields, hangs,
-// jumps, falls, talks, is hurt or is in a cutscene - each of which A at the tiller used to override, locking
-// him into it at the helm.
-s32 RsBoat_LinkCanTakeHelm(const Player* player);
 
 // Stands Link at the tiller facing the bow, as a teleport (prevPos, home.pos and fallStartHeight move with
 // him). `lift` > 0 also sets his height to that far above the deck, for a Link who is not on it yet (in the

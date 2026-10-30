@@ -117,7 +117,7 @@ int32_t List(std::vector<std::string>& lines) {
              RsBoat_BlockName(boat->touch), boat->touchCount, (int)lroundf(boat->lift * 100.0f),
              (int)lroundf(boat->floorLow * 100.0f), RsBoat_LinkOnDeck(boat, player) ? 1 : 0,
              (int)lroundf(Math_Vec3f_DistXZ(&helm, (Vec3f*)&player->actor.world.pos)),
-             boat->subCamId != SUBCAM_NONE ? 1 : 0);
+             boat->cam.subCamId != SUBCAM_NONE ? 1 : 0);
     }
     Addf(lines,
          "op=list result=ok count=%d link_x=%d link_y=%d link_z=%d link_yaw=%d link_floor_bg=%d "
@@ -126,7 +126,7 @@ int32_t List(std::vector<std::string>& lines) {
          (int)boats.size(), (int)lroundf(player->actor.world.pos.x), (int)lroundf(player->actor.world.pos.y),
          (int)lroundf(player->actor.world.pos.z), (int)(u16)player->actor.shape.rot.y, (int)player->actor.floorBgId,
          (player->stateFlags1 & PLAYER_STATE1_INPUT_DISABLED) ? 1 : 0,
-         (player->stateFlags1 & PLAYER_STATE1_IN_WATER) ? 1 : 0, RsBoat_LinkCanTakeHelm(player) ? 1 : 0,
+         (player->stateFlags1 & PLAYER_STATE1_IN_WATER) ? 1 : 0, RsSteer_LinkCanTake(player) ? 1 : 0,
          RsBoat_TillerInReach(gPlayState) ? 1 : 0,
          (player->focusActor != nullptr && player->focusActor->id == ACTOR_RS_BOAT) ? 1 : 0,
          gPlayState->interfaceCtx.unk_1F0 == DO_ACTION_CHECK ? 1 : 0, (int)gPlayState->interfaceCtx.unk_1F0,
