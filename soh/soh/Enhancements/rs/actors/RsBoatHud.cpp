@@ -97,10 +97,14 @@ class RsBoatHudWindow final : public Ship::GuiWindow {
                                     ImGuiCond_Always, ImVec2(0.0f, 0.0f));
             ImGui::Begin("RsBoatFitReadout", nullptr, flags);
             ImGui::SetWindowFontScale(0.9f);
-            for (int32_t kind = 0; kind < RS_BOAT_KIND_COUNT; kind++) {
+            // Smallest boat first, the owner's order: not the enum's, which the actor's params and the save fix.
+            static const int32_t kOrder[] = { RS_BOAT_KIND_RAFT, RS_BOAT_KIND_SKIFF, RS_BOAT_KIND_SLOOP };
+            static_assert(sizeof(kOrder) / sizeof(kOrder[0]) == RS_BOAT_KIND_COUNT, "kOrder lists every kind");
+            for (int32_t i = 0; i < RS_BOAT_KIND_COUNT; i++) {
+                const int32_t kind = kOrder[i];
                 char block[512];
                 RsBoatFit_Summary(kind, block, sizeof(block));
-                if (kind > 0) {
+                if (i > 0) {
                     ImGui::TextUnformatted(""); // a blank line between kinds
                 }
                 ImGui::TextColored(RsBoatFit_Owned(kind) ? kFitOwned : kFitNotOwned, "%s", block);
