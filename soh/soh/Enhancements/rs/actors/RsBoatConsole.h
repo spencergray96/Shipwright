@@ -125,17 +125,17 @@
 //                   trouble, depth in world units and the push a unit vector x100 on the world axes. Empty
 //                   `points=` is a hull that fits. The first thing to read when a boat stops where it should not
 //   shadow [feet|circle|draped|default|reset] | shadow size <5..100> | shadow anchor [auto|hull|link] | shadow trace
-//                   Link's shadow over a boat (#267, saved; RsBoatShadowMode): his feet shadows, vanilla's flat circle,
+//                   Link's shadow over a boat (#267, saved; RsVehicleShadowMode): his feet shadows, vanilla's flat circle,
 //                   or draped over the drawn deck (the default); its size in percent of his shadow scale (30). reset
 //                   zeroes the draped draw's counters. `op=shadow result=ok mode= size= age=<ticks since its last
 //                   draw, -1 none> kind= radius= feet_over=<his feet over the drawn deck under him, -999 none> lit=
 //                   faces= tris= drawn= held= lowest_drawn=`: that draw's corners with any shade, the hull faces it
 //                   fell on (clipped to its square) and the triangles drawn; since reset, draws, draws held
 //                   back (no drawn deck under him or his feet under it: climbing) and the lowest feet_over a draw
-//                   had; anchor= where its pieces are built (RsBoatShadowAnchor, saved; default clears it with the
+//                   had; anchor= where its pieces are built (RsVehicleShadowAnchor, saved; default clears it with the
 //                   rest), glide= whether the last draw was built relative to him, dropped= faces it left out past
 //                   its corner cap.
-//                   Works with no scene. `trace` prints the last RS_BOAT_SHADOW_TRACE draws instead, one line each:
+//                   Works with no scene. `trace` prints the last RS_VEHICLE_SHADOW_TRACE draws instead, one line each:
 //                   `t=<frame> x= y= z= deck= under= str= speed= tris= climb=<0|1> glide=<0|1>`, a row each tick it
 //                   drew (tris), was held back (tris=-1) or was not drawn with him aboard the tick before (tris=-2:
 //                   deck= is then his floor's bgId, under= his bgCheckFlags, str= the mode)

@@ -10,6 +10,7 @@
 
 #include "RsBalloon.h"
 #include "RsBoat.h" // RsBoat_SurfaceAt: which waterbox is water, buried boxes left out
+#include "RsVehicleShadow.h"
 #include "RsActors.h"
 #include "global.h"
 #include "soh/OTRGlobals.h" // BTN_CUSTOM_MODIFIER1 and 2
@@ -633,6 +634,88 @@ s32 RsBalloon_LinkAtControls(PlayState* play) {
     return 0;
 }
 
+s32 RsBalloon_IsBasketFloor(PlayState* play, s32 bgId) {
+    Actor* a;
+
+    for (a = play->actorCtx.actorLists[ACTORCAT_BG].head; a != NULL; a = a->next) {
+        if (a->id == ACTOR_RS_BALLOON && a->update != NULL && ((const RsBalloon*)a)->dyna.bgId >= 0 &&
+            (u8)((const RsBalloon*)a)->dyna.bgId == (u8)bgId) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+s32 RsBalloon_LinkWasAboard(PlayState* play) {
+    Actor* a;
+
+    for (a = play->actorCtx.actorLists[ACTORCAT_BG].head; a != NULL; a = a->next) {
+        if (a->id == ACTOR_RS_BALLOON && a->update != NULL && ((const RsBalloon*)a)->linkAboard) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// --- Link's shadow (#267) -----------------------------------------------------------------------------------------
+
+// The placeholder basket's faces for Link's shadow (RsVehicleShadow.h): every box's six quads, two triangles each,
+// each wound to face the way its vertices' normal says (the boxes are drawn without culling, so their winding is not
+// otherwise kept). Built once; a basket model drawn from an archive would read its deck from there instead.
+#define RS_BALLOON_BOXES 6
+#define RS_BALLOON_DECK_TRIS (RS_BALLOON_BOXES * 6 * 2)
+
+static const RsVehicleDeck* RsBalloon_Deck(void) {
+    static const RsVehicleDeck* sDeck;
+    static f32 sTris[RS_BALLOON_DECK_TRIS][3][3];
+    const Vtx* boxes[RS_BALLOON_BOXES] = { sBasket.floorBox,   sBasket.wallBox[0], sBasket.wallBox[1],
+                                           sBasket.wallBox[2], sBasket.wallBox[3], sBasket.panelBox };
+    s32 count = 0;
+    s32 b;
+    s32 q;
+
+    if (sDeck != NULL || !sBasket.built) {
+        return sDeck;
+    }
+    for (b = 0; b < RS_BALLOON_BOXES; b++) {
+        for (q = 0; q < 6; q++) {
+            const Vtx* v = &boxes[b][q * 4];
+            static const u8 kTri[2][3] = { { 0, 1, 2 }, { 0, 2, 3 } };
+            s32 t;
+
+            for (t = 0; t < 2; t++) {
+                f32(*tri)[3] = sTris[count++];
+                f32 u[3];
+                f32 w[3];
+                s32 k;
+
+                for (k = 0; k < 3; k++) {
+                    tri[k][0] = v[kTri[t][k]].n.ob[0];
+                    tri[k][1] = v[kTri[t][k]].n.ob[1];
+                    tri[k][2] = v[kTri[t][k]].n.ob[2];
+                }
+                for (k = 0; k < 3; k++) {
+                    u[k] = tri[1][k] - tri[0][k];
+                    w[k] = tri[2][k] - tri[0][k];
+                }
+                // (b - a) x (c - a) against the quad's normal: wound the other way, swap b and c.
+                if ((u[1] * w[2] - u[2] * w[1]) * v[0].n.n[0] + (u[2] * w[0] - u[0] * w[2]) * v[0].n.n[1] +
+                        (u[0] * w[1] - u[1] * w[0]) * v[0].n.n[2] <
+                    0.0f) {
+                    for (k = 0; k < 3; k++) {
+                        const f32 swap = tri[1][k];
+
+                        tri[1][k] = tri[2][k];
+                        tri[2][k] = swap;
+                    }
+                }
+            }
+        }
+    }
+    sDeck = RsVehicleDeck_FromTris("rs_balloon/placeholder", (const f32(*)[3][3])sTris, count);
+    return sDeck;
+}
+
 static f32 RsBalloon_CamSetting(const char* cvar, s32 def, s32 min, s32 max) {
     return (f32)CLAMP(CVarGetInteger(cvar, def), min, max);
 }
@@ -711,6 +794,7 @@ void RsBalloon_Init(Actor* thisx, PlayState* play) {
     if (!sBasket.built) {
         RsBalloon_BuildBasket();
     }
+    (void)RsBalloon_Deck(); // Link's shadow's deck, built now rather than as he first climbs in
     Actor_SetScale(thisx, 1.0f);
     // Position and yaw: the engine's moving-platform path carries Link up, down and along, and turns him with it.
     DynaPolyActor_Init(&this->dyna, DPM_UNK3);
@@ -967,6 +1051,7 @@ static void RsBalloon_DrawBox(GraphicsContext* gfxCtx, Vtx* vtx, u8 r, u8 g, u8 
 }
 
 void RsBalloon_Draw(Actor* thisx, PlayState* play) {
+    RsBalloon* this = (RsBalloon*)thisx;
     GraphicsContext* gfxCtx = play->state.gfxCtx;
     s32 k;
 
@@ -996,4 +1081,13 @@ void RsBalloon_Draw(Actor* thisx, PlayState* play) {
     OPEN_DISPS(gfxCtx);
     gSPSetGeometryMode(POLY_OPA_DISP++, G_CULL_BACK);
     CLOSE_DISPS(gfxCtx);
+
+    // Last: its own render state, after the basket it lies on.
+    {
+        const RsVehicleShadowSource shadow = {
+            thisx, this->dyna.bgId, this->linkAboard, RsBalloon_Deck(), 0.0f, 0.0f, RS_VEHICLE_SHADOW_KIND_BASKET,
+        };
+
+        RsVehicleShadow_Draw(play, &shadow);
+    }
 }

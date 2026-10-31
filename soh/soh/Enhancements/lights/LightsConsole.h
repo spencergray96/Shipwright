@@ -43,7 +43,7 @@
 //                   f0/f1: the alpha its shadow drew at under each foot (0 for none); num: foot 0's strength
 //                   term before the scale and clamp. The last two entries are the ones ActorShadow_DrawFeet
 //                   treats as the sun. deck=1: Link was over a boat and drew its plain circle instead
-//                   (RsBoat_DeckShadow, #267), so every f0/f1 is 0. `clear` empties the record:
+//                   (RsVehicleShadow_Mode, #267), so every f0/f1 is 0. `clear` empties the record:
 //                   `op=shadow result=ok cleared=1`
 //   shadowsmooth [on|off|default]
 //                   sets the smoothed feet shadows (saved; default on; grid-tool scenes only), then, or bare,

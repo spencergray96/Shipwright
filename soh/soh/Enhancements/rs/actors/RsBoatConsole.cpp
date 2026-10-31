@@ -401,16 +401,16 @@ int32_t Climb(const std::vector<std::string>& args, std::vector<std::string>& li
     return 0;
 }
 
-// Link's shadow over a boat (#267, saved): the mode, its size, and the draped shadow's last draw (RsBoatShadowStats).
+// Link's shadow over a boat (#267, saved): the mode, its size, and the draped shadow's last draw (RsVehicleShadowStats).
 int32_t Shadow(const std::vector<std::string>& args, std::vector<std::string>& lines) {
-    // in RsBoatShadowMode order
+    // in RsVehicleShadowMode order
     static const char* const kModes[] = { "feet", "circle", "draped" };
-    static const char* const kAnchors[] = { "auto", "hull", "link" }; // in RsBoatShadowAnchor order
+    static const char* const kAnchors[] = { "auto", "hull", "link" }; // in RsVehicleShadowAnchor order
     const int32_t kModeCount = (int32_t)(sizeof(kModes) / sizeof(kModes[0]));
 
     if (args.size() == 2 && args[1] == "trace") {
-        for (int32_t k = 0; k < RS_BOAT_SHADOW_TRACE; k++) {
-            const RsBoatShadowTraceRow& r = gRsBoatShadowTrace[(gRsBoatShadowTraceNext + k) % RS_BOAT_SHADOW_TRACE];
+        for (int32_t k = 0; k < RS_VEHICLE_SHADOW_TRACE; k++) {
+            const RsVehicleShadowTraceRow& r = gRsVehicleShadowTrace[(gRsVehicleShadowTraceNext + k) % RS_VEHICLE_SHADOW_TRACE];
             if (r.frame != 0) {
                 Addf(lines,
                      "t=%u x=%.2f y=%.2f z=%.2f deck=%.2f under=%.2f str=%.1f speed=%.2f tris=%d climb=%d glide=%d",
@@ -421,17 +421,17 @@ int32_t Shadow(const std::vector<std::string>& args, std::vector<std::string>& l
         return 0;
     } else if (args.size() == 3 && args[1] == "anchor" &&
                (args[2] == "auto" || args[2] == "hull" || args[2] == "link")) {
-        CVarSetInteger(CVAR_RS_BOAT_DECK_SHADOW_ANCHOR, args[2] == "hull"   ? RS_BOAT_SHADOW_ANCHOR_HULL
-                                                        : args[2] == "link" ? RS_BOAT_SHADOW_ANCHOR_LINK
-                                                                            : RS_BOAT_SHADOW_ANCHOR_AUTO);
+        CVarSetInteger(CVAR_RS_VEHICLE_SHADOW_ANCHOR, args[2] == "hull"   ? RS_VEHICLE_SHADOW_ANCHOR_HULL
+                                                        : args[2] == "link" ? RS_VEHICLE_SHADOW_ANCHOR_LINK
+                                                                            : RS_VEHICLE_SHADOW_ANCHOR_AUTO);
         CVarSave();
     } else if (args.size() == 2 && args[1] == "reset") {
-        memset(gRsBoatShadowTrace, 0, sizeof(gRsBoatShadowTrace));
-        RsBoat_ShadowStatsReset();
+        memset(gRsVehicleShadowTrace, 0, sizeof(gRsVehicleShadowTrace));
+        RsVehicleShadow_StatsReset();
     } else if (args.size() == 2 && args[1] == "default") {
-        CVarClear(CVAR_RS_BOAT_DECK_SHADOW);
-        CVarClear(CVAR_RS_BOAT_DECK_SHADOW_SIZE);
-        CVarClear(CVAR_RS_BOAT_DECK_SHADOW_ANCHOR);
+        CVarClear(CVAR_RS_VEHICLE_SHADOW);
+        CVarClear(CVAR_RS_VEHICLE_SHADOW_SIZE);
+        CVarClear(CVAR_RS_VEHICLE_SHADOW_ANCHOR);
         CVarSave();
     } else if (args.size() == 2) {
         int32_t mode = -1;
@@ -445,35 +445,35 @@ int32_t Shadow(const std::vector<std::string>& args, std::vector<std::string>& l
             lines.push_back(kUsage);
             return 1;
         }
-        CVarSetInteger(CVAR_RS_BOAT_DECK_SHADOW, mode);
+        CVarSetInteger(CVAR_RS_VEHICLE_SHADOW, mode);
         CVarSave();
     } else if (args.size() == 3 && args[1] == "size") {
         char* end = nullptr;
         const long size = strtol(args[2].c_str(), &end, 10);
 
-        if (end == args[2].c_str() || *end != '\0' || size < RS_BOAT_DECK_SHADOW_SIZE_MIN ||
-            size > RS_BOAT_DECK_SHADOW_SIZE_MAX) {
-            Addf(lines, "op=shadow result=error error=bad_value min=%d max=%d", RS_BOAT_DECK_SHADOW_SIZE_MIN,
-                 RS_BOAT_DECK_SHADOW_SIZE_MAX);
+        if (end == args[2].c_str() || *end != '\0' || size < RS_VEHICLE_SHADOW_SIZE_MIN ||
+            size > RS_VEHICLE_SHADOW_SIZE_MAX) {
+            Addf(lines, "op=shadow result=error error=bad_value min=%d max=%d", RS_VEHICLE_SHADOW_SIZE_MIN,
+                 RS_VEHICLE_SHADOW_SIZE_MAX);
             return 1;
         }
-        CVarSetInteger(CVAR_RS_BOAT_DECK_SHADOW_SIZE, (int32_t)size);
+        CVarSetInteger(CVAR_RS_VEHICLE_SHADOW_SIZE, (int32_t)size);
         CVarSave();
     } else if (args.size() != 1) {
         lines.push_back(kUsage);
         return 1;
     }
-    const int32_t mode = CVarGetInteger(CVAR_RS_BOAT_DECK_SHADOW, RS_BOAT_DECK_SHADOW_DEFAULT);
-    const RsBoatShadowStats& s = gRsBoatShadow;
+    const int32_t mode = CVarGetInteger(CVAR_RS_VEHICLE_SHADOW, RS_VEHICLE_SHADOW_DEFAULT);
+    const RsVehicleShadowStats& s = gRsVehicleShadow;
     const int32_t age = (s.frame == 0 || gPlayState == nullptr) ? -1 : (int32_t)(gPlayState->state.frames - s.frame);
     Addf(lines,
          "op=shadow result=ok mode=%s size=%d age=%d kind=%s radius=%.1f feet_over=%.1f lit=%d faces=%d tris=%d "
          "drawn=%d held=%d lowest_drawn=%.1f anchor=%s glide=%d dropped=%d",
          (mode >= 0 && mode < kModeCount) ? kModes[mode] : "?",
-         CVarGetInteger(CVAR_RS_BOAT_DECK_SHADOW_SIZE, RS_BOAT_DECK_SHADOW_SIZE_DEFAULT), (int)age,
-         RsBoat_KindName(s.kind), s.radius, s.feetOver, (int)s.lit, (int)s.faces, (int)s.tris, (int)s.drawn,
-         (int)s.held, s.lowestDrawn,
-         kAnchors[CLAMP(CVarGetInteger(CVAR_RS_BOAT_DECK_SHADOW_ANCHOR, RS_BOAT_SHADOW_ANCHOR_AUTO), 0, 2)],
+         CVarGetInteger(CVAR_RS_VEHICLE_SHADOW_SIZE, RS_VEHICLE_SHADOW_SIZE_DEFAULT), (int)age,
+         s.kind == RS_VEHICLE_SHADOW_KIND_BASKET ? "basket" : RsBoat_KindName(s.kind), s.radius, s.feetOver, (int)s.lit,
+         (int)s.faces, (int)s.tris, (int)s.drawn, (int)s.held, s.lowestDrawn,
+         kAnchors[CLAMP(CVarGetInteger(CVAR_RS_VEHICLE_SHADOW_ANCHOR, RS_VEHICLE_SHADOW_ANCHOR_AUTO), 0, 2)],
          (int)s.glide, (int)s.dropped);
     return 0;
 }
