@@ -246,21 +246,18 @@ extern "C" void RsBoatFit_Summary(int32_t kind, char* buf, size_t len) {
     }
     std::string out = std::string(RsBoat_KindName(kind)) + (RsBoatFit_Owned(kind) ? ": owned" : ": not owned");
     for (int pass = 0; pass < 2; pass++) { // the core parts, then the hotspots
-        bool first = true;
         for (int32_t slot = 0; slot < RS_BOAT_SLOT_COUNT; slot++) {
             if (!RsBoatFit_KindHasSlot(kind, slot) || (RsBoatFit_SlotIsCore(slot) != 0) != (pass == 0)) {
                 continue;
             }
             const int32_t tier = RsBoatFit_TierOf(kind, slot);
             const RsBoatTier* row = RsBoatFit_Tier(kind, slot, tier);
-            out += first ? " | " : ", ";
-            out += std::string(RsBoatFit_SlotName(slot)) + " ";
+            out += std::string("\n  ") + RsBoatFit_SlotName(slot) + " ";
             out += row != nullptr ? row->name : (tier == 0 ? "-" : std::to_string(tier));
-            first = false;
         }
     }
     for (int32_t look = 0; look < RS_BOAT_LOOK_COUNT; look++) {
-        out += std::string(" | ") + RsBoatFit_LookName(look) + " " +
+        out += std::string("\n  ") + RsBoatFit_LookName(look) + " " +
                RsBoatFit_LookOptionName(look, RsBoatFit_LookOf(kind, look));
     }
     std::snprintf(buf, len, "%s", out.c_str());

@@ -3,8 +3,9 @@
 // just under the C buttons, while there are no steering animations or poses to say it. On at all times in a
 // build of the prototype, scene with a boat or not; `boat hud off` (CVAR_RS_BOAT_HUD) hides it.
 //
-// Under it, the save's boats (sturdy-bassoon#263), a debug readout: one line per kind, owned or not, its parts,
-// facilities and looks (RsBoatFit_Summary). `boat fitout hud off` (CVAR_RS_BOAT_FIT_HUD) hides it alone.
+// The save's boats (sturdy-bassoon#263), a debug readout at the left under the magic bar: a block per kind, owned or
+// not, then its parts, facilities and looks one a line (RsBoatFit_Summary), a blank line between kinds. `boat fitout
+// hud off` (CVAR_RS_BOAT_FIT_HUD) hides it alone.
 //
 // RegionOverlay.cpp's pattern: an ImGui window drawn over the game, with Draw() overridden so no titled,
 // saved-settings window opens and the gate is here rather than on the GuiWindow's visibility flag.
@@ -87,19 +88,22 @@ class RsBoatHudWindow final : public Ship::GuiWindow {
                            what == RS_BOAT_HUD_STEERING_BALLOON ? "Steering balloon"
                            : steering                           ? "Steering boat"
                                                                 : "Not steering");
-        const float labelBottom = ImGui::GetWindowPos().y + ImGui::GetWindowSize().y;
         ImGui::End();
-        // The readout in a box of its own under the label, so its width never moves the label off the C buttons.
+        // The readout, a box of its own: at the left, its edge in line with the hearts and its top under the magic
+        // bar (which ends about 0.18 of the way down), so it covers neither the bar nor the C buttons.
         if (CVarGetInteger(CVAR_RS_BOAT_FIT_HUD, 1)) {
             ImGui::SetNextWindowViewport(vp->ID);
-            ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.955f, labelBottom + 4.0f), ImGuiCond_Always,
-                                    ImVec2(1.0f, 0.0f));
+            ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.053f, vp->Pos.y + vp->Size.y * 0.20f),
+                                    ImGuiCond_Always, ImVec2(0.0f, 0.0f));
             ImGui::Begin("RsBoatFitReadout", nullptr, flags);
             ImGui::SetWindowFontScale(0.9f);
             for (int32_t kind = 0; kind < RS_BOAT_KIND_COUNT; kind++) {
-                char line[256];
-                RsBoatFit_Summary(kind, line, sizeof(line));
-                ImGui::TextColored(RsBoatFit_Owned(kind) ? kFitOwned : kFitNotOwned, "%s", line);
+                char block[512];
+                RsBoatFit_Summary(kind, block, sizeof(block));
+                if (kind > 0) {
+                    ImGui::TextUnformatted(""); // a blank line between kinds
+                }
+                ImGui::TextColored(RsBoatFit_Owned(kind) ? kFitOwned : kFitNotOwned, "%s", block);
             }
             ImGui::End();
         }

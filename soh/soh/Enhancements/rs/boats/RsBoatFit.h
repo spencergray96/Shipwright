@@ -202,8 +202,8 @@ int32_t RsBoatFit_LookOf(int32_t kind, int32_t look);
 // The kind's stats from its fit-out (see RsBoatFitStats). RsBoat.c reads it every tick.
 void RsBoatFit_Stats(int32_t kind, RsBoatFitStats* out);
 
-// One line for the debug readout: "skiff: owned | hull oak, helm bronze, sails wooden, keel bronze | salvaging_hook
-// bronze, wind_catcher - | sail_pattern plain". A tier with no row reads as its number.
+// The kind's block for the debug readout, one entry a line: "skiff: owned", then indented "hull oak", "helm bronze",
+// ... the core parts, the hotspots ("-" while empty) and the looks. A tier with no row reads as its number.
 void RsBoatFit_Summary(int32_t kind, char* buf, size_t len);
 
 // Test aids for the console: set ownership or a tier outright, up or down, with no rules and no costs. A tier
