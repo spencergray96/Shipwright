@@ -2838,6 +2838,9 @@ static void RsBoat_DrawBox(GraphicsContext* gfxCtx, Vtx* vtx, u8 r, u8 g, u8 b, 
     CLOSE_DISPS(gfxCtx);
 }
 
+// How far under the test waterbox's surface its sheet is drawn (RsBoat_DrawTestWater).
+#define RS_BOAT_TEST_WATER_SINK 2.0f
+
 // The test waterbox's surface: one flat translucent quad in world space, unlit. Every boat draws it, so two boats
 // draw it twice; a test fixture can live with that.
 static Vtx sTestWaterVtx[4];
@@ -2847,7 +2850,10 @@ static void RsBoat_DrawTestWater(GraphicsContext* gfxCtx) {
     const s16 x1 = (s16)CLAMP(gRsBoatTestWater.x1, -32000.0f, 32000.0f);
     const s16 z0 = (s16)CLAMP(gRsBoatTestWater.z0, -32000.0f, 32000.0f);
     const s16 z1 = (s16)CLAMP(gRsBoatTestWater.z1, -32000.0f, 32000.0f);
-    const s16 y = (s16)CLAMP(gRsBoatTestWater.y, -32000.0f, 32000.0f);
+    // RS_BOAT_TEST_WATER_SINK under the surface, not on it: the water rings (EffectSsGRipple, the wake's and Link's)
+    // draw at the waterbox's surface, and level with this sheet they lost the depth test on about a third of frames,
+    // all at once, so a moving boat's wake flickered (sturdy-bassoon#289; 14 of 40 frames blank, 0 of 40 at 2 under).
+    const s16 y = (s16)CLAMP(gRsBoatTestWater.y - RS_BOAT_TEST_WATER_SINK, -32000.0f, 32000.0f);
 
     RsBoat_SetVtx(&sTestWaterVtx[0], x0, y, z0, 0, 127, 0);
     RsBoat_SetVtx(&sTestWaterVtx[1], x1, y, z0, 0, 127, 0);
