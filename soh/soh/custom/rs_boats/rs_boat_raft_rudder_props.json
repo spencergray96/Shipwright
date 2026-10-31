@@ -14,7 +14,21 @@
     -27,
     30
    ],
-   "rot": 0
+   "rot": 0,
+   "tiers": {
+    "part": "helm",
+    "segment": 12,
+    "locs": [
+     60551,
+     60552,
+     60553,
+     60554,
+     60555,
+     60556,
+     60557
+    ],
+    "why": "the raft's seven steering oars are this mesh recoloured; the helm tier's colours (sturdy-bassoon#283)"
+   }
   }
  ]
 }

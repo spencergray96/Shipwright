@@ -87,9 +87,27 @@ typedef enum RsBoatKindId {
     RS_BOAT_KIND_COUNT,
 } RsBoatKindId;
 
-// The segment a boat's list calls after its sail cloth's material, which RsBoat_Draw fills with the sail pattern
-// (#283). The same number as the `look`'s "segment" in each rs_boat_<kind>_props.json: change them together.
+// The segment a boat's lists call after each material its fit-out recolours (#283): the sail cloth's pattern and
+// every material a tier changes. RsBoat_Draw fills it with one slot a material, RS_BOAT_RECOLOUR_STRIDE bytes apart.
+// The same numbers as the `look`'s and `tiers`' "segment" in each rs_boat_<kind>_props.json and generate_props.py's
+// RECOLOUR_STRIDE: change them together.
 #define RS_BOAT_LOOK_SEGMENT 0x0C
+#define RS_BOAT_RECOLOUR_STRIDE 32 // a SetPrimColor and an EndDisplayList, two 16-byte Gfx
+#define RS_BOAT_RECOLOUR_MAX_SLOTS 32
+#define RS_BOAT_RECOLOUR_MAX_TIERS 8
+
+// One recolour slot of a boat's list, from its archive's `.recolour` file (generate_props.py, THE RECOLOUR FILE).
+typedef struct RsBoatRecolourSlot {
+    s32 part;      // RsBoatSlot whose fitted tier picks the colour, or -1 for a look alone
+    s32 look;      // RsBoatLook whose chosen option recolours it first, or -1
+    s32 tierCount; // colours a tier, tier 0 first; a tier past the last draws the last
+    u8 rgb[RS_BOAT_RECOLOUR_MAX_TIERS][3];
+} RsBoatRecolourSlot;
+
+typedef struct RsBoatRecolour {
+    s32 count;
+    RsBoatRecolourSlot slots[RS_BOAT_RECOLOUR_MAX_SLOTS];
+} RsBoatRecolour;
 
 // Hull heights, world units, shared by the kinds: both models' floor is their origin, and both sit on it.
 #define RS_BOAT_DECK_Y 4.0f   // the skiff's and the sloop's deck above the waterline: their floor, on the water
@@ -390,6 +408,10 @@ void RsBoat_HelmPos(const RsBoat* boat, Vec3f* out);
 // A kind's display list, in its own model space (RsBoatModel.cpp), by its archive path, or NULL when its archive
 // is not in mods/ - the boat then draws its placeholder box.
 Gfx* RsBoat_ModelList(const char* listPath);
+// The list's recolour slots (#283), read once from `<listPath>.recolour` in its archive, or NULL when it has none (an
+// archive from before tiers, whose one slot is the sail pattern's). `kind` is checked against: a part's tier locs
+// that differ from RsBoatFit's catalogue are logged once.
+const RsBoatRecolour* RsBoat_Recolour(s32 kind, const char* listPath);
 
 const char* RsBoat_BlockName(s32 block);
 

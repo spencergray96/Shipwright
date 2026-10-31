@@ -14,7 +14,21 @@
     -55,
     -15
    ],
-   "rot": 0
+   "rot": 0,
+   "tiers": {
+    "part": "helm",
+    "segment": 12,
+    "locs": [
+     59598,
+     59601,
+     59604,
+     59607,
+     59610,
+     59613,
+     59616
+    ],
+    "why": "the rudder is the helm's: its tier's colours (sturdy-bassoon#283)"
+   }
   }
  ]
 }

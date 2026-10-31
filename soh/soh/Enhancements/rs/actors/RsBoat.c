@@ -2861,6 +2861,42 @@ static void RsBoat_DrawTestWater(GraphicsContext* gfxCtx) {
     CLOSE_DISPS(gfxCtx);
 }
 
+_Static_assert(sizeof(Gfx) * 2 == RS_BOAT_RECOLOUR_STRIDE, "a recolour slot is two Gfx (generate_props' RECOLOUR_STRIDE)");
+
+// What fills RS_BOAT_LOOK_SEGMENT for one of the kind's lists (#283): a slot a recoloured material, each a SetPrimColor
+// (or a no-op, to leave the material's own colour) and an end. A slot's colour is its look's chosen option when that
+// recolours (the sail pattern over the cloth), else its part's fitted tier's, the last tier the list knows for one past
+// it. With no recolour file (an archive from before tiers) slot 0 is the sail pattern's. Every slot the segment can
+// hold is written, the ones past the file's as no-ops, so a list whose file was refused calls nothing out of bounds.
+static Gfx* RsBoat_RecolourList(GraphicsContext* gfxCtx, s32 kind, const RsBoatRecolour* rc) {
+    static const RsBoatRecolourSlot sPatternOnly = { -1, RS_BOAT_LOOK_SAIL_PATTERN, 0, { { 0 } } };
+    static const RsBoatRecolourSlot sNone = { -1, -1, 0, { { 0 } } };
+    Gfx* list = Graph_Alloc(gfxCtx, RS_BOAT_RECOLOUR_MAX_SLOTS * RS_BOAT_RECOLOUR_STRIDE);
+    Gfx* g = list;
+
+    for (s32 i = 0; i < RS_BOAT_RECOLOUR_MAX_SLOTS; i++) {
+        const RsBoatRecolourSlot* slot =
+            rc != NULL ? (i < rc->count ? &rc->slots[i] : &sNone) : (i == 0 ? &sPatternOnly : &sNone);
+        u8 rgb[3];
+        s32 coloured = slot->look >= 0 && RsBoatFit_LookColour(slot->look, RsBoatFit_LookOf(kind, slot->look), rgb);
+
+        if (!coloured && slot->part >= 0 && slot->tierCount > 0) {
+            s32 tier = RsBoatFit_TierOf(kind, slot->part);
+
+            tier = CLAMP(tier, 0, slot->tierCount - 1);
+            rgb[0] = slot->rgb[tier][0], rgb[1] = slot->rgb[tier][1], rgb[2] = slot->rgb[tier][2];
+            coloured = 1;
+        }
+        if (coloured) {
+            gDPSetPrimColor(g++, 0, 0, rgb[0], rgb[1], rgb[2], 255);
+        } else {
+            gDPNoOp(g++);
+        }
+        gSPEndDisplayList(g++);
+    }
+    return list;
+}
+
 void RsBoat_Draw(Actor* thisx, PlayState* play) {
     RsBoat* this = (RsBoat*)thisx;
     GraphicsContext* gfxCtx = play->state.gfxCtx;
@@ -2872,19 +2908,11 @@ void RsBoat_Draw(Actor* thisx, PlayState* play) {
     Gfx_SetupDL_25Opa(gfxCtx);
     // Actor_Draw has set the hull's matrix: its position and shape.rot, the rock included, as its collision has it.
     if (model != NULL) {
-        // The sail's pattern (sturdy-bassoon#283): the kind's list calls this segment straight after its sail cloth's
-        // material (the sails placement's `look` in rs_boat_<kind>_props.json), so a SetPrimColor here draws the cloth
-        // in the kind's chosen colour, and an empty list leaves the material's own, plain.
-        Gfx* look = Graph_Alloc(gfxCtx, 2 * sizeof(Gfx));
-        Gfx* lookEnd = look;
-        u8 rgb[3];
-
-        if (RsBoatFit_LookColour(RS_BOAT_LOOK_SAIL_PATTERN, RsBoatFit_LookOf(this->kind, RS_BOAT_LOOK_SAIL_PATTERN),
-                                 rgb)) {
-            gDPSetPrimColor(lookEnd++, 0, 0, rgb[0], rgb[1], rgb[2], 255);
-        }
-        gSPEndDisplayList(lookEnd++);
-        gSPSegment(POLY_OPA_DISP++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)look);
+        // The fit-out's colours (sturdy-bassoon#283): the kind's list calls a slot of this segment straight after each
+        // material its tiers or the sail pattern recolour (the `tiers` and `look` in rs_boat_<kind>_props.json).
+        gSPSegment(POLY_OPA_DISP++, RS_BOAT_LOOK_SEGMENT,
+                   (uintptr_t)RsBoat_RecolourList(gfxCtx, this->kind,
+                                                  RsBoat_Recolour(this->kind, sRsBoatKinds[this->kind].list)));
 
         // The kind's model, in its own model space: its floor on the deck, centred on the collision. Its list carries
         // its own materials (lit, RS's base colours as prim colours), so the state is set up again after it.
@@ -2893,9 +2921,6 @@ void RsBoat_Draw(Actor* thisx, PlayState* play) {
         gSPMatrix(POLY_OPA_DISP++, MATRIX_NEWMTX(gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
         gSPDisplayList(POLY_OPA_DISP++, model);
         Matrix_Pop();
-        // Player leaves Link's cull list in 0x0C and an actor drawn later may still call it (AlwaysOnFixes.cpp's
-        // Item_Shield fix), so it goes back once the boat's list is done with the segment.
-        gSPSegment(POLY_OPA_DISP++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)gCullBackDList);
         Gfx_SetupDL_25Opa(gfxCtx);
     }
     if (model != NULL && sRsBoatKinds[this->kind].rudder.list != NULL) {
@@ -2903,6 +2928,9 @@ void RsBoat_Draw(Actor* thisx, PlayState* play) {
         Gfx* rudderModel = RsBoat_ModelList(rudder->list);
 
         if (rudderModel != NULL) {
+            // The rudder is the helm's: its own list's slots, coloured by the helm's tier.
+            gSPSegment(POLY_OPA_DISP++, RS_BOAT_LOOK_SEGMENT,
+                       (uintptr_t)RsBoat_RecolourList(gfxCtx, this->kind, RsBoat_Recolour(this->kind, rudder->list)));
             Matrix_Push();
             Matrix_Translate(rudder->pin[0], sRsBoatKinds[this->kind].modelY + rudder->pin[1],
                              sRsBoatKinds[this->kind].modelZ + rudder->pin[2], MTXMODE_APPLY);
@@ -2913,6 +2941,11 @@ void RsBoat_Draw(Actor* thisx, PlayState* play) {
             Matrix_Pop();
             Gfx_SetupDL_25Opa(gfxCtx);
         }
+    }
+    if (model != NULL) {
+        // Player leaves Link's cull list in 0x0C and an actor drawn later may still call it (AlwaysOnFixes.cpp's
+        // Item_Shield fix), so it goes back once the boat's lists are done with the segment.
+        gSPSegment(POLY_OPA_DISP++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)gCullBackDList);
     }
     gSPMatrix(POLY_OPA_DISP++, MATRIX_NEWMTX(gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
     gSPClearGeometryMode(POLY_OPA_DISP++, G_CULL_BACK);

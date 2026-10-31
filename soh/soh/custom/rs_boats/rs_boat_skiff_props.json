@@ -19,7 +19,21 @@
     0,
     0
    ],
-   "rot": 0
+   "rot": 0,
+   "tiers": {
+    "part": "hull",
+    "segment": 12,
+    "locs": [
+     59501,
+     59502,
+     59503,
+     59504,
+     59505,
+     59506,
+     59507
+    ],
+    "why": "RS's seven hulls are this mesh recoloured; the boat draws the fitted tier's colours (sturdy-bassoon#283)"
+   }
   },
   {
    "id": "trim",
@@ -30,7 +44,21 @@
     0
    ],
    "rot": 0,
-   "weld": "skiff"
+   "weld": "skiff",
+   "tiers": {
+    "part": "hull",
+    "segment": 12,
+    "locs": [
+     59624,
+     59625,
+     59626,
+     59627,
+     59628,
+     59629,
+     59630
+    ],
+    "why": "the trim follows the hull's tier, as RS's unpainted trim does: its seven woods, this mesh recoloured (sturdy-bassoon#283)"
+   }
   },
   {
    "id": "keel",
@@ -41,7 +69,21 @@
     100
    ],
    "rot": 0,
-   "weld": "skiff"
+   "weld": "skiff",
+   "tiers": {
+    "part": "keel",
+    "segment": 12,
+    "locs": [
+     59516,
+     59517,
+     59518,
+     59519,
+     59520,
+     59521,
+     59522
+    ],
+    "why": "RS's seven keels are this mesh recoloured; the boat draws the fitted tier's colours (sturdy-bassoon#283)"
+   }
   },
   {
    "id": "helm",
@@ -55,6 +97,20 @@
    "omit": {
     "kind": "helm-59583-rudder",
     "why": "the rudder and tiller, drawn turning on the boat's own rudder list (rs_boat_skiff_rudder_props.json)"
+   },
+   "tiers": {
+    "part": "helm",
+    "segment": 12,
+    "locs": [
+     59576,
+     59579,
+     59582,
+     59585,
+     59588,
+     59591,
+     59594
+    ],
+    "why": "RS's seven helms are this mesh recoloured, their wood and metal; the boat draws the fitted tier's colours (sturdy-bassoon#283)"
    }
   },
   {
@@ -93,7 +149,21 @@
      ],
      "why": "the pennant at the masthead"
     }
-   ]
+   ],
+   "tiers": {
+    "part": "sails",
+    "segment": 12,
+    "locs": [
+     29480,
+     29481,
+     29482,
+     29483,
+     29484,
+     29485,
+     29496
+    ],
+    "why": "RS's seven still sails are this mesh in other colours, mast, fittings and the plain cloth's fabric; the sail pattern overrides the cloth (sturdy-bassoon#283)"
+   }
   }
  ]
 }

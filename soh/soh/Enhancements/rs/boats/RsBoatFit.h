@@ -74,8 +74,9 @@ typedef struct RsBoatTier {
     int32_t slot; // RsBoatSlot
     int32_t tier; // 1.. for a facility (0 is empty and has no row); 0.. for a core part
     const char* name; // RS's material, as a console token: "wooden", "oak", "bronze"
-    int32_t loc;      // the RS loc the wiki gives for it, for when a tier draws its own model; NOT checked against
-                      // the cache, and the boat draws its kind's one model whatever is fitted
+    int32_t loc;      // the RS loc it is. A core part's is checked against the cache (#283): the boat draws its kind's
+                      // one model in this loc's colours, which the boat lists' `tiers` read (RsBoatModel.cpp logs a
+                      // list whose locs differ). A facility's is still the wiki's, unchecked.
     float topSpeed;   // units a tick ahead (a hull's)
     float accel;      // speed gained a tick toward the throttle's target (a sail's)
     int32_t hitpoints; // reserved for boat health (designed, not built)

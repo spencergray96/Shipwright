@@ -15,7 +15,21 @@
     0,
     0
    ],
-   "rot": 0
+   "rot": 0,
+   "tiers": {
+    "part": "hull",
+    "segment": 12,
+    "locs": [
+     59494,
+     59495,
+     59496,
+     59497,
+     59498,
+     59499,
+     59500
+    ],
+    "why": "RS's raft hulls: tiers 0-2 are this mesh recoloured, 3-6 another mesh, drawn here as this one in their colours (the owner's call, sturdy-bassoon#283)"
+   }
   },
   {
    "id": "sails",
@@ -57,7 +71,21 @@
       }
      ]
     }
-   ]
+   ],
+   "tiers": {
+    "part": "sails",
+    "segment": 12,
+    "locs": [
+     29473,
+     29474,
+     29475,
+     29476,
+     29477,
+     29478,
+     29479
+    ],
+    "why": "RS's seven still sails are this mesh in other colours (tier 3's moves some vertices; drawn as this one); the sail pattern overrides the cloth (sturdy-bassoon#283)"
+   }
   }
  ]
 }
