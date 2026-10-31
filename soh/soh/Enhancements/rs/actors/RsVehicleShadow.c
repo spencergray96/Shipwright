@@ -87,7 +87,8 @@ f32 RsVehicleShadow_Size(void) {
 #define RS_VEHICLE_SHADOW_GAP_FAR 6.0f
 #define RS_VEHICLE_SHADOW_MAX_VTX 512 // a tick's clipped faces' corners, at most: past it the rest are left out
 #define RS_VEHICLE_SHADOW_MAX_POLYS 128
-#define RS_VEHICLE_SHADOW_POLY 8   // a triangle clipped by the square's four sides has at most 7 corners
+#define RS_VEHICLE_SHADOW_POLY 10 // a triangle clipped by the square's four sides has at most 7 corners; cut between
+                                  // two heights as well (the drop's), at most 9
 #define RS_VEHICLE_SHADOW_CORNER 6 // a clipped corner: its place and its normal
 
 RsVehicleShadowStats gRsVehicleShadow = { .feetOver = -999.0f, .lowestDrawn = 999.0f };
@@ -165,8 +166,9 @@ static void RsVehicleShadow_Trace(PlayState* play, const Player* player, f32 x, 
     gRsVehicleShadowTraceNext = (gRsVehicleShadowTraceNext + 1) % RS_VEHICLE_SHADOW_TRACE;
 }
 
-// Clips the polygon `in` (n corners, each its place then its normal) to the side of the line `axis` = `edge` (axis 0
-// is x, 2 is z) where the axis is at least the edge (`keepAbove`) or at most it, into `out`; returns its corners.
+// Clips the polygon `in` (n corners, each its place then its normal) to the side of the plane `axis` = `edge` (axis 0
+// is x, 1 is y, 2 is z) where the axis is at least the edge (`keepAbove`) or at most it, into `out`; returns its
+// corners.
 static s32 RsVehicleShadow_ClipPoly(f32 (*in)[RS_VEHICLE_SHADOW_CORNER], s32 n, f32 (*out)[RS_VEHICLE_SHADOW_CORNER],
                                     s32 axis, f32 edge, s32 keepAbove) {
     s32 count = 0;
@@ -201,14 +203,15 @@ static s32 RsVehicleShadow_ClipPoly(f32 (*in)[RS_VEHICLE_SHADOW_CORNER], s32 n, 
 // Link's shadow over this vehicle in RS_VEHICLE_SHADOW_DRAPED, cast onto the drawn hull itself: every face of it that
 // does not point down (RsVehicleDeck's faces) under the shadow's square, clipped to the square and drawn again wearing
 // the circle's texture laid on from straight above. So it lies on the trim to its very edge, over the covered bow's
-// crown and its edges, and down the slanted inner walls as he climbs them, where a height-field grid stepped and notched (the
-// owner, 2026-10-30). Each corner is as dark as its depth under the deck he is over allows, and none over his feet.
-// Built on the hull at a walk, or relative to him at a run with his offset as the matrix so frame interpolation glides
-// it between ticks (RsVehicleShadowAnchor). Drawn after the hull in the hull's own matrix (Actor_Draw's), so it rocks
-// and bobs with the drawn deck. Mid-climb his feet are last tick's draw (Player sets them as it draws), so on a moving
-// hull the shadow trails them by one tick of the hull's motion. A face hidden behind another (the deck under the trim,
-// under the lid) stays hidden: it is depth-tested. Its own render state, unfogged: the vanilla shadows' (setup 0x2C)
-// turns fog on, which overwrites the shade alpha the fades ride on. Black near the camera is the same either way.
+// crown and its edges, and down the slanted inner walls as he climbs them, where a height-field grid stepped and
+// notched (the owner, 2026-10-30). Each corner is as dark as its depth under the deck he is over allows, and none over
+// his feet. Built on the hull at a walk, or relative to him at a run with his offset as the matrix so frame
+// interpolation glides it between ticks (RsVehicleShadowAnchor). Drawn after the hull in the hull's own matrix
+// (Actor_Draw's), so it rocks and bobs with the drawn deck. Mid-climb his feet are last tick's draw (Player sets them
+// as it draws), so on a moving hull the shadow trails them by one tick of the hull's motion. A face hidden behind
+// another (the deck under the trim, under the lid) stays hidden: it is depth-tested. Its own render state, unfogged:
+// the vanilla shadows' (setup 0x2C) turns fog on, which overwrites the shade alpha the fades ride on. Black near the
+// camera is the same either way.
 void RsVehicleShadow_Draw(PlayState* play, const RsVehicleShadowSource* src) {
     static u8 sInterpKey;
     Actor* vehicle = src->vehicle;
@@ -367,7 +370,6 @@ void RsVehicleShadow_Draw(PlayState* play, const RsVehicleShadowSource* src) {
         f32 polyA[RS_VEHICLE_SHADOW_POLY][RS_VEHICLE_SHADOW_CORNER];
         f32 polyB[RS_VEHICLE_SHADOW_POLY][RS_VEHICLE_SHADOW_CORNER];
         s32 n;
-        s32 shaded = 0;
 
         if (face->hi[0] < mx - radius || face->lo[0] > mx + radius || face->hi[1] < mz - radius ||
             face->lo[1] > mz + radius) {
@@ -388,48 +390,85 @@ void RsVehicleShadow_Draw(PlayState* play, const RsVehicleShadowSource* src) {
         if (n < 3) {
             continue;
         }
-        if (numVtx + n > RS_VEHICLE_SHADOW_MAX_VTX) {
-            gRsVehicleShadow.dropped++;
-            continue;
-        }
-        for (i = 0; i < n; i++) {
-            Vtx* v = &sShadowScratch[numVtx + i];
-            const f32 h = polyA[i][1];
-            const f32 nLen = sqrtf(SQ(polyA[i][3]) + SQ(polyA[i][4]) + SQ(polyA[i][5]));
-            const f32 lift =
-                (nLen > 0.0f)
-                    ? (RS_VEHICLE_SHADOW_LIFT + RS_VEHICLE_SHADOW_LIFT_STEEP * (1.0f - fabsf(polyA[i][4]) / nLen)) /
-                          nLen
-                    : 0.0f;
-            f32 a = strength;
+        // Cut where the fade under the deck bends, so each piece's corners carry it. Shaded from its corners alone, a
+        // tall face (the basket's walls, 40 high) drew the fade stretched over its whole height, a streak far down the
+        // wall under the rim he stood on (the owner, 2026-10-30). Not at his feet's height: that is a step, and left to
+        // the corners it softens.
+        {
+            const f32 cuts[2] = { under - RS_VEHICLE_SHADOW_DROP_FROM, under - RS_VEHICLE_SHADOW_DROP };
+            f32 pieces[2][RS_VEHICLE_SHADOW_POLY][RS_VEHICLE_SHADOW_CORNER];
+            f32(*poly[3])[RS_VEHICLE_SHADOW_CORNER];
+            s32 polyN[3];
+            s32 numPieces = 0;
+            s32 faceLit = 0;
+            s32 p;
 
-            if (h > myHigh + RS_VEHICLE_SHADOW_OVER_FEET) {
-                a = 0.0f;
-            } else if (under - h > RS_VEHICLE_SHADOW_DROP_FROM) {
-                a *= CLAMP_MIN(1.0f - (under - h - RS_VEHICLE_SHADOW_DROP_FROM) /
-                                          (RS_VEHICLE_SHADOW_DROP - RS_VEHICLE_SHADOW_DROP_FROM),
-                               0.0f);
+            for (p = 0; p < 2; p++) {
+                const s32 above = RsVehicleShadow_ClipPoly(polyA, n, pieces[p], 1, cuts[p], 1);
+
+                if (above >= 3) {
+                    poly[numPieces] = pieces[p];
+                    polyN[numPieces++] = above;
+                }
+                n = RsVehicleShadow_ClipPoly(polyA, n, polyB, 1, cuts[p], 0);
+                memcpy(polyA, polyB, sizeof(polyA[0]) * n);
             }
-            v->v.ob[0] = (s16)lroundf((polyA[i][0] + polyA[i][3] * lift - ax) * RS_VEHICLE_SHADOW_VTX_SCALE);
-            v->v.ob[1] = (s16)lroundf((h + polyA[i][4] * lift) * RS_VEHICLE_SHADOW_VTX_SCALE);
-            v->v.ob[2] = (s16)lroundf((polyA[i][2] + polyA[i][5] * lift - az) * RS_VEHICLE_SHADOW_VTX_SCALE);
-            v->v.flag = 0;
-            // The texture laid on from above across the square, texels in s10.5.
-            v->v.tc[0] = (s16)lroundf(((polyA[i][0] - mx) / (2.0f * radius) + 0.5f) * RS_VEHICLE_SHADOW_TEX * 32);
-            v->v.tc[1] = (s16)lroundf(((polyA[i][2] - mz) / (2.0f * radius) + 0.5f) * RS_VEHICLE_SHADOW_TEX * 32);
-            v->v.cn[0] = v->v.cn[1] = v->v.cn[2] = 0;
-            v->v.cn[3] = (u8)CLAMP(a, 0.0f, 255.0f);
-            shaded += (v->v.cn[3] > 0);
+            if (n >= 3) {
+                poly[numPieces] = polyA;
+                polyN[numPieces++] = n;
+            }
+            for (p = 0; p < numPieces; p++) {
+                const s32 pn = polyN[p];
+                s32 shaded = 0;
+
+                if (numPolys >= RS_VEHICLE_SHADOW_MAX_POLYS || numVtx + pn > RS_VEHICLE_SHADOW_MAX_VTX) {
+                    gRsVehicleShadow.dropped++;
+                    continue;
+                }
+                for (i = 0; i < pn; i++) {
+                    const f32* c = poly[p][i];
+                    Vtx* v = &sShadowScratch[numVtx + i];
+                    const f32 h = c[1];
+                    const f32 nLen = sqrtf(SQ(c[3]) + SQ(c[4]) + SQ(c[5]));
+                    const f32 lift =
+                        (nLen > 0.0f)
+                            ? (RS_VEHICLE_SHADOW_LIFT + RS_VEHICLE_SHADOW_LIFT_STEEP * (1.0f - fabsf(c[4]) / nLen)) /
+                                  nLen
+                            : 0.0f;
+                    f32 a = strength;
+
+                    if (h > myHigh + RS_VEHICLE_SHADOW_OVER_FEET) {
+                        a = 0.0f;
+                    } else if (under - h > RS_VEHICLE_SHADOW_DROP_FROM) {
+                        a *= CLAMP_MIN(1.0f - (under - h - RS_VEHICLE_SHADOW_DROP_FROM) /
+                                                  (RS_VEHICLE_SHADOW_DROP - RS_VEHICLE_SHADOW_DROP_FROM),
+                                       0.0f);
+                    }
+                    v->v.ob[0] = (s16)lroundf((c[0] + c[3] * lift - ax) * RS_VEHICLE_SHADOW_VTX_SCALE);
+                    v->v.ob[1] = (s16)lroundf((h + c[4] * lift) * RS_VEHICLE_SHADOW_VTX_SCALE);
+                    v->v.ob[2] = (s16)lroundf((c[2] + c[5] * lift - az) * RS_VEHICLE_SHADOW_VTX_SCALE);
+                    v->v.flag = 0;
+                    // The texture laid on from above across the square, texels in s10.5.
+                    v->v.tc[0] = (s16)lroundf(((c[0] - mx) / (2.0f * radius) + 0.5f) * RS_VEHICLE_SHADOW_TEX * 32);
+                    v->v.tc[1] = (s16)lroundf(((c[2] - mz) / (2.0f * radius) + 0.5f) * RS_VEHICLE_SHADOW_TEX * 32);
+                    v->v.cn[0] = v->v.cn[1] = v->v.cn[2] = 0;
+                    v->v.cn[3] = (u8)CLAMP(a, 0.0f, 255.0f);
+                    shaded += (v->v.cn[3] > 0);
+                }
+                if (shaded == 0) {
+                    continue; // nothing to draw: the next piece's corners go over these
+                }
+                faceLit += shaded;
+                polyStart[numPolys] = (s16)numVtx;
+                polyCount[numPolys] = (u8)pn;
+                numPolys++;
+                numVtx += pn;
+            }
+            if (faceLit > 0) {
+                gRsVehicleShadow.faces++;
+                gRsVehicleShadow.lit += faceLit;
+            }
         }
-        if (shaded == 0) {
-            continue; // nothing to draw: the next face's corners go over these
-        }
-        gRsVehicleShadow.faces++;
-        gRsVehicleShadow.lit += shaded;
-        polyStart[numPolys] = (s16)numVtx;
-        polyCount[numPolys] = (u8)n;
-        numPolys++;
-        numVtx += n;
     }
     if (numPolys == 0) {
         RsVehicleShadow_Trace(play, player, mx, my, mz, deck, under, strength, 0);

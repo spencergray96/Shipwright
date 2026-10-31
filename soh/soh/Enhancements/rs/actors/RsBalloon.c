@@ -210,6 +210,14 @@ static const s8 sSideZ[4] = { -1, 0, 1, 0 };
 #define RS_BALLOON_V_INNER 8  // the rail tops' inner edges
 #define RS_BALLOON_V_FLOOR 12 // the inner walls' feet, on the floor
 
+// The panel's box: half its width, how far it reaches under and over the rail's top, its gap from the back wall's
+// inner face, its depth. Link's shadow reads it too (RsBalloon_Deck).
+#define RS_BALLOON_PANEL_HALF 12.0f
+#define RS_BALLOON_PANEL_BELOW 18.0f
+#define RS_BALLOON_PANEL_ABOVE 8.0f
+#define RS_BALLOON_PANEL_INBOARD 2.0f
+#define RS_BALLOON_PANEL_DEPTH 5.0f
+
 static void RsBalloon_BuildBasket(void) {
     const s16 h = (s16)RS_BALLOON_HALF_WIDTH;
     const s16 in = (s16)RS_BALLOON_INNER;
@@ -280,7 +288,10 @@ static void RsBalloon_BuildBasket(void) {
     RsBalloon_BuildBox(sBasket.wallBox[3], (s16)-h, floorY, (s16)-in, (s16)-in, topY, in); // left (-x)
     // The panel: on the back wall's inner face but 2 inboard of it, so the two do not z-fight (the boat's tiller post
     // lesson), and standing proud of the rail so it reads from behind.
-    RsBalloon_BuildBox(sBasket.panelBox, -12, (s16)(topY - 18), (s16)(-in + 2), 12, (s16)(topY + 8), (s16)(-in + 7));
+    RsBalloon_BuildBox(sBasket.panelBox, (s16)-RS_BALLOON_PANEL_HALF, (s16)(topY - RS_BALLOON_PANEL_BELOW),
+                       (s16)(-in + RS_BALLOON_PANEL_INBOARD), (s16)RS_BALLOON_PANEL_HALF,
+                       (s16)(topY + RS_BALLOON_PANEL_ABOVE),
+                       (s16)(-in + RS_BALLOON_PANEL_INBOARD + RS_BALLOON_PANEL_DEPTH));
     sBasket.built = 1;
 }
 
@@ -659,59 +670,126 @@ s32 RsBalloon_LinkWasAboard(PlayState* play) {
 
 // --- Link's shadow (#267) -----------------------------------------------------------------------------------------
 
-// The placeholder basket's faces for Link's shadow (RsVehicleShadow.h): every box's six quads, two triangles each,
-// each wound to face the way its vertices' normal says (the boxes are drawn without culling, so their winding is not
-// otherwise kept). Built once; a basket model drawn from an archive would read its deck from there instead.
-#define RS_BALLOON_BOXES 6
-#define RS_BALLOON_DECK_TRIS (RS_BALLOON_BOXES * 6 * 2)
+// The placeholder basket's faces for Link's shadow (RsVehicleShadow.h): its visible surface, not its draw boxes. The
+// boxes butt at the corners, and where two meet their faces lie back to back inside the joint; the shadow cast onto
+// those too, and their copies, lifted off the faces along the corners' averaged normals, stood out through the rim's
+// top and the outer wall as a black line down the joint (the owner, 2026-10-30). So: the floor inside the walls, the
+// rim's top in four mitred pieces, the walls' inner and outer faces each whole, and the panel's box. Built once; a
+// basket model drawn from an archive would read its deck from there instead, and want the same of its mesh: no face
+// buried in another, and no corner on another face's edge.
+#define RS_BALLOON_DECK_QUADS (1 + 4 + 4 + 4 + 6)
+#define RS_BALLOON_DECK_TRIS (RS_BALLOON_DECK_QUADS * 2)
+
+// One quad, its corners in order round it, as two triangles wound to face `n`.
+static void RsBalloon_DeckQuad(f32 (*tris)[3][3], s32* count, const f32 corner[4][3], const f32 n[3]) {
+    static const u8 kTri[2][3] = { { 0, 1, 2 }, { 0, 2, 3 } };
+    s32 t;
+
+    for (t = 0; t < 2; t++) {
+        f32(*tri)[3] = tris[(*count)++];
+        f32 u[3];
+        f32 w[3];
+        s32 k;
+
+        for (k = 0; k < 3; k++) {
+            tri[k][0] = corner[kTri[t][k]][0];
+            tri[k][1] = corner[kTri[t][k]][1];
+            tri[k][2] = corner[kTri[t][k]][2];
+        }
+        for (k = 0; k < 3; k++) {
+            u[k] = tri[1][k] - tri[0][k];
+            w[k] = tri[2][k] - tri[0][k];
+        }
+        // (b - a) x (c - a) against the normal: wound the other way, swap b and c.
+        if ((u[1] * w[2] - u[2] * w[1]) * n[0] + (u[2] * w[0] - u[0] * w[2]) * n[1] +
+                (u[0] * w[1] - u[1] * w[0]) * n[2] <
+            0.0f) {
+            for (k = 0; k < 3; k++) {
+                const f32 swap = tri[1][k];
+
+                tri[1][k] = tri[2][k];
+                tri[2][k] = swap;
+            }
+        }
+    }
+}
+
+// One axis-aligned rectangle, flat along the axis its normal is on (lo and hi equal there).
+static void RsBalloon_DeckRect(f32 (*tris)[3][3], s32* count, f32 x0, f32 y0, f32 z0, f32 x1, f32 y1, f32 z1, f32 nx,
+                               f32 ny, f32 nz) {
+    const f32 lo[3] = { x0, y0, z0 };
+    const f32 hi[3] = { x1, y1, z1 };
+    const f32 n[3] = { nx, ny, nz };
+    const s32 flat = (nx != 0.0f) ? 0 : (ny != 0.0f) ? 1 : 2;
+    const s32 a = (flat + 1) % 3;
+    const s32 b = (flat + 2) % 3;
+    static const u8 kCorner[4][2] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
+    f32 corner[4][3];
+    s32 c;
+
+    for (c = 0; c < 4; c++) {
+        corner[c][flat] = lo[flat];
+        corner[c][a] = kCorner[c][0] ? hi[a] : lo[a];
+        corner[c][b] = kCorner[c][1] ? hi[b] : lo[b];
+    }
+    RsBalloon_DeckQuad(tris, count, (const f32(*)[3])corner, n);
+}
 
 static const RsVehicleDeck* RsBalloon_Deck(void) {
     static const RsVehicleDeck* sDeck;
     static f32 sTris[RS_BALLOON_DECK_TRIS][3][3];
-    const Vtx* boxes[RS_BALLOON_BOXES] = { sBasket.floorBox,   sBasket.wallBox[0], sBasket.wallBox[1],
-                                           sBasket.wallBox[2], sBasket.wallBox[3], sBasket.panelBox };
+    const f32 h = RS_BALLOON_HALF_WIDTH;
+    const f32 in = RS_BALLOON_INNER;
+    const f32 floorY = RS_BALLOON_FLOOR_Y;
+    const f32 topY = RS_BALLOON_TOP_Y;
+    const f32 px0 = -RS_BALLOON_PANEL_HALF;
+    const f32 px1 = RS_BALLOON_PANEL_HALF;
+    const f32 py0 = topY - RS_BALLOON_PANEL_BELOW;
+    const f32 py1 = topY + RS_BALLOON_PANEL_ABOVE;
+    const f32 pz0 = -in + RS_BALLOON_PANEL_INBOARD;
+    const f32 pz1 = pz0 + RS_BALLOON_PANEL_DEPTH;
+    static const f32 kUp[3] = { 0.0f, 1.0f, 0.0f };
+    // The basket's corners round the rim, outer then inner, both in the same turn.
+    static const s8 kSide[4][2] = { { -1, -1 }, { 1, -1 }, { 1, 1 }, { -1, 1 } };
     s32 count = 0;
-    s32 b;
-    s32 q;
+    s32 k;
 
-    if (sDeck != NULL || !sBasket.built) {
+    if (sDeck != NULL) {
         return sDeck;
     }
-    for (b = 0; b < RS_BALLOON_BOXES; b++) {
-        for (q = 0; q < 6; q++) {
-            const Vtx* v = &boxes[b][q * 4];
-            static const u8 kTri[2][3] = { { 0, 1, 2 }, { 0, 2, 3 } };
-            s32 t;
+    // The floor inside the walls.
+    RsBalloon_DeckRect(sTris, &count, -in, floorY, -in, in, floorY, in, 0, 1, 0);
+    // The rim's top: four pieces mitred at the corners, so each corner is a corner of every piece that touches it. Side
+    // by side as rectangles, a corner of one sat midway along the next one's edge; lifted along a normal the next one
+    // never had there, the two parted and overlapped in a hairline across the rim.
+    for (k = 0; k < 4; k++) {
+        const s32 n = (k + 1) % 4;
+        const f32 corner[4][3] = {
+            { kSide[k][0] * h, topY, kSide[k][1] * h },
+            { kSide[n][0] * h, topY, kSide[n][1] * h },
+            { kSide[n][0] * in, topY, kSide[n][1] * in },
+            { kSide[k][0] * in, topY, kSide[k][1] * in },
+        };
 
-            for (t = 0; t < 2; t++) {
-                f32(*tri)[3] = sTris[count++];
-                f32 u[3];
-                f32 w[3];
-                s32 k;
-
-                for (k = 0; k < 3; k++) {
-                    tri[k][0] = v[kTri[t][k]].n.ob[0];
-                    tri[k][1] = v[kTri[t][k]].n.ob[1];
-                    tri[k][2] = v[kTri[t][k]].n.ob[2];
-                }
-                for (k = 0; k < 3; k++) {
-                    u[k] = tri[1][k] - tri[0][k];
-                    w[k] = tri[2][k] - tri[0][k];
-                }
-                // (b - a) x (c - a) against the quad's normal: wound the other way, swap b and c.
-                if ((u[1] * w[2] - u[2] * w[1]) * v[0].n.n[0] + (u[2] * w[0] - u[0] * w[2]) * v[0].n.n[1] +
-                        (u[0] * w[1] - u[1] * w[0]) * v[0].n.n[2] <
-                    0.0f) {
-                    for (k = 0; k < 3; k++) {
-                        const f32 swap = tri[1][k];
-
-                        tri[1][k] = tri[2][k];
-                        tri[2][k] = swap;
-                    }
-                }
-            }
-        }
+        RsBalloon_DeckQuad(sTris, &count, corner, kUp);
     }
+    // The walls' inner faces, facing in.
+    RsBalloon_DeckRect(sTris, &count, -in, floorY, -in, in, topY, -in, 0, 0, 1);
+    RsBalloon_DeckRect(sTris, &count, -in, floorY, in, in, topY, in, 0, 0, -1);
+    RsBalloon_DeckRect(sTris, &count, in, floorY, -in, in, topY, in, -1, 0, 0);
+    RsBalloon_DeckRect(sTris, &count, -in, floorY, -in, -in, topY, in, 1, 0, 0);
+    // The outer faces, the floor's edge and the wall above it as one.
+    RsBalloon_DeckRect(sTris, &count, -h, 0, -h, h, topY, -h, 0, 0, -1);
+    RsBalloon_DeckRect(sTris, &count, -h, 0, h, h, topY, h, 0, 0, 1);
+    RsBalloon_DeckRect(sTris, &count, h, 0, -h, h, topY, h, 1, 0, 0);
+    RsBalloon_DeckRect(sTris, &count, -h, 0, -h, -h, topY, h, -1, 0, 0);
+    // The panel's box (RsBalloon_BuildBasket's panelBox): it stands clear of the back wall, so all of it shows.
+    RsBalloon_DeckRect(sTris, &count, px0, py1, pz0, px1, py1, pz1, 0, 1, 0);
+    RsBalloon_DeckRect(sTris, &count, px0, py0, pz0, px1, py0, pz1, 0, -1, 0);
+    RsBalloon_DeckRect(sTris, &count, px0, py0, pz0, px1, py1, pz0, 0, 0, -1);
+    RsBalloon_DeckRect(sTris, &count, px0, py0, pz1, px1, py1, pz1, 0, 0, 1);
+    RsBalloon_DeckRect(sTris, &count, px0, py0, pz0, px0, py1, pz1, -1, 0, 0);
+    RsBalloon_DeckRect(sTris, &count, px1, py0, pz0, px1, py1, pz1, 1, 0, 0);
     sDeck = RsVehicleDeck_FromTris("rs_balloon/placeholder", (const f32(*)[3][3])sTris, count);
     return sDeck;
 }
