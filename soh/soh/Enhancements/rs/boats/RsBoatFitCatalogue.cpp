@@ -93,7 +93,7 @@ struct LookOption {
 struct LookInfo {
     const char* name;
     int32_t optionCount;
-    LookOption options[8];
+    LookOption options[9];
 };
 
 // RS's sail patterns (the wiki's Sail customisation): plain is the default, the seven colours need 41 Sailing and
@@ -103,13 +103,17 @@ struct LookInfo {
 // a prim colour over the cloth our still sail already draws: RS's HSL16 (in the comment) through the pipeline's own
 // conversion, rs_palette.py's rs_prim, as every imported colour is. Plain keeps the archive's 226, 226, 222. The
 // pennant stays red, as in RS. sturdy-bassoon#283.
+// Each of RS's seven is its dyed cape's main colour (the cape's 7700 recolour: red cape 1007, black 1019, blue 1021,
+// yellow 1023, green 1027, purple 1029, pink 6959). RS has a sail for every dye but orange; ours is the orange cape's
+// (1031), the owner's addition.
 const LookInfo kLooks[RS_BOAT_LOOK_COUNT] = {
     { "sail_pattern",
-      8,
+      9,
       { { "plain", 0, {}, 0, { 0, 0, 0 } },
         { "black", 0, {}, 1, { 39, 35, 35 } },     // 12
         { "blue", 0, {}, 1, { 47, 48, 100 } },     // -22116
         { "green", 0, {}, 1, { 35, 101, 37 } },    // 22042
+        { "orange", 0, {}, 1, { 197, 132, 50 } },  // 5815, not RS's: the orange cape's
         { "pink", 0, {}, 1, { 196, 147, 138 } },   // 1356
         { "purple", 0, {}, 1, { 109, 72, 122 } },  // -14041
         { "red", 0, {}, 1, { 135, 31, 7 } },       // 1950
