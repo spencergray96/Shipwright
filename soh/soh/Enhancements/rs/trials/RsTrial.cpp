@@ -509,6 +509,10 @@ extern "C" void RsTrial_Draw(Actor* thisx, PlayState* play) {
         if (!CrateLive(n) || CrateCollected(n)) {
             continue;
         }
+        // Each crate is its own interpolation child, keyed by its table row. Without it the interpolator pairs this
+        // tick's matrices with last tick's by draw order, so collecting crate k slid every later crate from the
+        // spot of the one before it over the interpolated frames (the owner saw them shuffle forward).
+        FrameInterpolation_RecordOpenChild(&kCrates[n], 0);
         // A slow bob, out of step from crate to crate.
         const f32 bob = 3.0f * Math_SinS((s16)(play->gameplayFrames * 600 + n * 7000));
         Matrix_Translate(TileX(kCrates[n].rsX), RS_TRIAL_WATER_Y + bob, TileZ(kCrates[n].rsY), MTXMODE_NEW);
@@ -518,6 +522,7 @@ extern "C" void RsTrial_Draw(Actor* thisx, PlayState* play) {
         CLOSE_DISPS(gfxCtx);
         DrawBox(gfxCtx, sCrateVtx, 120, 78, 40, 170, 124, 70);
         DrawBox(gfxCtx, sPoleVtx, 255, 210, 40, 255, 230, 90);
+        FrameInterpolation_RecordCloseChild();
     }
 
     OPEN_DISPS(gfxCtx);
