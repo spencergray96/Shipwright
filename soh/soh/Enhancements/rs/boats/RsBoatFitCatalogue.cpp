@@ -80,10 +80,14 @@ const RsBoatTier kTiers[] = {
 constexpr int kTierCount = static_cast<int>(sizeof(kTiers) / sizeof(kTiers[0]));
 
 // A look's options, unordered: index 0 is the default. Each may carry requirements (a race's sail, later); none do.
+// `recolours` 0 draws the model's own colour; 1 draws `prim` over the material the boat's list hands to the look
+// (RsBoatFit_LookColour).
 struct LookOption {
     const char* name;
     int32_t reqCount;
     QuestPredicate reqs[2];
+    int32_t recolours;
+    uint8_t prim[3];
 };
 
 struct LookInfo {
@@ -93,19 +97,23 @@ struct LookInfo {
 };
 
 // RS's sail patterns (the wiki's Sail customisation): plain is the default, the seven colours need 41 Sailing and
-// 27 Construction there. Free and ungated here. Nothing draws them yet: the sail is welded into each kind's one
-// display list, and its sway finds the cloth by colour (#262's notes; a later issue).
+// 27 Construction there. Free and ungated here. In the cache (build 240) each kind's ten "Sails" locs are one cloth:
+// three plain fabrics, then one model whose cloth colour, HSL16 4510, the other seven recolour (raft 29509-29515,
+// skiff 29519-29525, sloop 29529-29535, in the order black, yellow, purple, green, blue, pink, red). So a pattern is
+// a prim colour over the cloth our still sail already draws: RS's HSL16 (in the comment) through the pipeline's own
+// conversion, rs_palette.py's rs_prim, as every imported colour is. Plain keeps the archive's 226, 226, 222. The
+// pennant stays red, as in RS. sturdy-bassoon#283.
 const LookInfo kLooks[RS_BOAT_LOOK_COUNT] = {
     { "sail_pattern",
       8,
-      { { "plain", 0, {} },
-        { "black", 0, {} },
-        { "blue", 0, {} },
-        { "green", 0, {} },
-        { "pink", 0, {} },
-        { "purple", 0, {} },
-        { "red", 0, {} },
-        { "yellow", 0, {} } } },
+      { { "plain", 0, {}, 0, { 0, 0, 0 } },
+        { "black", 0, {}, 1, { 39, 35, 35 } },     // 12
+        { "blue", 0, {}, 1, { 47, 48, 100 } },     // -22116
+        { "green", 0, {}, 1, { 35, 101, 37 } },    // 22042
+        { "pink", 0, {}, 1, { 196, 147, 138 } },   // 1356
+        { "purple", 0, {}, 1, { 109, 72, 122 } },  // -14041
+        { "red", 0, {}, 1, { 135, 31, 7 } },       // 1950
+        { "yellow", 0, {}, 1, { 249, 246, 15 } } } }, // 11200
 };
 
 // What can be built. An upgrade's fits on a boat imply owning it (RsBoatFit_Check), so they do not list it. The
@@ -431,6 +439,14 @@ extern "C" int32_t RsBoatFit_LookOptionAllowed(int32_t look, int32_t option) {
             return 0;
         }
     }
+    return 1;
+}
+
+extern "C" int32_t RsBoatFit_LookColour(int32_t look, int32_t option, uint8_t rgb[3]) {
+    if (option < 0 || option >= RsBoatFit_LookOptionCount(look) || !kLooks[look].options[option].recolours) {
+        return 0;
+    }
+    std::memcpy(rgb, kLooks[look].options[option].prim, 3);
     return 1;
 }
 

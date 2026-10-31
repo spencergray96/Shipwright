@@ -87,6 +87,10 @@ typedef enum RsBoatKindId {
     RS_BOAT_KIND_COUNT,
 } RsBoatKindId;
 
+// The segment a boat's list calls after its sail cloth's material, which RsBoat_Draw fills with the sail pattern
+// (#283). The same number as the `look`'s "segment" in each rs_boat_<kind>_props.json: change them together.
+#define RS_BOAT_LOOK_SEGMENT 0x0C
+
 // Hull heights, world units, shared by the kinds: both models' floor is their origin, and both sit on it.
 #define RS_BOAT_DECK_Y 4.0f   // the skiff's and the sloop's deck above the waterline: their floor, on the water
 #define RS_BOAT_KEEL_Y -14.0f // the placeholder box's bottom below the waterline (drawn without the model)

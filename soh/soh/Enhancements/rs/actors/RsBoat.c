@@ -2872,6 +2872,20 @@ void RsBoat_Draw(Actor* thisx, PlayState* play) {
     Gfx_SetupDL_25Opa(gfxCtx);
     // Actor_Draw has set the hull's matrix: its position and shape.rot, the rock included, as its collision has it.
     if (model != NULL) {
+        // The sail's pattern (sturdy-bassoon#283): the kind's list calls this segment straight after its sail cloth's
+        // material (the sails placement's `look` in rs_boat_<kind>_props.json), so a SetPrimColor here draws the cloth
+        // in the kind's chosen colour, and an empty list leaves the material's own, plain.
+        Gfx* look = Graph_Alloc(gfxCtx, 2 * sizeof(Gfx));
+        Gfx* lookEnd = look;
+        u8 rgb[3];
+
+        if (RsBoatFit_LookColour(RS_BOAT_LOOK_SAIL_PATTERN, RsBoatFit_LookOf(this->kind, RS_BOAT_LOOK_SAIL_PATTERN),
+                                 rgb)) {
+            gDPSetPrimColor(lookEnd++, 0, 0, rgb[0], rgb[1], rgb[2], 255);
+        }
+        gSPEndDisplayList(lookEnd++);
+        gSPSegment(POLY_OPA_DISP++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)look);
+
         // The kind's model, in its own model space: its floor on the deck, centred on the collision. Its list carries
         // its own materials (lit, RS's base colours as prim colours), so the state is set up again after it.
         Matrix_Push();

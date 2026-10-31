@@ -67,6 +67,15 @@
    ],
    "rot": 0,
    "weld": "helm",
+   "look": {
+    "colour": [
+     226,
+     226,
+     222
+    ],
+    "segment": 12,
+    "why": "the sail's cloth: its pattern is the save's sail_pattern look (RsBoatFit), which Rs_Boat puts in segment 0x0C as it draws; RS's patterns are this one cloth recoloured (sturdy-bassoon#283)"
+   },
    "sway": [
     {
      "colour": [
