@@ -52,6 +52,21 @@ typedef enum WorldFlagId {
                                     // unlocked behaviour is gone - the proof that the bit, and not
                                     // the status, is what carries the permission.
 
+    // Boat upgrades' unlocks (sturdy-bassoon#263, boats/RsBoatFit.h): each permits building one upgrade, which
+    // still has its requirements and costs. Nothing sets them yet but `agenttest worldflag`; the quests and the
+    // shipwright that will are later issues. The raft's is there for uniformity: its quest grants it outright.
+    WORLD_FLAG_BOAT_UNLOCK_RAFT = 1,
+    WORLD_FLAG_BOAT_UNLOCK_SKIFF = 2,
+    WORLD_FLAG_BOAT_UNLOCK_SLOOP = 3,
+    WORLD_FLAG_BOAT_UNLOCK_SKIFF_HULL_OAK = 4,
+    WORLD_FLAG_BOAT_UNLOCK_SLOOP_HULL_OAK = 5,
+    WORLD_FLAG_BOAT_UNLOCK_RAFT_HOOK_BRONZE = 6,
+    WORLD_FLAG_BOAT_UNLOCK_SKIFF_HOOK_BRONZE = 7,
+    WORLD_FLAG_BOAT_UNLOCK_SLOOP_HOOK_BRONZE = 8,
+    WORLD_FLAG_BOAT_UNLOCK_SKIFF_WIND_CATCHER = 9,
+    WORLD_FLAG_BOAT_UNLOCK_SLOOP_WIND_CATCHER = 10,
+    WORLD_FLAG_BOAT_UNLOCK_SLOOP_CANNON_BRONZE = 11,
+
     // --- debug band, named: [WORLD_FLAG_DEBUG_FIRST, WORLD_FLAG_PLACEMENT_DEBUG_FIRST) -----------------------------
     WORLD_FLAG_DEBUG_SMOKE = 3840,   // exercised by the agent-test predicate probe; never real state
     WORLD_FLAG_DEBUG_JOURNAL = 3841, // QUEST_DEBUG_JOURNAL's completion witness (P2). Its OWN flag on
@@ -107,6 +122,9 @@ RS_STATIC_ASSERT(WORLD_FLAG_PLACEMENT_DEBUG_FIRST > WORLD_FLAG_DEBUG_FIRST &&
 
 RS_STATIC_ASSERT(WORLD_FLAG_COOK_RANGE_OPEN >= 0 && WORLD_FLAG_COOK_RANGE_OPEN < WORLD_FLAG_PLACEMENT_FIRST,
                  "WORLD_FLAG_COOK_RANGE_OPEN must sit in the production band");
+RS_STATIC_ASSERT(WORLD_FLAG_BOAT_UNLOCK_RAFT > WORLD_FLAG_COOK_RANGE_OPEN &&
+                     WORLD_FLAG_BOAT_UNLOCK_SLOOP_CANNON_BRONZE < WORLD_FLAG_PLACEMENT_FIRST,
+                 "the boat upgrades' unlocks must sit in the production band's named part");
 
 RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_SMOKE >= WORLD_FLAG_DEBUG_FIRST &&
                      WORLD_FLAG_DEBUG_SMOKE < WORLD_FLAG_PLACEMENT_DEBUG_FIRST,

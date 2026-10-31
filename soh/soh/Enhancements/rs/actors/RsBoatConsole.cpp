@@ -10,6 +10,7 @@
 #include "RsBoat.h"
 #include "RsBoatHud.h"
 #include "RsVehicleMinimap.h"
+#include "soh/Enhancements/rs/boats/RsBoatFitConsole.h"
 #include "soh/Enhancements/console/ConsoleSink.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/ShipInit.hpp"
@@ -41,7 +42,7 @@ using ConsoleSink::Addf;
     "lakelevel [full|drained] | cam [on|off|default] | cam height|dist|ease <n> | hud [on|off] | "             \
     "climb [hop|hands] | kind [skiff|sloop|raft] | tune [default] | tune <knob> <value> | wake [default|reset] | "  \
     "wake slots [<n>|default] | "                                                                                   \
-    "wake <knob> <value> | contact [<idx>] | still [on|off] | clear"
+    "wake <knob> <value> | contact [<idx>] | still [on|off] | clear | " RS_BOAT_FIT_GRAMMAR
 
 const char* kUsage = "op=usage result=error usage=\"boat " RS_BOAT_GRAMMAR "\"";
 
@@ -676,6 +677,11 @@ int32_t RsBoatConsole_Run(const std::vector<std::string>& args, std::vector<std:
         return 1;
     }
     const std::string& sub = args[0];
+    // The fit-out's (#263): the save's, not the scene's, so they work from the title screen too.
+    const int32_t fitRc = RsBoatFitConsole_Run(args, lines);
+    if (fitRc >= 0) {
+        return fitRc;
+    }
     if (sub == "lakehylia") {
         return LakeHylia(args, lines);
     }
@@ -780,12 +786,18 @@ const ConsoleSink::Command rsBoatCommand(
     "hud switches the steering label; kind picks the hull Lake Hylia's boat and spawn use (saved; puts Lake "
     "Hylia's boat back as that kind); tune sets the handling: fwd (top speed for every kind; 0 for each kind's own), "
     "rev (astern, a share of top speed, for every kind; 0 for each kind's own), accel, drag, brake, turnstill and turnmove (binang a tick), steps (0: the "
-    "stick's throttle is smooth), upgrade (1: each kind's upgraded top speed); saved; wake sets the trail a moving "
+    "stick's throttle is smooth); saved; wake sets the trail a moving "
     "boat leaves: on, spacing (units between rings), size (times the hull's own), grow (how much a ring grows at top "
     "speed), lines (1 or 2), bow (the bow wave), foam (share of top speed for a stern splash; 0: none), reserve "
     "(effect slots kept free for everything else); saved; it also reports the effect pool; contact lists what the "
-    "hull's outline meets where it is; still holds every boat level, with no bob or rock (a test aid, not saved).",
-    { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|kind|tune|wake|contact|still|clear",
+    "hull's outline meets where it is; still holds every boat level, with no bob or rock (a test aid, not saved); "
+    "fitout, upgrades, build, grant and look read and change the save's boats (#263): fitout lists each kind's owned "
+    "flag, parts, facilities and looks (fitout hud switches their readout under the steering label; fitout reset "
+    "empties them, as a new save), upgrades lists "
+    "what can be built and why not, build builds one (its unlock flag, requirements and rupees), grant builds one "
+    "free, look swaps a sail pattern; own and fit set ownership or a tier outright (test aids, no rules).",
+    { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|kind|tune|wake|contact|still|clear|"
+        "fitout|upgrades|build|grant|look|own|fit",
         Ship::ArgumentType::TEXT },
       { "arg1", Ship::ArgumentType::TEXT, true },
       { "arg2", Ship::ArgumentType::TEXT, true },

@@ -6,8 +6,8 @@
 #include "QuestIds.h"
 #include "QuestStore.h"
 
-// The predicate vocabulary (sturdy-bassoon#58 decisions D10/D11). Seven words - five at P0, one
-// added in P2 and one in P3, each on the bar described below:
+// The predicate vocabulary (sturdy-bassoon#58 decisions D10/D11). Nine words - five at P0, one
+// added in P2, one in P3 and two for boat upgrades (#263), each on the bar described below:
 //
 //     Always            true
 //     QuestStatusIs     QuestStore_GetStatus(a) == b
@@ -15,6 +15,8 @@
 //     AllStepsSet       every step of quest a is set (added in P2 - see below)
 //     QuestPrereqsMet   quest a's declarative prerequisites hold (added in P3 - see below)
 //     WorldFlagSet      Flags_GetWorldFlag(a)
+//     BoatOwned         the player owns boat kind a (sturdy-bassoon#263)
+//     BoatTierAtLeast   a boat kind's slot (a) is fitted at tier b or higher (#263)
 //     Not               negates any of the above
 //
 // A predicate is CONSTRAINED DATA, never a callback. That is the whole point: quest prerequisites,
@@ -62,6 +64,9 @@ typedef enum QuestPredicateKind {
                                     // append because predicates are DEFINITION data and are never
                                     // serialized (only QuestStore's {status, stepMask} is).
     QUEST_PRED_QUEST_PREREQS_MET = 5, // a = QuestId; b unused. Same append rule.
+    QUEST_PRED_BOAT_OWNED = 6,         // a = RsBoatKindId (sturdy-bassoon#263, boats/RsBoatFit.h). Same append rule.
+    QUEST_PRED_BOAT_TIER_AT_LEAST = 7, // a = RS_BOAT_FIT_KEY(kind, slot), b = tier: the slot's tier on that kind is
+                                       // at least b. What makes "tier 2 only after tier 1 is built" a line of data.
     QUEST_PRED_KIND_COUNT,
 } QuestPredicateKind;
 
@@ -82,6 +87,9 @@ typedef struct QuestPredicate {
 #define QP_WORLD_FLAG_SET(flag) { QUEST_PRED_WORLD_FLAG_SET, (flag), 0, 0 }
 #define QP_ALL_STEPS_SET(questId) { QUEST_PRED_ALL_STEPS_SET, (questId), 0, 0 }
 #define QP_QUEST_PREREQS_MET(questId) { QUEST_PRED_QUEST_PREREQS_MET, (questId), 0, 0 }
+#define QP_BOAT_OWNED(kind) { QUEST_PRED_BOAT_OWNED, (kind), 0, 0 }
+// BoatTierAtLeast packs kind and slot as RS_BOAT_FIT_KEY does (boats/RsBoatFit.cpp asserts the three forms agree).
+#define QP_BOAT_TIER_AT_LEAST(kind, slot, tier) { QUEST_PRED_BOAT_TIER_AT_LEAST, (kind) * 256 + (slot), (tier), 0 }
 #define QP_NOT_ALWAYS() { QUEST_PRED_ALWAYS, 0, 0, 1 }
 #define QP_NOT_QUEST_STATUS_IS(questId, status) { QUEST_PRED_QUEST_STATUS_IS, (questId), (status), 1 }
 #define QP_NOT_QUEST_STEP_SET(questId, step) { QUEST_PRED_QUEST_STEP_SET, (questId), (step), 1 }
@@ -133,6 +141,12 @@ constexpr QuestPredicate AllStepsSet(int32_t questId) {
 }
 constexpr QuestPredicate QuestPrereqsMet(int32_t questId) {
     return { QUEST_PRED_QUEST_PREREQS_MET, questId, 0, 0 };
+}
+constexpr QuestPredicate BoatOwned(int32_t kind) {
+    return { QUEST_PRED_BOAT_OWNED, kind, 0, 0 };
+}
+constexpr QuestPredicate BoatTierAtLeast(int32_t kind, int32_t slot, int32_t tier) {
+    return { QUEST_PRED_BOAT_TIER_AT_LEAST, kind * 256 + slot, tier, 0 };
 }
 constexpr QuestPredicate Not(QuestPredicate pred) {
     pred.negate = pred.negate ? 0 : 1;

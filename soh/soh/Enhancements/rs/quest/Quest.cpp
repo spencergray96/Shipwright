@@ -9,6 +9,7 @@
 
 #include "QuestJournal.h"
 #include "WorldFlagIds.h"
+#include "soh/Enhancements/rs/boats/RsBoatFit.h"
 #include "soh/Enhancements/rs/prefs/FloorText.h"
 #include "soh/Enhancements/worldstate/WorldFlags.h"
 
@@ -161,6 +162,12 @@ static bool CheckPredicate(char* buf, size_t len, const char* what, int32_t inde
             if (inRequirements) {
                 return Problem(buf, len, "%s[%d]: QuestPrereqsMet may not appear in a quest's own requirements", what,
                                index);
+            }
+            break;
+        case QUEST_PRED_BOAT_OWNED:
+        case QUEST_PRED_BOAT_TIER_AT_LEAST:
+            if (!RsBoatFit_PredicateOperandsValid(p.kind, p.a, p.b)) {
+                return Problem(buf, len, "%s[%d]: boat predicate operands %d, %d out of range", what, index, p.a, p.b);
             }
             break;
         default:
@@ -334,6 +341,11 @@ static bool ValidateDef(const QuestDef* def, char* buf, size_t len) {
             case QUEST_REWARD_RUPEES:
                 if (r.a < -32768 || r.a > 32767 || r.a == 0) {
                     return Problem(buf, len, "reward[%d]: rupee amount %d is zero or outside s16", i, r.a);
+                }
+                break;
+            case QUEST_REWARD_BOAT_UPGRADE:
+                if (RsBoatFit_Upgrade(r.a) == nullptr) {
+                    return Problem(buf, len, "reward[%d]: boat upgrade %d does not exist", i, r.a);
                 }
                 break;
             default:
@@ -668,6 +680,19 @@ static void DispatchReward(const QuestDef* def, const QuestReward& reward, int32
             Rupees_ChangeBy(static_cast<s16>(reward.a));
             SPDLOG_INFO("Quest: {} ({}) reward[{}] rupees {:+d}", def->id, def->name, index, reward.a);
             break;
+        case QUEST_REWARD_BOAT_UPGRADE: {
+            // Free, whatever its unlock, requirements and costs say. A refusal (a fit onto a boat the player does
+            // not own yet: list the boat's own upgrade first) is logged and marked, never fatal.
+            const int32_t result = RsBoatFit_Grant(reward.a);
+            if (result == RS_BOAT_FIT_OK || result == RS_BOAT_FIT_ALREADY) {
+                SPDLOG_INFO("Quest: {} ({}) reward[{}] boat upgrade {} -> {}", def->id, def->name, index,
+                            RsBoatFit_Upgrade(reward.a)->name, RsBoatFit_ResultName(result));
+            } else {
+                SPDLOG_ERROR("Quest: {} ({}) reward[{}] boat upgrade {} refused: {}", def->id, def->name, index,
+                             RsBoatFit_Upgrade(reward.a)->name, RsBoatFit_ResultName(result));
+            }
+            break;
+        }
         default:
             // Unreachable after ValidateDef; kept loud rather than silently skipped.
             SPDLOG_ERROR("Quest: {} ({}) reward[{}] has unknown kind {}", def->id, def->name, index,
@@ -868,6 +893,8 @@ extern "C" const char* Quest_RewardKindName(int32_t kind) {
             return "world_flag";
         case QUEST_REWARD_RUPEES:
             return "rupees";
+        case QUEST_REWARD_BOAT_UPGRADE:
+            return "boat_upgrade";
         default:
             return "<bad kind>";
     }

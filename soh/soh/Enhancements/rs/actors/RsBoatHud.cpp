@@ -3,6 +3,9 @@
 // just under the C buttons, while there are no steering animations or poses to say it. On at all times in a
 // build of the prototype, scene with a boat or not; `boat hud off` (CVAR_RS_BOAT_HUD) hides it.
 //
+// Under it, the save's boats (sturdy-bassoon#263), a debug readout: one line per kind, owned or not, its parts,
+// facilities and looks (RsBoatFit_Summary). `boat fitout hud off` (CVAR_RS_BOAT_FIT_HUD) hides it alone.
+//
 // RegionOverlay.cpp's pattern: an ImGui window drawn over the game, with Draw() overridden so no titled,
 // saved-settings window opens and the gate is here rather than on the GuiWindow's visibility flag.
 
@@ -20,6 +23,7 @@
 
 #include "RsBoat.h"
 #include "RsBalloon.h"
+#include "soh/Enhancements/rs/boats/RsBoatFit.h"
 #include "soh/ShipInit.hpp"
 #include "soh/cvar_prefixes.h"
 
@@ -37,6 +41,8 @@ const char* const kWindowKey = "Boat Steering Label##RS";
 
 const ImVec4 kNotSteering = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
 const ImVec4 kSteering = ImVec4(0.35f, 1.0f, 0.35f, 1.0f);
+const ImVec4 kFitOwned = ImVec4(0.85f, 0.85f, 0.85f, 1.0f);
+const ImVec4 kFitNotOwned = ImVec4(0.55f, 0.55f, 0.55f, 1.0f);
 
 int32_t sShown = RS_BOAT_HUD_HIDDEN; // what the last frame drew, for `boat list`
 
@@ -70,18 +76,33 @@ class RsBoatHudWindow final : public Ship::GuiWindow {
         ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.45f));
         ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 4.0f);
-        ImGui::Begin("RsBoatSteeringLabel", nullptr,
-                     ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize |
-                         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav |
-                         ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoDocking |
-                         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
-                         ImGuiWindowFlags_NoSavedSettings);
+        const ImGuiWindowFlags flags =
+            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav |
+            ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoScrollbar |
+            ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoSavedSettings;
+        ImGui::Begin("RsBoatSteeringLabel", nullptr, flags);
         ImGui::SetWindowFontScale(1.4f);
         ImGui::TextColored(steering ? kSteering : kNotSteering, "%s",
                            what == RS_BOAT_HUD_STEERING_BALLOON ? "Steering balloon"
                            : steering                           ? "Steering boat"
                                                                 : "Not steering");
+        const float labelBottom = ImGui::GetWindowPos().y + ImGui::GetWindowSize().y;
         ImGui::End();
+        // The readout in a box of its own under the label, so its width never moves the label off the C buttons.
+        if (CVarGetInteger(CVAR_RS_BOAT_FIT_HUD, 1)) {
+            ImGui::SetNextWindowViewport(vp->ID);
+            ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.955f, labelBottom + 4.0f), ImGuiCond_Always,
+                                    ImVec2(1.0f, 0.0f));
+            ImGui::Begin("RsBoatFitReadout", nullptr, flags);
+            ImGui::SetWindowFontScale(0.9f);
+            for (int32_t kind = 0; kind < RS_BOAT_KIND_COUNT; kind++) {
+                char line[256];
+                RsBoatFit_Summary(kind, line, sizeof(line));
+                ImGui::TextColored(RsBoatFit_Owned(kind) ? kFitOwned : kFitNotOwned, "%s", line);
+            }
+            ImGui::End();
+        }
         ImGui::PopStyleVar(1);
         ImGui::PopStyleColor(2);
         sShown = what;
