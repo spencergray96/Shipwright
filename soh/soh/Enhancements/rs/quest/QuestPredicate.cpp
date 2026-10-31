@@ -5,6 +5,7 @@
 #include <spdlog/spdlog.h>
 
 #include "Quest.h"
+#include "soh/Enhancements/rs/boats/RsBoatFit.h"
 #include "soh/Enhancements/worldstate/WorldFlags.h"
 
 // AllStepsSet needs a definition's stepCount and QuestPrereqsMet needs a definition's requirement
@@ -52,6 +53,10 @@ static int32_t EvalPositive(const QuestPredicate* pred) {
             return AllStepsSet(pred->a);
         case QUEST_PRED_QUEST_PREREQS_MET:
             return QuestPrereqsMet(pred->a);
+        case QUEST_PRED_BOAT_OWNED:
+            return RsBoatFit_Owned(pred->a);
+        case QUEST_PRED_BOAT_TIER_AT_LEAST:
+            return RsBoatFit_TierOf(RS_BOAT_FIT_KEY_KIND(pred->a), RS_BOAT_FIT_KEY_SLOT(pred->a)) >= pred->b;
         default:
             SPDLOG_ERROR("QuestPredicate: unknown predicate kind {} (max {})", static_cast<int>(pred->kind),
                          QUEST_PRED_KIND_COUNT - 1);
@@ -97,6 +102,13 @@ extern "C" void QuestPredicate_Describe(const QuestPredicate* pred, char* buf, s
             break;
         case QUEST_PRED_QUEST_PREREQS_MET:
             std::snprintf(inner, sizeof(inner), "QuestPrereqsMet(%d)", pred->a);
+            break;
+        case QUEST_PRED_BOAT_OWNED:
+            std::snprintf(inner, sizeof(inner), "BoatOwned(%d)", pred->a);
+            break;
+        case QUEST_PRED_BOAT_TIER_AT_LEAST:
+            std::snprintf(inner, sizeof(inner), "BoatTierAtLeast(%d, %d, %d)", RS_BOAT_FIT_KEY_KIND(pred->a),
+                          RS_BOAT_FIT_KEY_SLOT(pred->a), pred->b);
             break;
         default:
             std::snprintf(inner, sizeof(inner), "<bad kind %d>", static_cast<int>(pred->kind));

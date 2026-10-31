@@ -10,6 +10,7 @@
 #include <spdlog/spdlog.h>
 
 #include "soh/Enhancements/rs/actors/RsActors.h" // RsText_ChoiceWouldPaginate - the renderer answers
+#include "soh/Enhancements/rs/boats/RsBoatFit.h"
 #include "soh/Enhancements/rs/prefs/FloorText.h"
 #include "soh/Enhancements/rs/quest/Quest.h"
 #include "soh/Enhancements/rs/quest/QuestDef.h"
@@ -151,6 +152,12 @@ bool CheckPredicate(char* buf, size_t len, const char* where, const QuestPredica
         case QUEST_PRED_QUEST_PREREQS_MET:
             if (!QUEST_ID_IS_VALID(p.a)) {
                 return Problem(buf, len, "%s: QuestPrereqsMet quest id %d out of range", where, p.a);
+            }
+            break;
+        case QUEST_PRED_BOAT_OWNED:
+        case QUEST_PRED_BOAT_TIER_AT_LEAST:
+            if (!RsBoatFit_PredicateOperandsValid(p.kind, p.a, p.b)) {
+                return Problem(buf, len, "%s: boat predicate operands %d, %d out of range", where, p.a, p.b);
             }
             break;
         default:

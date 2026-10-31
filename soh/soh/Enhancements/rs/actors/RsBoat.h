@@ -122,7 +122,8 @@ typedef enum RsBoatKindId {
 
 // The handling, live (#262 point 7): `boat tune <knob> <value>`, saved, read every tick. Speeds per 20 Hz tick
 // (Link's run is ~6 as adult), turn rates in binang a tick at full tiller. Top speed and the turn rates are each
-// kind's own (RsBoat_TopSpeed); the rest are one set for every kind (sturdy-bassoon#263).
+// kind's own (RsBoat_TopSpeed), and its fit-out may raise them (its hull) or set its acceleration (its sails;
+// boats/RsBoatFit.h, sturdy-bassoon#263); the rest are one set for every kind.
 typedef enum RsBoatTuneKnob {
     RS_BOAT_TUNE_FORWARD,     // top speed ahead for every kind, overriding each kind's own; 0: the kind's
     RS_BOAT_TUNE_REVERSE,     // top speed astern, as a share of the top speed in use; 0 is each kind's own
@@ -132,7 +133,6 @@ typedef enum RsBoatTuneKnob {
     RS_BOAT_TUNE_TURN_STILL,  // turn rate standing still, for every kind; 0: the kind's
     RS_BOAT_TUNE_TURN_MOVING, // added at the kind's default top speed, for every kind; 0: the kind's
     RS_BOAT_TUNE_STEPS,       // 0: the throttle follows the stick smoothly; n: it snaps to n steps
-    RS_BOAT_TUNE_UPGRADE,     // 1: each kind's upgraded top speed, where it has one (a stand-in until #263's saves)
     RS_BOAT_TUNE_COUNT,
 } RsBoatTuneKnob;
 
@@ -187,8 +187,8 @@ void RsBoat_EffectPoolResetPeak(void);
 const EffectSs* RsBoat_EffectSlot(s32 index);
 
 struct RsBoat;
-// The top speed this boat uses now, units a tick: `fwd` when it is set, else its kind's upgraded speed while
-// `upgrade` is on and the kind has one, else its kind's own.
+// The top speed this boat uses now, units a tick: `fwd` when it is set, else its kind's fit-out's (a hull past its
+// default, RsBoatFit_Stats), else its kind's own.
 f32 RsBoat_TopSpeed(const struct RsBoat* boat);
 
 typedef enum RsBoatBlock {

@@ -14,6 +14,7 @@
 #include "global.h"
 #include "overlays/effects/ovl_Effect_Ss_G_Ripple/z_eff_ss_g_ripple.h" // the wake's rings and splash, spawned at
 #include "overlays/effects/ovl_Effect_Ss_G_Splash/z_eff_ss_g_splash.h" // its own priority
+#include "soh/Enhancements/rs/boats/RsBoatFit.h"
 #include "soh/Enhancements/rs/swim/SwimStamina.h"
 
 void RsBoat_Init(Actor* thisx, PlayState* play);
@@ -44,7 +45,6 @@ const RsBoatTuneInfo gRsBoatTune[RS_BOAT_TUNE_COUNT] = {
     { "turnstill", CVAR_ENHANCEMENT("RsBoatTuneTurnAtRest"), 0.0f, 0.0f, 1000.0f },
     { "turnmove", CVAR_ENHANCEMENT("RsBoatTuneTurnAtSpeed"), 0.0f, 0.0f, 2000.0f },
     { "steps", CVAR_ENHANCEMENT("RsBoatTuneSteps"), 0.0f, 0.0f, 10.0f },
-    { "upgrade", CVAR_ENHANCEMENT("RsBoatTuneUpgrade"), 0.0f, 0.0f, 1.0f },
 };
 
 // A saved knob's live value, clamped to its range: the handling's and the wake's.
@@ -203,8 +203,7 @@ typedef struct RsBoatKind {
     s32 hopInward;       // off its rail or covered bow onto its own deck, the small hop; 0 walks off (RsBoat_HopOntoOwnDeck)
     RsBoatForedeck foredeck;
     RsBoatRudder rudder;
-    f32 topSpeed;       // units a tick ahead, by default
-    f32 topSpeedUpgrade; // with its speed upgrade unlocked (sturdy-bassoon#263), or 0 for none
+    f32 topSpeed;       // units a tick ahead with its default hull; a better hull's is its tier's (RsBoatFit.h)
     f32 turnAtRest;      // binang a tick at full tiller, standing still: how lively it feels, not a balance
     f32 turnAtSpeed;     // added at its default top speed: (rest + this) sets its full-speed turning circle
     f32 reverseShare;    // top speed astern, as a share of the top speed in use
@@ -244,8 +243,7 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
       // the rudder and tiller (helm-59583-rudder, the piece taken out of the helm): its pin is the block on the
       // transom's top, on the centreline at model z -84
       { "objects/rs_props/rs_boat_skiff_rudder/props", { 0.0f, 0.0f, -84.0f } },
-      14.0f, // the fastest, for now: the middle boat's use
-      18.0f,
+      14.0f, // the fastest, for now: the middle boat's use (its oak hull's 18: RsBoatFitCatalogue.cpp)
       220.0f, // full-speed circle ~650 across
       230.0f,
       0.375f, // 5.25 astern at 14
@@ -301,8 +299,7 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
       // the rudder and tiller (helm-59599-rudder, built on the helm's origin so its omit matches): its pin is the
       // block on the transom's top, on the centreline at model z -165
       { "objects/rs_props/rs_boat_sloop_rudder/props", { 0.0f, 0.0f, -165.0f } },
-      12.0f,
-      14.0f,
+      12.0f, // its oak hull's 14 (RsBoatFitCatalogue.cpp)
       200.0f, // the widest full-speed circle, ~780 across: 20% wider than the skiff's
       121.0f,
       0.375f, // 4.5 astern at 12
@@ -353,8 +350,7 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
       // the steering oar (helm-60553, the whole helm, from the raft's stern tile): its pin is where it rests on the
       // stern's logs, on the centreline at model z -70, the blade trailing under the water behind
       { "objects/rs_props/rs_boat_raft_rudder/props", { 0.0f, 0.0f, -70.0f } },
-      10.0f,
-      0.0f,   // no upgrade considered yet
+      10.0f, // no hull upgrade considered yet
       300.0f, // the best handling: the quickest spin and the tightest circle, ~420 across
       200.0f,
       0.5f, // 5 astern at 10
@@ -387,14 +383,13 @@ static f32 RsBoat_DeckY(const RsBoat* boat) {
 f32 RsBoat_TopSpeed(const RsBoat* boat) {
     const RsBoatKind* kind = &sRsBoatKinds[boat->kind];
     const f32 override = RsBoat_Tune(RS_BOAT_TUNE_FORWARD);
+    RsBoatFitStats fit;
 
     if (override > 0.0f) {
         return override;
     }
-    if (RsBoat_Tune(RS_BOAT_TUNE_UPGRADE) >= 0.5f && kind->topSpeedUpgrade > 0.0f) {
-        return kind->topSpeedUpgrade;
-    }
-    return kind->topSpeed;
+    RsBoatFit_Stats(boat->kind, &fit);
+    return fit.topSpeed > 0.0f ? fit.topSpeed : kind->topSpeed;
 }
 
 // The turn rate at full tiller for a boat moving at `speed`, binang a tick. From the kind's rest rate it rises with
@@ -2747,7 +2742,9 @@ void RsBoat_Update(Actor* thisx, PlayState* play) {
     if ((this->speed > 0.0f && target < 0.0f) || (this->speed < 0.0f && target > 0.0f)) {
         rate = RsBoat_Tune(RS_BOAT_TUNE_BRAKE);
     } else if (fabsf(target) > fabsf(this->speed)) {
-        rate = RsBoat_Tune(RS_BOAT_TUNE_ACCEL);
+        RsBoatFitStats fit;
+        RsBoatFit_Stats(this->kind, &fit); // its sails' acceleration, when a tier sets one; else the knob's
+        rate = fit.accel > 0.0f ? fit.accel : RsBoat_Tune(RS_BOAT_TUNE_ACCEL);
     } else {
         rate = RsBoat_Tune(RS_BOAT_TUNE_DRAG);
     }

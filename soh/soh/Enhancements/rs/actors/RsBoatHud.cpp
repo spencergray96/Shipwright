@@ -3,6 +3,10 @@
 // just under the C buttons, while there are no steering animations or poses to say it. On at all times in a
 // build of the prototype, scene with a boat or not; `boat hud off` (CVAR_RS_BOAT_HUD) hides it.
 //
+// The save's boats (sturdy-bassoon#263), a debug readout at the left under the magic bar: a block per kind, owned or
+// not, then its parts, facilities and looks one a line (RsBoatFit_Summary), a blank line between kinds. `boat fitout
+// hud off` (CVAR_RS_BOAT_FIT_HUD) hides it alone.
+//
 // RegionOverlay.cpp's pattern: an ImGui window drawn over the game, with Draw() overridden so no titled,
 // saved-settings window opens and the gate is here rather than on the GuiWindow's visibility flag.
 
@@ -20,6 +24,7 @@
 
 #include "RsBoat.h"
 #include "RsBalloon.h"
+#include "soh/Enhancements/rs/boats/RsBoatFit.h"
 #include "soh/ShipInit.hpp"
 #include "soh/cvar_prefixes.h"
 
@@ -37,6 +42,8 @@ const char* const kWindowKey = "Boat Steering Label##RS";
 
 const ImVec4 kNotSteering = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
 const ImVec4 kSteering = ImVec4(0.35f, 1.0f, 0.35f, 1.0f);
+const ImVec4 kFitOwned = ImVec4(0.85f, 0.85f, 0.85f, 1.0f);
+const ImVec4 kFitNotOwned = ImVec4(0.55f, 0.55f, 0.55f, 1.0f);
 
 int32_t sShown = RS_BOAT_HUD_HIDDEN; // what the last frame drew, for `boat list`
 
@@ -70,18 +77,40 @@ class RsBoatHudWindow final : public Ship::GuiWindow {
         ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.45f));
         ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 4.0f);
-        ImGui::Begin("RsBoatSteeringLabel", nullptr,
-                     ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize |
-                         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav |
-                         ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoDocking |
-                         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
-                         ImGuiWindowFlags_NoSavedSettings);
+        const ImGuiWindowFlags flags =
+            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav |
+            ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoScrollbar |
+            ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoSavedSettings;
+        ImGui::Begin("RsBoatSteeringLabel", nullptr, flags);
         ImGui::SetWindowFontScale(1.4f);
         ImGui::TextColored(steering ? kSteering : kNotSteering, "%s",
                            what == RS_BOAT_HUD_STEERING_BALLOON ? "Steering balloon"
                            : steering                           ? "Steering boat"
                                                                 : "Not steering");
         ImGui::End();
+        // The readout, a box of its own: at the left, its edge in line with the hearts and its top under the magic
+        // bar (which ends about 0.18 of the way down), so it covers neither the bar nor the C buttons.
+        if (CVarGetInteger(CVAR_RS_BOAT_FIT_HUD, 1)) {
+            ImGui::SetNextWindowViewport(vp->ID);
+            ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.053f, vp->Pos.y + vp->Size.y * 0.20f),
+                                    ImGuiCond_Always, ImVec2(0.0f, 0.0f));
+            ImGui::Begin("RsBoatFitReadout", nullptr, flags);
+            ImGui::SetWindowFontScale(0.9f);
+            // Smallest boat first, the owner's order: not the enum's, which the actor's params and the save fix.
+            static const int32_t kOrder[] = { RS_BOAT_KIND_RAFT, RS_BOAT_KIND_SKIFF, RS_BOAT_KIND_SLOOP };
+            static_assert(sizeof(kOrder) / sizeof(kOrder[0]) == RS_BOAT_KIND_COUNT, "kOrder lists every kind");
+            for (int32_t i = 0; i < RS_BOAT_KIND_COUNT; i++) {
+                const int32_t kind = kOrder[i];
+                char block[512];
+                RsBoatFit_Summary(kind, block, sizeof(block));
+                if (i > 0) {
+                    ImGui::TextUnformatted(""); // a blank line between kinds
+                }
+                ImGui::TextColored(RsBoatFit_Owned(kind) ? kFitOwned : kFitNotOwned, "%s", block);
+            }
+            ImGui::End();
+        }
         ImGui::PopStyleVar(1);
         ImGui::PopStyleColor(2);
         sShown = what;

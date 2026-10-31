@@ -100,9 +100,10 @@
 //                   and turnmove (binang a tick at full tiller standing still, and added at the kind's default top
 //                   speed, for every kind; 0, the default: each kind's own, raft 300 + 200, skiff 220 + 230, sloop
 //                   200 + 121; a faster top speed turns faster in step, keeping the kind's full-speed circle),
-//                   steps (0, the default: the throttle follows the stick smoothly; n: n steps), upgrade (1:
-//                   each kind's upgraded top speed, skiff 18, sloop 14, raft none; 0). `op=tune result=ok fwd=
-//                   rev= accel= drag= brake= turnstill= turnmove= steps= upgrade=`. Works with no scene
+//                   steps (0, the default: the throttle follows the stick smoothly; n: n steps). A fit-out's
+//                   hull or sails may set a kind's top speed or accel instead (boats/RsBoatFit.h); fwd still
+//                   overrides it. `op=tune result=ok fwd= rev= accel= drag= brake= turnstill= turnmove=
+//                   steps=`. Works with no scene
 //   wake [default|reset] | wake <knob> <value> | wake slots [<n>|default]
 //                   the trail a moving boat leaves (#268; saved, read as each ring is due; RsBoat.h's
 //                   RsBoatWakeKnob): on (1), spacing (units between rings, 24), size (times the hull's own, 1), grow
@@ -125,6 +126,9 @@
 //                   trouble, depth in world units and the push a unit vector x100 on the world axes. Empty
 //                   `points=` is a hull that fits. The first thing to read when a boat stops where it should not
 //   clear           kills every boat. `op=clear result=ok killed=<n>`
+//
+//   fitout | upgrades | build | grant | look | own | fit
+//                   the save's boats (#263): boats/RsBoatFitConsole.h has them
 //
 // Refusals, each with rc 1:
 //   op=boat result=error error=no_scene      no play state (title screen, file select); lakehylia, cam,

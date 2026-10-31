@@ -25,6 +25,8 @@ typedef enum QuestRewardKind {
     QUEST_REWARD_WORLD_FLAG = 0, // a = WorldFlagId -> Flags_SetWorldFlag(a). The "unlock" primitive.
     QUEST_REWARD_RUPEES = 1,     // a = amount (s16 range) -> Rupees_ChangeBy(a). Countable, so it is
                                  // the witness the idempotency proof reads.
+    QUEST_REWARD_BOAT_UPGRADE = 2, // a = RsBoatUpgradeId -> RsBoatFit_Grant(a): builds it free (sturdy-bassoon#263).
+                                   // A boat's own upgrade goes before its parts' in the list.
     QUEST_REWARD_KIND_COUNT,
 } QuestRewardKind;
 
