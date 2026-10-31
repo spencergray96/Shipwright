@@ -492,19 +492,30 @@ bool CheckOption(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& re
             }
             break;
         case RS_DLG_ACTION_GIVE_ITEM:
+        case RS_DLG_ACTION_BUY_ITEM: {
+            const char* name = RsNpc_ActionName(option.kind);
+            if (option.kind == RS_DLG_ACTION_BUY_ITEM) {
+                const int32_t price = option.a < 0 ? 0 : RS_DLG_BUY_GET_PRICE(option.a);
+                if (price <= 0 || price > QUEST_RUPEE_AMOUNT_MAX) {
+                    return Problem(buf, len, "%s[%d].opt[%d]: buy_item price %d is outside 1..32767", word,
+                                   screenIndex, index, price);
+                }
+            }
+            const int32_t item = option.kind == RS_DLG_ACTION_BUY_ITEM ? RS_DLG_BUY_GET_ITEM(option.a) : option.a;
             // Ranges only, as for a quest id anywhere here: whether the quest has that many steps is a
             // question about another translation unit's registration, which has no defined order.
-            if (option.a < 0 || !QUEST_ID_IS_VALID(RS_DLG_ITEM_GET_QUEST(option.a))) {
-                return Problem(buf, len, "%s[%d].opt[%d]: give_item quest id %d out of range", word, screenIndex,
-                               index, RS_DLG_ITEM_GET_QUEST(option.a));
+            if (item < 0 || !QUEST_ID_IS_VALID(RS_DLG_ITEM_GET_QUEST(item))) {
+                return Problem(buf, len, "%s[%d].opt[%d]: %s quest id %d out of range", word, screenIndex, index,
+                               name, RS_DLG_ITEM_GET_QUEST(item));
             }
             // The world-flag rule, for the same reason: a debug NPC that sets a production quest's step
             // leaves state `quest debugwipe` cannot clear.
-            if ((QUEST_ID_IS_DEBUG(RS_DLG_ITEM_GET_QUEST(option.a)) != 0) != (def->tier == QUEST_TIER_DEBUG)) {
-                return Problem(buf, len, "%s[%d].opt[%d]: give_item quest %d is in the other tier's band", word,
-                               screenIndex, index, RS_DLG_ITEM_GET_QUEST(option.a));
+            if ((QUEST_ID_IS_DEBUG(RS_DLG_ITEM_GET_QUEST(item)) != 0) != (def->tier == QUEST_TIER_DEBUG)) {
+                return Problem(buf, len, "%s[%d].opt[%d]: %s quest %d is in the other tier's band", word,
+                               screenIndex, index, name, RS_DLG_ITEM_GET_QUEST(item));
             }
             break;
+        }
         case RS_DLG_ACTION_CHARGE_RUPEES:
             // Zero is refused: an option that charges nothing is a NONE that reports a price.
             if (option.a <= 0 || option.a > QUEST_RUPEE_AMOUNT_MAX) {
@@ -1134,6 +1145,8 @@ extern "C" const char* RsNpc_ActionName(int32_t kind) {
             return "give_item";
         case RS_DLG_ACTION_CHARGE_RUPEES:
             return "charge_rupees";
+        case RS_DLG_ACTION_BUY_ITEM:
+            return "buy_item";
         default:
             return "?";
     }
@@ -1322,8 +1335,15 @@ extern "C" int32_t RsNpc_RunAction(const RsDialogueOption* option) {
             Flags_SetWorldFlag(option->a);
             return QUEST_OK;
         case RS_DLG_ACTION_GIVE_ITEM:
-            // A check only: the write waits for Link to take the item (RsNpc_SetGivenStep).
-            return Quest_CheckSetStep(RS_DLG_ITEM_GET_QUEST(option->a), RS_DLG_ITEM_GET_STEP(option->a));
+        case RS_DLG_ACTION_BUY_ITEM: {
+            // Checks only: the writes wait for Link to take the item (RsNpc_SetGivenStep).
+            const int32_t item = RsNpc_OptionItem(option);
+            const int32_t check = Quest_CheckSetStep(RS_DLG_ITEM_GET_QUEST(item), RS_DLG_ITEM_GET_STEP(item));
+            if (check != QUEST_OK || option->kind == RS_DLG_ACTION_GIVE_ITEM) {
+                return check;
+            }
+            return Quest_CheckChargeRupees(RsNpc_OptionPrice(option));
+        }
         case RS_DLG_ACTION_CHARGE_RUPEES:
             return Quest_ChargeRupees(option->a);
         default:
@@ -1331,15 +1351,48 @@ extern "C" int32_t RsNpc_RunAction(const RsDialogueOption* option) {
     }
 }
 
+extern "C" int32_t RsNpc_OptionItem(const RsDialogueOption* option) {
+    if (option == nullptr) {
+        return -1;
+    }
+    switch (option->kind) {
+        case RS_DLG_ACTION_GIVE_ITEM:
+            return option->a;
+        case RS_DLG_ACTION_BUY_ITEM:
+            return RS_DLG_BUY_GET_ITEM(option->a);
+        default:
+            return -1;
+    }
+}
+
+extern "C" int32_t RsNpc_OptionPrice(const RsDialogueOption* option) {
+    return option != nullptr && option->kind == RS_DLG_ACTION_BUY_ITEM ? RS_DLG_BUY_GET_PRICE(option->a) : 0;
+}
+
 extern "C" int32_t RsNpc_SetGivenStep(const RsDialogueOption* option) {
-    if (option == nullptr || option->kind != RS_DLG_ACTION_GIVE_ITEM) {
+    const int32_t item = RsNpc_OptionItem(option);
+    if (item < 0) {
         return QUEST_ERR_BAD_DEF;
     }
-    const int32_t questId = RS_DLG_ITEM_GET_QUEST(option->a);
-    const int32_t step = RS_DLG_ITEM_GET_STEP(option->a);
-    const int32_t check = Quest_CheckSetStep(questId, step);
-    const int32_t result = check == QUEST_OK ? Quest_SetStep(questId, step) : check;
-    if (result == QUEST_OK) {
+    const int32_t questId = RS_DLG_ITEM_GET_QUEST(item);
+    const int32_t step = RS_DLG_ITEM_GET_STEP(item);
+    const int32_t price = RsNpc_OptionPrice(option);
+    // Both halves checked before either is written: a sale that could take the rupees and then fail
+    // to set the step - or the reverse - is the half-done sale this action exists to rule out.
+    int32_t check = Quest_CheckSetStep(questId, step);
+    if (check == QUEST_OK && price > 0) {
+        check = Quest_CheckChargeRupees(price);
+    }
+    if (check != QUEST_OK) {
+        return check;
+    }
+    if (price > 0) {
+        Quest_ChargeRupees(price);
+    }
+    const int32_t result = Quest_SetStep(questId, step);
+    // Only a quest the journal shows: a step bought for a quest not yet started is real state, but
+    // "Quest updated" about a quest the player has never heard of would be noise.
+    if (result == QUEST_OK && QuestStore_GetStatus(questId) == QUEST_STATUS_IN_PROGRESS) {
         QueueNotice(questId, QUEST_NOTICE_UPDATED);
     }
     return result;

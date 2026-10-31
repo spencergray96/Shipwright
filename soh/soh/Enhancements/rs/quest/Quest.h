@@ -162,9 +162,11 @@ const char* Quest_NoticeKindName(int32_t kind); // "updated", "started", "comple
 // (sturdy-bassoon#281) - so two purchases in a row cannot both be paid out of the same rupees.
 int32_t Quest_RupeesAfterPending(void);
 // Takes `amount` rupees when Link holds that many by Quest_RupeesAfterPending: QUEST_OK, or
-// QUEST_ERR_CANNOT_AFFORD with nothing taken. A dialogue option's charge (sturdy-bassoon#281); never
-// asserts. `amount` is 1..QUEST_RUPEE_AMOUNT_MAX, which registration checks; anything else is
-// QUEST_ERR_BAD_DEF.
+// QUEST_ERR_CANNOT_AFFORD with nothing taken. A dialogue option's charge or sale (sturdy-bassoon#281);
+// never asserts. `amount` is 1..QUEST_RUPEE_AMOUNT_MAX, which registration checks; anything else is
+// QUEST_ERR_BAD_DEF. Quest_CheckChargeRupees is the same answer with nothing taken, as Quest_Check*
+// is for every quest write.
+int32_t Quest_CheckChargeRupees(int32_t amount);
 int32_t Quest_ChargeRupees(int32_t amount);
 
 // One line, no newline, always NUL-terminated for len > 0:

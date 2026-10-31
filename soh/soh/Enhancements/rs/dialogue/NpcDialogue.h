@@ -121,7 +121,7 @@ int32_t RsNpc_NodeClauseGated(int32_t npcId, int32_t nodeIndex);
 
 const char* RsNpc_ResultName(int32_t result);
 const char* RsNpc_ActionName(int32_t kind); // "none", "start_quest", "complete_quest", "set_world_flag",
-                                            // "give_item", "charge_rupees"
+                                            // "give_item", "charge_rupees", "buy_item"
 // "rule" or "node" for an RsScreenKind. One spelling, because it reaches three sinks that must
 // agree: a registration refusal names the array an author has to go and look in, `npc tree` keys
 // its `screen[…]`/`edge[…]` lines on it, and the actor's choice marker reports which kind of screen
@@ -143,14 +143,21 @@ void RsNpc_Describe(int32_t npcId, char* buf, size_t len);
 // Runs an option's action through the CHECKED quest API. Returns the QuestResult
 // (Quest.h) for the quest actions, or QUEST_OK for the ones that cannot fail. Never asserts.
 //
-// GIVE_ITEM only CHECKS here (Quest_CheckSetStep): handing the item over is the actor's, after the
-// conversation closes, and the step is set when Link accepts it (RsNpc_SetGivenStep). A START_QUEST
-// or COMPLETE_QUEST that succeeds queues a journal notice (below).
+// GIVE_ITEM and BUY_ITEM only CHECK here (the step, and a sale's price): handing the item over is the
+// actor's, after the conversation closes, and the writes happen when Link accepts it
+// (RsNpc_SetGivenStep). A START_QUEST or COMPLETE_QUEST that succeeds queues a journal notice (below).
 int32_t RsNpc_RunAction(const RsDialogueOption* option);
 
-// The step a GIVE_ITEM option names, set check-then-write as a quest item sets its own: called by the
-// actor on the frame Link accepts the item. The QuestResult; never asserts. A step that is set queues
-// an UPDATED journal notice, shown when the re-opened conversation ends.
+// The item an option hands over - RS_DLG_ITEM(quest, step) for a GIVE_ITEM or a BUY_ITEM - or -1 for
+// any other option. What the actor offers and the console prints, read one way for both kinds.
+int32_t RsNpc_OptionItem(const RsDialogueOption* option);
+// A BUY_ITEM's price; 0 for any other option, a gift included.
+int32_t RsNpc_OptionPrice(const RsDialogueOption* option);
+
+// The hand-over's writes, called by the actor on the frame Link accepts the item: a sale's price
+// taken, then the step set, both checked before either is written, so a sale is never half done. The
+// QuestResult; never asserts. A step set on a quest in progress queues an UPDATED journal notice,
+// shown when the re-opened conversation ends - not on one the journal does not show yet.
 int32_t RsNpc_SetGivenStep(const RsDialogueOption* option);
 
 // --- journal notices (sturdy-bassoon#281) ---------------------------------------------------------

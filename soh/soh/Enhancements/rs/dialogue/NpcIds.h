@@ -72,9 +72,9 @@ typedef enum NpcId {
                                 // ways registration accepts one. "Ask about the job, hear what is
                                 // left, back to the menu".
     NPC_DEBUG_SHOP = 200, // the Majora's Mask verbs (sturdy-bassoon#281): a price behind
-                          // RupeesAtLeast and one nobody can pay, an errand whose start and
-                          // completion each show a journal notice, and an item handed over with
-                          // GIVE_ITEM that re-opens the conversation afterwards.
+                          // RupeesAtLeast and one nobody can pay, wares sold with BUY_ITEM, an
+                          // errand whose start and completion each show a journal notice, and an
+                          // item handed over with GIVE_ITEM that re-opens the conversation.
 } NpcId;
 
 #define NPC_ID_IS_VALID(id) ((id) >= 0 && (id) < NPC_MAX)

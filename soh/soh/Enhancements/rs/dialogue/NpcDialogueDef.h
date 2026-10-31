@@ -47,14 +47,29 @@ typedef enum RsDialogueActionKind {
     // `npc dump` prints it - Majora's Mask keeps a shop's prices in the message header, where no tool
     // sees them. Gate the option on RupeesAtLeast(price) so a player who cannot pay never sees it.
     RS_DLG_ACTION_CHARGE_RUPEES = 5,
+    // a = RS_DLG_BUY(questId, step, price): a SALE in one pick (sturdy-bassoon#281) - GIVE_ITEM's hand-over,
+    // paid for. Picking it checks both halves (the step can be set, Link can afford the price) and
+    // takes nothing; the rupees go when Link ACCEPTS the item, in the same breath as the step is set.
+    // So a sale is all or nothing: a hand-over withdrawn or lost to a scene change charges nothing,
+    // and there is no screen between paying and receiving for the player to leave by. Refused as
+    // QUEST_ERR_CANNOT_AFFORD when short; gate it on RupeesAtLeast(price) as well, so a player who
+    // cannot pay never sees it. RsNpc only, like GIVE_ITEM.
+    RS_DLG_ACTION_BUY_ITEM = 6,
     RS_DLG_ACTION_KIND_COUNT,
 } RsDialogueActionKind;
 
 // GIVE_ITEM's operand: a quest and one of its steps, packed as the pickup text id packs them, so one
-// int names the item an RsQuestItem placement of the same (quest, step) would be.
+// int names the item an RsQuestItem placement of the same (quest, step) would be. Eleven bits.
 #define RS_DLG_ITEM(questId, step) ((int32_t)(((questId) << 5) | (step)))
 #define RS_DLG_ITEM_GET_QUEST(a) ((int32_t)((a) >> 5))
 #define RS_DLG_ITEM_GET_STEP(a) ((int32_t)((a)&31))
+
+// BUY_ITEM's operand: the price above the item, so the item half reads back through the RS_DLG_ITEM
+// getters. 15 bits of price over 11 of item is 26 bits: positive in an int32 for every legal price.
+#define RS_DLG_ITEM_BITS 11
+#define RS_DLG_BUY(questId, step, price) ((int32_t)(((price) << RS_DLG_ITEM_BITS) | RS_DLG_ITEM(questId, step)))
+#define RS_DLG_BUY_GET_ITEM(a) ((int32_t)((a) & ((1 << RS_DLG_ITEM_BITS) - 1)))
+#define RS_DLG_BUY_GET_PRICE(a) ((int32_t)((a) >> RS_DLG_ITEM_BITS))
 
 typedef struct RsDialogueOption {
     const char* label;         // the choice line; never NULL
@@ -341,6 +356,7 @@ RS_STATIC_ASSERT(RS_TEXT_NPC_END < RS_TEXT_DIRECT,
                  "raising NPC_MAX must not push an NPC text id onto RS_TEXT_DIRECT");
 RS_STATIC_ASSERT(RS_TEXT_DIRECT < RS_TEXT_NODE_BASE, "the node band must start above RS_TEXT_DIRECT");
 RS_STATIC_ASSERT(QUEST_STEP_MAX == 32, "RS_DLG_ITEM's step field is five bits");
+RS_STATIC_ASSERT(QUEST_MAX << 5 == 1 << RS_DLG_ITEM_BITS, "RS_DLG_ITEM fills exactly RS_DLG_ITEM_BITS bits");
 RS_STATIC_ASSERT(QUEST_STEP_MAX == (1 << RS_TEXT_ITEM_SHIFT),
                  "the item text id's step field width and QUEST_STEP_MAX are the same number");
 RS_STATIC_ASSERT(RS_TEXT_DIRECT < RS_TEXT_ITEM_BASE, "the item pickup band must start above RS_TEXT_DIRECT");

@@ -283,9 +283,10 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
         option = &screen->options[declared];
         /* ACTION -> REPLY -> NEXT. The action fires wherever navigation goes afterwards. */
         result = RsNpc_RunAction(option);
-        /* A GIVE_ITEM whose step can still be set promises an item. The promise is all that is kept:
-         * the step is set when Link takes the item, after the box closes (RsNpc_Give). */
-        if (option->kind == RS_DLG_ACTION_GIVE_ITEM && result == QUEST_OK) {
+        /* A GIVE_ITEM or BUY_ITEM whose checks pass promises an item. The promise is all that is kept:
+         * the step is set, and a sale's price taken, when Link takes the item after the box closes
+         * (RsNpc_Give). */
+        if (RsNpc_OptionItem(option) >= 0 && result == QUEST_OK) {
             this->giving = option;
         }
         /* Fields are APPENDED, never inserted: `rule= index= action= a= result=` stay in the order
@@ -353,7 +354,7 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
     }
 }
 
-/* --- GIVE_ITEM: handing an item over (sturdy-bassoon#281) ------------------------------------------
+/* --- GIVE_ITEM and BUY_ITEM: handing an item over (sturdy-bassoon#281) -----------------------------
  *
  * Majora's Mask's sequence, which is OoT's EnDs and EnAni with one camera line: close -> offer -> wait
  * for the parent -> reset -> wait out Player's box -> re-open. The offer is a quest item's own get-item
@@ -366,16 +367,18 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
 static void RsNpc_Give(RsNpc* this, PlayState* play) {
     char line[160];
     s32 result;
+    s32 item = RsNpc_OptionItem(this->giving);
 
     if (Actor_HasParent(&this->actor, play)) {
         /* Handed over: clear it, as Majora's Mask's SET_COLLECTIBLE does after every OFFER_ITEM, so a
          * later give from this actor is a new acceptance rather than this one seen again. */
         this->actor.parent = NULL;
-        /* Set on acceptance, check-then-write, as a get-item quest item sets its own step. */
+        /* Written on acceptance, check-then-write, as a get-item quest item sets its own step - and a
+         * sale is paid for here, in the same call, so it is never half done. `price=` is what that took. */
         result = RsNpc_SetGivenStep(this->giving);
-        snprintf(line, sizeof(line), "rs_dialogue npc=%d event=give rule=%d quest=%d step=%d result=%s", this->npcId,
-                 this->ruleIndex, (int)RS_DLG_ITEM_GET_QUEST(this->giving->a),
-                 (int)RS_DLG_ITEM_GET_STEP(this->giving->a), Quest_ResultName(result));
+        snprintf(line, sizeof(line), "rs_dialogue npc=%d event=give rule=%d quest=%d step=%d result=%s price=%d",
+                 this->npcId, this->ruleIndex, (int)RS_DLG_ITEM_GET_QUEST(item), (int)RS_DLG_ITEM_GET_STEP(item),
+                 Quest_ResultName(result), result == QUEST_OK ? (int)RsNpc_OptionPrice(this->giving) : 0);
         RsAgent_Marker(line);
         this->actionFunc = RsNpc_GiveDone;
         return;
@@ -387,9 +390,8 @@ static void RsNpc_Give(RsNpc* this, PlayState* play) {
         RsNpc_End(this);
         return;
     }
-    RsQuestItem_OfferFrom(&this->actor, play, RS_DLG_ITEM_GET_QUEST(this->giving->a),
-                          RS_DLG_ITEM_GET_STEP(this->giving->a), this->actor.xzDistToPlayer + 1.0f,
-                          fabsf(this->actor.yDistToPlayer) + 1.0f);
+    RsQuestItem_OfferFrom(&this->actor, play, RS_DLG_ITEM_GET_QUEST(item), RS_DLG_ITEM_GET_STEP(item),
+                          this->actor.xzDistToPlayer + 1.0f, fabsf(this->actor.yDistToPlayer) + 1.0f);
 }
 
 /* Player's now: the animation, the item camera, the pickup box, putting the item away. Wait all of it

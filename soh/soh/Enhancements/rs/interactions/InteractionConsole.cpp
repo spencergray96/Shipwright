@@ -153,6 +153,13 @@ int32_t BadCheck(std::vector<std::string>& lines) {
     static const RsDialogueRule kGiveRule[] = {
         { nullptr, 0, "A parcel.", kGive, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
     };
+    static const RsDialogueOption kBuy[] = {
+        { "Buy it", RS_DLG_ACTION_BUY_ITEM, RS_DLG_BUY(QUEST_DEBUG_GROCERIES, 0, 10), nullptr, RS_DLG_NO_NEXT },
+        { "Leave it", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    };
+    static const RsDialogueRule kBuyRule[] = {
+        { nullptr, 0, "A loaf.", kBuy, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    };
     struct Case {
         const char* label;
         RsInteractionDef def;
@@ -167,6 +174,7 @@ int32_t BadCheck(std::vector<std::string>& lines) {
         { "last_rule_gated", { RS_INTERACTION(32767), QUEST_TIER_DEBUG, "bad_gate", "Bad: gate", kGated, 1 }, false },
         { "no_rules", { RS_INTERACTION(32767), QUEST_TIER_DEBUG, "bad_none", "Bad: none", kTwoPlain, 0 }, false },
         { "give_item", { RS_INTERACTION(32767), QUEST_TIER_DEBUG, "bad_give", "Bad: give", kGiveRule, 1 }, false },
+        { "buy_item", { RS_INTERACTION(32767), QUEST_TIER_DEBUG, "bad_buy", "Bad: buy", kBuyRule, 1 }, false },
     };
     int32_t wrong = 0;
     for (const Case& c : cases) {

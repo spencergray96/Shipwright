@@ -911,14 +911,19 @@ extern "C" int32_t Quest_RupeesAfterPending(void) {
     return gSaveContext.rupees + gSaveContext.rupeeAccumulator;
 }
 
-extern "C" int32_t Quest_ChargeRupees(int32_t amount) {
+extern "C" int32_t Quest_CheckChargeRupees(int32_t amount) {
     if (amount <= 0 || amount > QUEST_RUPEE_AMOUNT_MAX) {
         return QUEST_ERR_BAD_DEF;
     }
     // Checked against what Link will hold once the HUD has counted, so a second purchase a frame after
     // the first cannot spend the same rupees.
-    if (Quest_RupeesAfterPending() < amount) {
-        return QUEST_ERR_CANNOT_AFFORD;
+    return Quest_RupeesAfterPending() < amount ? QUEST_ERR_CANNOT_AFFORD : QUEST_OK;
+}
+
+extern "C" int32_t Quest_ChargeRupees(int32_t amount) {
+    const int32_t check = Quest_CheckChargeRupees(amount);
+    if (check != QUEST_OK) {
+        return check;
     }
     Rupees_ChangeBy(static_cast<s16>(-amount));
     return QUEST_OK;

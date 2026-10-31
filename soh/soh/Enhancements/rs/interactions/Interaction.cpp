@@ -37,16 +37,17 @@ bool Validate(const RsInteractionDef* def, char* buf, size_t len) {
     if (RsDialogue_BodyProblem(def, buf, len) != 0) {
         return false;
     }
-    // ...less one action. GIVE_ITEM needs a speaker that waits for Link to take the item after the box
-    // closes (RsNpc's give states, sturdy-bassoon#281), and the trigger has no such state, so a prop
-    // offering one would check the step and never hand anything over.
+    // ...less two actions. GIVE_ITEM and BUY_ITEM need a speaker that waits for Link to take the item
+    // after the box closes (RsNpc's give states, sturdy-bassoon#281), and the trigger has no such state,
+    // so a prop offering one would check the step and never hand anything over.
     for (int32_t kind = RS_SCREEN_RULE; kind <= RS_SCREEN_NODE; kind++) {
         const int32_t count = kind == RS_SCREEN_RULE ? def->ruleCount : def->nodeCount;
         for (int32_t i = 0; i < count; i++) {
             const RsDialogueRule* screen = RsDialogue_Screen(def, kind, i);
             for (int32_t o = 0; screen != nullptr && o < screen->optionCount; o++) {
-                if (screen->options[o].kind == RS_DLG_ACTION_GIVE_ITEM) {
-                    return Problem(buf, len, "interaction %d: give_item is an NPC's action; a prop cannot hand an item over",
+                if (RsNpc_OptionItem(&screen->options[o]) >= 0) {
+                    return Problem(buf, len,
+                                   "interaction %d: give_item and buy_item are an NPC's; a prop cannot hand an item over",
                                    def->id);
                 }
             }

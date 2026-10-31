@@ -44,7 +44,7 @@ typedef struct RsNpc {
     /* */ RsNpcActionFunc actionFunc;
     /* */ int32_t npcId;    // decoded from params once, at Init
     /* */ int32_t ruleIndex; // the rule currently speaking; recomputed every idle frame
-    /* */ const struct RsDialogueOption* giving; // the GIVE_ITEM option being handed over, or NULL
+    /* */ const struct RsDialogueOption* giving; // the GIVE_ITEM or BUY_ITEM being handed over, or NULL
 } RsNpc;
 
 #endif // SOH_RS_NPC_ACTOR_H
