@@ -142,6 +142,7 @@ typedef struct LightsShadowTick {
     s16 node[LIGHTS_SHADOW_CASTS_MAX];        // each slot's node: its pool index, or LIGHTS_SHADOW_NODE_DIR
     u8 alpha[2][LIGHTS_SHADOW_CASTS_MAX];     // [foot][slot]: the alpha its shadow drew at; 0 when none
     s32 lightNum[LIGHTS_SHADOW_CASTS_MAX];    // foot 0's strength term, before the 0.00005 scale and clamp
+    s32 deck;                                 // 1 when a boat's circle stood in for the feet shadows (#267)
 } LightsShadowTick;
 
 // One shadow for ActorShadow_DrawFeet to draw: the light's direction (in `light`) and its strength.
@@ -171,6 +172,8 @@ typedef struct LightsShadowStats {
 void Lights_GetStats(LightsStats* out);
 // From ActorShadow_DrawFeet, for Link only: the shadow `slot` drew under `foot` at `alpha`.
 void Lights_RecordLinkShadow(s32 foot, s32 slot, s32 lightNum, u8 alpha);
+// From ActorShadow_DrawFeet, for Link only: he drew a boat deck's circle instead of his feet shadows.
+void Lights_RecordLinkDeckShadow(void);
 // Oldest first, at most `max`; returns the count. `Lights_ClearShadowRecord` starts a trial afresh.
 s32 Lights_GetShadowRecord(LightsShadowTick* out, s32 max);
 void Lights_ClearShadowRecord(void);

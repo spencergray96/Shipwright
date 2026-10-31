@@ -11,6 +11,7 @@
 // Held, not re-resolved, as ArchivePropLists.cpp holds a room's lists: the list's address is its resource's
 // instruction vector, stable only while the resource lives. And loaded by its exact path, which never looks at alt/.
 
+
 #include "RsBoat.h"
 
 #include <map>
@@ -44,6 +45,7 @@ std::shared_ptr<Fast::DisplayList> Load(const char* path) {
 }
 
 } // namespace
+
 
 extern "C" Gfx* RsBoat_ModelList(const char* listPath) {
     auto found = sModels.find(listPath);

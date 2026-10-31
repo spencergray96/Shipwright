@@ -132,6 +132,13 @@ void Lights_RecordLinkShadow(s32 foot, s32 slot, s32 lightNum, u8 alpha) {
     }
 }
 
+// SOH [sturdy-bassoon#267]
+void Lights_RecordLinkDeckShadow(void) {
+    if (sShadowRecordOpen != NULL) {
+        sShadowRecordOpen->deck = 1;
+    }
+}
+
 // #region SOH [sturdy-bassoon#254]
 s32 Lights_BoundSlotKey(Lights* lights, s32 slot, const void** key, s32* node) {
     if (lights != sBindLights || slot < 0 || slot >= LIGHTS_BIND_SLOTS || sBindNode[slot] == NULL) {

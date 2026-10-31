@@ -69,11 +69,22 @@
 // EffectSs_FindSlot hands to any other spawn first once the table is full (z_effect_soft_sprite.c), and only while
 // more than `reserve` slots are free, so the wake thins out under pressure rather than churning.
 //
+// LINK'S SHADOW (#267). Over a boat Link has no feet shadows (Navi's light turned them round him). By default the boat
+// casts his shadow onto itself (RS_VEHICLE_SHADOW_DRAPED, RsVehicleShadow_Draw): the drawn hull's own faces under it
+// (RsVehicleDeck_FromArchive, read from the kind's archive as the boat spawns), clipped to its square and drawn again in the
+// hull's matrix wearing vanilla's circle shadow laid on from above. So it rocks with the drawn deck rather than the
+// collision's whole units, lies on the trim to its edge, over the covered bow's crown and down the slanted walls, and
+// shows only once his feet are up on the deck he climbs onto; it follows his feet mid-climb and fades in over a few
+// ticks. Built on the hull at a walk and relative to him at a run (RsVehicleShadowAnchor). 60-390 opaque words a tick over
+// the circle's, by how many faces lie under it. `boat shadow` switches it (or to the flat circle, or the feet shadows),
+// reads its last draw, and `boat shadow trace` its last RS_VEHICLE_SHADOW_TRACE.
+//
 // Console: `boat ...` and `agenttest boat ...` (RsBoatConsole.h). Markers: `rs_boat event=<spawn|helm_on|
 // helm_off|blocked> ...` (agent mode).
 
 #include "z64.h"
 #include "RsSteer.h"
+#include "RsVehicleShadow.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -289,6 +300,7 @@ s32 RsBoat_SteppedOffBoat(PlayState* play, const Player* player);
 // 1 when `bgId` is a live boat's collision.
 s32 RsBoat_IsBoatFloor(PlayState* play, s32 bgId);
 
+
 // 1 when Link, aboard as of last tick, is leaving an edge over a boat's own floor: off its rail or its covered bow onto
 // its deck. Player gives that no hop (a walk off), or on a kind that hops inward the small hop at any pace over 0.5, a
 // walk included (the full one at a run carried him over the far side), from any drop over 10.
@@ -386,6 +398,7 @@ void RsBoat_HelmPos(const RsBoat* boat, Vec3f* out);
 // A kind's display list, in its own model space (RsBoatModel.cpp), by its archive path, or NULL when its archive
 // is not in mods/ - the boat then draws its placeholder box.
 Gfx* RsBoat_ModelList(const char* listPath);
+
 
 const char* RsBoat_BlockName(s32 block);
 

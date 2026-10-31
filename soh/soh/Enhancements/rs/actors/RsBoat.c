@@ -1514,6 +1514,10 @@ static s32 RsBoat_Improves(RsBoat* this, PlayState* play, f32 x, f32 z, s16 yaw,
     return c.reason == RS_BOAT_BLOCK_NONE || c.total < than - 0.01f;
 }
 
+// The archive's copies Link's shadow does not fall on (RsVehicleDeck_FromArchive): he never stands on the sails, the
+// mast or the helm.
+static const char* const sRsBoatDeckSkip[] = { "sails", "helm", NULL };
+
 // --- the helm -----------------------------------------------------------------------------------
 
 s32 RsBoat_LinkOnDeck(const RsBoat* this, const Player* player) {
@@ -2180,6 +2184,7 @@ s32 RsBoat_IsBoatFloor(PlayState* play, s32 bgId) {
     return RsBoat_IsHullBg(play, bgId);
 }
 
+
 s32 RsBoat_StepOntoOwnDeck(PlayState* play, const Player* player) {
     return RsBoat_LinkWasAboard(play) && RsBoat_IsHullBg(play, player->actor.floorBgId);
 }
@@ -2302,6 +2307,9 @@ void RsBoat_Init(Actor* thisx, PlayState* play) {
     if (!sHulls[this->kind].built) {
         RsBoat_BuildHull(this->kind);
     }
+    // Link's draped shadow's deck map, read from the archive now, inside the scene's load, rather than as he first
+    // steps aboard: ~40-60 ms a kind in Debug, once a session (#267).
+    (void)RsVehicleDeck_FromArchive(sRsBoatKinds[this->kind].list, sRsBoatDeckSkip);
 
     Actor_SetScale(thisx, 1.0f);
     // Position and yaw: the engine's moving-platform path carries Link along and turns him with the hull.
@@ -2861,6 +2869,7 @@ static void RsBoat_DrawTestWater(GraphicsContext* gfxCtx) {
     CLOSE_DISPS(gfxCtx);
 }
 
+
 void RsBoat_Draw(Actor* thisx, PlayState* play) {
     RsBoat* this = (RsBoat*)thisx;
     GraphicsContext* gfxCtx = play->state.gfxCtx;
@@ -2921,5 +2930,15 @@ void RsBoat_Draw(Actor* thisx, PlayState* play) {
 
     if (gRsBoatTestWater.active) {
         RsBoat_DrawTestWater(gfxCtx);
+    }
+    // Last: its own render state, after the hull it lies on.
+    {
+        const RsVehicleShadowSource shadow = {
+            &this->dyna.actor, this->dyna.bgId, this->linkAboard,
+            RsVehicleDeck_FromArchive(sRsBoatKinds[this->kind].list, sRsBoatDeckSkip), sRsBoatKinds[this->kind].modelY,
+            sRsBoatKinds[this->kind].modelZ, this->kind,
+        };
+
+        RsVehicleShadow_Draw(play, &shadow);
     }
 }

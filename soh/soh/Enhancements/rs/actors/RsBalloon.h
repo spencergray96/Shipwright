@@ -42,6 +42,11 @@
 // it back at the spot it was put down at, landed, once Link has been out of it that long anywhere, in the air or on
 // the ground (RS never strands a balloon). Link knocked out of the controls lets go, as at the boat's helm.
 //
+// LINK'S SHADOW (#267). In the basket Link's shadow is the boats': cast onto the basket's own drawn faces, so Navi
+// cannot turn it and it stops at the walls (RsVehicleShadow.h). Until the basket has a model, its faces are its
+// placeholder boxes' (RsBalloon_Deck); once it is drawn from an archive, the deck is read from that archive, as the
+// boats' are, and the shadow needs nothing else.
+//
 // Console: `balloon ...` and `agenttest balloon ...` (RsBalloonConsole.h). Markers: `rs_balloon event=<spawn|
 // controls_on|controls_off|liftoff|landed|blocked|abandoned|home> ...` (agent mode).
 
@@ -183,6 +188,11 @@ s32 RsBalloon_ControlsInReach(PlayState* play);
 
 // 1 while Link holds some balloon's controls; Player blanks the A label, and the steering label reads it.
 s32 RsBalloon_LinkAtControls(PlayState* play);
+
+// 1 when `bgId` is a live balloon's basket; 1 when Link stood in some balloon's basket as of last tick. Link's shadow
+// reads both (RsVehicleShadow.h): over a basket he gets the basket's.
+s32 RsBalloon_IsBasketFloor(PlayState* play, s32 bgId);
+s32 RsBalloon_LinkWasAboard(PlayState* play);
 
 // The ground a balloon at (x, z) with its bottom at `alt` would stand on: the highest floor under the probe grid
 // across its bottom, looking down from its clearance over `alt`, or open water's surface when that is higher.

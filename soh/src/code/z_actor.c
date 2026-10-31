@@ -18,6 +18,7 @@
 #include "soh/Enhancements/nametag.h"
 #include "soh/Enhancements/actortiers/ActorTiers.h"
 #include "soh/Enhancements/rs/actors/RsFire.h"
+#include "soh/Enhancements/rs/actors/RsVehicleShadow.h"
 
 #include "soh/ActorDB.h"
 #include "soh/OTRGlobals.h"
@@ -241,8 +242,24 @@ static void ActorShadow_DrawFootPaired(PlayState* play, const void* key, s32 id,
 
 void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
     f32 distToFloor = actor->world.pos.y - actor->floorHeight;
+    // #region SOH [sturdy-bassoon#267] Link over a vehicle: no feet shadows, and the circle in its mode
+    // (RsVehicleShadow.h; the vehicle draws the draped one). Not vanilla's airborne circle, which fades in only as
+    // the feet shadows fade out: ActorShadow_Draw fades this one with height itself.
+    s32 deckShadow = RsVehicleShadow_Mode(play, actor);
 
-    if (distToFloor > 20.0f) {
+    if (deckShadow != RS_VEHICLE_SHADOW_FEET) {
+        Lights_RecordLinkDeckShadow();
+    }
+    if (deckShadow == RS_VEHICLE_SHADOW_CIRCLE) {
+        f32 shadowScale = actor->shape.shadowScale;
+
+        actor->shape.shadowScale *= RsVehicleShadow_Size();
+        ActorShadow_DrawCircle(actor, lights, play);
+        actor->shape.shadowScale = shadowScale;
+    }
+    // #endregion
+
+    if ((deckShadow == RS_VEHICLE_SHADOW_FEET) && (distToFloor > 20.0f)) { // SOH [sturdy-bassoon#267] the mode
         f32 shadowScale = actor->shape.shadowScale;
         u8 shadowAlpha = actor->shape.shadowAlpha;
         f32 alphaRatio;
@@ -276,7 +293,9 @@ void ActorShadow_DrawFeet(Actor* actor, Lights* lights, PlayState* play) {
         // records Link's.
         s32 isLink = (GET_PLAYER(play) != NULL) && (actor == &GET_PLAYER(play)->actor);
         LightsShadowCast casts[LIGHTS_SHADOW_CASTS_MAX];
-        s32 numCasts = Lights_ShadowCasts(actor, lights, casts);
+        // SOH [sturdy-bassoon#267] Over a deck, no casts: the loop still finds each foot's floor
+        // (feetFloorFlags, which Player reads) and draws nothing.
+        s32 numCasts = (deckShadow != RS_VEHICLE_SHADOW_FEET) ? 0 : Lights_ShadowCasts(actor, lights, casts);
         // #endregion
 
         OPEN_DISPS(play->state.gfxCtx);

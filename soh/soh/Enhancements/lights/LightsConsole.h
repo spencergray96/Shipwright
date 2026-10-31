@@ -36,13 +36,15 @@
 //                   cap keep their nodes
 //   shadow [clear]  Link's feet shadows over the last LIGHTS_SHADOW_RECORD_TICKS ticks (#250), oldest first:
 //                   `op=shadow result=ok ticks=<n> scene=0x<hex>`, then one line a tick:
-//                   `t=<frame> sm=<0|1> n=<n> ids=<10> f0=<10> f1=<10> num=<10>`, each a comma list over
+//                   `t=<frame> sm=<0|1> n=<n> ids=<10> f0=<10> f1=<10> num=<10> deck=<0|1>`, each a comma list over
 //                   LIGHTS_SHADOW_CASTS_MAX entries (`-` past the n used). sm=0: the entries are the bound
 //                   slots, as vanilla draws them; sm=1: the smoothed casts, fading lights included, then the
 //                   sun's two. ids: each entry's node, its pool index, or `s` for a directional light;
 //                   f0/f1: the alpha its shadow drew at under each foot (0 for none); num: foot 0's strength
 //                   term before the scale and clamp. The last two entries are the ones ActorShadow_DrawFeet
-//                   treats as the sun. `clear` empties the record: `op=shadow result=ok cleared=1`
+//                   treats as the sun. deck=1: Link was over a boat and drew its plain circle instead
+//                   (RsVehicleShadow_Mode, #267), so every f0/f1 is 0. `clear` empties the record:
+//                   `op=shadow result=ok cleared=1`
 //   shadowsmooth [on|off|default]
 //                   sets the smoothed feet shadows (saved; default on; grid-tool scenes only), then, or bare,
 //                   `op=shadowsmooth result=ok shadowsmooth=on|off default=on override=0|1 gate=<0|1>
