@@ -47,8 +47,8 @@ const bool kKindSlots[RS_BOAT_KIND_COUNT][RS_BOAT_SLOT_COUNT] = {
 };
 
 // Every tier. A core part's tier 0 is its kind's free default and has a row; a facility's 0 is empty and has none.
-// Stats at 0 leave the boat's own standing (RsBoatTier): only the oak hulls set one so far, the other core tiers are
-// looks alone (the owner, #283), reached by `boat fit` until upgrades build them. A core tier's loc is the RS loc the
+// Stats at 0 leave the boat's own standing (RsBoatTier): only the hulls from oak up set one so far, oak's tuned speed,
+// and the other core tiers are looks alone (the owner, #283), reached by `boat fit` until upgrades build them. A core tier's loc is the RS loc the
 // boat draws it as, checked against the cache (build 240, #283): RS's seven of each part are one mesh recoloured, so
 // the boat draws its kind's one model in the fitted tier's colours, which generate_props reads from these locs (the
 // `tiers` in each rs_boat_<kind>_props.json, which must list the same: RsBoatModel.cpp logs a difference).
@@ -85,11 +85,13 @@ const RsBoatTier kTiers[] = {
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 0, "wooden", 59501, 0.0f, 0.0f, 0, 0 },
     // The speed upgrade the owner tuned on #262 (2026-10-26): 14 to 18. Turning rises with it (RsBoat_TurnRate).
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 1, "oak", 59502, 18.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 2, "teak", 59503, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 3, "mahogany", 59504, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 4, "camphor", 59505, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 5, "ironwood", 59506, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 6, "rosewood", 59507, 0.0f, 0.0f, 0, 0 },
+    // Past oak a hull keeps oak's speed until its tier gets stats of its own (the owner, 2026-10-31): a stat at 0
+    // would be the boat's own, slower than oak. The same on the sloop.
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 2, "teak", 59503, 18.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 3, "mahogany", 59504, 18.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 4, "camphor", 59505, 18.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 5, "ironwood", 59506, 18.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 6, "rosewood", 59507, 18.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 0, "bronze", 59576, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 1, "iron", 59579, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 2, "steel", 59582, 0.0f, 0.0f, 0, 0 },
@@ -116,11 +118,11 @@ const RsBoatTier kTiers[] = {
 
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 0, "wooden", 59508, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 1, "oak", 59509, 14.0f, 0.0f, 0, 0 }, // 12 to 14
-    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 2, "teak", 59510, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 3, "mahogany", 59511, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 4, "camphor", 59512, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 5, "ironwood", 59513, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 6, "rosewood", 59514, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 2, "teak", 59510, 14.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 3, "mahogany", 59511, 14.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 4, "camphor", 59512, 14.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 5, "ironwood", 59513, 14.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 6, "rosewood", 59514, 14.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 0, "bronze", 59598, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 1, "iron", 59601, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 2, "steel", 59604, 0.0f, 0.0f, 0, 0 },
