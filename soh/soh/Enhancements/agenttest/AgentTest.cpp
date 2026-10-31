@@ -329,6 +329,12 @@
  *   rs_balloon <line>                    one line of RsBalloonConsole_Run output per marker, from
  *                                        `agenttest balloon ...` - `balloon idx=...` or `op=...`, never
  *                                        `event=...`
+ *   rs_trial event=<start|crate|out|in|finish|fail> ...
+ *                                        the Barracuda Trial (sturdy-bassoon#289): a run started, a crate
+ *                                        collected, Link out of or back in the area, finished, failed.
+ *                                        Gameplay markers (rs/trials/RsTrial.cpp has each one's fields)
+ *   rs_trial <line>                      one line of RsTrialConsole_Run output per marker, from
+ *                                        `agenttest trial ...` - `crate n=...` or `op=...`, never `event=...`
  *   rs_fire <line>                       one line of RsFireConsole_Run output per marker, from
  *                                        `agenttest rsfire ...` - `fire idx=...` or `op=...`, never
  *                                        `event=...`
@@ -653,6 +659,9 @@
  *                                          height, climb rate, speed and why it last stopped; put one down,
  *                                          stand Link at its controls, fly it without the pad.
  *                                          RsBalloonConsole.h documents every line
+ *   agenttest trial status|start <swordfish|shark|marlin>|reset|crates|goto <0-35>
+ *                                          the Barracuda Trial (sturdy-bassoon#289): the run's state, start one,
+ *                                          the crates, put the skiff in front of one. RsTrial.h documents every line
  *   agenttest rsfire list|pool|distance [<n>|default]|glow [on|off|default]
  *                                          the RS torch fires (sturdy-bassoon#232): where each is, its size,
  *                                          lit and by what, its world flag, whether it holds a light node,
@@ -759,6 +768,7 @@
 #include "soh/Enhancements/rs/prefs/RegionConsole.h"
 #include "soh/Enhancements/rs/actors/RsBoatConsole.h"
 #include "soh/Enhancements/rs/actors/RsBalloonConsole.h"
+#include "soh/Enhancements/rs/trials/RsTrial.h"
 #include "soh/Enhancements/rs/actors/RsFireConsole.h"
 #include "soh/Enhancements/rs/ambience/RsAmbience.h"
 #include "soh/Enhancements/rs/actors/RsAnimPropConsole.h"
@@ -3197,6 +3207,12 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(RsBalloonConsole_Run, sub, "rs_balloon ", output, WriteMarker);
     }
+    // The Barracuda Trial (sturdy-bassoon#289), the boats' arrangement: `rs_trial op=...` is an answer,
+    // `rs_trial event=...` the trial reporting.
+    if (args.size() >= 3 && args[1] == "trial") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(RsTrialConsole_Run, sub, "rs_trial ", output, WriteMarker);
+    }
     // RS torch fires (sturdy-bassoon#232). Same prefix as the fires' own event markers, for the
     // interaction's reason: `rs_fire fire idx=...` is an answer, `rs_fire event=...` a fire reporting.
     if (args.size() >= 3 && args[1] == "rsfire") {
@@ -3304,6 +3320,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "lakehylia [on|off]|lakelevel [full|drained]|cam [..]|hud [on|off]|clear | "
               "balloon list|spawn [<x> <z> [<yaw> [<height>]]]|board [<idx>]|controls on|off [<idx>]|"
               "drive <t> <turn> <lift> <ticks>|tune [..]|cam [..]|abandon [..]|field [on|off]|clear | "
+              "trial status|start <swordfish|shark|marlin>|reset|crates|goto <0-35> | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
               "rsambience [status]|on|off|max [<n>|default]|radius|gain <emitter|all> [<v>|default] | "
               "animprop status|list|pose <k|rest|clock>|reset|pick <tick|frame|default>|trace [<idx> <frames>]|"
@@ -3366,6 +3383,7 @@ void RegisterAgentTest() {
               "lakehylia [on|off]|lakelevel [full|drained]|cam [..]|hud [on|off]|clear | "
               "balloon list|spawn [<x> <z> [<yaw> [<height>]]]|board [<idx>]|controls on|off [<idx>]|"
               "drive <t> <turn> <lift> <ticks>|tune [..]|cam [..]|abandon [..]|field [on|off]|clear | "
+              "trial status|start <swordfish|shark|marlin>|reset|crates|goto <0-35> | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
               "rsambience [status]|on|off|max [<n>|default]|radius|gain <emitter|all> [<v>|default] | "
               "animprop status|list|pose <k|rest|clock>|reset|pick <tick|frame|default>|trace [<idx> <frames>]|"

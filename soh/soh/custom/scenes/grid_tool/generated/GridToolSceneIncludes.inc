@@ -54,4 +54,5 @@
 #include "../terrain_f2p_fog/CustomTerrainF2pFogScene.h" // terrain-bake terrain_f2p_fog
 #include "../kind_bench/CustomKindBenchScene.h" // project be4c0217-0000-4000-8000-00000000be4c name kind_bench
 #include "../sounds_276/CustomSounds276Scene.h" // project 52760276-0276-4000-8000-000000000276 name sounds_276
+#include "../tempor_tantrum/CustomTemporTantrumScene.h" // world tempor_tantrum_289 name tempor_tantrum
 // END GRID TOOL EXPORTS

@@ -678,14 +678,27 @@ int32_t Water(const std::vector<std::string>& args, std::vector<std::string>& li
              (int)kWaterLimit);
         return 1;
     }
+    const u32 boxes = RsBoatConsole_AddWater(x0, z0, x1, z1, y);
+    if (boxes == 0) {
+        const CollisionHeader* scene = TestWaterLive() ? sSceneHeader : gPlayState->colCtx.colHeader;
+        Addf(lines, "op=water result=error error=too_many have=%u max=%u", scene->numWaterBoxes, kMaxWaterBoxes - 1);
+        return 1;
+    }
+    Addf(lines, "op=water result=ok x0=%d z0=%d x1=%d z1=%d y=%d boxes=%u", (int)gRsBoatTestWater.x0,
+         (int)gRsBoatTestWater.z0, (int)gRsBoatTestWater.x1, (int)gRsBoatTestWater.z1, (int)gRsBoatTestWater.y, boxes);
+    return 0;
+}
+
+} // namespace
+
+uint32_t RsBoatConsole_AddWater(float x0, float z0, float x1, float z1, float y) {
     // A second `water` replaces the first box rather than stacking on it.
     CollisionHeader* scene = TestWaterLive() ? sSceneHeader : gPlayState->colCtx.colHeader;
     // A header with no waterboxes may point its list at segment 0 rather than null (WaterBox_GetSurfaceImpl's
     // test), so the count alone says how many there are.
     const u32 count = scene->numWaterBoxes;
     if (count + 1 > kMaxWaterBoxes) {
-        Addf(lines, "op=water result=error error=too_many have=%u max=%u", count, kMaxWaterBoxes - 1);
-        return 1;
+        return 0;
     }
     for (u32 i = 0; i < count; i++) {
         sTestBoxes[i] = scene->waterBoxes[i];
@@ -710,10 +723,10 @@ int32_t Water(const std::vector<std::string>& args, std::vector<std::string>& li
     gRsBoatTestWater.z1 = (float)(box->zMin + box->zLength);
     gRsBoatTestWater.y = (float)box->ySurface;
     gRsBoatTestWater.active = 1;
-    Addf(lines, "op=water result=ok x0=%d z0=%d x1=%d z1=%d y=%d boxes=%u", box->xMin, box->zMin,
-         box->xMin + box->xLength, box->zMin + box->zLength, box->ySurface, count + 1);
-    return 0;
+    return count + 1;
 }
+
+namespace {
 
 // --- Lake Hylia's boat --------------------------------------------------------------------------
 //

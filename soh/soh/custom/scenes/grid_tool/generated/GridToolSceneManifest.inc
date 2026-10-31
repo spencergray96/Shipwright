@@ -55,4 +55,5 @@
     { SCENE_TERRAIN_F2P_FOG, CustomTerrainF2pFogScene_TrySpawn, CustomTerrainF2pFogScene_InitRoom }, // terrain-bake terrain_f2p_fog
     { SCENE_KIND_BENCH, CustomKindBenchScene_TrySpawn, CustomKindBenchScene_InitRoom }, // project be4c0217-0000-4000-8000-00000000be4c name kind_bench
     { SCENE_SOUNDS_276, CustomSounds276Scene_TrySpawn, CustomSounds276Scene_InitRoom }, // project 52760276-0276-4000-8000-000000000276 name sounds_276
+    { SCENE_TEMPOR_TANTRUM, CustomTemporTantrumScene_TrySpawn, CustomTemporTantrumScene_InitRoom }, // world tempor_tantrum_289 name tempor_tantrum
 // END GRID TOOL EXPORTS
