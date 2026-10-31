@@ -33,6 +33,9 @@
 //   NPC_DEBUG_QUEST_MENU (199)  added for the #96 follow-ups: an entry statement that continues,
 //                          a node group, and the missing-steps clause on a node - "ask about the
 //                          job, hear what is left, back to the menu".
+//   NPC_DEBUG_SHOP  (200)  added for #281: the Majora's Mask verbs - a charge behind RupeesAtLeast
+//                          and one that is always refused, an errand whose start and completion
+//                          each queue a journal notice, and GIVE_ITEM re-opening on a node.
 //
 // Prose here is NOT journal markup. Journal text carries `#tag:text#` (D23); dialogue text goes to
 // CustomMessageManager (D17), where '#' is a colour span, '%' starts a control code and '^' is a
@@ -411,6 +414,74 @@ const RsDialogueRule sMenuRules[] = {
 const RsNpcDef sQuestMenu = {
     NPC_DEBUG_QUEST_MENU, QUEST_TIER_DEBUG, "debug_quest_menu", "Debug: the quest menu", sMenuRules, 2,
     sMenuNodes,           6,
+};
+
+// --- NPC_DEBUG_SHOP (200) ------------------------------------------------------------------------
+//
+// The #281 verbs, on QUEST_DEBUG_ERRAND (53):
+//
+//   rule 0      the menu. "Buy a token" charges 10 and is GATED on RupeesAtLeast(10), so a player who
+//               cannot pay never sees it. "Buy the shop" charges 1000 and is ungated - more than any
+//               wallet holds, so it is the refusal, cannot_afford, every time, and takes nothing.
+//   nodes 0-3   a node GROUP behind "About the errand", by quest state:
+//                 0  not started: "Gladly" STARTS it - a journal notice at the close
+//                 1  started, parcel not given: "Take it" is GIVE_ITEM with a reply and a `next`
+//                 2  parcel held: "Here it is" COMPLETES it - a notice, and the 15-rupee reward
+//                 3  the group's ungated end: done
+//   node 4      where GIVE_ITEM's `next` re-opens the conversation, with no A press, once the
+//               get-item ceremony and the pickup box are over.
+
+const QuestPredicate sShopCanAffordWhen[] = {
+    QP_RUPEES_AT_LEAST(10),
+};
+const QuestPredicate sShopErrandOpenWhen[] = {
+    QP_QUEST_STATUS_IS(QUEST_DEBUG_ERRAND, QUEST_STATUS_NOT_STARTED),
+};
+const QuestPredicate sShopParcelDueWhen[] = {
+    QP_QUEST_STATUS_IS(QUEST_DEBUG_ERRAND, QUEST_STATUS_IN_PROGRESS),
+    QP_NOT_QUEST_STEP_SET(QUEST_DEBUG_ERRAND, 0),
+};
+const QuestPredicate sShopParcelHeldWhen[] = {
+    QP_QUEST_STATUS_IS(QUEST_DEBUG_ERRAND, QUEST_STATUS_IN_PROGRESS),
+    QP_QUEST_STEP_SET(QUEST_DEBUG_ERRAND, 0),
+};
+
+const RsDialogueOption sShopMenuOptions[] = {
+    { "Buy a token (10)", RS_DLG_ACTION_CHARGE_RUPEES, 10, "Ten rupees. Thank you kindly!", RS_DLG_NO_NEXT,
+      sShopCanAffordWhen, 1 },
+    { "Buy the shop (1000)", RS_DLG_ACTION_CHARGE_RUPEES, 1000, "Ha! Come back with the money.", RS_DLG_NO_NEXT },
+    { "About the errand", RS_DLG_ACTION_NONE, 0, nullptr, 0 },
+    { "Goodbye", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueOption sShopOfferOptions[] = {
+    { "Gladly", RS_DLG_ACTION_START_QUEST, QUEST_DEBUG_ERRAND, "Splendid. Ask me for it.", RS_DLG_NO_NEXT },
+    { "Not today", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueOption sShopGiveOptions[] = {
+    { "Take it", RS_DLG_ACTION_GIVE_ITEM, RS_DLG_ITEM(QUEST_DEBUG_ERRAND, 0), "Mind it, it is fragile.", 4 },
+    { "Not yet", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueOption sShopDeliverOptions[] = {
+    { "Here it is", RS_DLG_ACTION_COMPLETE_QUEST, QUEST_DEBUG_ERRAND, "Wonderful, thank you!", RS_DLG_NO_NEXT },
+    { "Not yet", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+
+const RsDialogueNode sShopNodes[] = {
+    // 0-3 - the errand group
+    { sShopErrandOpenWhen, 1, "Fetch a parcel for me?", sShopOfferOptions, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    { sShopParcelDueWhen, 2, "Here is the parcel.", sShopGiveOptions, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    { sShopParcelHeldWhen, 2, "Have you the parcel?", sShopDeliverOptions, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    { nullptr, 0, "No more errands today.", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    // 4 - where the give re-opens
+    { nullptr, 0, "Now bring it straight back.", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+
+const RsDialogueRule sShopRules[] = {
+    { nullptr, 0, "What can I do for you?", sShopMenuOptions, 4, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+
+const RsNpcDef sShop = {
+    NPC_DEBUG_SHOP, QUEST_TIER_DEBUG, "debug_shop", "Debug: the shopkeeper", sShopRules, 1, sShopNodes, 5,
 };
 
 // --- the malformed table --------------------------------------------------------------------
@@ -855,6 +926,38 @@ BAD_TREE_DEF(sDefMenuLoop, sLoopEntryWithExitRules, 1, sMenuLoopNodes, 1);
 BAD_TREE_DEF(sDefStatementLoop, sLoopEntryRules, 1, sStatementLoopNodes, 2);
 BAD_TREE_DEF(sDefGatedExit, sLoopEntryRules, 1, sGatedExitNodes, 1);
 
+// #281: the rupee predicate's range, and the two new actions' operands.
+const QuestPredicate sPredRupeesRange[] = { QP_RUPEES_AT_LEAST(-1) };
+const RsDialogueRule sBadPredRupees[] = {
+    { sPredRupeesRange, 1, "text", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+const RsDialogueOption sOptGiveQuestRange[] = {
+    { "Yes", RS_DLG_ACTION_GIVE_ITEM, RS_DLG_ITEM(QUEST_MAX, 0), nullptr, RS_DLG_NO_NEXT },
+    { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadGiveQuestRange[] = {
+    { nullptr, 0, "text", sOptGiveQuestRange, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+// A DEBUG NPC handing over a PRODUCTION quest's item: the world-flag band rule, for a step.
+const RsDialogueOption sOptGiveQuestBand[] = {
+    { "Yes", RS_DLG_ACTION_GIVE_ITEM, RS_DLG_ITEM(QUEST_COOKS_ASSISTANT, 0), nullptr, RS_DLG_NO_NEXT },
+    { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadGiveQuestBand[] = {
+    { nullptr, 0, "text", sOptGiveQuestBand, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+const RsDialogueOption sOptChargeZero[] = {
+    { "Yes", RS_DLG_ACTION_CHARGE_RUPEES, 0, nullptr, RS_DLG_NO_NEXT },
+    { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadChargeZero[] = {
+    { nullptr, 0, "text", sOptChargeZero, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+BAD_NPC_DEF(sDefPredRupees, sBadPredRupees, 1);
+BAD_NPC_DEF(sDefGiveQuestRange, sBadGiveQuestRange, 1);
+BAD_NPC_DEF(sDefGiveQuestBand, sBadGiveQuestBand, 1);
+BAD_NPC_DEF(sDefChargeZero, sBadChargeZero, 1);
+
 struct BadEntry {
     const char* label;
     const RsNpcDef* def;
@@ -935,6 +1038,11 @@ const BadEntry sBadDefs[] = {
     { "cannot_end_menu_loop", &sDefMenuLoop },
     { "cannot_end_statement_loop", &sDefStatementLoop },
     { "cannot_end_only_exit_gated", &sDefGatedExit },
+    // #281, appended: the rupee predicate and the two new actions.
+    { "predicate_rupees_range", &sDefPredRupees },
+    { "action_give_item_quest_range", &sDefGiveQuestRange },
+    { "action_give_item_other_band", &sDefGiveQuestBand },
+    { "action_charge_rupees_zero", &sDefChargeZero },
 };
 
 // RsNpc_Register is idempotent for the same pointer, which is what makes a ShipInit "*" re-run safe.
@@ -947,6 +1055,7 @@ void RegisterDebugNpcs() {
     RsNpc_Register(&sTree);
     RsNpc_Register(&sPage);
     RsNpc_Register(&sQuestMenu);
+    RsNpc_Register(&sShop);
 }
 
 RegisterShipInitFunc debugNpcsInitFunc(RegisterDebugNpcs);

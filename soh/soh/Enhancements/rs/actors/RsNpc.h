@@ -30,12 +30,21 @@ typedef void (*RsNpcActionFunc)(struct RsNpc*, PlayState*);
 // as the entry box's carries the rule, and a reply that leads somewhere opens on an id naming its
 // destination. The actor decodes both from `play->msgCtx.textId`. The consequence is the right one:
 // walking away mid-tree and re-talking restarts at entry resolution, which is what OoT does.
+//
+// `giving` (sturdy-bassoon#281) is the one field that outlives a textbox, and it keeps the paragraph
+// above true: it lives from a GIVE_ITEM pick, through the reply and any journal notices, to Link
+// taking the item a few seconds after the box closes, and it holds nothing the save needs. The step is set at acceptance, so a scene change mid-give loses an
+// offer that was never taken and nothing else - re-talking offers it again, because the step is
+// still unset. It is not a position in the conversation either: the `next` it carries is followed
+// the moment the item is taken, and the re-opened box's own id says where the conversation is from
+// then on, as every other node box's does.
 typedef struct RsNpc {
     /* 0x0000 */ Actor actor;
     /* 0x014C */ ColliderCylinder collider;
     /* */ RsNpcActionFunc actionFunc;
     /* */ int32_t npcId;    // decoded from params once, at Init
     /* */ int32_t ruleIndex; // the rule currently speaking; recomputed every idle frame
+    /* */ const struct RsDialogueOption* giving; // the GIVE_ITEM option being handed over, or NULL
 } RsNpc;
 
 #endif // SOH_RS_NPC_ACTOR_H

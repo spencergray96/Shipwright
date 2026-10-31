@@ -443,6 +443,16 @@ void RsText_OnOpenText(uint16_t* textId, bool* loadFromMessageTable) {
         return;
     }
 
+    // A journal notice (#281): the id carries the quest and the kind, so the box is composed from the
+    // definition with no slot and no speaker - either speaker opens the same id.
+    if (RS_TEXT_IS_NOTICE(id)) {
+        CustomMessage msg = BuildPlainMessage(
+            Quest_ComposeJournalNotice(RS_TEXT_NOTICE_GET_QUEST(id), RS_TEXT_NOTICE_GET_KIND(id)).c_str());
+        msg.LoadIntoFont();
+        *loadFromMessageTable = false;
+        return;
+    }
+
     // A staircase's menu (#147): the id carries the row the placement stands on, the talking actor
     // which staircase (#214).
     if (RS_TEXT_IS_STAIR(id)) {

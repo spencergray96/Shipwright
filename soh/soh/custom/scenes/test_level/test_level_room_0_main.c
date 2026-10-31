@@ -63,6 +63,9 @@ ActorEntry test_level_room_0_header00_actorList[] = {
     // missing-steps clause on a node. 400 units from 197 along -X and 800 from Link's spawn; the
     // floor runs to +/-2000 on both axes, so it is well inside it.
     { ACTOR_RS_NPC, { -800, 20, -600 }, { 0, 0x4000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_QUEST_MENU) },
+    // The Majora's Mask verbs (sturdy-bassoon#281): prices, journal notices, an item handed over.
+    // 400 units from 198 along +X, the mirror of 199, outside the talk range of anything.
+    { ACTOR_RS_NPC, { 800, 20, -600 }, { 0, -0x4000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_SHOP) },
 
     // Step 0 of the giver's quest. Its sibling (step 1) is in terrain_f2p_step2, so finishing the
     // quest requires both scenes — which is what makes "advancing in one scene is reflected in the

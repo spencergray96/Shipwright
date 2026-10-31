@@ -34,7 +34,25 @@ bool Validate(const RsInteractionDef* def, char* buf, size_t len) {
         return Problem(buf, len, "interaction %d: tier does not match the id's band", def->id);
     }
     // The screens, flags, trees: held to exactly what a character is held to.
-    return RsDialogue_BodyProblem(def, buf, len) == 0;
+    if (RsDialogue_BodyProblem(def, buf, len) != 0) {
+        return false;
+    }
+    // ...less one action. GIVE_ITEM needs a speaker that waits for Link to take the item after the box
+    // closes (RsNpc's give states, sturdy-bassoon#281), and the trigger has no such state, so a prop
+    // offering one would check the step and never hand anything over.
+    for (int32_t kind = RS_SCREEN_RULE; kind <= RS_SCREEN_NODE; kind++) {
+        const int32_t count = kind == RS_SCREEN_RULE ? def->ruleCount : def->nodeCount;
+        for (int32_t i = 0; i < count; i++) {
+            const RsDialogueRule* screen = RsDialogue_Screen(def, kind, i);
+            for (int32_t o = 0; screen != nullptr && o < screen->optionCount; o++) {
+                if (screen->options[o].kind == RS_DLG_ACTION_GIVE_ITEM) {
+                    return Problem(buf, len, "interaction %d: give_item is an NPC's action; a prop cannot hand an item over",
+                                   def->id);
+                }
+            }
+        }
+    }
+    return true;
 }
 
 } // namespace

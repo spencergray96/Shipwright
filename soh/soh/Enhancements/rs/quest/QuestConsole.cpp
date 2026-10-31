@@ -122,6 +122,12 @@ void Dump(int32_t questId, std::vector<std::string>& lines) {
     for (int32_t i = 0; i < def->hintCount; i++) {
         lines.push_back("hint[" + std::to_string(i) + "]=\"" + RenderMarkup(def->hints[i]) + "\"");
     }
+    // The journal notices a conversation shows when it starts or completes this quest (#281), composed
+    // by the function that box is built from. Last, so every earlier dump regex still matches.
+    for (int32_t kind = 0; kind < QUEST_NOTICE_KIND_COUNT; kind++) {
+        lines.push_back(std::string("notice[") + Quest_NoticeKindName(kind) + "]=\"" +
+                        Quest_ComposeJournalNotice(questId, kind) + "\"");
+    }
 }
 
 // The resolved entry, one line per rendered line, plus a header. `~text~` marks a struck-through

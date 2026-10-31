@@ -145,6 +145,14 @@ int32_t BadCheck(std::vector<std::string>& lines) {
     static const RsDialogueRule kGated[] = {
         { kWhen, 1, "Gated last.", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
     };
+    // An NPC's action on a prop (#281): clean as a character's body, refused as an interaction's.
+    static const RsDialogueOption kGive[] = {
+        { "Take it", RS_DLG_ACTION_GIVE_ITEM, RS_DLG_ITEM(QUEST_DEBUG_ERRAND, 0), nullptr, RS_DLG_NO_NEXT },
+        { "Leave it", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    };
+    static const RsDialogueRule kGiveRule[] = {
+        { nullptr, 0, "A parcel.", kGive, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    };
     struct Case {
         const char* label;
         RsInteractionDef def;
@@ -158,6 +166,7 @@ int32_t BadCheck(std::vector<std::string>& lines) {
         { "debug_tier_in_prod_band", { RS_INTERACTION(1), QUEST_TIER_DEBUG, "bad_tier2", "Bad: tier", kRule, 1 }, false },
         { "last_rule_gated", { RS_INTERACTION(32767), QUEST_TIER_DEBUG, "bad_gate", "Bad: gate", kGated, 1 }, false },
         { "no_rules", { RS_INTERACTION(32767), QUEST_TIER_DEBUG, "bad_none", "Bad: none", kTwoPlain, 0 }, false },
+        { "give_item", { RS_INTERACTION(32767), QUEST_TIER_DEBUG, "bad_give", "Bad: give", kGiveRule, 1 }, false },
     };
     int32_t wrong = 0;
     for (const Case& c : cases) {

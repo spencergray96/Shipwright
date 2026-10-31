@@ -156,5 +156,7 @@ RS_STATIC_ASSERT(RS_STAIR_MAX_ROWS <= RS_DIALOGUE_MAX_OPTIONS,
 RS_STATIC_ASSERT(RS_TEXT_DIRECT < RS_TEXT_STAIR_BASE, "the stair band must start above RS_TEXT_DIRECT");
 RS_STATIC_ASSERT(RS_TEXT_STAIR_END < RS_TEXT_ITEM_BASE,
                  "a stair text id must not reach the quest-item pickup band");
+RS_STATIC_ASSERT(RS_TEXT_STAIR_END < RS_TEXT_NOTICE_BASE,
+                 "a stair text id must not reach the journal notice band (NpcDialogueDef.h)");
 
 #endif // SOH_RS_STAIR_DEF_H

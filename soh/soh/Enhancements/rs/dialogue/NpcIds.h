@@ -71,6 +71,10 @@ typedef enum NpcId {
                                 // and the missing-steps clause on a node covered each of the three
                                 // ways registration accepts one. "Ask about the job, hear what is
                                 // left, back to the menu".
+    NPC_DEBUG_SHOP = 200, // the Majora's Mask verbs (sturdy-bassoon#281): a price behind
+                          // RupeesAtLeast and one nobody can pay, an errand whose start and
+                          // completion each show a journal notice, and an item handed over with
+                          // GIVE_ITEM that re-opens the conversation afterwards.
 } NpcId;
 
 #define NPC_ID_IS_VALID(id) ((id) >= 0 && (id) < NPC_MAX)
@@ -97,5 +101,7 @@ RS_STATIC_ASSERT(NPC_DEBUG_PAGE >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_PAGE < NPC_MA
                  "NPC_DEBUG_PAGE must sit in the debug band");
 RS_STATIC_ASSERT(NPC_DEBUG_QUEST_MENU >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_QUEST_MENU < NPC_MAX,
                  "NPC_DEBUG_QUEST_MENU must sit in the debug band");
+RS_STATIC_ASSERT(NPC_DEBUG_SHOP >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_SHOP < NPC_MAX,
+                 "NPC_DEBUG_SHOP must sit in the debug band");
 
 #endif // SOH_RS_NPC_IDS_H

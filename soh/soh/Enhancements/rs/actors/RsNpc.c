@@ -23,6 +23,7 @@
 #include "RsNpc.h"
 #include "RsActorParams.h"
 #include "RsActors.h"
+#include "RsQuestItem.h"
 #include "global.h"
 #include "objects/gameplay_keep/gameplay_keep.h"
 #include "soh/Enhancements/rs/dialogue/NpcDialogue.h"
@@ -36,6 +37,13 @@
 // symptom.
 #define RS_NPC_TALK_RANGE 110.0f
 
+// How far Link may be from an NPC handing him an item (sturdy-bassoon#281) - while it offers, and when
+// the conversation re-opens afterwards - before it withdraws and ends instead. He cannot walk during
+// the get-item ceremony, so in play he is where the conversation left him, inside talk range; this
+// stops an offer Player keeps declining (Link mid-air, carrying something) from being taken, or a
+// re-open from pulling him back into a conversation, from across the room.
+#define RS_NPC_RESUME_RANGE 300.0f
+
 void RsNpc_Init(Actor* thisx, PlayState* play);
 void RsNpc_Destroy(Actor* thisx, PlayState* play);
 void RsNpc_Update(Actor* thisx, PlayState* play);
@@ -43,6 +51,9 @@ void RsNpc_Draw(Actor* thisx, PlayState* play);
 
 static void RsNpc_Wait(RsNpc* this, PlayState* play);
 static void RsNpc_Talk(RsNpc* this, PlayState* play);
+static void RsNpc_Give(RsNpc* this, PlayState* play);
+static void RsNpc_GiveDone(RsNpc* this, PlayState* play);
+static void RsNpc_Resume(RsNpc* this, PlayState* play);
 
 static ColliderCylinderInit sCylinderInit = {
     {
@@ -79,6 +90,7 @@ void RsNpc_Init(Actor* thisx, PlayState* play) {
 
     this->npcId = RS_NPC_PARAMS_GET_ID(thisx->params);
     this->ruleIndex = -1;
+    this->giving = NULL;
 
     // Loud, but never fatal and never an assert. An unregistered character or a params word with a
     // reserved bit set is a mistake worth shouting about - and killing the actor would hide it,
@@ -126,11 +138,59 @@ static void RsNpc_Wait(RsNpc* this, PlayState* play) {
     this->actor.textId = RS_TEXT_NPC_ID(this->npcId, this->ruleIndex >= 0 ? this->ruleIndex : 0);
 
     if (Actor_ProcessTalkRequest(&this->actor, play)) {
+        // A new conversation: whatever notices an earlier one left queued - it closed from outside,
+        // say - are not this one's to show (NpcDialogue.h).
+        RsDialogue_NoticeReset();
+        this->giving = NULL;
         RsNpc_Mark(this, "open");
         this->actionFunc = RsNpc_Talk;
         return;
     }
     Actor_OfferTalk(&this->actor, play, RS_NPC_TALK_RANGE);
+}
+
+/* Back to idle, the conversation over: the one place that says so, whichever way it ended. */
+static void RsNpc_End(RsNpc* this) {
+    this->giving = NULL;
+    RsNpc_Mark(this, "close");
+    this->actionFunc = RsNpc_Wait;
+}
+
+/* The next JOURNAL NOTICE, if one is queued (sturdy-bassoon#281), as this conversation's next box. Asked
+ * wherever the conversation would otherwise end, so the queue is shown before it does - Majora's Mask
+ * holds back "closing" until its notebook queue is empty in the same way. A notice box's id names no
+ * screen, so dismissing it comes back through the same way out and asks again. 1 when a box was opened. */
+static s32 RsNpc_ShowNotice(RsNpc* this, PlayState* play) {
+    char line[128];
+    s32 questId;
+    s32 kind;
+
+    if (!RsDialogue_NoticeTake(&questId, &kind)) {
+        return 0;
+    }
+    snprintf(line, sizeof(line), "rs_dialogue npc=%d event=notice rule=%d quest=%d kind=%s", this->npcId,
+             this->ruleIndex, (int)questId, Quest_NoticeKindName(kind));
+    RsAgent_Marker(line);
+    Message_ContinueTextbox(play, RS_TEXT_NOTICE_ID(questId, kind));
+    return 1;
+}
+
+/* Every way out of a conversation comes through here (#281), so nothing it owes the player can be
+ * skipped: first the journal notices its options queued, one box each; then an item one of them
+ * promised (GIVE_ITEM); then the close. `closeBox` is whether the box is ours to close - a choice
+ * picked with nowhere to go - rather than one closing by itself, as a dismissed statement does. */
+static void RsNpc_Leave(RsNpc* this, PlayState* play, s32 closeBox) {
+    if (RsNpc_ShowNotice(this, play)) {
+        return;
+    }
+    if (closeBox) {
+        Message_CloseTextbox(play);
+    }
+    if (this->giving != NULL) {
+        this->actionFunc = RsNpc_Give;
+        return;
+    }
+    RsNpc_End(this);
 }
 
 /* Follow an edge to `head` (sturdy-bassoon#96). One helper because an edge is followed from three
@@ -140,8 +200,7 @@ static void RsNpc_Wait(RsNpc* this, PlayState* play) {
  * picked option's action has fired, so an option that sets a flag and then navigates lands on the
  * node that flag selects. `node=` in the marker is where the conversation landed and `head=` is the
  * edge that was followed; they differ exactly when a group fell through. */
-static void RsNpc_GoToNode(RsNpc* this, PlayState* play, s32 head) {
-    char line[128];
+static s32 RsNpc_LandOn(RsNpc* this, s32 head) {
     s32 node = RsNpc_ResolveNode(this->npcId, head);
 
     if (node < 0) {
@@ -149,9 +208,21 @@ static void RsNpc_GoToNode(RsNpc* this, PlayState* play, s32 head) {
          * diagnostic box says what is wrong instead of the conversation silently doing nothing. */
         node = head;
     }
+    return node;
+}
+
+static void RsNpc_MarkNode(RsNpc* this, s32 node, s32 head) {
+    char line[128];
+
     snprintf(line, sizeof(line), "rs_dialogue npc=%d event=node rule=%d node=%d head=%d", this->npcId,
              this->ruleIndex, (int)node, (int)head);
     RsAgent_Marker(line);
+}
+
+static void RsNpc_GoToNode(RsNpc* this, PlayState* play, s32 head) {
+    s32 node = RsNpc_LandOn(this, head);
+
+    RsNpc_MarkNode(this, node, head);
     Message_ContinueTextbox(play, RS_TEXT_NODE_ID(this->npcId, node));
 }
 
@@ -175,6 +246,7 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
     // Talk forever and is permanently unresponsive, which reads as "the rule table broke".
     // ovl_En_Ms has exactly this hole; copying it wholesale would have inherited it.
     if (state == TEXT_STATE_NONE) {
+        this->giving = NULL; /* a gift promised in a conversation that never reached its way out */
         this->actionFunc = RsNpc_Wait;
         return;
     }
@@ -211,6 +283,11 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
         option = &screen->options[declared];
         /* ACTION -> REPLY -> NEXT. The action fires wherever navigation goes afterwards. */
         result = RsNpc_RunAction(option);
+        /* A GIVE_ITEM whose step can still be set promises an item. The promise is all that is kept:
+         * the step is set when Link takes the item, after the box closes (RsNpc_Give). */
+        if (option->kind == RS_DLG_ACTION_GIVE_ITEM && result == QUEST_OK) {
+            this->giving = option;
+        }
         /* Fields are APPENDED, never inserted: `rule= index= action= a= result=` stay in the order
          * every earlier phase's acceptance regex expects. On an entry rule with no gated options,
          * `screen_index` equals `rule` and `option` equals `index`, so those runs keep matching
@@ -222,6 +299,18 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
                  Quest_ResultName(result), RsNpc_ScreenKindName(screenKind), (int)screenIndex,
                  (int)declared, (int)visibleCount, (int)option->next);
         RsAgent_Marker(line);
+        if (this->giving != NULL) {
+            /* The item comes before `next`: the reply, then the way out, which hands it over and only
+             * then follows the edge (RsNpc_Resume). So the reply opens on the plain direct id, and
+             * dismissing it leaves rather than navigating. */
+            if (option->reply != NULL) {
+                RsText_SetDirectCopy(option->reply);
+                Message_ContinueTextbox(play, RS_TEXT_DIRECT);
+            } else {
+                RsNpc_Leave(this, play, 1);
+            }
+            return;
+        }
         if (option->reply != NULL) {
             /* SetDirectCopy, not SetDirect: a reply may carry a `{floor:N}` token
              * (sturdy-bassoon#94), and the moment it does, the string the box reads is COMPOSED
@@ -235,8 +324,7 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
         } else if (option->next != RS_DLG_NO_NEXT) {
             RsNpc_GoToNode(this, play, option->next);
         } else {
-            Message_CloseTextbox(play);
-            this->actionFunc = RsNpc_Wait;
+            RsNpc_Leave(this, play, 1);
         }
         return;
     }
@@ -261,9 +349,113 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
                 return;
             }
         }
-        RsNpc_Mark(this, "close");
-        this->actionFunc = RsNpc_Wait;
+        RsNpc_Leave(this, play, 0);
     }
+}
+
+/* --- GIVE_ITEM: handing an item over (sturdy-bassoon#281) ------------------------------------------
+ *
+ * Majora's Mask's sequence, which is OoT's EnDs and EnAni with one camera line: close -> offer -> wait
+ * for the parent -> reset -> wait out Player's box -> re-open. The offer is a quest item's own get-item
+ * entry (RsQuestItem_OfferFrom), so the sprite, the ceremony and the pickup line are the ones picking
+ * that item off the floor shows; nothing enters the inventory (D16).
+ *
+ * Offered every frame from here, at Link's own distance plus one, so he takes it wherever he stands
+ * once Player is free of the conversation - Majora's Mask's OFFER_ITEM range. Player accepts on its own
+ * update (it updates before an NPC does), and this actor becomes the item's `parent`. */
+static void RsNpc_Give(RsNpc* this, PlayState* play) {
+    char line[160];
+    s32 result;
+
+    if (Actor_HasParent(&this->actor, play)) {
+        /* Handed over: clear it, as Majora's Mask's SET_COLLECTIBLE does after every OFFER_ITEM, so a
+         * later give from this actor is a new acceptance rather than this one seen again. */
+        this->actor.parent = NULL;
+        /* Set on acceptance, check-then-write, as a get-item quest item sets its own step. */
+        result = RsNpc_SetGivenStep(this->giving);
+        snprintf(line, sizeof(line), "rs_dialogue npc=%d event=give rule=%d quest=%d step=%d result=%s", this->npcId,
+                 this->ruleIndex, (int)RS_DLG_ITEM_GET_QUEST(this->giving->a),
+                 (int)RS_DLG_ITEM_GET_STEP(this->giving->a), Quest_ResultName(result));
+        RsAgent_Marker(line);
+        this->actionFunc = RsNpc_GiveDone;
+        return;
+    }
+    /* Not from across the map: Player declines while Link is mid-air or carrying something, and he can
+     * walk off meanwhile. Past the re-open range the offer is withdrawn; the step is still unset, so
+     * talking again offers it again. */
+    if (this->actor.xzDistToPlayer > RS_NPC_RESUME_RANGE) {
+        RsNpc_End(this);
+        return;
+    }
+    RsQuestItem_OfferFrom(&this->actor, play, RS_DLG_ITEM_GET_QUEST(this->giving->a),
+                          RS_DLG_ITEM_GET_STEP(this->giving->a), this->actor.xzDistToPlayer + 1.0f,
+                          fabsf(this->actor.yDistToPlayer) + 1.0f);
+}
+
+/* Player's now: the animation, the item camera, the pickup box, putting the item away. Wait all of it
+ * out, then carry on where the option said. With nowhere to go the conversation still re-opens if the
+ * gift queued a journal notice, to show just that; otherwise it ends. */
+static void RsNpc_GiveDone(RsNpc* this, PlayState* play) {
+    Player* player = GET_PLAYER(play);
+
+    if (Message_GetState(&play->msgCtx) != TEXT_STATE_NONE ||
+        (player->stateFlags1 & (PLAYER_STATE1_TALKING | PLAYER_STATE1_GETTING_ITEM | PLAYER_STATE1_IN_CUTSCENE)) != 0) {
+        return;
+    }
+    if (this->giving->next == RS_DLG_NO_NEXT && !RsDialogue_NoticePeek(NULL, NULL)) {
+        RsNpc_End(this);
+        return;
+    }
+    this->actionFunc = RsNpc_Resume;
+    RsNpc_Resume(this, play);
+}
+
+/* Re-open the conversation on the option's `next`, with no A press: ACTOR_FLAG_TALK_OFFER_AUTO_ACCEPTED,
+ * vanilla's own talk-without-A, which Player takes on its next update as though A had been pressed
+ * (Majora's Mask's AUTOTALK is the same flag). The box opens on the node's own id, so Talk picks the
+ * conversation up from it exactly as if it had been continued there, and the node group resolves now,
+ * after the step was set - so a node gated on having the item is the one that speaks.
+ *
+ * The queue is NOT emptied here, as a fresh conversation's is: it holds the gift's UPDATED notice,
+ * which this conversation shows at its own way out. With no `next`, it opens on that notice instead. */
+static void RsNpc_Resume(RsNpc* this, PlayState* play) {
+    char line[128];
+    s32 head = this->giving->next;
+    s32 node = -1;
+    s32 questId = 0;
+    s32 kind = 0;
+
+    if (head != RS_DLG_NO_NEXT) {
+        node = RsNpc_LandOn(this, head);
+        this->actor.textId = RS_TEXT_NODE_ID(this->npcId, node);
+    } else {
+        RsDialogue_NoticePeek(&questId, &kind); /* GiveDone came here only with one queued */
+        this->actor.textId = RS_TEXT_NOTICE_ID(questId, kind);
+    }
+    if (Actor_ProcessTalkRequest(&this->actor, play)) {
+        this->actor.flags &= ~ACTOR_FLAG_TALK_OFFER_AUTO_ACCEPTED;
+        this->giving = NULL;
+        if (node >= 0) {
+            RsNpc_MarkNode(this, node, head);
+        } else {
+            RsDialogue_NoticeTake(&questId, &kind);
+            snprintf(line, sizeof(line), "rs_dialogue npc=%d event=notice rule=%d quest=%d kind=%s", this->npcId,
+                     this->ruleIndex, (int)questId, Quest_NoticeKindName(kind));
+            RsAgent_Marker(line);
+        }
+        this->actionFunc = RsNpc_Talk;
+        return;
+    }
+    if (this->actor.xzDistToPlayer > RS_NPC_RESUME_RANGE) {
+        this->actor.flags &= ~ACTOR_FLAG_TALK_OFFER_AUTO_ACCEPTED;
+        RsNpc_End(this);
+        return;
+    }
+    this->actor.flags |= ACTOR_FLAG_TALK_OFFER_AUTO_ACCEPTED;
+    /* Both ranges from where Link stands. Actor_OfferTalk would use one radius for both, and a Link a
+     * step up from the NPC but close to it would fail the height test every frame. */
+    Actor_OfferTalkExchange(&this->actor, play, this->actor.xzDistToPlayer + 1.0f,
+                            fabsf(this->actor.yDistToPlayer) + 1.0f, EXCH_ITEM_NONE);
 }
 
 void RsNpc_Update(Actor* thisx, PlayState* play) {

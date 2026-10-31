@@ -120,7 +120,8 @@ int32_t RsNpc_ScreenCanEnd(int32_t npcId, int32_t kind, int32_t index);
 int32_t RsNpc_NodeClauseGated(int32_t npcId, int32_t nodeIndex);
 
 const char* RsNpc_ResultName(int32_t result);
-const char* RsNpc_ActionName(int32_t kind); // "none", "start_quest", "complete_quest", "set_world_flag"
+const char* RsNpc_ActionName(int32_t kind); // "none", "start_quest", "complete_quest", "set_world_flag",
+                                            // "give_item", "charge_rupees"
 // "rule" or "node" for an RsScreenKind. One spelling, because it reaches three sinks that must
 // agree: a registration refusal names the array an author has to go and look in, `npc tree` keys
 // its `screen[…]`/`edge[…]` lines on it, and the actor's choice marker reports which kind of screen
@@ -141,7 +142,36 @@ void RsNpc_Describe(int32_t npcId, char* buf, size_t len);
 
 // Runs an option's action through the CHECKED quest API. Returns the QuestResult
 // (Quest.h) for the quest actions, or QUEST_OK for the ones that cannot fail. Never asserts.
+//
+// GIVE_ITEM only CHECKS here (Quest_CheckSetStep): handing the item over is the actor's, after the
+// conversation closes, and the step is set when Link accepts it (RsNpc_SetGivenStep). A START_QUEST
+// or COMPLETE_QUEST that succeeds queues a journal notice (below).
 int32_t RsNpc_RunAction(const RsDialogueOption* option);
+
+// The step a GIVE_ITEM option names, set check-then-write as a quest item sets its own: called by the
+// actor on the frame Link accepts the item. The QuestResult; never asserts. A step that is set queues
+// an UPDATED journal notice, shown when the re-opened conversation ends.
+int32_t RsNpc_SetGivenStep(const RsDialogueOption* option);
+
+// --- journal notices (sturdy-bassoon#281) ---------------------------------------------------------
+//
+// Majora's Mask's Bombers' Notebook queue, rebuilt: an option action that starts or completes a quest,
+// or a gift that sets a step, QUEUES a notice, and the conversation shows the queue - one box per quest - at the point it would
+// otherwise close, before it does. So no definition asks for one and no rule table changes shape.
+//
+// The queue lives for ONE conversation. A speaker empties it when a conversation opens, which is also
+// what discards anything a conversation closed from outside (a scene change, damage) left behind: by
+// then the journal already says what the notice would have. Nothing here is saved.
+//
+// A quest appears once: started and completed in one conversation is one COMPLETE notice.
+void RsDialogue_NoticeReset(void);
+// Takes the next notice off the queue: 1 with its quest and kind written, or 0 when the queue is empty.
+// The speaker opens it as RS_TEXT_NOTICE_ID(quest, kind), which the text hook composes from the
+// definition (Quest_ComposeJournalNotice) - no slot to set.
+int32_t RsDialogue_NoticeTake(int32_t* questId, int32_t* kind);
+// The next notice without taking it: what a conversation re-opened only to show it opens on. Same
+// answers as RsDialogue_NoticeTake; the queue is untouched.
+int32_t RsDialogue_NoticePeek(int32_t* questId, int32_t* kind);
 
 // --- the same machinery, keyed by DEFINITION rather than by NpcId (sturdy-bassoon#183) ----------
 //

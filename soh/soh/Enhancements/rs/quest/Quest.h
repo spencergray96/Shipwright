@@ -35,8 +35,23 @@ typedef enum QuestResult {
     QUEST_ERR_INVALID_STEP = 8,     // bug: step >= stepCount (or outside [0, QUEST_STEP_MAX))
     QUEST_ERR_BAD_DEF = 9,          // bug: definition failed validation at registration
     QUEST_ERR_DUPLICATE = 10,       // bug: a different definition already owns this id
+    QUEST_ERR_CANNOT_AFFORD = 11,   // outcome: a dialogue charge (RS_DLG_ACTION_CHARGE_RUPEES) Link is short
+                                    // of (sturdy-bassoon#281). No quest write returns it; it shares this
+                                    // enum because a dialogue action's result is reported through it
     QUEST_RESULT_COUNT,
 } QuestResult;
+
+// A JOURNAL NOTICE (sturdy-bassoon#281): the box a conversation shows before it closes, once per quest
+// that it started, advanced or completed - Majora's Mask's Bombers' Notebook queue, rebuilt on our
+// dialogue layer. Which kind decides the box's first line. The queue keeps one per quest, the GREATEST
+// kind, so the values are ordered on purpose: a quest started and completed in one conversation gets
+// the one COMPLETE notice. Never serialized: the queue lives for one conversation (dialogue/NpcDialogue.h).
+typedef enum QuestNoticeKind {
+    QUEST_NOTICE_UPDATED = 0,  // a step set: an NPC's gift (RS_DLG_ACTION_GIVE_ITEM), taken
+    QUEST_NOTICE_STARTED = 1,
+    QUEST_NOTICE_COMPLETE = 2,
+    QUEST_NOTICE_KIND_COUNT,
+} QuestNoticeKind;
 
 #ifdef __cplusplus
 extern "C" {
@@ -139,6 +154,18 @@ const char* Quest_ResultName(int32_t result);   // "ok", "order_violation", ...
 const char* Quest_StatusName(int32_t status);   // "not_started", "in_progress", "complete"
 const char* Quest_TierName(int32_t tier);       // "prod", "debug"
 const char* Quest_RewardKindName(int32_t kind); // "world_flag", "rupees"
+const char* Quest_NoticeKindName(int32_t kind); // "updated", "started", "complete"
+
+// Link's rupees once every change already made has been counted: Rupees_ChangeBy feeds
+// gSaveContext.rupeeAccumulator, which the HUD drains one a frame, so `rupees` alone still holds a
+// price paid a moment ago. What a price is checked against - RupeesAtLeast and a dialogue charge
+// (sturdy-bassoon#281) - so two purchases in a row cannot both be paid out of the same rupees.
+int32_t Quest_RupeesAfterPending(void);
+// Takes `amount` rupees when Link holds that many by Quest_RupeesAfterPending: QUEST_OK, or
+// QUEST_ERR_CANNOT_AFFORD with nothing taken. A dialogue option's charge (sturdy-bassoon#281); never
+// asserts. `amount` is 1..QUEST_RUPEE_AMOUNT_MAX, which registration checks; anything else is
+// QUEST_ERR_BAD_DEF.
+int32_t Quest_ChargeRupees(int32_t amount);
 
 // One line, no newline, always NUL-terminated for len > 0:
 //   id=48 name=debug_smoke tier=debug status=in_progress steps=0x00000003/3 ordered=0 available=0 prereqs=met
@@ -160,6 +187,16 @@ void Quest_Describe(int32_t questId, char* buf, size_t len);
 // diagnostic rather than a plausible sentence; no item actor can reach that, because one whose
 // params do not name a real step never opens this text.
 std::string Quest_ComposePickupText(int32_t questId, int32_t step);
+
+// A journal notice's whole box (sturdy-bassoon#281), composed from the definition: a first line
+// saying what happened - "New quest:", "Quest updated:" or "Quest complete:" with the title as plain
+// text, its markup spans dropped - then "Your quest journal has been updated." One implementation, two sinks: the
+// box a conversation shows before it closes, and `quest dump`'s `notice[kind]=` lines.
+//
+// Never asserts. An unregistered quest or an unknown kind yields a visible `<no quest ...>`
+// diagnostic; no conversation can queue either, since only a start or completion that succeeded
+// queues one.
+std::string Quest_ComposeJournalNotice(int32_t questId, int32_t kind);
 #endif
 
 #endif // SOH_RS_QUEST_H

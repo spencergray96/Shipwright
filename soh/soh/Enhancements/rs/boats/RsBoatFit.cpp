@@ -9,6 +9,7 @@
 
 #include "soh/Enhancements/rs/actors/RsActors.h"
 #include "soh/Enhancements/rs/actors/RsBoat.h"
+#include "soh/Enhancements/rs/quest/Quest.h"
 #include "soh/Enhancements/worldstate/WorldFlags.h"
 #include "soh/SaveManager.h"
 #include "soh/ShipInit.hpp"
@@ -199,9 +200,10 @@ static_assert(rs::quest::BoatTierAtLeast(2, 5, 1).a == RS_BOAT_FIT_KEY(2, 5) &&
 
 } // namespace
 
-// Rupees_ChangeBy feeds the accumulator, which Interface_Update drains one a frame.
+// Rupees_ChangeBy feeds the accumulator, which Interface_Update drains one a frame. The one reading of it is the
+// quest system's, which a dialogue price (sturdy-bassoon#281) is checked against too.
 extern "C" int32_t RsBoatFit_RupeesAfterPending(void) {
-    return gSaveContext.rupees + gSaveContext.rupeeAccumulator;
+    return Quest_RupeesAfterPending();
 }
 
 extern "C" int32_t RsBoatFit_Owned(int32_t kind) {

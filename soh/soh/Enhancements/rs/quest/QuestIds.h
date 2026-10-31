@@ -59,6 +59,9 @@ typedef enum QuestId {
                               // `quest journal 52` prints. A NEW quest rather than a block appended to
                               // 50, on the standing precedent - earlier phases' acceptance regexes,
                               // including 50's own block count, keep holding verbatim
+    QUEST_DEBUG_ERRAND = 53,  // the debug shopkeeper's errand (quests/DebugErrandQuest.cpp,
+                              // sturdy-bassoon#281): one step and no placed item, so the shopkeeper's
+                              // GIVE_ITEM is the only way it gets set
 } QuestId;
 
 #define QUEST_ID_IS_VALID(id) ((id) >= 0 && (id) < QUEST_MAX)
@@ -84,5 +87,7 @@ RS_STATIC_ASSERT(QUEST_DEBUG_GIVER >= QUEST_ID_DEBUG_FIRST && QUEST_DEBUG_GIVER 
                  "QUEST_DEBUG_GIVER must sit in the debug band");
 RS_STATIC_ASSERT(QUEST_DEBUG_FLOOR >= QUEST_ID_DEBUG_FIRST && QUEST_DEBUG_FLOOR < QUEST_MAX,
                  "QUEST_DEBUG_FLOOR must sit in the debug band");
+RS_STATIC_ASSERT(QUEST_DEBUG_ERRAND >= QUEST_ID_DEBUG_FIRST && QUEST_DEBUG_ERRAND < QUEST_MAX,
+                 "QUEST_DEBUG_ERRAND must sit in the debug band");
 
 #endif // SOH_RS_QUEST_IDS_H

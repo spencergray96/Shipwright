@@ -57,6 +57,8 @@ static int32_t EvalPositive(const QuestPredicate* pred) {
             return RsBoatFit_Owned(pred->a);
         case QUEST_PRED_BOAT_TIER_AT_LEAST:
             return RsBoatFit_TierOf(RS_BOAT_FIT_KEY_KIND(pred->a), RS_BOAT_FIT_KEY_SLOT(pred->a)) >= pred->b;
+        case QUEST_PRED_RUPEES_AT_LEAST:
+            return Quest_RupeesAfterPending() >= pred->a;
         default:
             SPDLOG_ERROR("QuestPredicate: unknown predicate kind {} (max {})", static_cast<int>(pred->kind),
                          QUEST_PRED_KIND_COUNT - 1);
@@ -109,6 +111,9 @@ extern "C" void QuestPredicate_Describe(const QuestPredicate* pred, char* buf, s
         case QUEST_PRED_BOAT_TIER_AT_LEAST:
             std::snprintf(inner, sizeof(inner), "BoatTierAtLeast(%d, %d, %d)", RS_BOAT_FIT_KEY_KIND(pred->a),
                           RS_BOAT_FIT_KEY_SLOT(pred->a), pred->b);
+            break;
+        case QUEST_PRED_RUPEES_AT_LEAST:
+            std::snprintf(inner, sizeof(inner), "RupeesAtLeast(%d)", pred->a);
             break;
         default:
             std::snprintf(inner, sizeof(inner), "<bad kind %d>", static_cast<int>(pred->kind));

@@ -71,13 +71,23 @@ bool ParseNpcId(const std::vector<std::string>& args, size_t index, int32_t* npc
 // (RS_DLG_NO_NEXT prints as -1, which is "close"); `when=` is how many predicates gate it and
 // `visible=` is what those predicates say RIGHT NOW - which is what makes the dynamic reveal
 // assertable from a console instead of from six screenshots.
+//
+// A give_item option's `a=` is a packed (quest, step), so it also prints `give=Q.S` (#281) - the item
+// it hands over, readable without unpacking RS_DLG_ITEM by hand. A charge_rupees option's `a=` is
+// already its price.
 std::string OptionLine(const char* prefix, int32_t screenIndex, int32_t optionIndex, const RsDialogueOption& option) {
-    return std::string(prefix) + "[" + std::to_string(screenIndex) + "." + std::to_string(optionIndex) +
-           "]=" + RsNpc_ActionName(option.kind) + " a=" + std::to_string(option.a) + " label=\"" +
-           RsNpc_ComposeOptionLabel(option) + "\" reply=\"" +
-           (option.reply != nullptr ? RsNpc_ComposeOptionReply(option) : std::string("-")) +
-           "\" next=" + std::to_string(option.next) + " when=" + std::to_string(option.whenCount) +
-           " visible=" + std::to_string(RsNpc_OptionVisible(&option));
+    std::string line = std::string(prefix) + "[" + std::to_string(screenIndex) + "." +
+                       std::to_string(optionIndex) + "]=" + RsNpc_ActionName(option.kind) +
+                       " a=" + std::to_string(option.a) + " label=\"" + RsNpc_ComposeOptionLabel(option) +
+                       "\" reply=\"" +
+                       (option.reply != nullptr ? RsNpc_ComposeOptionReply(option) : std::string("-")) +
+                       "\" next=" + std::to_string(option.next) + " when=" + std::to_string(option.whenCount) +
+                       " visible=" + std::to_string(RsNpc_OptionVisible(&option));
+    if (option.kind == RS_DLG_ACTION_GIVE_ITEM) {
+        line += " give=" + std::to_string(RS_DLG_ITEM_GET_QUEST(option.a)) + "." +
+                std::to_string(RS_DLG_ITEM_GET_STEP(option.a));
+    }
+    return line;
 }
 
 // `node.K` for where an edge naming node `n` lands right now, `-` if it lands nowhere (refused at

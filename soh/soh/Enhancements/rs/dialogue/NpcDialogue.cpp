@@ -160,6 +160,11 @@ bool CheckPredicate(char* buf, size_t len, const char* where, const QuestPredica
                 return Problem(buf, len, "%s: boat predicate operands %d, %d out of range", where, p.a, p.b);
             }
             break;
+        case QUEST_PRED_RUPEES_AT_LEAST:
+            if (p.a < 0 || p.a > QUEST_RUPEE_AMOUNT_MAX) {
+                return Problem(buf, len, "%s: RupeesAtLeast amount %d out of range", where, p.a);
+            }
+            break;
         default:
             return Problem(buf, len, "%s: unknown predicate kind %d", where, static_cast<int>(p.kind));
     }
@@ -484,6 +489,27 @@ bool CheckOption(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& re
             if (WORLD_FLAG_IS_PLACEMENT(option.a)) {
                 return Problem(buf, len, "%s[%d].opt[%d]: world flag %d is in a placement band", word, screenIndex,
                                index, option.a);
+            }
+            break;
+        case RS_DLG_ACTION_GIVE_ITEM:
+            // Ranges only, as for a quest id anywhere here: whether the quest has that many steps is a
+            // question about another translation unit's registration, which has no defined order.
+            if (option.a < 0 || !QUEST_ID_IS_VALID(RS_DLG_ITEM_GET_QUEST(option.a))) {
+                return Problem(buf, len, "%s[%d].opt[%d]: give_item quest id %d out of range", word, screenIndex,
+                               index, RS_DLG_ITEM_GET_QUEST(option.a));
+            }
+            // The world-flag rule, for the same reason: a debug NPC that sets a production quest's step
+            // leaves state `quest debugwipe` cannot clear.
+            if ((QUEST_ID_IS_DEBUG(RS_DLG_ITEM_GET_QUEST(option.a)) != 0) != (def->tier == QUEST_TIER_DEBUG)) {
+                return Problem(buf, len, "%s[%d].opt[%d]: give_item quest %d is in the other tier's band", word,
+                               screenIndex, index, RS_DLG_ITEM_GET_QUEST(option.a));
+            }
+            break;
+        case RS_DLG_ACTION_CHARGE_RUPEES:
+            // Zero is refused: an option that charges nothing is a NONE that reports a price.
+            if (option.a <= 0 || option.a > QUEST_RUPEE_AMOUNT_MAX) {
+                return Problem(buf, len, "%s[%d].opt[%d]: charge_rupees price %d is outside 1..32767", word,
+                               screenIndex, index, option.a);
             }
             break;
         default:
@@ -1104,6 +1130,10 @@ extern "C" const char* RsNpc_ActionName(int32_t kind) {
             return "complete_quest";
         case RS_DLG_ACTION_SET_WORLD_FLAG:
             return "set_world_flag";
+        case RS_DLG_ACTION_GIVE_ITEM:
+            return "give_item";
+        case RS_DLG_ACTION_CHARGE_RUPEES:
+            return "charge_rupees";
         default:
             return "?";
     }
@@ -1192,6 +1222,72 @@ std::string RsNpc_ComposeOptionReply(const RsDialogueOption& option) {
     return RsFloorText_Compose(option.reply != nullptr ? option.reply : "");
 }
 
+// --- the journal notice queue (#281) -------------------------------------------------------------
+//
+// Process-lifetime storage for one conversation's notices, which is the whole of its state: a quest
+// and the greatest kind queued for it. Bounded by how many quests one conversation can touch, so a
+// full queue drops the newest rather than growing; the journal still says it.
+namespace {
+
+struct Notice {
+    int32_t questId;
+    int32_t kind;
+};
+constexpr int32_t kMaxNotices = 8;
+std::array<Notice, kMaxNotices> sNotices;
+int32_t sNoticeCount = 0;
+
+void QueueNotice(int32_t questId, int32_t kind) {
+    for (int32_t i = 0; i < sNoticeCount; i++) {
+        if (sNotices[i].questId == questId) {
+            sNotices[i].kind = std::max(sNotices[i].kind, kind);
+            return;
+        }
+    }
+    if (sNoticeCount < kMaxNotices) {
+        sNotices[sNoticeCount++] = { questId, kind };
+    } else {
+        SPDLOG_WARN("RsDialogue: journal notice queue full, dropping quest {}", questId);
+    }
+}
+
+} // namespace
+
+extern "C" void RsDialogue_NoticeReset(void) {
+    sNoticeCount = 0;
+}
+
+extern "C" int32_t RsDialogue_NoticePeek(int32_t* questId, int32_t* kind) {
+    if (sNoticeCount == 0) {
+        return 0;
+    }
+    if (questId != nullptr) {
+        *questId = sNotices[0].questId;
+    }
+    if (kind != nullptr) {
+        *kind = sNotices[0].kind;
+    }
+    return 1;
+}
+
+extern "C" int32_t RsDialogue_NoticeTake(int32_t* questId, int32_t* kind) {
+    if (sNoticeCount == 0) {
+        return 0;
+    }
+    const Notice next = sNotices[0];
+    for (int32_t i = 1; i < sNoticeCount; i++) {
+        sNotices[i - 1] = sNotices[i];
+    }
+    sNoticeCount--;
+    if (questId != nullptr) {
+        *questId = next.questId;
+    }
+    if (kind != nullptr) {
+        *kind = next.kind;
+    }
+    return 1;
+}
+
 extern "C" int32_t RsNpc_RunAction(const RsDialogueOption* option) {
     if (option == nullptr) {
         return QUEST_ERR_INVALID_ID;
@@ -1203,20 +1299,48 @@ extern "C" int32_t RsNpc_RunAction(const RsDialogueOption* option) {
             // Check-then-write, the P1 rule: an outcome-class refusal (prereqs unmet, already
             // started) must not reach the write path's log-and-assert on a Debug build.
             const int32_t check = Quest_CheckStart(option->a);
-            return check == QUEST_OK ? Quest_Start(option->a) : check;
+            const int32_t result = check == QUEST_OK ? Quest_Start(option->a) : check;
+            if (result == QUEST_OK) {
+                QueueNotice(option->a, QUEST_NOTICE_STARTED);
+            }
+            return result;
         }
         case RS_DLG_ACTION_COMPLETE_QUEST: {
             // D12: status goes COMPLETE before rewards dispatch, so a second completion - from a
             // second placement of this same character, in this scene or another - is
             // QUEST_ALREADY_COMPLETE and grants nothing. That idempotency lives in Quest.cpp, not
-            // here; this must not grow a "have I already done this" flag of its own.
+            // here; this must not grow a "have I already done this" flag of its own. The same holds
+            // for the notice: only the completion that happened queues one.
             const int32_t check = Quest_CheckComplete(option->a);
-            return check == QUEST_OK ? Quest_Complete(option->a) : check;
+            const int32_t result = check == QUEST_OK ? Quest_Complete(option->a) : check;
+            if (result == QUEST_OK) {
+                QueueNotice(option->a, QUEST_NOTICE_COMPLETE);
+            }
+            return result;
         }
         case RS_DLG_ACTION_SET_WORLD_FLAG:
             Flags_SetWorldFlag(option->a);
             return QUEST_OK;
+        case RS_DLG_ACTION_GIVE_ITEM:
+            // A check only: the write waits for Link to take the item (RsNpc_SetGivenStep).
+            return Quest_CheckSetStep(RS_DLG_ITEM_GET_QUEST(option->a), RS_DLG_ITEM_GET_STEP(option->a));
+        case RS_DLG_ACTION_CHARGE_RUPEES:
+            return Quest_ChargeRupees(option->a);
         default:
             return QUEST_ERR_BAD_DEF;
     }
+}
+
+extern "C" int32_t RsNpc_SetGivenStep(const RsDialogueOption* option) {
+    if (option == nullptr || option->kind != RS_DLG_ACTION_GIVE_ITEM) {
+        return QUEST_ERR_BAD_DEF;
+    }
+    const int32_t questId = RS_DLG_ITEM_GET_QUEST(option->a);
+    const int32_t step = RS_DLG_ITEM_GET_STEP(option->a);
+    const int32_t check = Quest_CheckSetStep(questId, step);
+    const int32_t result = check == QUEST_OK ? Quest_SetStep(questId, step) : check;
+    if (result == QUEST_OK) {
+        QueueNotice(questId, QUEST_NOTICE_UPDATED);
+    }
+    return result;
 }
