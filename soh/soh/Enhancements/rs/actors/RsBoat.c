@@ -2893,6 +2893,9 @@ void RsBoat_Draw(Actor* thisx, PlayState* play) {
         gSPMatrix(POLY_OPA_DISP++, MATRIX_NEWMTX(gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
         gSPDisplayList(POLY_OPA_DISP++, model);
         Matrix_Pop();
+        // Player leaves Link's cull list in 0x0C and an actor drawn later may still call it (AlwaysOnFixes.cpp's
+        // Item_Shield fix), so it goes back once the boat's list is done with the segment.
+        gSPSegment(POLY_OPA_DISP++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)gCullBackDList);
         Gfx_SetupDL_25Opa(gfxCtx);
     }
     if (model != NULL && sRsBoatKinds[this->kind].rudder.list != NULL) {
