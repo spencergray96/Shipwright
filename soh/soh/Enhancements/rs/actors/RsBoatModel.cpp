@@ -68,6 +68,9 @@ std::shared_ptr<Fast::DisplayList> Load(const char* path) {
 namespace {
 
 constexpr double kMinNy = 0.35;
+// A face the shadow falls on: any not facing down, so the slanted walls and the trim's upright inner face too (at 0.1
+// the inner face was left out, a strip of bare wood between the rim's shadow and the wall's: the owner, 2026-10-30).
+constexpr double kFaceMinNy = -0.05;
 constexpr int kFine = 1;
 constexpr int kDilate = 2;
 constexpr double kStepUp = 4.0;
@@ -81,6 +84,7 @@ struct DeckTri {
 struct DeckMap {
     RsBoatDeckHeights map;
     std::vector<u8> cells;
+    std::vector<RsBoatDeckFace> faces;
 };
 
 // By list path, once each: a null entry is a kind with no archive or no deck.
@@ -172,6 +176,7 @@ std::unique_ptr<DeckMap> BuildDeck(const std::string& listPath) {
         double nx, ny, nz;
     };
     std::vector<Up> up;
+    std::vector<RsBoatDeckFace> faces;
     double lo[2] = { 1e9, 1e9 };
     double hi[2] = { -1e9, -1e9 };
     for (const auto& t : tris) {
@@ -179,7 +184,25 @@ std::unique_ptr<DeckMap> BuildDeck(const std::string& listPath) {
         const double vx = t.c[0] - t.a[0], vy = t.c[1] - t.a[1], vz = t.c[2] - t.a[2];
         const double nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
         const double length = std::sqrt(nx * nx + ny * ny + nz * nz);
-        if (length == 0.0 || ny / length < kMinNy) {
+        if (length == 0.0 || ny / length < kFaceMinNy) {
+            continue;
+        }
+        RsBoatDeckFace face;
+        const double* corners[3] = { t.a, t.b, t.c };
+        for (int k = 0; k < 3; k++) {
+            for (int axis = 0; axis < 3; axis++) {
+                face.v[k][axis] = (f32)corners[k][axis];
+            }
+        }
+        face.n[0] = (f32)(nx / length);
+        face.n[1] = (f32)(ny / length);
+        face.n[2] = (f32)(nz / length);
+        face.lo[0] = (f32)std::min({ t.a[0], t.b[0], t.c[0] });
+        face.lo[1] = (f32)std::min({ t.a[2], t.b[2], t.c[2] });
+        face.hi[0] = (f32)std::max({ t.a[0], t.b[0], t.c[0] });
+        face.hi[1] = (f32)std::max({ t.a[2], t.b[2], t.c[2] });
+        faces.push_back(face);
+        if (ny / length < kMinNy) {
             continue;
         }
         up.push_back({ t, nx, ny, nz });
@@ -270,14 +293,49 @@ std::unique_ptr<DeckMap> BuildDeck(const std::string& listPath) {
                                               : (u8)std::ceil((knots[k] - base) * 2.0 - 1e-6);
     }
     deck->map = { (s16)x0, (s16)z0, (s16)kw, (s16)kh, (s16)base, deck->cells.data() };
+    // Each corner's normal, summed over the faces that share it (weighted by their area: the unnormalised normals), so
+    // the shadow's copies, lifted along it, still meet along every shared edge.
+    {
+        std::map<std::array<int, 3>, std::array<double, 3>> sums;
+        auto key = [](const f32* v) {
+            return std::array<int, 3>{ (int)std::lround(v[0] * 8.0f), (int)std::lround(v[1] * 8.0f),
+                                        (int)std::lround(v[2] * 8.0f) };
+        };
+        for (const auto& face : faces) {
+            const double ux = face.v[1][0] - face.v[0][0];
+            const double uy = face.v[1][1] - face.v[0][1];
+            const double uz = face.v[1][2] - face.v[0][2];
+            const double vx = face.v[2][0] - face.v[0][0];
+            const double vy = face.v[2][1] - face.v[0][1];
+            const double vz = face.v[2][2] - face.v[0][2];
+            const double n[3] = { uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx };
+            for (int k = 0; k < 3; k++) {
+                auto& sum = sums[key(face.v[k])];
+                sum[0] += n[0];
+                sum[1] += n[1];
+                sum[2] += n[2];
+            }
+        }
+        for (auto& face : faces) {
+            for (int k = 0; k < 3; k++) {
+                const auto& sum = sums[key(face.v[k])];
+                const double length = std::sqrt(sum[0] * sum[0] + sum[1] * sum[1] + sum[2] * sum[2]);
+                for (int axis = 0; axis < 3; axis++) {
+                    // Faces that nearly cancel (opposite windings over the same corner) leave noise: the face's own.
+                    face.vn[k][axis] = (length > 1e-3) ? (f32)(sum[axis] / length) : face.n[axis];
+                }
+            }
+        }
+    }
+    deck->faces = std::move(faces);
     // sum = cells weighted by their index + 1, mod 2^32: a fingerprint to compare one build's map with another's
     uint32_t sum = 0;
     for (size_t k = 0; k < deck->cells.size(); k++) {
         sum += (uint32_t)(k + 1) * deck->cells[k];
     }
     SPDLOG_INFO("[rs_boat] {}: deck map {} x {} knots from x {} z {}, from {} faces ({} up-facing), heights {}..{:.1f}, "
-                "sum {}, in {} ms",
-                listPath, kw, kh, x0, z0, tris.size(), up.size(), base, maxY, sum,
+                "sum {}, {} faces the shadow falls on, in {} ms",
+                listPath, kw, kh, x0, z0, tris.size(), up.size(), base, maxY, sum, deck->faces.size(),
                 std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count());
     return deck;
 }
@@ -290,6 +348,16 @@ extern "C" const RsBoatDeckHeights* RsBoat_DeckHeights(const char* listPath) {
         found = sDecks.emplace(listPath, RsBoat_ModelList(listPath) != nullptr ? BuildDeck(listPath) : nullptr).first;
     }
     return found->second != nullptr ? &found->second->map : nullptr;
+}
+
+extern "C" const RsBoatDeckFace* RsBoat_DeckFaces(const char* listPath, s32* count) {
+    *count = 0;
+    if (RsBoat_DeckHeights(listPath) == nullptr) {
+        return nullptr;
+    }
+    const auto& faces = sDecks.find(listPath)->second->faces;
+    *count = (s32)faces.size();
+    return faces.data();
 }
 
 extern "C" Gfx* RsBoat_ModelList(const char* listPath) {

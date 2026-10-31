@@ -68,12 +68,14 @@
 // more than `reserve` slots are free, so the wake thins out under pressure rather than churning.
 //
 // LINK'S SHADOW (#267). Over a boat Link has no feet shadows (Navi's light turned them round him). By default the boat
-// draws his shadow itself, draped over its drawn deck (RS_BOAT_SHADOW_DRAPED, RsBoat_DrawLinkShadow): a small mesh of
-// vanilla's circle shadow, each vertex at the height of a map of the drawn hull's top faces (RsBoat_DeckHeights, read
-// from the kind's archive the first time), in the hull's own matrix. So it rocks with the drawn deck rather than the
-// collision's whole units, lies along the rail's trim, the covered bow's crown and the keel's spine, stops where the
-// drawn hull does, and shows only once Link's feet are up on the deck he climbs onto. About 150 opaque words a tick
-// over the circle's. `boat shadow` switches it (or to the flat circle, or the feet shadows) and reads its last draw.
+// casts his shadow onto itself (RS_BOAT_SHADOW_DRAPED, RsBoat_DrawLinkShadow): the drawn hull's own faces under it
+// (RsBoat_DeckFaces, read from the kind's archive as the boat spawns), clipped to its square and drawn again in the
+// hull's matrix wearing vanilla's circle shadow laid on from above. So it rocks with the drawn deck rather than the
+// collision's whole units, lies on the trim to its edge, over the covered bow's crown and down the slanted walls, and
+// shows only once his feet are up on the deck he climbs onto; it follows his feet mid-climb and fades in over a few
+// ticks. Built on the hull at a walk and relative to him at a run (RsBoatShadowAnchor). 60-390 opaque words a tick over
+// the circle's, by how many faces lie under it. `boat shadow` switches it (or to the flat circle, or the feet shadows),
+// reads its last draw, and `boat shadow trace` its last RS_BOAT_SHADOW_TRACE.
 //
 // Console: `boat ...` and `agenttest boat ...` (RsBoatConsole.h). Markers: `rs_boat event=<spawn|helm_on|
 // helm_off|blocked> ...` (agent mode).
@@ -125,6 +127,17 @@ typedef enum RsBoatKindId {
 #define RS_BOAT_DECK_SHADOW_SIZE_DEFAULT 30
 #define RS_BOAT_DECK_SHADOW_SIZE_MIN 5
 #define RS_BOAT_DECK_SHADOW_SIZE_MAX 100
+// Where the draped shadow's pieces are built (a test aid: a CVar, so SoH keeps it on exit; RsBoat_DrawLinkShadow).
+// Relative to Link, frame interpolation glides the shadow with him between ticks but slides each piece along its face
+// by up to a tick's motion, and snaps it back at the next: a jerk at the trim's edges as he inches along (the owner,
+// 2026-10-30). In the boat's own space nothing slides, but the shadow moves once a tick, which shows only at a run. So
+// by default it picks by his speed.
+typedef enum RsBoatShadowAnchor {
+    RS_BOAT_SHADOW_ANCHOR_AUTO, // the hull at a walk or slower, him at a run (RS_BOAT_SHADOW_GLIDE_ON / _OFF)
+    RS_BOAT_SHADOW_ANCHOR_HULL,
+    RS_BOAT_SHADOW_ANCHOR_LINK,
+} RsBoatShadowAnchor;
+#define CVAR_RS_BOAT_DECK_SHADOW_ANCHOR CVAR_ENHANCEMENT("RsBoatDeckShadowAnchor")
 #define RS_BOAT_CAM_HEIGHT_DEFAULT 120 // the owner's pick: high enough to see obstacles in the water ahead
 #define RS_BOAT_CAM_DIST_DEFAULT 240
 #define RS_BOAT_CAM_EASE_DEFAULT 25 // ~90% of the way in 8 ticks (0.4 s): a fast catch-up, not a snap
@@ -311,8 +324,8 @@ typedef enum RsBoatShadowMode {
     RS_BOAT_SHADOW_FEET,   // his feet shadows, as on land
     RS_BOAT_SHADOW_CIRCLE, // vanilla's flat circle under him, drawn by ActorShadow_DrawFeet. It sits on the collision,
                            // which steps a unit at a time as the hull rocks, and overhangs every edge
-    RS_BOAT_SHADOW_DRAPED, // a mesh over the drawn hull, drawn by the boat (RsBoat_DrawLinkShadow): it rocks with the
-                           // hull, follows the rail, the crown and the spine, and stops where the drawn hull does
+    RS_BOAT_SHADOW_DRAPED, // cast onto the drawn hull's own faces by the boat (RsBoat_DrawLinkShadow): it rocks with
+                           // the hull, lies on the rail, the crown, the spine and the walls, and stops where they do
 } RsBoatShadowMode;
 
 // The mode for `actor` this tick: RS_BOAT_SHADOW_FEET unless it is Link over a boat (CVAR_RS_BOAT_DECK_SHADOW).
@@ -327,9 +340,11 @@ typedef struct RsBoatShadowStats {
     s32 kind;      // the boat's kind
     f32 radius;    // world units
     f32 feetOver;  // Link's feet over the deck under him; -999 when no drawn deck is under him (nothing drawn)
-    s32 lit;       // grid vertices drawn with any alpha
-    s32 quads;     // grid squares drawn
-    s32 stepped;   // squares left out across a step (a wall, the rail's inner side)
+    s32 lit;       // corners drawn with any alpha
+    s32 glide;     // 1: built relative to him (gliding), 0: on the hull
+    s32 faces;     // hull faces it fell on (clipped to its square, with any shade)
+    s32 dropped;   // faces left out past RS_BOAT_SHADOW_MAX_VTX (a big size over many small faces)
+    s32 tris;      // triangles drawn
     // Since `boat shadow reset`: draws, draws held back (no drawn deck under him, or his feet under it: climbing), and
     // the lowest feetOver of a draw (999 before one)
     s32 drawn;
@@ -339,6 +354,24 @@ typedef struct RsBoatShadowStats {
 extern RsBoatShadowStats gRsBoatShadow;
 // `boat shadow reset`: zeroes drawn and held, and lowestDrawn back to 999.
 void RsBoat_ShadowStatsReset(void);
+// The draped shadow's last RS_BOAT_SHADOW_TRACE ticks it was asked to draw (one row each: drawn, held back, or not
+// drawn with Link aboard last tick), oldest first from gRsBoatShadowTraceNext (a ring),
+// for `boat shadow trace`: where it took him to be (model space), the deck and fade reference it chose, the jump's
+// fade, his speed, and what it drew.
+#define RS_BOAT_SHADOW_TRACE 256
+typedef struct RsBoatShadowTraceRow {
+    u32 frame;
+    f32 x, y, z;  // his place as the shadow took it (his feet mid-climb), model space
+    f32 deck;     // the deck he is over
+    f32 under;    // the fade's reference
+    f32 strength; // the jump's fade
+    f32 speed;    // his linearVelocity
+    s16 tris;     // triangles drawn; -1 held back, -2 not drawn with him aboard last tick
+    u8 climbing;
+    u8 glide;     // built relative to him
+} RsBoatShadowTraceRow;
+extern RsBoatShadowTraceRow gRsBoatShadowTrace[RS_BOAT_SHADOW_TRACE];
+extern s32 gRsBoatShadowTraceNext;
 
 // 1 when Link, aboard as of last tick, is leaving an edge over a boat's own floor: off its rail or its covered bow onto
 // its deck. Player gives that no hop (a walk off), or on a kind that hops inward the small hop at any pace over 0.5, a
@@ -452,6 +485,20 @@ typedef struct RsBoatDeckHeights {
     s16 base;        // a knot's height is base + cell / 2
     const u8* cells; // row by row along z; RS_BOAT_DECK_HEIGHT_NONE where no drawn face is
 } RsBoatDeckHeights;
+
+// A face of the drawn hull the draped shadow falls on (#267): the hull, keel and trim's faces that do not point down
+// (the slanted walls and upright faces too), in the list's model space, with the unit normal and the extent across it.
+typedef struct RsBoatDeckFace {
+    f32 v[3][3];
+    f32 vn[3][3]; // each corner's normal, averaged over the faces that share the corner
+    f32 n[3];
+    f32 lo[2]; // x, z
+    f32 hi[2];
+} RsBoatDeckFace;
+
+// The faces for the kind whose display list is `listPath`, built with its deck map, and how many; NULL, 0 when there
+// is no deck map.
+const RsBoatDeckFace* RsBoat_DeckFaces(const char* listPath, s32* count);
 
 // The deck map for the kind whose display list is `listPath` (its archive's `.../props`), or NULL when the archive is not
 // mounted or has no deck: no draped shadow then.

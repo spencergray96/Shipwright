@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 #include <libultraship/bridge/consolevariablebridge.h>
 #include <ship/debug/Console.h>
@@ -42,7 +43,7 @@ using ConsoleSink::Addf;
     "climb [hop|hands] | kind [skiff|sloop|raft] | tune [default] | tune <knob> <value> | wake [default|reset] | "  \
     "wake slots [<n>|default] | "                                                                                   \
     "wake <knob> <value> | contact [<idx>] | still [on|off] | shadow [feet|circle|draped|default|reset] | "      \
-    "shadow size <n> | clear"
+    "shadow size <n> | shadow anchor [auto|hull|link] | shadow trace | clear"
 
 const char* kUsage = "op=usage result=error usage=\"boat " RS_BOAT_GRAMMAR "\"";
 
@@ -404,13 +405,33 @@ int32_t Climb(const std::vector<std::string>& args, std::vector<std::string>& li
 int32_t Shadow(const std::vector<std::string>& args, std::vector<std::string>& lines) {
     // in RsBoatShadowMode order
     static const char* const kModes[] = { "feet", "circle", "draped" };
+    static const char* const kAnchors[] = { "auto", "hull", "link" }; // in RsBoatShadowAnchor order
     const int32_t kModeCount = (int32_t)(sizeof(kModes) / sizeof(kModes[0]));
 
-    if (args.size() == 2 && args[1] == "reset") {
+    if (args.size() == 2 && args[1] == "trace") {
+        for (int32_t k = 0; k < RS_BOAT_SHADOW_TRACE; k++) {
+            const RsBoatShadowTraceRow& r = gRsBoatShadowTrace[(gRsBoatShadowTraceNext + k) % RS_BOAT_SHADOW_TRACE];
+            if (r.frame != 0) {
+                Addf(lines,
+                     "t=%u x=%.2f y=%.2f z=%.2f deck=%.2f under=%.2f str=%.1f speed=%.2f tris=%d climb=%d glide=%d",
+                     r.frame, r.x, r.y, r.z, r.deck, r.under, r.strength, r.speed, (int)r.tris, (int)r.climbing,
+                     (int)r.glide);
+            }
+        }
+        return 0;
+    } else if (args.size() == 3 && args[1] == "anchor" &&
+               (args[2] == "auto" || args[2] == "hull" || args[2] == "link")) {
+        CVarSetInteger(CVAR_RS_BOAT_DECK_SHADOW_ANCHOR, args[2] == "hull"   ? RS_BOAT_SHADOW_ANCHOR_HULL
+                                                        : args[2] == "link" ? RS_BOAT_SHADOW_ANCHOR_LINK
+                                                                            : RS_BOAT_SHADOW_ANCHOR_AUTO);
+        CVarSave();
+    } else if (args.size() == 2 && args[1] == "reset") {
+        memset(gRsBoatShadowTrace, 0, sizeof(gRsBoatShadowTrace));
         RsBoat_ShadowStatsReset();
     } else if (args.size() == 2 && args[1] == "default") {
         CVarClear(CVAR_RS_BOAT_DECK_SHADOW);
         CVarClear(CVAR_RS_BOAT_DECK_SHADOW_SIZE);
+        CVarClear(CVAR_RS_BOAT_DECK_SHADOW_ANCHOR);
         CVarSave();
     } else if (args.size() == 2) {
         int32_t mode = -1;
@@ -446,12 +467,14 @@ int32_t Shadow(const std::vector<std::string>& args, std::vector<std::string>& l
     const RsBoatShadowStats& s = gRsBoatShadow;
     const int32_t age = (s.frame == 0 || gPlayState == nullptr) ? -1 : (int32_t)(gPlayState->state.frames - s.frame);
     Addf(lines,
-         "op=shadow result=ok mode=%s size=%d age=%d kind=%s radius=%.1f feet_over=%.1f lit=%d quads=%d stepped=%d "
-         "drawn=%d held=%d lowest_drawn=%.1f",
+         "op=shadow result=ok mode=%s size=%d age=%d kind=%s radius=%.1f feet_over=%.1f lit=%d faces=%d tris=%d "
+         "drawn=%d held=%d lowest_drawn=%.1f anchor=%s glide=%d dropped=%d",
          (mode >= 0 && mode < kModeCount) ? kModes[mode] : "?",
          CVarGetInteger(CVAR_RS_BOAT_DECK_SHADOW_SIZE, RS_BOAT_DECK_SHADOW_SIZE_DEFAULT), (int)age,
-         RsBoat_KindName(s.kind), s.radius, s.feetOver, (int)s.lit, (int)s.quads, (int)s.stepped, (int)s.drawn,
-         (int)s.held, s.lowestDrawn);
+         RsBoat_KindName(s.kind), s.radius, s.feetOver, (int)s.lit, (int)s.faces, (int)s.tris, (int)s.drawn,
+         (int)s.held, s.lowestDrawn,
+         kAnchors[CLAMP(CVarGetInteger(CVAR_RS_BOAT_DECK_SHADOW_ANCHOR, RS_BOAT_SHADOW_ANCHOR_AUTO), 0, 2)],
+         (int)s.glide, (int)s.dropped);
     return 0;
 }
 
