@@ -124,11 +124,19 @@
 //                   shallow|wall|headroom> points= <reason>:<depth>@<push x>,<push z> ...`, one entry per probe in
 //                   trouble, depth in world units and the push a unit vector x100 on the world axes. Empty
 //                   `points=` is a hull that fits. The first thing to read when a boat stops where it should not
+//   shadow [feet|circle|draped|default|reset] | shadow size <5..100>
+//                   Link's shadow over a boat (#267, saved; RsBoatShadowMode): his feet shadows, vanilla's flat circle,
+//                   or draped over the drawn deck (the default); its size in percent of his shadow scale (30). reset
+//                   zeroes the draped draw's counters. `op=shadow result=ok mode= size= age=<ticks since its last
+//                   draw, -1 none> kind= radius= feet_over=<his feet over the drawn deck under him, -999 none> lit=
+//                   quads= stepped= drawn= held= lowest_drawn=`: that draw's vertices with any shade, squares drawn
+//                   and squares left out across a step; since reset, draws, draws held back (no drawn deck under him
+//                   or his feet under it: climbing) and the lowest feet_over a draw had. Works with no scene
 //   clear           kills every boat. `op=clear result=ok killed=<n>`
 //
 // Refusals, each with rc 1:
 //   op=boat result=error error=no_scene      no play state (title screen, file select); lakehylia, cam,
-//                                            hud, kind, tune and wake still work
+//                                            hud, kind, tune, wake, still and shadow still work
 //   op=cam result=error error=bad_value height=..  dist=.. ease=..
 //                                            a knob not named, or a value outside its range
 //   op=tune result=error error=bad_value fwd=<min>..<max> ...

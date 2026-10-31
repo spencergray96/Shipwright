@@ -12,6 +12,8 @@
 #include "RsBoat.h"
 #include "RsActors.h"
 #include "global.h"
+#include "soh/frame_interpolation.h"
+#include "objects/gameplay_keep/gameplay_keep.h" // gCircleShadowTex, for Link's draped shadow
 #include "overlays/effects/ovl_Effect_Ss_G_Ripple/z_eff_ss_g_ripple.h" // the wake's rings and splash, spawned at
 #include "overlays/effects/ovl_Effect_Ss_G_Splash/z_eff_ss_g_splash.h" // its own priority
 
@@ -2150,16 +2152,20 @@ s32 RsBoat_IsBoatFloor(PlayState* play, s32 bgId) {
     return RsBoat_IsHullBg(play, bgId);
 }
 
-f32 RsBoat_DeckShadow(PlayState* play, const Actor* actor) {
+s32 RsBoat_DeckShadow(PlayState* play, const Actor* actor) {
     const Player* player = GET_PLAYER(play);
-    s32 size;
+    const s32 mode = CVarGetInteger(CVAR_RS_BOAT_DECK_SHADOW, RS_BOAT_DECK_SHADOW_DEFAULT);
 
-    if (player == NULL || actor != &player->actor ||
-        !CVarGetInteger(CVAR_RS_BOAT_DECK_SHADOW, RS_BOAT_DECK_SHADOW_DEFAULT) ||
-        !RsBoat_IsHullBg(play, actor->floorBgId)) {
-        return 0.0f;
+    if ((mode != RS_BOAT_SHADOW_CIRCLE && mode != RS_BOAT_SHADOW_DRAPED) || player == NULL ||
+        actor != &player->actor || !RsBoat_IsHullBg(play, actor->floorBgId)) {
+        return RS_BOAT_SHADOW_FEET;
     }
-    size = CVarGetInteger(CVAR_RS_BOAT_DECK_SHADOW_SIZE, RS_BOAT_DECK_SHADOW_SIZE_DEFAULT);
+    return mode;
+}
+
+f32 RsBoat_DeckShadowSize(void) {
+    const s32 size = CVarGetInteger(CVAR_RS_BOAT_DECK_SHADOW_SIZE, RS_BOAT_DECK_SHADOW_SIZE_DEFAULT);
+
     return CLAMP(size, RS_BOAT_DECK_SHADOW_SIZE_MIN, RS_BOAT_DECK_SHADOW_SIZE_MAX) / 100.0f;
 }
 
@@ -2283,6 +2289,9 @@ void RsBoat_Init(Actor* thisx, PlayState* play) {
     if (!sHulls[this->kind].built) {
         RsBoat_BuildHull(this->kind);
     }
+    // Link's draped shadow's deck map, read from the archive now, inside the scene's load, rather than as he first
+    // steps aboard: ~40-60 ms a kind in Debug, once a session (#267).
+    (void)RsBoat_DeckHeights(sRsBoatKinds[this->kind].list);
 
     Actor_SetScale(thisx, 1.0f);
     // Position and yaw: the engine's moving-platform path carries Link along and turns him with the hull.
@@ -2840,6 +2849,247 @@ static void RsBoat_DrawTestWater(GraphicsContext* gfxCtx) {
     CLOSE_DISPS(gfxCtx);
 }
 
+// --- Link's draped shadow (#267) ----------------------------------------------------------------------------------
+
+#define RS_BOAT_SHADOW_GRID 9 // vertices along each side of the mesh, centred on Link: ~250 opaque words a tick
+#define RS_BOAT_SHADOW_VTX_SCALE 4.0f // the mesh is built in quarter units: heights to a quarter, not a whole unit
+// gCircleShadowDL's half-width in its own units, so the size CVar gives the circle's radius in either mode. The
+// mesh wears the circle's own texture (gCircleShadowTex, 32 x 32 IA16: a disc at alpha ~166, a two-texel rim) across
+// that width, so its edge is round at any grid and it is as dark as vanilla's. Matched by eye to the circle's mode
+// on the skiff's deck from above (#267): 50 drew it ~20% small.
+#define RS_BOAT_SHADOW_CIRCLE_HALF 60.0f
+#define RS_BOAT_SHADOW_TEX 32
+#define RS_BOAT_SHADOW_LIFT 0.5f      // over the drawn face
+#define RS_BOAT_SHADOW_OVER_FEET 6.0f // a face higher than this over his feet gets none: a wall beside him, a rail he
+                                      // climbs onto (until he is nearly up), the trim over the deck. The raft's drawn
+                                      // logs crown a few units over its flat collision, so not less
+#define RS_BOAT_SHADOW_DROP 10.0f // a face this far under the deck he is over gets none: the deck seen from the rail
+#define RS_BOAT_SHADOW_GAP 3.0f   // how far round him to look for the deck he is over when he stands over a gap
+#define RS_BOAT_SHADOW_STEP 6.0f  // a square whose corners spread wider than this is a step (a wall): left out
+
+RsBoatShadowStats gRsBoatShadow = { .feetOver = -999.0f, .lowestDrawn = 999.0f };
+
+void RsBoat_ShadowStatsReset(void) {
+    gRsBoatShadow.drawn = gRsBoatShadow.held = 0;
+    gRsBoatShadow.lowestDrawn = 999.0f;
+}
+
+// The drawn deck's height at model (x, z), bilinear between the knots, and how much drawn deck is there: the weight of
+// the knots that have a face (0 off the hull, 1 well inside it), which fades the shadow out at the drawn edge.
+static f32 RsBoat_DeckHeightAt(const RsBoatDeckHeights* map, f32 x, f32 z, f32* present) {
+    const f32 fx = (x - map->x0) / RS_BOAT_DECK_HEIGHT_STEP;
+    const f32 fz = (z - map->z0) / RS_BOAT_DECK_HEIGHT_STEP;
+    const s32 i = (s32)floorf(fx);
+    const s32 j = (s32)floorf(fz);
+    const f32 tx = fx - i;
+    const f32 tz = fz - j;
+    f32 sum = 0.0f;
+    f32 weight = 0.0f;
+    s32 k;
+
+    for (k = 0; k < 4; k++) {
+        const s32 ki = i + (k & 1);
+        const s32 kj = j + (k >> 1);
+        const f32 wk = ((k & 1) ? tx : 1.0f - tx) * ((k >> 1) ? tz : 1.0f - tz);
+        u8 cell;
+
+        if (wk <= 0.0f || ki < 0 || kj < 0 || ki >= map->w || kj >= map->h) {
+            continue;
+        }
+        cell = map->cells[kj * map->w + ki];
+        if (cell != RS_BOAT_DECK_HEIGHT_NONE) {
+            sum += wk * (map->base + cell * 0.5f);
+            weight += wk;
+        }
+    }
+    *present = weight;
+    return (weight > 0.0f) ? sum / weight : 0.0f;
+}
+
+// Link's shadow over this boat in RS_BOAT_SHADOW_DRAPED: a square grid centred on him in boat space, each vertex at the
+// drawn deck's height under it, wearing the circle's texture, each vertex as dark as the drawn deck under it and its
+// depth under the deck he is over allow. A square across a step is left out rather than drawn up the wall. Drawn
+// after the hull in the hull's own matrix (Actor_Draw's), so it rocks and bobs with the drawn deck, not the
+// collision's whole units. The vertices are this tick's; only Link's offset is a matrix, so frame interpolation
+// glides it between ticks. Its own render state, unfogged: the vanilla shadows' (setup 0x2C) turns fog on, which
+// overwrites the shade alpha the fades ride on. Black near the camera is the same either way.
+static void RsBoat_DrawLinkShadow(RsBoat* this, PlayState* play) {
+    static u8 sInterpKey;
+    const RsBoatKind* kind = &sRsBoatKinds[this->kind];
+    const RsBoatDeckHeights* map;
+    const Player* player = GET_PLAYER(play);
+    GraphicsContext* gfxCtx = play->state.gfxCtx;
+    f32 heights[RS_BOAT_SHADOW_GRID * RS_BOAT_SHADOW_GRID];
+    u8 alpha[RS_BOAT_SHADOW_GRID * RS_BOAT_SHADOW_GRID];
+    MtxF hullMtx;
+    MtxF toBoat;
+    Vec3f link;
+    Vtx* vtx;
+    f32 mx;
+    f32 my;
+    f32 mz;
+    f32 present;
+    f32 deck;
+    f32 radius;
+    f32 spacing;
+    f32 strength;
+    s32 r0;
+    s32 i;
+    s32 j;
+
+    if (player == NULL || this->dyna.bgId < 0 || player->actor.floorBgId != (u8)this->dyna.bgId ||
+        player->actor.shape.shadowDraw == NULL ||
+        RsBoat_DeckShadow(play, &player->actor) != RS_BOAT_SHADOW_DRAPED ||
+        (map = RsBoat_DeckHeights(kind->list)) == NULL) {
+        return;
+    }
+    // Link in boat space: the inverse of Actor_Draw's matrix for the hull (scale 1).
+    SkinMatrix_SetTranslateRotateYXZScale(&hullMtx, 1.0f, 1.0f, 1.0f, this->dyna.actor.shape.rot.x,
+                                          this->dyna.actor.shape.rot.y, this->dyna.actor.shape.rot.z,
+                                          this->dyna.actor.world.pos.x,
+                                          this->dyna.actor.world.pos.y + this->dyna.actor.shape.yOffset,
+                                          this->dyna.actor.world.pos.z);
+    if (SkinMatrix_Invert(&hullMtx, &toBoat) != 0) {
+        return;
+    }
+    SkinMatrix_Vec3fMtxFMultXYZ(&toBoat, (Vec3f*)&player->actor.world.pos, &link);
+    mx = link.x;
+    my = link.y - kind->modelY;
+    mz = link.z - kind->modelZ;
+
+    gRsBoatShadow.frame = play->state.frames;
+    gRsBoatShadow.kind = this->kind;
+    gRsBoatShadow.feetOver = -999.0f;
+    gRsBoatShadow.lit = gRsBoatShadow.quads = gRsBoatShadow.stepped = 0;
+    radius = player->actor.shape.shadowScale * player->actor.scale.x * RsBoat_DeckShadowSize() *
+             RS_BOAT_SHADOW_CIRCLE_HALF;
+    gRsBoatShadow.radius = radius;
+
+    // The deck he is over: under his middle, or within RS_BOAT_SHADOW_GAP of it when that is a gap (the raft's helm
+    // stands between two logs). None (half off the hull, climbing its side), or his feet under it (climbing up onto
+    // it): no shadow until he is up.
+    // Round a gap, the deck nearest his feet: not a log's top or the trim beyond it.
+    deck = RsBoat_DeckHeightAt(map, mx, mz, &present);
+    if (present < 0.5f) {
+        f32 best = -1.0f;
+
+        for (i = 0; i < 8; i++) {
+            f32 there;
+            const f32 h = RsBoat_DeckHeightAt(map, mx + RS_BOAT_SHADOW_GAP * Math_SinS(i * 0x2000),
+                                              mz + RS_BOAT_SHADOW_GAP * Math_CosS(i * 0x2000), &there);
+
+            if (there >= 0.5f && (best < 0.0f || fabsf(h - my) < best)) {
+                best = fabsf(h - my);
+                deck = h;
+                present = there;
+            }
+        }
+    }
+    if (present < 0.5f || my < deck - RS_BOAT_SHADOW_OVER_FEET) {
+        gRsBoatShadow.held++;
+        return;
+    }
+    gRsBoatShadow.feetOver = my - deck;
+    gRsBoatShadow.drawn++;
+    gRsBoatShadow.lowestDrawn = MIN(gRsBoatShadow.lowestDrawn, my - deck);
+    // Vanilla's fade with height (ActorShadow_Draw), for a jump.
+    strength = player->actor.shape.shadowAlpha * (1.0f - CLAMP(my - deck, 0.0f, 150.0f) / 350.0f);
+    spacing = 2.0f * radius / (RS_BOAT_SHADOW_GRID - 1);
+
+    vtx = Graph_Alloc(gfxCtx, sizeof(Vtx) * RS_BOAT_SHADOW_GRID * RS_BOAT_SHADOW_GRID);
+    for (j = 0; j < RS_BOAT_SHADOW_GRID; j++) {
+        for (i = 0; i < RS_BOAT_SHADOW_GRID; i++) {
+            const s32 k = j * RS_BOAT_SHADOW_GRID + i;
+            const f32 ox = -radius + i * spacing;
+            const f32 oz = -radius + j * spacing;
+            const f32 h = RsBoat_DeckHeightAt(map, mx + ox, mz + oz, &present);
+            f32 a = strength * present;
+
+            if (h > my + RS_BOAT_SHADOW_OVER_FEET) {
+                a = 0.0f;
+            } else if (deck - h > 1.0f) {
+                a *= CLAMP_MIN(1.0f - (deck - h - 1.0f) / (RS_BOAT_SHADOW_DROP - 1.0f), 0.0f);
+            }
+            heights[k] = (present > 0.0f) ? h : deck;
+            alpha[k] = (u8)CLAMP(a, 0.0f, 255.0f);
+            if (alpha[k] > 0) {
+                gRsBoatShadow.lit++;
+            }
+            vtx[k].v.ob[0] = (s16)lroundf(ox * RS_BOAT_SHADOW_VTX_SCALE);
+            vtx[k].v.ob[1] = (s16)lroundf((heights[k] + RS_BOAT_SHADOW_LIFT) * RS_BOAT_SHADOW_VTX_SCALE);
+            vtx[k].v.ob[2] = (s16)lroundf(oz * RS_BOAT_SHADOW_VTX_SCALE);
+            vtx[k].v.flag = 0;
+            // The texture across the square, texels in s10.5.
+            vtx[k].v.tc[0] = (s16)(i * RS_BOAT_SHADOW_TEX * 32 / (RS_BOAT_SHADOW_GRID - 1));
+            vtx[k].v.tc[1] = (s16)(j * RS_BOAT_SHADOW_TEX * 32 / (RS_BOAT_SHADOW_GRID - 1));
+            vtx[k].v.cn[0] = vtx[k].v.cn[1] = vtx[k].v.cn[2] = 0;
+            vtx[k].v.cn[3] = alpha[k];
+        }
+    }
+
+    OPEN_DISPS(gfxCtx);
+
+    FrameInterpolation_RecordOpenChild(&sInterpKey, 0);
+    Matrix_Push();
+    Matrix_Translate(link.x, kind->modelY, link.z, MTXMODE_APPLY);
+    Matrix_Scale(1.0f / RS_BOAT_SHADOW_VTX_SCALE, 1.0f / RS_BOAT_SHADOW_VTX_SCALE, 1.0f / RS_BOAT_SHADOW_VTX_SCALE,
+                 MTXMODE_APPLY);
+    gSPMatrix(POLY_OPA_DISP++, MATRIX_NEWMTX(gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
+    Matrix_Pop();
+    FrameInterpolation_RecordCloseChild();
+
+    gDPPipeSync(POLY_OPA_DISP++);
+    gSPTexture(POLY_OPA_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
+    gDPSetOtherMode(POLY_OPA_DISP++,
+                    G_AD_NOTPATTERN | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | G_TF_BILERP | G_TT_NONE | G_TL_TILE |
+                        G_TD_CLAMP | G_TP_PERSP | G_CYC_1CYCLE | G_PM_NPRIMITIVE,
+                    G_AC_NONE | G_ZS_PIXEL | G_RM_ZB_OVL_SURF | G_RM_ZB_OVL_SURF2);
+    gSPLoadGeometryMode(POLY_OPA_DISP++, G_ZBUFFER | G_SHADE | G_SHADING_SMOOTH);
+    gDPLoadTextureBlock(POLY_OPA_DISP++, gCircleShadowTex, G_IM_FMT_IA, G_IM_SIZ_16b, RS_BOAT_SHADOW_TEX,
+                        RS_BOAT_SHADOW_TEX, 0, G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK,
+                        G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
+    // Black, the disc's alpha times the vertex's.
+    gDPSetCombineLERP(POLY_OPA_DISP++, 0, 0, 0, 0, TEXEL0, 0, SHADE, 0, 0, 0, 0, 0, TEXEL0, 0, SHADE, 0);
+
+    // Rows a load at a time, as many as fit the vertex cache, each load sharing its last row with the next.
+    for (r0 = 0; r0 < RS_BOAT_SHADOW_GRID - 1;) {
+        const s32 rows = MIN(32 / RS_BOAT_SHADOW_GRID, RS_BOAT_SHADOW_GRID - r0);
+
+        gSPVertex(POLY_OPA_DISP++, (uintptr_t)&vtx[r0 * RS_BOAT_SHADOW_GRID], rows * RS_BOAT_SHADOW_GRID, 0);
+        for (j = 0; j + 1 < rows; j++) {
+            for (i = 0; i + 1 < RS_BOAT_SHADOW_GRID; i++) {
+                // the square's corners in this load, and in the whole grid
+                const s32 v0 = j * RS_BOAT_SHADOW_GRID + i;
+                const s32 v1 = v0 + 1;
+                const s32 v2 = v0 + RS_BOAT_SHADOW_GRID + 1;
+                const s32 v3 = v0 + RS_BOAT_SHADOW_GRID;
+                const s32 g = r0 * RS_BOAT_SHADOW_GRID;
+                const f32 lo = MIN(MIN(heights[g + v0], heights[g + v1]), MIN(heights[g + v2], heights[g + v3]));
+                const f32 hi = MAX(MAX(heights[g + v0], heights[g + v1]), MAX(heights[g + v2], heights[g + v3]));
+
+                // A corner off the drawn hull has no shade, so a square across the edge fades out within one square
+                // past it (~4 units at the default size). Leaving such squares out instead left nothing on the
+                // skiff's trim: it is ~5 wide, and few squares lie wholly on it.
+                if ((alpha[g + v0] | alpha[g + v1] | alpha[g + v2] | alpha[g + v3]) == 0) {
+                    continue;
+                }
+                if (hi - lo > RS_BOAT_SHADOW_STEP) {
+                    gRsBoatShadow.stepped++;
+                    continue;
+                }
+                gSP2Triangles(POLY_OPA_DISP++, v0, v1, v2, 0, v0, v2, v3, 0);
+                gRsBoatShadow.quads++;
+            }
+        }
+        r0 += rows - 1;
+    }
+    // As RsBoat_Draw leaves things for the actors after it.
+    gSPTexture(POLY_OPA_DISP++, 0, 0, 0, G_TX_RENDERTILE, G_OFF);
+    gSPSetGeometryMode(POLY_OPA_DISP++, G_CULL_BACK);
+
+    CLOSE_DISPS(gfxCtx);
+}
+
 void RsBoat_Draw(Actor* thisx, PlayState* play) {
     RsBoat* this = (RsBoat*)thisx;
     GraphicsContext* gfxCtx = play->state.gfxCtx;
@@ -2901,4 +3151,6 @@ void RsBoat_Draw(Actor* thisx, PlayState* play) {
     if (gRsBoatTestWater.active) {
         RsBoat_DrawTestWater(gfxCtx);
     }
+    // Last: its own render state, after the hull it lies on.
+    RsBoat_DrawLinkShadow(this, play);
 }

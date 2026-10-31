@@ -41,7 +41,8 @@ using ConsoleSink::Addf;
     "lakelevel [full|drained] | cam [on|off|default] | cam height|dist|ease <n> | hud [on|off] | "             \
     "climb [hop|hands] | kind [skiff|sloop|raft] | tune [default] | tune <knob> <value> | wake [default|reset] | "  \
     "wake slots [<n>|default] | "                                                                                   \
-    "wake <knob> <value> | contact [<idx>] | still [on|off] | clear"
+    "wake <knob> <value> | contact [<idx>] | still [on|off] | shadow [feet|circle|draped|default|reset] | "      \
+    "shadow size <n> | clear"
 
 const char* kUsage = "op=usage result=error usage=\"boat " RS_BOAT_GRAMMAR "\"";
 
@@ -399,6 +400,61 @@ int32_t Climb(const std::vector<std::string>& args, std::vector<std::string>& li
     return 0;
 }
 
+// Link's shadow over a boat (#267, saved): the mode, its size, and the draped shadow's last draw (RsBoatShadowStats).
+int32_t Shadow(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    // in RsBoatShadowMode order
+    static const char* const kModes[] = { "feet", "circle", "draped" };
+    const int32_t kModeCount = (int32_t)(sizeof(kModes) / sizeof(kModes[0]));
+
+    if (args.size() == 2 && args[1] == "reset") {
+        RsBoat_ShadowStatsReset();
+    } else if (args.size() == 2 && args[1] == "default") {
+        CVarClear(CVAR_RS_BOAT_DECK_SHADOW);
+        CVarClear(CVAR_RS_BOAT_DECK_SHADOW_SIZE);
+        CVarSave();
+    } else if (args.size() == 2) {
+        int32_t mode = -1;
+
+        for (int32_t m = 0; m < kModeCount; m++) {
+            if (args[1] == kModes[m]) {
+                mode = m;
+            }
+        }
+        if (mode < 0) {
+            lines.push_back(kUsage);
+            return 1;
+        }
+        CVarSetInteger(CVAR_RS_BOAT_DECK_SHADOW, mode);
+        CVarSave();
+    } else if (args.size() == 3 && args[1] == "size") {
+        char* end = nullptr;
+        const long size = strtol(args[2].c_str(), &end, 10);
+
+        if (end == args[2].c_str() || *end != '\0' || size < RS_BOAT_DECK_SHADOW_SIZE_MIN ||
+            size > RS_BOAT_DECK_SHADOW_SIZE_MAX) {
+            Addf(lines, "op=shadow result=error error=bad_value min=%d max=%d", RS_BOAT_DECK_SHADOW_SIZE_MIN,
+                 RS_BOAT_DECK_SHADOW_SIZE_MAX);
+            return 1;
+        }
+        CVarSetInteger(CVAR_RS_BOAT_DECK_SHADOW_SIZE, (int32_t)size);
+        CVarSave();
+    } else if (args.size() != 1) {
+        lines.push_back(kUsage);
+        return 1;
+    }
+    const int32_t mode = CVarGetInteger(CVAR_RS_BOAT_DECK_SHADOW, RS_BOAT_DECK_SHADOW_DEFAULT);
+    const RsBoatShadowStats& s = gRsBoatShadow;
+    const int32_t age = (s.frame == 0 || gPlayState == nullptr) ? -1 : (int32_t)(gPlayState->state.frames - s.frame);
+    Addf(lines,
+         "op=shadow result=ok mode=%s size=%d age=%d kind=%s radius=%.1f feet_over=%.1f lit=%d quads=%d stepped=%d "
+         "drawn=%d held=%d lowest_drawn=%.1f",
+         (mode >= 0 && mode < kModeCount) ? kModes[mode] : "?",
+         CVarGetInteger(CVAR_RS_BOAT_DECK_SHADOW_SIZE, RS_BOAT_DECK_SHADOW_SIZE_DEFAULT), (int)age,
+         RsBoat_KindName(s.kind), s.radius, s.feetOver, (int)s.lit, (int)s.quads, (int)s.stepped, (int)s.drawn,
+         (int)s.held, s.lowestDrawn);
+    return 0;
+}
+
 // A table of saved float knobs (RsBoatTuneInfo): the handling's (`tune`) and the wake's (`wake`). A boat reads them
 // every tick, so a change shows at once. `read` is the table's clamped getter.
 struct KnobTable {
@@ -692,6 +748,9 @@ int32_t RsBoatConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "still") {
         return Still(args, lines);
     }
+    if (sub == "shadow") {
+        return Shadow(args, lines);
+    }
     if (sub == "tune") {
         return KnobCommand(kTune, args, lines);
     }
@@ -784,8 +843,10 @@ const ConsoleSink::Command rsBoatCommand(
     "boat leaves: on, spacing (units between rings), size (times the hull's own), grow (how much a ring grows at top "
     "speed), lines (1 or 2), bow (the bow wave), foam (share of top speed for a stern splash; 0: none), reserve "
     "(effect slots kept free for everything else); saved; it also reports the effect pool; contact lists what the "
-    "hull's outline meets where it is; still holds every boat level, with no bob or rock (a test aid, not saved).",
-    { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|kind|tune|wake|contact|still|clear",
+    "hull's outline meets where it is; still holds every boat level, with no bob or rock (a test aid, not saved); "
+    "shadow picks Link's shadow over a boat (feet: as on land; circle: vanilla's flat one; draped: over the drawn "
+    "hull) and its size (percent of his shadow scale; saved), and reports the draped one's last draw.",
+    { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|kind|tune|wake|contact|still|shadow|clear",
         Ship::ArgumentType::TEXT },
       { "arg1", Ship::ArgumentType::TEXT, true },
       { "arg2", Ship::ArgumentType::TEXT, true },
