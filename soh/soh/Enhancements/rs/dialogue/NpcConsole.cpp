@@ -74,7 +74,7 @@ bool ParseNpcId(const std::vector<std::string>& args, size_t index, int32_t* npc
 //
 // A give_item or buy_item option's `a=` is packed, so it also prints `give=Q.S` (#281) - the item it
 // hands over, readable without unpacking RS_DLG_ITEM by hand - and a sale `price=N`. A charge_rupees
-// option's `a=` is already its price.
+// option's `a=` is already its price. `notice=` is the opt-in journal-notice flag, last on every line.
 std::string OptionLine(const char* prefix, int32_t screenIndex, int32_t optionIndex, const RsDialogueOption& option) {
     std::string line = std::string(prefix) + "[" + std::to_string(screenIndex) + "." +
                        std::to_string(optionIndex) + "]=" + RsNpc_ActionName(option.kind) +
@@ -91,6 +91,7 @@ std::string OptionLine(const char* prefix, int32_t screenIndex, int32_t optionIn
     if (option.kind == RS_DLG_ACTION_BUY_ITEM) {
         line += " price=" + std::to_string(RsNpc_OptionPrice(&option));
     }
+    line += " notice=" + std::to_string(option.notice);
     return line;
 }
 

@@ -108,7 +108,19 @@ typedef struct RsDialogueOption {
     // textbox OoT does not have - see the two-ungated rule in NpcDialogue.cpp.
     const QuestPredicate* when;
     int32_t whenCount;
+
+    // JOURNAL NOTICE, OPT-IN (sturdy-bassoon#281). RS_DLG_NOTICE shows the "New quest" / "Quest
+    // updated" / "Quest complete" box this option's action would earn; 0 - the value-initialised
+    // default, so every row that says nothing - shows none. A developer's choice per option, not a
+    // player setting: notices on every step get tiresome, so a quest turns them on where they earn
+    // their place. Only START_QUEST, COMPLETE_QUEST, GIVE_ITEM and BUY_ITEM can earn one;
+    // registration refuses the flag on any other action, where it could never fire. The action's
+    // own rules still apply when it is set: a sale for a quest not started shows nothing.
+    int32_t notice;
 } RsDialogueOption;
+
+// RsDialogueOption.notice's "on". Spelled out so a row reads `..., nullptr, 0, RS_DLG_NOTICE }`.
+#define RS_DLG_NOTICE 1
 
 typedef struct RsDialogueRule {
     // Visible when EVERY predicate here is true. A count of 0 means unconditional - the list is

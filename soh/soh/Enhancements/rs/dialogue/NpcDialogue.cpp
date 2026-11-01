@@ -539,6 +539,26 @@ bool CheckOption(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& re
         return Problem(buf, len, "%s[%d].opt[%d]: next=%d names no node (this npc has %d; use RS_DLG_NO_NEXT to close)",
                        word, screenIndex, index, option.next, def->nodeCount);
     }
+    // --- journal notice (#281) --------------------------------------------------------------------
+    //
+    // Opt-in: 0 or RS_DLG_NOTICE, and only on an action that can earn a notice. The flag on any
+    // other action would read as a promise the game never keeps.
+    if (option.notice != 0) {
+        if (option.notice != RS_DLG_NOTICE) {
+            return Problem(buf, len, "%s[%d].opt[%d]: notice=%d is neither 0 nor RS_DLG_NOTICE", word, screenIndex,
+                           index, option.notice);
+        }
+        switch (option.kind) {
+            case RS_DLG_ACTION_START_QUEST:
+            case RS_DLG_ACTION_COMPLETE_QUEST:
+            case RS_DLG_ACTION_GIVE_ITEM:
+            case RS_DLG_ACTION_BUY_ITEM:
+                break;
+            default:
+                return Problem(buf, len, "%s[%d].opt[%d]: notice on %s, which never earns a journal notice", word,
+                               screenIndex, index, RsNpc_ActionName(option.kind));
+        }
+    }
     // --- gating (#96 P2) ------------------------------------------------------------------------
     std::snprintf(where, sizeof(where), "%s[%d].opt[%d]", word, screenIndex, index);
     char list_where[64];
@@ -1313,7 +1333,7 @@ extern "C" int32_t RsNpc_RunAction(const RsDialogueOption* option) {
             // started) must not reach the write path's log-and-assert on a Debug build.
             const int32_t check = Quest_CheckStart(option->a);
             const int32_t result = check == QUEST_OK ? Quest_Start(option->a) : check;
-            if (result == QUEST_OK) {
+            if (result == QUEST_OK && option->notice) {
                 QueueNotice(option->a, QUEST_NOTICE_STARTED);
             }
             return result;
@@ -1326,7 +1346,7 @@ extern "C" int32_t RsNpc_RunAction(const RsDialogueOption* option) {
             // for the notice: only the completion that happened queues one.
             const int32_t check = Quest_CheckComplete(option->a);
             const int32_t result = check == QUEST_OK ? Quest_Complete(option->a) : check;
-            if (result == QUEST_OK) {
+            if (result == QUEST_OK && option->notice) {
                 QueueNotice(option->a, QUEST_NOTICE_COMPLETE);
             }
             return result;
@@ -1392,7 +1412,7 @@ extern "C" int32_t RsNpc_SetGivenStep(const RsDialogueOption* option) {
     const int32_t result = Quest_SetStep(questId, step);
     // Only a quest the journal shows: a step bought for a quest not yet started is real state, but
     // "Quest updated" about a quest the player has never heard of would be noise.
-    if (result == QUEST_OK && QuestStore_GetStatus(questId) == QUEST_STATUS_IN_PROGRESS) {
+    if (result == QUEST_OK && option->notice && QuestStore_GetStatus(questId) == QUEST_STATUS_IN_PROGRESS) {
         QueueNotice(questId, QUEST_NOTICE_UPDATED);
     }
     return result;

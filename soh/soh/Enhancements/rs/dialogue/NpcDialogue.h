@@ -145,7 +145,8 @@ void RsNpc_Describe(int32_t npcId, char* buf, size_t len);
 //
 // GIVE_ITEM and BUY_ITEM only CHECK here (the step, and a sale's price): handing the item over is the
 // actor's, after the conversation closes, and the writes happen when Link accepts it
-// (RsNpc_SetGivenStep). A START_QUEST or COMPLETE_QUEST that succeeds queues a journal notice (below).
+// (RsNpc_SetGivenStep). A START_QUEST or COMPLETE_QUEST that succeeds queues a journal notice (below)
+// when the option opts in (RsDialogueOption.notice).
 int32_t RsNpc_RunAction(const RsDialogueOption* option);
 
 // The item an option hands over - RS_DLG_ITEM(quest, step) for a GIVE_ITEM or a BUY_ITEM - or -1 for
@@ -156,7 +157,8 @@ int32_t RsNpc_OptionPrice(const RsDialogueOption* option);
 
 // The hand-over's writes, called by the actor on the frame Link accepts the item: a sale's price
 // taken, then the step set, both checked before either is written, so a sale is never half done. The
-// QuestResult; never asserts. A step set on a quest in progress queues an UPDATED journal notice,
+// QuestResult; never asserts. A step set on a quest in progress queues an UPDATED journal notice when
+// the option opts in (RsDialogueOption.notice),
 // shown when the re-opened conversation ends - not on one the journal does not show yet.
 int32_t RsNpc_SetGivenStep(const RsDialogueOption* option);
 
@@ -164,7 +166,8 @@ int32_t RsNpc_SetGivenStep(const RsDialogueOption* option);
 //
 // Majora's Mask's Bombers' Notebook queue, rebuilt: an option action that starts or completes a quest,
 // or a gift that sets a step, QUEUES a notice, and the conversation shows the queue - one box per quest - at the point it would
-// otherwise close, before it does. So no definition asks for one and no rule table changes shape.
+// otherwise close, before it does. Each option opts in with RS_DLG_NOTICE; the default is none, so
+// a quest shows notices only where its author asked for them, and no rule table changes shape.
 //
 // The queue lives for ONE conversation. A speaker empties it when a conversation opens, which is also
 // what discards anything a conversation closed from outside (a scene change, damage) left behind: by

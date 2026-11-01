@@ -465,22 +465,25 @@ const RsDialogueOption sShopMenuOptions[] = {
 };
 const RsDialogueOption sShopWaresOptions[] = {
     { "A loaf (10)", RS_DLG_ACTION_BUY_ITEM, RS_DLG_BUY(QUEST_DEBUG_GROCERIES, 0, 10), "Fresh this morning.", 6,
-      sShopLoafWhen, 2 },
+      sShopLoafWhen, 2, RS_DLG_NOTICE },
     { "A gold bar (1000)", RS_DLG_ACTION_BUY_ITEM, RS_DLG_BUY(QUEST_DEBUG_GROCERIES, 1, 1000),
       "Ha! Not on your wages.", RS_DLG_NO_NEXT },
     { "Buy the shop (1000)", RS_DLG_ACTION_CHARGE_RUPEES, 1000, "Ha! Come back with the money.", RS_DLG_NO_NEXT },
     { "Never mind", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
 const RsDialogueOption sShopOfferOptions[] = {
-    { "Gladly", RS_DLG_ACTION_START_QUEST, QUEST_DEBUG_ERRAND, "Splendid. Ask me for it.", RS_DLG_NO_NEXT },
+    { "Gladly", RS_DLG_ACTION_START_QUEST, QUEST_DEBUG_ERRAND, "Splendid. Ask me for it.", RS_DLG_NO_NEXT, nullptr, 0,
+      RS_DLG_NOTICE },
     { "Not today", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
 const RsDialogueOption sShopGiveOptions[] = {
-    { "Take it", RS_DLG_ACTION_GIVE_ITEM, RS_DLG_ITEM(QUEST_DEBUG_ERRAND, 0), "Mind it, it is fragile.", 4 },
+    { "Take it", RS_DLG_ACTION_GIVE_ITEM, RS_DLG_ITEM(QUEST_DEBUG_ERRAND, 0), "Mind it, it is fragile.", 4, nullptr, 0,
+      RS_DLG_NOTICE },
     { "Not yet", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
 const RsDialogueOption sShopDeliverOptions[] = {
-    { "Here it is", RS_DLG_ACTION_COMPLETE_QUEST, QUEST_DEBUG_ERRAND, "Wonderful, thank you!", RS_DLG_NO_NEXT },
+    { "Here it is", RS_DLG_ACTION_COMPLETE_QUEST, QUEST_DEBUG_ERRAND, "Wonderful, thank you!", RS_DLG_NO_NEXT, nullptr, 0,
+      RS_DLG_NOTICE },
     { "Not yet", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
 
@@ -995,6 +998,23 @@ const RsDialogueRule sBadBuyQuestBand[] = {
 };
 BAD_NPC_DEF(sDefBuyPriceZero, sBadBuyPriceZero, 1);
 BAD_NPC_DEF(sDefBuyQuestBand, sBadBuyQuestBand, 1);
+// The opt-in journal notice (#281): on an action that can never earn one, and a value that is not the flag.
+const RsDialogueOption sOptNoticeOnNone[] = {
+    { "Yes", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT, nullptr, 0, RS_DLG_NOTICE },
+    { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadNoticeOnNone[] = {
+    { nullptr, 0, "text", sOptNoticeOnNone, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+const RsDialogueOption sOptNoticeValue[] = {
+    { "Yes", RS_DLG_ACTION_START_QUEST, QUEST_DEBUG_GIVER, nullptr, RS_DLG_NO_NEXT, nullptr, 0, 2 },
+    { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadNoticeValue[] = {
+    { nullptr, 0, "text", sOptNoticeValue, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+BAD_NPC_DEF(sDefNoticeOnNone, sBadNoticeOnNone, 1);
+BAD_NPC_DEF(sDefNoticeValue, sBadNoticeValue, 1);
 
 struct BadEntry {
     const char* label;
@@ -1083,6 +1103,9 @@ const BadEntry sBadDefs[] = {
     { "action_charge_rupees_zero", &sDefChargeZero },
     { "action_buy_item_price_zero", &sDefBuyPriceZero },
     { "action_buy_item_other_band", &sDefBuyQuestBand },
+    // The opt-in journal notice, appended.
+    { "notice_on_action_without_one", &sDefNoticeOnNone },
+    { "notice_value_not_flag", &sDefNoticeValue },
 };
 
 // RsNpc_Register is idempotent for the same pointer, which is what makes a ShipInit "*" re-run safe.
