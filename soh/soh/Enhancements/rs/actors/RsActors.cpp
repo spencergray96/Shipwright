@@ -113,10 +113,14 @@ std::string sDirectCopy;
 //
 // The texture step is `R_TEXTBOX_TEXHEIGHT << 1` in 5.10 fixed point, so 512 is exactly one texel
 // per pixel over the 64-texel-tall background. A SMALLER value advances more slowly, i.e. stretches:
-// 512 * 64/80 = 410. Message_GrowTextbox does this same division every frame of the open animation,
-// which is why a stretched box is a known quantity rather than a gamble.
-constexpr int16_t RS_TEXTBOX_ROWS_HEIGHT = 80;      // five rows: 8 + 4*12 + 12 = 68, rounded up
-constexpr int16_t RS_TEXTBOX_ROWS_TEXHEIGHT = 410;  // 512 * 64 / 80
+// 512 * 64/76 = 431. Message_GrowTextbox does this same division every frame of the open
+// animation, which is why a stretched box is a known quantity rather than a gamble.
+//
+// 76, not more: the text starts 8px below the box top whatever the height, so every pixel over
+// 8 + 5*12 + 8 lands UNDER the last row. Until 2026-10-31 the box was 80 ("68, rounded up"), which
+// left 8 above the text and 12 below it, and the owner saw the bottom-heavy box.
+constexpr int16_t RS_TEXTBOX_ROWS_HEIGHT = 76;      // five rows: 8 + 5*12 + 8, as vanilla's 64 is 8 + 4*12 + 8
+constexpr int16_t RS_TEXTBOX_ROWS_TEXHEIGHT = 431;  // 512 * 64 / 76
 constexpr int16_t RS_TEXTBOX_VANILLA_HEIGHT = 64;
 constexpr int16_t RS_TEXTBOX_VANILLA_TEXHEIGHT = 512;
 
