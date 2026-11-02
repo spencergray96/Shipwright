@@ -23,6 +23,15 @@
 // "an NPC whose gate is unmet never offers the quest and FALLS THROUGH TO GENERIC DIALOGUE"
 // structural rather than a convention someone has to remember: a table that could resolve to no
 // rule at all is a silent failure, and this is the cheapest place to make it impossible.
+//
+// WHERE THE REST OF A CONVERSATION LIVES. This file is the DATA an author writes; nothing here runs.
+//   - docs/reference/QUEST_SYSTEM.md (sturdy-bassoon): "A conversation, start to finish" walks one
+//     through in plain English, and "Writing one from a description" maps the owner's words to fields.
+//   - dialogue/NpcDialogue.cpp: registration - every refusal - plus rule and node resolution.
+//   - actors/RsNpc.c: runs a conversation (its state machine is drawn at the top of the file).
+//   - actors/RsActors.cpp: renders every box (the OnOpenText text hook), scrolling, choice memory.
+//   - actors/RsSpeaker.c: who has the floor, and the talk camera's re-swing.
+//   - dialogue/npcs/CookNpc.cpp is the production reference; DebugNpcs.cpp has a fixture per feature.
 
 // What choosing an option does. Appending a kind is never a save-format change - none of this is
 // serialized. Every action goes through the CHECKED quest API (Quest_CheckStart then Quest_Start,
@@ -95,7 +104,7 @@ typedef struct RsDialogueOption {
     int32_t next;
 
     // GATING (sturdy-bassoon#96 P2). The option is offered only when EVERY predicate here is true;
-    // a count of 0 means always offered. Same conjunction-is-the-list rule, and the same seven-word
+    // a count of 0 means always offered. Same conjunction-is-the-list rule, and the same predicate
     // vocabulary, as RsDialogueRule.when and QuestDef.requirements - no new grammar.
     //
     // Unlike `next` these two DO have a safe default (NULL/0 = ungated), which is why they sit
@@ -125,6 +134,10 @@ typedef struct RsDialogueOption {
     // option names nobody unless the answer comes from someone other than whoever asked. Which
     // option the player picks therefore decides who answers. Refused on an option with no reply
     // (nothing would ever speak it) and on an interaction's option (RsSpeaker.h says why).
+    //
+    // POSITION TRAP: it sits after `notice`, so a row naming a reply speaker writes the notice first,
+    // `..., when, whenCount, 0, RS_DLG_SPEAKER(X) }`. Leave the 0 out and the speaker lands in
+    // `notice` - refused for most ids, but RS_DLG_SPEAKER(NPC_COOK) is 1, which IS RS_DLG_NOTICE.
     int32_t replySpeaker;
 } RsDialogueOption;
 
@@ -156,7 +169,9 @@ typedef struct RsDialogueRule {
     //
     // Vanilla offers a two-way (CTRL_TWO_CHOICE) and a three-way (CTRL_THREE_CHOICE). The four-way
     // is ours: CTRL_FOUR_CHOICE plus TEXTBOX_ENDTYPE_4_CHOICE plus a fifth row of box, so a menu can
-    // ask a question AND offer four answers. Past four the box runs out of screen, not out of model.
+    // ask a question AND offer four answers. Past four the box runs out of screen, not out of model:
+    // a screen may declare up to RS_DIALOGUE_MAX_OPTIONS (16) and the box SCROLLS through four of them
+    // (sturdy-bassoon#290, RsActors.cpp). 1 is refused - OoT has no one-option box.
     const RsDialogueOption* options;
     int32_t optionCount; // 0 = a plain statement
 
@@ -219,7 +234,7 @@ typedef struct RsDialogueRule {
     int32_t speaker;
 } RsDialogueRule;
 
-// A NODE is the same shape as a rule - a body plus up to four options - reached only by an EDGE
+// A NODE is the same shape as a rule - a body plus up to sixteen options - reached only by an EDGE
 // (an option's `next`, or a statement's), never by entry matching (sturdy-bassoon#96). The alias
 // exists so a definition site reads as what it is; there is deliberately ONE struct and therefore
 // one validator, one renderer and one composer.
@@ -391,7 +406,7 @@ typedef struct RsNpcDef {
 #define RS_TEXT_REPLY_TO_NODE_GET(textId) ((int32_t)((textId)-RS_TEXT_REPLY_TO_NODE_BASE))
 #define RS_TEXT_REPLY_TO_NODE_END (RS_TEXT_REPLY_TO_NODE_BASE + RS_DIALOGUE_MAX_NODES - 1)
 
-// Which KIND of screen a text id names. A "screen" is a body plus up to four options; a rule and a
+// Which KIND of screen a text id names. A "screen" is a body plus up to sixteen options; a rule and a
 // node are the same shape and differ only in how you arrive at one.
 typedef enum RsScreenKind {
     RS_SCREEN_NONE = 0, // not one of ours

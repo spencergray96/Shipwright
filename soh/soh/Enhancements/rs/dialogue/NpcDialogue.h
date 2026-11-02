@@ -64,7 +64,7 @@ int32_t RsNpc_RuleMatches(int32_t npcId, int32_t ruleIndex);
 
 // --- screens and navigation (sturdy-bassoon#96) -------------------------------------------------
 //
-// A SCREEN is a body plus up to four options. A rule and a node are the same struct; what differs
+// A SCREEN is a body plus up to sixteen options (four on screen at once; more scroll, #290). A rule and a node are the same struct; what differs
 // is how you arrive at one - a rule by MATCHING, a node by FOLLOWING an option's `next`. These
 // three calls are what let the renderer, the actor and the console all speak about "the screen
 // that is open" without any of them knowing which kind it is.
