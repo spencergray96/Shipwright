@@ -114,10 +114,10 @@ std::string sDirectCopy;
 // says how far down that box's list the window sits.
 //
 // A scroll re-lays the OPEN box in place: the engine reports the cursor pushed past an edge from its
-// DRAW pass (RsText_ChoiceEdge), which only queues it, and the OnGameFrameUpdate hook
-// (RsText_ApplyScroll) - which GameState_Update runs after the draw, in the same frame - moves the
-// window, re-opens and re-decodes the box on its own id, and puts the choice state back. The box
-// never leaves its choice, so nothing blanks (RsText_ApplyScroll says why it is not a continue). The hook composes the
+// DRAW pass (RsText_ChoiceEdge), which only queues it, and the next frame's OnPlayDrawBegin hook
+// (RsText_ApplyScroll) moves the window, re-opens and re-decodes the box on its own id, and puts the
+// choice state back - before any of that frame's text is drawn. The box never leaves its choice, so
+// nothing blanks (RsText_ApplyScroll says why it is not a continue, and why it is not later). The hook composes the
 // shifted window, and the decoder starts the cursor on the row it should be on (RsText_ChoiceStartRow).
 struct ChoiceScroll {
     uint16_t textId = 0;    // the box the rest belongs to
@@ -609,9 +609,19 @@ void RsQuestItem_ShouldInit(void* actorRef, bool* should) {
 // --- scrolling: the update half (#290) -----------------------------------------------------------
 //
 // The engine found the cursor pushed past an edge during its draw pass and RsText_ChoiceEdge queued
-// it. Here, in the OnGameFrameUpdate hook after that draw, the window moves and the open box is
-// re-laid IN PLACE. Only while that box is still open on its choice: a queued scroll for a box that
-// has since closed or moved on is dropped.
+// it. Here, at the start of the next frame's draw (OnPlayDrawBegin), the window moves and the open box
+// is re-laid IN PLACE. Only while that box is still open on its choice: a queued scroll for a box that
+// has since closed or moved on is dropped - including one whose box an A press on this same tick has
+// already moved on, since the actors update before the draw.
+//
+// AT THE START OF A DRAW, NOT AFTER ONE. Decoding loads each character's glyph into the font's texture
+// slots, which a frame's display list points at rather than copies. The second cut applied the scroll
+// from OnGameFrameUpdate, which GameState_Update runs after the draw and before the frame is rendered:
+// that frame then drew the OLD rows' layout with the NEW rows' glyphs in its slots, held for a whole
+// tick by frame interpolation. Rows of the same shape ("Topic 3" -> "Topic 4") share almost every
+// glyph and hid it; a long label moving through the window ghosted. Decoding before the text is
+// drawn keeps every frame's layout and glyphs from the same decode - which is also where the engine's
+// own mid-text language switch re-decodes.
 //
 // IN PLACE, NOT A CONTINUE. The first cut called Message_ContinueTextbox, the call a node takes, and
 // the box blinked on every scroll: Message_OpenText zeroes the box's alpha and its draw position, and
@@ -817,7 +827,7 @@ void RegisterRsActors() {
     // exactly one. COND_ID_HOOK does the same for the per-actor-id bucket, and the only other
     // ShouldActorInit registration in the tree is Anchor's, on ACTOR_PLAYER - a different bucket.
     COND_HOOK(OnOpenText, true, RsText_OnOpenText);
-    COND_HOOK(OnGameFrameUpdate, true, RsText_ApplyScroll);
+    COND_HOOK(OnPlayDrawBegin, true, RsText_ApplyScroll);
     COND_ID_HOOK(ShouldActorInit, ACTOR_RS_QUEST_ITEM, true, RsQuestItem_ShouldInit);
 }
 
@@ -1012,25 +1022,25 @@ extern "C" void RsText_DrawScrollArrows(PlayState* play, Gfx** p) {
     if (!up && !down) {
         return;
     }
-    // In quarter pixels, a texture rectangle's unit. BOUNCE is a linear up-and-down of half the
-    // arrow's height (+-3px) over a second; FADE a linear dip to about 40% alpha and back over a
-    // second and a half; NONE holds still.
+    // FADE (the default) is a linear dip to about 40% alpha and back over a second and a half; BOUNCE
+    // a linear up-and-down of half the arrow's height (+-3px, in quarter pixels, a texture
+    // rectangle's unit) over a second; NONE holds still.
     int32_t bounce = 0;
     uint8_t alpha = 255;
     const int32_t tick = static_cast<int32_t>(play->gameplayFrames);
-    switch (CVarGetInteger(CVAR_RS_SCROLL_ARROW_ANIM, RS_SCROLL_ARROW_BOUNCE)) {
-        case RS_SCROLL_ARROW_FADE: {
-            const int32_t phase = tick % 30;
-            const int32_t tri = phase < 15 ? phase : 30 - phase; // 0..15..0
-            alpha = static_cast<uint8_t>(255 - tri * 150 / 15);
+    switch (CVarGetInteger(CVAR_RS_SCROLL_ARROW_ANIM, RS_SCROLL_ARROW_FADE)) {
+        case RS_SCROLL_ARROW_BOUNCE: {
+            const int32_t phase = tick % 20;
+            const int32_t tri = phase < 10 ? phase : 20 - phase; // 0..10..0
+            bounce = tri * 24 / 10 - 12;                         // -12..12 quarter pixels
             break;
         }
         case RS_SCROLL_ARROW_NONE:
             break;
-        default: { // RS_SCROLL_ARROW_BOUNCE
-            const int32_t phase = tick % 20;
-            const int32_t tri = phase < 10 ? phase : 20 - phase; // 0..10..0
-            bounce = tri * 24 / 10 - 12;                         // -12..12 quarter pixels
+        default: { // RS_SCROLL_ARROW_FADE, the owner's pick (2026-11-01)
+            const int32_t phase = tick % 30;
+            const int32_t tri = phase < 15 ? phase : 30 - phase; // 0..15..0
+            alpha = static_cast<uint8_t>(255 - tri * 150 / 15);
             break;
         }
     }

@@ -355,7 +355,7 @@ int32_t Arrows(const std::vector<std::string>& args, std::vector<std::string>& l
         }
         CVarSetInteger(CVAR_RS_SCROLL_ARROW_ANIM, mode);
     }
-    const int32_t mode = CVarGetInteger(CVAR_RS_SCROLL_ARROW_ANIM, RS_SCROLL_ARROW_BOUNCE);
+    const int32_t mode = CVarGetInteger(CVAR_RS_SCROLL_ARROW_ANIM, RS_SCROLL_ARROW_FADE);
     lines.push_back(std::string("op=arrows anim=") + (mode >= 0 && mode < 3 ? kNames[mode] : "?"));
     return 0;
 }

@@ -54,9 +54,10 @@ int32_t RsText_ScrollLabelWouldOverflow(const char* label);
 // past the top (dir -1) or bottom (dir +1) row. 1 when the open box is a scrolling screen with
 // options hidden that way: the scroll is queued, and the engine plays the cursor sound instead of
 // clamping silently. 0 for every other box in the game, which keeps vanilla's clamp. Runs in the
-// draw pass, so it only queues; the re-open happens in the OnGameFrameUpdate hook that follows.
+// draw pass, so it only queues; the box is re-laid at the start of the next frame's draw.
 int32_t RsText_ChoiceEdge(int32_t dir);
-// The scroll arrows' animation, a developer setting: `npc arrows bounce|fade|none` sets it. Read
+// The scroll arrows' animation, a developer setting: `npc arrows fade|bounce|none` sets it (fade is
+// the default). Read
 // every draw by RsText_DrawScrollArrows, which the engine calls with the box's PlayState and display
 // list (declared there, in z_message_PAL.c, because this header names no engine types).
 #define CVAR_RS_SCROLL_ARROW_ANIM CVAR_DEVELOPER_TOOLS("RsScrollArrowAnim")
