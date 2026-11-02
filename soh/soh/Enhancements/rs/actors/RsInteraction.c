@@ -200,6 +200,7 @@ static void RsInteraction_Talk(RsInteraction* this, PlayState* play) {
     u16 openId = play->msgCtx.textId;
     s32 slots[RS_DIALOGUE_MAX_OPTIONS];
     s32 visibleCount;
+    s32 scroll;
     s32 slot = -1;
     s32 choice;
     s32 declared;
@@ -219,9 +220,11 @@ static void RsInteraction_Talk(RsInteraction* this, PlayState* play) {
         if (screen == NULL) {
             return; // a reply box, or not ours
         }
-        // The cursor counts VISIBLE rows; map it back through the list the renderer laid out.
+        // The cursor counts VISIBLE rows from the top of the window (a long list scrolls, #290); map
+        // it back through the list the renderer laid out.
         visibleCount = RsNpc_VisibleOptions(screen, slots, RS_DIALOGUE_MAX_OPTIONS);
-        choice = play->msgCtx.choiceIndex;
+        scroll = RsText_ChoiceScroll();
+        choice = play->msgCtx.choiceIndex + scroll;
         if (choice < 0 || choice >= visibleCount) {
             return;
         }
@@ -229,9 +232,10 @@ static void RsInteraction_Talk(RsInteraction* this, PlayState* play) {
         option = &screen->options[declared];
         result = RsNpc_RunAction(option);
         snprintf(line, sizeof(line),
-                 "rs_interaction id=%d event=choice slot=%d index=%d option=%d action=%s a=%d result=%s next=%d",
+                 "rs_interaction id=%d event=choice slot=%d index=%d option=%d action=%s a=%d result=%s next=%d "
+                 "scroll=%d",
                  this->interactionId, (int)slot, (int)choice, (int)declared, RsNpc_ActionName(option->kind),
-                 option->a, Quest_ResultName(result), (int)option->next);
+                 option->a, Quest_ResultName(result), (int)option->next, (int)scroll);
         RsAgent_Marker(line);
         if (option->reply != NULL) {
             // The reply's id names this screen and this option, so the hook composes it from the

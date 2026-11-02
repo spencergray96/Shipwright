@@ -61,28 +61,36 @@ RS_STATIC_ASSERT(RS_INTERACTION_ID_DEBUG_FIRST <= RS_INTERACTION_ID_MAX, "the de
 //                     on the id, because it is the actor's to resolve and the hook resolves the
 //                     same gates in the same frame.
 //   0xC120 + node     a NODE of the speaker's tree (RS_DIALOGUE_MAX_NODES of them).
-//   0xC180 + slot*4 + option
+//   0xF100 + slot*16 + option
 //                     an option's REPLY, rendered from the definition: slot is the rule (0..31) or
-//                     32 + the node (32..63) the option was picked on. No direct-text slot - the
-//                     reply is composed from the speaker's own definition when its box opens.
+//                     32 + the node (32..63) the option was picked on, option its DECLARED index.
+//                     No direct-text slot - the reply is composed from the speaker's own definition
+//                     when its box opens.
 //
-// 0xC001..0xC3FF was free (NpcDialogueDef.h's map); this takes 0xC100..0xC27F of it.
+// 0xC001..0xC3FF was free (NpcDialogueDef.h's map); the entry and nodes take 0xC100..0xC13F of it.
+// The replies sat at 0xC180 + slot*4 + option until #290 let a screen hold 16 options: 64 slots x 16
+// is 1024 ids, more than the 0xC1xx-0xC3xx gap holds, so they moved above the reply-to-node band,
+// to 0xF100..0xF4FF. No text id is baked into a scene (only the interaction id is), so moving them is
+// a recompile.
 #define RS_TEXT_INTERACTION_BASE 0xC100
 #define RS_TEXT_INTERACTION_ENTRY RS_TEXT_INTERACTION_BASE
 #define RS_TEXT_INTERACTION_NODE_BASE (RS_TEXT_INTERACTION_BASE + 0x20)
 #define RS_TEXT_INTERACTION_NODE_ID(node) ((uint16_t)(RS_TEXT_INTERACTION_NODE_BASE + (node)))
-#define RS_TEXT_INTERACTION_REPLY_BASE (RS_TEXT_INTERACTION_BASE + 0x80)
+#define RS_TEXT_INTERACTION_SCREEN_END (RS_TEXT_INTERACTION_NODE_BASE + RS_DIALOGUE_MAX_NODES - 1)
+#define RS_TEXT_INTERACTION_REPLY_BASE 0xF100
 // A reply slot is the screen its option was on: a rule, then a node.
 #define RS_TEXT_INTERACTION_REPLY_SLOTS (RS_DIALOGUE_MAX_RULES + RS_DIALOGUE_MAX_NODES)
 #define RS_TEXT_INTERACTION_REPLY_ID(slot, option) \
     ((uint16_t)(RS_TEXT_INTERACTION_REPLY_BASE + (slot) * RS_DIALOGUE_MAX_OPTIONS + (option)))
-#define RS_TEXT_INTERACTION_END \
+#define RS_TEXT_INTERACTION_REPLY_END \
     (RS_TEXT_INTERACTION_REPLY_BASE + RS_TEXT_INTERACTION_REPLY_SLOTS * RS_DIALOGUE_MAX_OPTIONS - 1)
 
-#define RS_TEXT_IS_INTERACTION(id) ((id) >= RS_TEXT_INTERACTION_BASE && (id) <= RS_TEXT_INTERACTION_END)
+#define RS_TEXT_IS_INTERACTION_REPLY(id) \
+    ((id) >= RS_TEXT_INTERACTION_REPLY_BASE && (id) <= RS_TEXT_INTERACTION_REPLY_END)
+#define RS_TEXT_IS_INTERACTION(id) \
+    (((id) >= RS_TEXT_INTERACTION_BASE && (id) <= RS_TEXT_INTERACTION_SCREEN_END) || RS_TEXT_IS_INTERACTION_REPLY(id))
 #define RS_TEXT_IS_INTERACTION_NODE(id) \
     ((id) >= RS_TEXT_INTERACTION_NODE_BASE && (id) < RS_TEXT_INTERACTION_NODE_BASE + RS_DIALOGUE_MAX_NODES)
-#define RS_TEXT_IS_INTERACTION_REPLY(id) ((id) >= RS_TEXT_INTERACTION_REPLY_BASE && (id) <= RS_TEXT_INTERACTION_END)
 #define RS_TEXT_INTERACTION_GET_NODE(id) ((int32_t)((id) - RS_TEXT_INTERACTION_NODE_BASE))
 #define RS_TEXT_INTERACTION_GET_SLOT(id) ((int32_t)(((id) - RS_TEXT_INTERACTION_REPLY_BASE) / RS_DIALOGUE_MAX_OPTIONS))
 #define RS_TEXT_INTERACTION_GET_OPTION(id) ((int32_t)(((id) - RS_TEXT_INTERACTION_REPLY_BASE) % RS_DIALOGUE_MAX_OPTIONS))
@@ -92,9 +100,11 @@ RS_STATIC_ASSERT(RS_INTERACTION_ID_DEBUG_FIRST <= RS_INTERACTION_ID_MAX, "the de
 #define RS_INTERACTION_PLACEHOLDER_TEXT "Nothing interesting happens."
 
 RS_STATIC_ASSERT(RS_TEXT_INTERACTION_BASE > 0xC000, "the interaction band must sit above RS_TEXT_DIRECT");
-RS_STATIC_ASSERT(RS_TEXT_INTERACTION_END < 0xC400, "the interaction band must end below the staircase band");
+RS_STATIC_ASSERT(RS_TEXT_INTERACTION_SCREEN_END < 0xC400, "the interaction screens must end below the staircase band");
+RS_STATIC_ASSERT(RS_TEXT_INTERACTION_REPLY_BASE > RS_TEXT_REPLY_TO_NODE_END,
+                 "interaction replies sit above the reply-to-node band (NpcDialogueDef.h)");
+// 0xFFFF and 0xFFFD are message-table terminators (z_message_PAL.c) and must stay clear.
+RS_STATIC_ASSERT(RS_TEXT_INTERACTION_REPLY_END < 0xFFFD, "interaction replies must stay clear of the table terminators");
 RS_STATIC_ASSERT(RS_TEXT_INTERACTION_ENTRY < RS_TEXT_INTERACTION_NODE_BASE, "the entry id must sit below the node ids");
-RS_STATIC_ASSERT(RS_TEXT_INTERACTION_NODE_BASE + RS_DIALOGUE_MAX_NODES <= RS_TEXT_INTERACTION_REPLY_BASE,
-                 "raising RS_DIALOGUE_MAX_NODES must not push an interaction node id onto its reply ids");
 
 #endif // SOH_RS_INTERACTION_IDS_H

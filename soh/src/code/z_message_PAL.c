@@ -15,6 +15,7 @@
 #include "soh/SaveManager.h"
 #include "soh/ResourceManagerHelpers.h"
 #include "soh/Enhancements/savestate_serialize.h"
+#include "soh/Enhancements/rs/actors/RsActors.h" // SOH [sturdy-bassoon#290] scrolling choices
 
 // #region SOH [NTSC] - Allows custom messages to work on japanese
 static bool sDisplayNextMessageAsEnglish = false;
@@ -218,6 +219,14 @@ void Message_HandleChoiceSelection(PlayState* play, u8 numChoices) {
         msgCtx->choiceIndex--;
         if (msgCtx->choiceIndex > 128) {
             msgCtx->choiceIndex = 0;
+            // #region SOH [sturdy-bassoon#290] Past the top row of a scrolling rs/ screen: the list
+            // moves instead of the cursor stopping. RsText_ChoiceEdge answers 0 for every other box
+            // in the game, so vanilla's silent clamp is unchanged for them.
+            if (RsText_ChoiceEdge(-1)) {
+                Audio_PlaySoundGeneral(NA_SE_SY_CURSOR, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
+                                       &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+            }
+            // #endregion
         } else {
             Audio_PlaySoundGeneral(NA_SE_SY_CURSOR, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
                                    &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
@@ -228,6 +237,12 @@ void Message_HandleChoiceSelection(PlayState* play, u8 numChoices) {
         msgCtx->choiceIndex++;
         if (msgCtx->choiceIndex > numChoices) {
             msgCtx->choiceIndex = numChoices;
+            // #region SOH [sturdy-bassoon#290] Past the bottom row: the same question, the other way.
+            if (RsText_ChoiceEdge(1)) {
+                Audio_PlaySoundGeneral(NA_SE_SY_CURSOR, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
+                                       &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+            }
+            // #endregion
         } else {
             Audio_PlaySoundGeneral(NA_SE_SY_CURSOR, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
                                    &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
@@ -1532,7 +1547,10 @@ void Message_DrawText(PlayState* play, Gfx** gfxP) {
                 if (msgCtx->msgMode == MSGMODE_TEXT_DISPLAYING) {
                     msgCtx->choiceTextId = msgCtx->textId;
                     msgCtx->stateTimer = 4;
-                    msgCtx->choiceIndex = 0;
+                    // SOH [sturdy-bassoon#290] 0 unless this box is a scroll down re-opened, where the
+                    // cursor stays on the bottom row with the option it moved to. Only the four-way
+                    // scrolls - a longer list always shows four rows - and the four-way is ours.
+                    msgCtx->choiceIndex = RsText_ChoiceStartRow();
                     Font_LoadMessageBoxIcon(font, TEXTBOX_ICON_ARROW);
                 }
                 break;

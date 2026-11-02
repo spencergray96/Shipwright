@@ -102,10 +102,11 @@ typedef struct RsDialogueOption {
     // after it: an option row that says nothing about gating is an ungated option, and that is what
     // every row written before #96 meant.
     //
-    // Gating can only ever HIDE. The declared count is still capped at RS_DIALOGUE_MAX_OPTIONS, so
-    // the visible count can never exceed what registration already measured, and every pixel-width
-    // check stands unchanged. What it CAN do is take a four-option screen down to one, which is a
-    // textbox OoT does not have - see the two-ungated rule in NpcDialogue.cpp.
+    // Gating can only ever HIDE. The declared count is still capped at RS_DIALOGUE_MAX_OPTIONS, and
+    // the box never shows more than RS_DIALOGUE_WINDOW_OPTIONS of them (a longer list scrolls,
+    // sturdy-bassoon#290), so every pixel-width check stands unchanged. What it CAN do is take a
+    // screen down to one, which is a textbox OoT does not have - see the two-ungated rule in
+    // NpcDialogue.cpp.
     const QuestPredicate* when;
     int32_t whenCount;
 
@@ -230,7 +231,14 @@ typedef struct RsNpcDef {
 } RsNpcDef;
 
 #define RS_DIALOGUE_MAX_RULES 32
-#define RS_DIALOGUE_MAX_OPTIONS 4
+
+// TWO numbers since sturdy-bassoon#290, which used to be one. The MODEL caps a screen at 16 options;
+// the BOX shows four of them at once - a body row plus four choice rows is all that fits above the
+// letterbox - and a screen offering more SCROLLS: Down on the bottom row moves the list up by one,
+// Up on the top row moves it down (RsActors.cpp). Only the window is a renderer fact; the cap is an
+// array size, and raising it is a recompile plus the interaction reply band (InteractionIds.h).
+#define RS_DIALOGUE_MAX_OPTIONS 16
+#define RS_DIALOGUE_WINDOW_OPTIONS 4
 
 // Symmetric with the rule cap, and raisable into the id band's tail later. Unlike the rule cap
 // this one is cheap to raise: NO NODE ID IS BAKED INTO A SCENE FILE (only an NpcId is - see
@@ -246,12 +254,13 @@ typedef struct RsNpcDef {
 
 // --- text ids -----------------------------------------------------------------------------------
 //
-// The band is 0xA000..0xF01F, in eight pieces: entry rules (0xA000..0xBFFF), the one direct-text id
-// (0xC000), interaction screens (0xC100..0xC27F, #183 - defined in interactions/InteractionIds.h,
+// The band is 0xA000..0xF4FF, in nine pieces: entry rules (0xA000..0xBFFF), the one direct-text id
+// (0xC000), interaction screens (0xC100..0xC13F, #183 - defined in interactions/InteractionIds.h,
 // which asserts it clear of its neighbours), staircase menus (0xC400..0xC403, #147; 0xC404..0xC7FF freed by #214 - defined in
 // stairs/StairDef.h, which asserts it clear of its neighbours), journal notices (0xC600..0xC6FF, #281),
 // quest-item pickups (0xC800..0xCFFF, #99), nodes (0xD000..0xEFFF, #96)
-// and the reply-then-navigate ids (0xF000..0xF01F, #96).
+// and the reply-then-navigate ids (0xF000..0xF01F, #96). Above them, interaction replies
+// (0xF100..0xF4FF, moved there by #290 - InteractionIds.h).
 // SoH's own highest custom id is 0x9215
 // (Enhancements/custom-message/CustomMessageTypes.h), and nothing in Message_OpenText's
 // special-case ladder (z_message_PAL.c) touches this range - and `loadFromMessageTable = false`
@@ -381,8 +390,9 @@ RS_STATIC_ASSERT(RS_TEXT_NODE_END < RS_TEXT_REPLY_TO_NODE_BASE,
 // 0xFFFF and 0xFFFD are message-table terminators (z_message_PAL.c) and must stay clear.
 RS_STATIC_ASSERT(RS_TEXT_REPLY_TO_NODE_END < 0xFFFD, "the reply-to-node band must stay clear of the table terminators");
 // Four is the box, not the model. A choice puts one option per row and the body needs a row of its
-// own, so five options need six rows; six rows is 96px, and the LOWER box position starts at y=142
-// on a 240px screen. Raising this again means moving the box, not adding another control code.
-RS_STATIC_ASSERT(RS_DIALOGUE_MAX_OPTIONS <= 4, "the four-way is the widest choice the textbox renders");
+// own, so five rows of options need six rows; six rows is 96px, and the LOWER box position starts at
+// y=142 on a 240px screen. More options than four scroll through this window (#290) instead.
+RS_STATIC_ASSERT(RS_DIALOGUE_WINDOW_OPTIONS == 4, "the four-way is the widest choice the textbox renders");
+RS_STATIC_ASSERT(RS_DIALOGUE_MAX_OPTIONS >= RS_DIALOGUE_WINDOW_OPTIONS, "a screen holds at least what the box shows");
 
 #endif // SOH_RS_NPC_DIALOGUE_DEF_H

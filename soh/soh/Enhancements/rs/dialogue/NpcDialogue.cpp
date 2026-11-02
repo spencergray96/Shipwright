@@ -453,6 +453,16 @@ bool CheckOption(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& re
         return Problem(buf, len, "%s[%d].opt[%d]: the label is too wide for an option row (184 pixels)", word,
                        screenIndex, index);
     }
+    // A screen that can SCROLL (#290) puts an arrow at the right end of its top and bottom rows, and
+    // any label can land on either, so every label there leaves room for one. Measured against the
+    // declared count: a scrolling screen gated down to four shows no arrow, and the narrower budget
+    // is then merely conservative.
+    if (ref.screen->optionCount > RS_DIALOGUE_WINDOW_OPTIONS && RsText_ScrollLabelWouldOverflow(option.label)) {
+        return Problem(buf, len,
+                       "%s[%d].opt[%d]: the label is too wide for a scrolling option row (it shares 184 pixels with "
+                       "the scroll arrow)",
+                       word, screenIndex, index);
+    }
     if (option.reply != nullptr && !ProseIsClean(option.reply)) {
         return Problem(buf, len, "%s[%d].opt[%d]: reply carries percent, hash, quote, caret or a newline", word,
                        screenIndex, index);
@@ -610,9 +620,9 @@ bool ValidateScreen(char* buf, size_t len, const RsNpcDef* def, const ScreenRef&
         return Problem(buf, len, "%s[%d]: one option is not a choice; use 0 for a statement", word, screenIndex);
     }
     if (screen.optionCount > RS_DIALOGUE_MAX_OPTIONS) {
-        // The MODEL is N (NpcDialogueDef.h). This is the RENDERER's limit, and lifting it is a
-        // change to one function - see sturdy-bassoon#59.
-        return Problem(buf, len, "%s[%d]: %d options; the renderer does at most %d (see sturdy-bassoon#59)", word,
+        // The MODEL is N (NpcDialogueDef.h); this is its array size. The box shows four at a time
+        // and scrolls the rest (sturdy-bassoon#290), so the cap is not the renderer's any more.
+        return Problem(buf, len, "%s[%d]: %d options; a screen holds at most %d (see sturdy-bassoon#290)", word,
                        screenIndex, screen.optionCount, RS_DIALOGUE_MAX_OPTIONS);
     }
     // --- continue (#96 follow-up) -----------------------------------------------------------------
@@ -724,7 +734,12 @@ bool ValidateScreen(char* buf, size_t len, const RsNpcDef* def, const ScreenRef&
     // Which K options stand in for a given count does not change the answer: every label has
     // already been proven to fit its 184-pixel row, so the choice block is exactly K rows whichever
     // K are showing, and what the measurement is really asking about is the BODY.
-    for (int32_t visible = (ungated < 2 ? 2 : ungated); visible <= screen.optionCount; visible++) {
+    //
+    // Past four visible the layout is the four-row window whatever the count (#290 scrolls the rest),
+    // so the sweep stops at the window: a fifth visible option adds no layout to measure.
+    const int32_t widest = screen.optionCount < RS_DIALOGUE_WINDOW_OPTIONS ? screen.optionCount
+                                                                           : RS_DIALOGUE_WINDOW_OPTIONS;
+    for (int32_t visible = (ungated < 2 ? 2 : ungated); visible <= widest; visible++) {
         if (visible >= 3) {
             // CustomMessage::AutoFormatString is CTRL_TWO_CHOICE-aware and lays the choice out
             // itself, but it knows neither CTRL_THREE_CHOICE nor our CTRL_FOUR_CHOICE - so those

@@ -37,6 +37,8 @@
 //                          and one that is always refused, wares sold with BUY_ITEM, an errand
 //                          whose start and completion each queue a journal notice, and GIVE_ITEM
 //                          re-opening on a node.
+//   NPC_DEBUG_SCROLL (201) added for #290: a list longer than the box, which scrolls - ten options on
+//                          the entry rule with one gated, and a node holding the cap of sixteen.
 //
 // Prose here is NOT journal markup. Journal text carries `#tag:text#` (D23); dialogue text goes to
 // CustomMessageManager (D17), where '#' is a colour span, '%' starts a control code and '^' is a
@@ -509,6 +511,64 @@ const RsNpcDef sShop = {
     NPC_DEBUG_SHOP, QUEST_TIER_DEBUG, "debug_shop", "Debug: the shopkeeper", sShopRules, 1, sShopNodes, 7,
 };
 
+// --- NPC_DEBUG_SCROLL (201) ----------------------------------------------------------------------
+//
+// A list longer than the box (#290). Every topic's reply names it, so a pick made after scrolling
+// proves by its reply - and by the marker's `option=` - that the window's offset was added.
+//
+//   rule 0      ten options. "Topic 6" is GATED on RupeesAtLeast(100), so `rupee 150` and `rupee 50`
+//               switch the list between ten and nine visible, and a pick below it shows whether the
+//               mapping skipped the hidden row. "The long list" leads to node 0; "Goodbye" closes.
+//   node 0      the cap: sixteen options, every one ungated.
+
+const QuestPredicate sScrollRichWhen[] = {
+    QP_RUPEES_AT_LEAST(100),
+};
+
+const RsDialogueOption sScrollTopicOptions[] = {
+    { "Topic 1", RS_DLG_ACTION_NONE, 0, "You picked topic 1.", RS_DLG_NO_NEXT },
+    { "Topic 2", RS_DLG_ACTION_NONE, 0, "You picked topic 2.", RS_DLG_NO_NEXT },
+    { "Topic 3", RS_DLG_ACTION_NONE, 0, "You picked topic 3.", RS_DLG_NO_NEXT },
+    { "Topic 4", RS_DLG_ACTION_NONE, 0, "You picked topic 4.", RS_DLG_NO_NEXT },
+    { "Topic 5", RS_DLG_ACTION_NONE, 0, "You picked topic 5.", RS_DLG_NO_NEXT },
+    { "Topic 6 (rich only)", RS_DLG_ACTION_NONE, 0, "You picked topic 6.", RS_DLG_NO_NEXT, sScrollRichWhen, 1 },
+    { "Topic 7", RS_DLG_ACTION_NONE, 0, "You picked topic 7.", RS_DLG_NO_NEXT },
+    { "Topic 8", RS_DLG_ACTION_NONE, 0, "You picked topic 8.", RS_DLG_NO_NEXT },
+    { "The long list", RS_DLG_ACTION_NONE, 0, nullptr, 0 },
+    { "Goodbye", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+
+const RsDialogueOption sScrollLongOptions[] = {
+    { "Entry 1", RS_DLG_ACTION_NONE, 0, "Entry 1.", RS_DLG_NO_NEXT },
+    { "Entry 2", RS_DLG_ACTION_NONE, 0, "Entry 2.", RS_DLG_NO_NEXT },
+    { "Entry 3", RS_DLG_ACTION_NONE, 0, "Entry 3.", RS_DLG_NO_NEXT },
+    { "Entry 4", RS_DLG_ACTION_NONE, 0, "Entry 4.", RS_DLG_NO_NEXT },
+    { "Entry 5", RS_DLG_ACTION_NONE, 0, "Entry 5.", RS_DLG_NO_NEXT },
+    { "Entry 6", RS_DLG_ACTION_NONE, 0, "Entry 6.", RS_DLG_NO_NEXT },
+    { "Entry 7", RS_DLG_ACTION_NONE, 0, "Entry 7.", RS_DLG_NO_NEXT },
+    { "Entry 8", RS_DLG_ACTION_NONE, 0, "Entry 8.", RS_DLG_NO_NEXT },
+    { "Entry 9", RS_DLG_ACTION_NONE, 0, "Entry 9.", RS_DLG_NO_NEXT },
+    { "Entry 10", RS_DLG_ACTION_NONE, 0, "Entry 10.", RS_DLG_NO_NEXT },
+    { "Entry 11", RS_DLG_ACTION_NONE, 0, "Entry 11.", RS_DLG_NO_NEXT },
+    { "Entry 12", RS_DLG_ACTION_NONE, 0, "Entry 12.", RS_DLG_NO_NEXT },
+    { "Entry 13", RS_DLG_ACTION_NONE, 0, "Entry 13.", RS_DLG_NO_NEXT },
+    { "Entry 14", RS_DLG_ACTION_NONE, 0, "Entry 14.", RS_DLG_NO_NEXT },
+    { "Entry 15", RS_DLG_ACTION_NONE, 0, "Entry 15.", RS_DLG_NO_NEXT },
+    { "Done", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+
+const RsDialogueNode sScrollNodes[] = {
+    { nullptr, 0, "All sixteen:", sScrollLongOptions, 16, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+
+const RsDialogueRule sScrollRules[] = {
+    { nullptr, 0, "Ask me anything.", sScrollTopicOptions, 10, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+
+const RsNpcDef sScrollNpc = {
+    NPC_DEBUG_SCROLL, QUEST_TIER_DEBUG, "debug_scroll", "Debug: the long list", sScrollRules, 1, sScrollNodes, 1,
+};
+
 // --- the malformed table --------------------------------------------------------------------
 //
 // One entry per refusal message in NpcDialogue.cpp's validator. `npc badcheck` runs
@@ -568,13 +628,21 @@ const RsDialogueRule sBadOneOption[] = { { nullptr, 0, "text", sOkOptions, 1, RS
 // out-of-bounds read inside the validator whose entire job is to refuse bad definitions, so the
 // array is now genuinely as long as the count claims. Replaced IN PLACE, never reordered: the
 // acceptance drivers pin these by index.
-const RsDialogueOption sFiveOpts[] = {
+// One past the cap. It was five options when the cap was four; #290 raised the cap to sixteen, so the
+// array is sized from the cap now and the row keeps its index (the label says what it tests).
+const RsDialogueOption sOverCapOpts[RS_DIALOGUE_MAX_OPTIONS + 1] = {
     { "A", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT }, { "B", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
     { "C", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT }, { "D", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
-    { "E", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "E", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT }, { "F", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "G", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT }, { "H", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "I", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT }, { "J", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "K", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT }, { "L", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "M", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT }, { "N", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "O", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT }, { "P", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "Q", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
-const RsDialogueRule sBadFiveOptions[] = {
-    { nullptr, 0, "text", sFiveOpts, RS_DIALOGUE_MAX_OPTIONS + 1, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+const RsDialogueRule sBadOverCapOptions[] = {
+    { nullptr, 0, "text", sOverCapOpts, RS_DIALOGUE_MAX_OPTIONS + 1, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
 };
 
 const RsDialogueOption sThreeOk[] = {
@@ -905,7 +973,7 @@ BAD_NPC_DEF(sDefTextQuote, sBadTextQuote, 1);
 BAD_NPC_DEF(sDefTextEmpty, sBadTextEmpty, 1);
 BAD_NPC_DEF(sDefOptionsNull, sBadOptionsNull, 1);
 BAD_NPC_DEF(sDefOneOption, sBadOneOption, 1);
-BAD_NPC_DEF(sDefFiveOptions, sBadFiveOptions, 1);
+BAD_NPC_DEF(sDefOverCapOptions, sBadOverCapOptions, 1);
 BAD_NPC_DEF(sDefThreeLong, sBadThreeLong, 1);
 BAD_NPC_DEF(sDefThreeMultiline, sBadThreeMultiline, 1);
 BAD_NPC_DEF(sDefLabelNull, sBadLabelNull, 1);
@@ -998,6 +1066,20 @@ const RsDialogueRule sBadBuyQuestBand[] = {
 };
 BAD_NPC_DEF(sDefBuyPriceZero, sBadBuyPriceZero, 1);
 BAD_NPC_DEF(sDefBuyQuestBand, sBadBuyQuestBand, 1);
+// #290: a label that fits a plain option row (184px) but not a SCROLLING one, which shares the row with
+// the scroll arrow. Fourteen W's are 168px in CustomMessage's table - over the 167 a scrolling row
+// leaves a label (a space and the arrow come off), under 184.
+const RsDialogueOption sOptScrollLabelWide[] = {
+    { "WWWWWWWWWWWWWW", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "B", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "C", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "D", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "E", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadScrollLabelWide[] = {
+    { nullptr, 0, "text", sOptScrollLabelWide, 5, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+BAD_NPC_DEF(sDefScrollLabelWide, sBadScrollLabelWide, 1);
 // The opt-in journal notice (#281): on an action that can never earn one, and a value that is not the flag.
 const RsDialogueOption sOptNoticeOnNone[] = {
     { "Yes", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT, nullptr, 0, RS_DLG_NOTICE },
@@ -1047,7 +1129,7 @@ const BadEntry sBadDefs[] = {
     { "text_empty", &sDefTextEmpty },
     { "options_null_nonzero_count", &sDefOptionsNull },
     { "one_option", &sDefOneOption },
-    { "five_options", &sDefFiveOptions },
+    { "over_option_cap", &sDefOverCapOptions },
     { "three_option_body_too_long", &sDefThreeLong },
     { "three_option_body_multiline", &sDefThreeMultiline },
     { "label_null", &sDefLabelNull },
@@ -1106,6 +1188,8 @@ const BadEntry sBadDefs[] = {
     // The opt-in journal notice, appended.
     { "notice_on_action_without_one", &sDefNoticeOnNone },
     { "notice_value_not_flag", &sDefNoticeValue },
+    // #290, appended.
+    { "scroll_label_too_wide_for_arrow", &sDefScrollLabelWide },
 };
 
 // RsNpc_Register is idempotent for the same pointer, which is what makes a ShipInit "*" re-run safe.
@@ -1119,6 +1203,7 @@ void RegisterDebugNpcs() {
     RsNpc_Register(&sPage);
     RsNpc_Register(&sQuestMenu);
     RsNpc_Register(&sShop);
+    RsNpc_Register(&sScrollNpc);
 }
 
 RegisterShipInitFunc debugNpcsInitFunc(RegisterDebugNpcs);

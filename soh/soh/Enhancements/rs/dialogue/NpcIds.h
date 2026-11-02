@@ -75,6 +75,8 @@ typedef enum NpcId {
                           // RupeesAtLeast and one nobody can pay, wares sold with BUY_ITEM, an
                           // errand whose start and completion each show a journal notice, and an
                           // item handed over with GIVE_ITEM that re-opens the conversation.
+    NPC_DEBUG_SCROLL = 201, // a SCROLLING option list (sturdy-bassoon#290): ten options on its
+                            // entry rule, one gated, and a node with sixteen - the cap.
 } NpcId;
 
 #define NPC_ID_IS_VALID(id) ((id) >= 0 && (id) < NPC_MAX)
@@ -103,5 +105,7 @@ RS_STATIC_ASSERT(NPC_DEBUG_QUEST_MENU >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_QUEST_M
                  "NPC_DEBUG_QUEST_MENU must sit in the debug band");
 RS_STATIC_ASSERT(NPC_DEBUG_SHOP >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_SHOP < NPC_MAX,
                  "NPC_DEBUG_SHOP must sit in the debug band");
+RS_STATIC_ASSERT(NPC_DEBUG_SCROLL >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_SCROLL < NPC_MAX,
+                 "NPC_DEBUG_SCROLL must sit in the debug band");
 
 #endif // SOH_RS_NPC_IDS_H

@@ -38,6 +38,30 @@ int32_t RsText_BodyWouldWrap(const struct RsDialogueRule* screen, int32_t visibl
 // 184, not the 216 a full-width row gets - a difference no character count can express.
 int32_t RsText_LabelWouldOverflow(const char* label);
 
+// The same, for a screen that can SCROLL (sturdy-bassoon#290): its top and bottom rows end in an
+// arrow, so a label there shares the 184 with a space and the arrow glyph.
+int32_t RsText_ScrollLabelWouldOverflow(const char* label);
+
+// --- scrolling choices (sturdy-bassoon#290) ----------------------------------------------------
+//
+// A screen offering more than RS_DIALOGUE_WINDOW_OPTIONS shows four at a time. The OFFSET - which
+// visible option sits on the top row - is text-layer state for the open box, like the direct-text
+// slot: set to 0 whenever a screen opens, and kept only across a scroll's own re-open of that same
+// screen. Nothing about it lives on an actor.
+
+// Called by the ENGINE (Message_HandleChoiceSelection, z_message_PAL.c) when the cursor is pushed
+// past the top (dir -1) or bottom (dir +1) row. 1 when the open box is a scrolling screen with
+// options hidden that way: the scroll is queued, and the engine plays the cursor sound instead of
+// clamping silently. 0 for every other box in the game, which keeps vanilla's clamp. Runs in the
+// draw pass, so it only queues; the re-open happens in the OnGameFrameUpdate hook that follows.
+int32_t RsText_ChoiceEdge(int32_t dir);
+// Called by the ENGINE when a four-choice box finishes decoding: the row the cursor starts on. 0,
+// except after a scroll down, where the cursor stays on the bottom row with the option it moved to.
+int32_t RsText_ChoiceStartRow(void);
+// The open box's scroll offset: what an actor adds to msgCtx.choiceIndex to get the index into the
+// screen's VISIBLE options. 0 for any box that is not scrolled.
+int32_t RsText_ChoiceScroll(void);
+
 // Hands one string to the NEXT textbox opened with RS_TEXT_DIRECT (an option's reply, or the notice
 // from an item whose params this build cannot read). A one-slot pointer, and safe as one because it
 // is a PARAMETER, not shared state: it is

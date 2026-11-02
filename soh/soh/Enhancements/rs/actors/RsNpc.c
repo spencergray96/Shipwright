@@ -234,6 +234,7 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
     u16 openId = play->msgCtx.textId;
     s32 slots[RS_DIALOGUE_MAX_OPTIONS];
     s32 visibleCount;
+    s32 scroll;
     s32 screenKind;
     s32 screenNpc = -1;
     s32 screenIndex = -1;
@@ -273,9 +274,13 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
         /* `choiceIndex` counts the rows the player can SEE, so it indexes the visible list, not the
          * definition. Mapping it back through the same list the renderer laid out is the whole of
          * gating's correctness (sturdy-bassoon#96 P2): get this wrong and a menu with a hidden
-         * option silently runs the action next to the one that was picked. */
+         * option silently runs the action next to the one that was picked.
+         *
+         * A list longer than the box scrolls (sturdy-bassoon#290): the cursor's row is counted from
+         * the top of the WINDOW, so the window's offset is added to reach the visible list. */
         visibleCount = RsNpc_VisibleOptions(screen, slots, RS_DIALOGUE_MAX_OPTIONS);
-        choice = play->msgCtx.choiceIndex;
+        scroll = RsText_ChoiceScroll();
+        choice = play->msgCtx.choiceIndex + scroll;
         if (choice < 0 || choice >= visibleCount) {
             return;
         }
@@ -295,10 +300,10 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
          * verbatim - the new fields only start to differ where the new features are in play. */
         snprintf(line, sizeof(line),
                  "rs_dialogue npc=%d event=choice rule=%d index=%d action=%s a=%d result=%s screen=%s screen_index=%d "
-                 "option=%d visible=%d next=%d",
+                 "option=%d visible=%d next=%d scroll=%d",
                  this->npcId, this->ruleIndex, (int)choice, RsNpc_ActionName(option->kind), option->a,
                  Quest_ResultName(result), RsNpc_ScreenKindName(screenKind), (int)screenIndex,
-                 (int)declared, (int)visibleCount, (int)option->next);
+                 (int)declared, (int)visibleCount, (int)option->next, (int)scroll);
         RsAgent_Marker(line);
         if (this->giving != NULL) {
             /* The item comes before `next`: the reply, then the way out, which hands it over and only

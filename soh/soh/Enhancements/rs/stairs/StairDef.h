@@ -151,7 +151,7 @@ typedef struct RsStairGenOption {
 #define RS_TEXT_STAIR_END (RS_TEXT_STAIR_BASE + RS_STAIR_MAX_ROWS - 1)
 #define RS_TEXT_IS_STAIR(textId) ((textId) >= RS_TEXT_STAIR_BASE && (textId) <= RS_TEXT_STAIR_END)
 
-RS_STATIC_ASSERT(RS_STAIR_MAX_ROWS <= RS_DIALOGUE_MAX_OPTIONS,
+RS_STATIC_ASSERT(RS_STAIR_MAX_ROWS <= RS_DIALOGUE_WINDOW_OPTIONS,
                  "a staircase's menu lists every other row plus Cancel, and the box is the cap");
 RS_STATIC_ASSERT(RS_TEXT_DIRECT < RS_TEXT_STAIR_BASE, "the stair band must start above RS_TEXT_DIRECT");
 RS_STATIC_ASSERT(RS_TEXT_STAIR_END < RS_TEXT_ITEM_BASE,

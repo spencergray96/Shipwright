@@ -66,6 +66,9 @@ ActorEntry test_level_room_0_header00_actorList[] = {
     // The Majora's Mask verbs (sturdy-bassoon#281): prices, journal notices, an item handed over.
     // 400 units from 198 along +X, the mirror of 199, outside the talk range of anything.
     { ACTOR_RS_NPC, { 800, 20, -600 }, { 0, -0x4000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_SHOP) },
+    // A scrolling option list (sturdy-bassoon#290): ten options, one gated, and a node of sixteen.
+    // At z=200, 400 units along +X from the twin: outside anyone's talk range.
+    { ACTOR_RS_NPC, { 800, 20, 200 }, { 0, -0x4000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_SCROLL) },
 
     // Step 0 of the giver's quest. Its sibling (step 1) is in terrain_f2p_step2, so finishing the
     // quest requires both scenes — which is what makes "advancing in one scene is reflected in the
