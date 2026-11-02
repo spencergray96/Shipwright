@@ -118,10 +118,27 @@ typedef struct RsDialogueOption {
     // registration refuses the flag on any other action, where it could never fire. The action's
     // own rules still apply when it is set: a sale for a quest not started shows nothing.
     int32_t notice;
+
+    // WHO SPEAKS THE REPLY (sturdy-bassoon#281, a speaker per screen). RS_DLG_SPEAKER(npcId) hands the
+    // camera, and Link's attention, to that character while the reply is open; 0 - the
+    // value-initialised default, so every row that says nothing - is the SCREEN's speaker, so an
+    // option names nobody unless the answer comes from someone other than whoever asked. Which
+    // option the player picks therefore decides who answers. Refused on an option with no reply
+    // (nothing would ever speak it) and on an interaction's option (RsSpeaker.h says why).
+    int32_t replySpeaker;
 } RsDialogueOption;
 
 // RsDialogueOption.notice's "on". Spelled out so a row reads `..., nullptr, 0, RS_DLG_NOTICE }`.
 #define RS_DLG_NOTICE 1
+
+// A SPEAKER (sturdy-bassoon#281): RsDialogueRule.speaker and RsDialogueOption.replySpeaker. Stored as
+// the NpcId PLUS ONE, so that 0 - what a brace list that stops early leaves behind - means "the
+// default" rather than NPC_COOK, who is NpcId 0. The default is the conversation's OWNER on a screen
+// (the character Link talked to) and the screen's own speaker on a reply. Naming the owner outright
+// is allowed, and is how an alternating conversation reads best.
+#define RS_DLG_SPEAKER(npcId) ((int32_t)((npcId) + 1))
+#define RS_DLG_SPEAKER_DEFAULT 0
+#define RS_DLG_SPEAKER_GET_ID(speaker) ((int32_t)((speaker)-1)) // -1 for the default
 
 typedef struct RsDialogueRule {
     // Visible when EVERY predicate here is true. A count of 0 means unconditional - the list is
@@ -187,6 +204,19 @@ typedef struct RsDialogueRule {
     // THERE IS NO SAFE DEFAULT, for the reason RsDialogueOption.next gives: a value-initialised 0
     // is node 0. Every rule row and node row in the tree states it.
     int32_t next; // RS_DLG_NO_NEXT = close when dismissed; otherwise a node index (see "node groups")
+
+    // WHO SPEAKS THIS SCREEN (sturdy-bassoon#281). RS_DLG_SPEAKER(npcId), or 0 for the conversation's
+    // owner - the character Link talked to, which is what every screen written before this meant. The
+    // owner still runs the conversation: its rules, its tree, its gifts. The speaker only gets the
+    // camera and Link's attention while this screen is open, through Player's talk and focus actors
+    // (actors/RsSpeaker.h). It is NOT part of the screen's text id, so a screen's identity - which
+    // choice memory and a scroll's re-layout key on - does not depend on who says it.
+    //
+    // SAFE TO APPEND: a row that stops at `next` value-initialises this to 0, the owner. The registry
+    // checks the id is in range at registration and that it is registered once every character has
+    // registered (RsNpc_CheckSpeakers); whether that character is PLACED in the scene is a runtime
+    // fact, and a speaker who is not there leaves the owner speaking, with a marker that says so.
+    int32_t speaker;
 } RsDialogueRule;
 
 // A NODE is the same shape as a rule - a body plus up to four options - reached only by an EDGE

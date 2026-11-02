@@ -25,6 +25,9 @@
 // zero-initialised POD array, so there is no static-initialisation-order hazard with the
 // RegisterShipInitFunc objects that call RsNpc_Register.
 static std::array<const RsNpcDef*, NPC_MAX> sDefs = {};
+// How many definitions have registered, ever: RsNpc_CheckSpeakers asks the registry again only when
+// this has moved. A plain int for the same initialisation-order reason as the array.
+static int32_t sRegistrations = 0;
 
 namespace {
 
@@ -203,6 +206,32 @@ struct ScreenRef {
     int32_t kind; // RS_SCREEN_RULE or RS_SCREEN_NODE
     int32_t index;
 };
+
+// How far a SPEAKER (#281) is checked. Registration can only ask for the range: characters register
+// from several translation units' ShipInit functions in no defined order, so "is NPC 204 registered"
+// has no stable answer while NPC 203 registers. Once every one of them has run, the registry is
+// whole and the question has one - which is when RsNpc_CheckSpeakers and `npc badcheck` ask it.
+enum class SpeakerCheck {
+    Range,
+    Registered,
+};
+
+// One speaker field: the default, or RS_DLG_SPEAKER of an NpcId in range - and, when the registry is
+// whole, of one that is registered. The owner naming itself is always fine, registered or not yet.
+bool CheckSpeaker(char* buf, size_t len, const char* where, int32_t speaker, const RsNpcDef* def,
+                  SpeakerCheck check) {
+    if (speaker == RS_DLG_SPEAKER_DEFAULT) {
+        return true;
+    }
+    const int32_t id = RS_DLG_SPEAKER_GET_ID(speaker);
+    if (!NPC_ID_IS_VALID(id)) {
+        return Problem(buf, len, "%s: speaker %d is neither RS_DLG_SPEAKER(<npc id>) nor 0", where, speaker);
+    }
+    if (check == SpeakerCheck::Registered && id != def->id && !RsNpc_IsRegistered(id)) {
+        return Problem(buf, len, "%s: speaker npc %d is not registered", where, id);
+    }
+    return true;
+}
 
 // --- graph helpers (#96) -------------------------------------------------------------------------
 //
@@ -421,7 +450,8 @@ void ComputeArrivalGates(const RsNpcDef* def, std::bitset<QUEST_MAX>* arrival) {
     }
 }
 
-bool CheckOption(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& ref, int32_t index) {
+bool CheckOption(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& ref, int32_t index,
+                 SpeakerCheck speakers) {
     const char* word = RsNpc_ScreenKindName(ref.kind);
     const int32_t screenIndex = ref.index;
     const RsDialogueOption& option = ref.screen->options[index];
@@ -569,6 +599,18 @@ bool CheckOption(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& re
                                screenIndex, index, RsNpc_ActionName(option.kind));
         }
     }
+    // --- who answers (#281) -----------------------------------------------------------------------
+    //
+    // Only a reply is spoken, so a reply speaker on an option without one would be dead data that
+    // looks live: an author who wrote it expected someone to say something.
+    std::snprintf(where, sizeof(where), "%s[%d].opt[%d]: reply", word, screenIndex, index);
+    if (!CheckSpeaker(buf, len, where, option.replySpeaker, def, speakers)) {
+        return false;
+    }
+    if (option.replySpeaker != RS_DLG_SPEAKER_DEFAULT && option.reply == nullptr) {
+        return Problem(buf, len, "%s[%d].opt[%d]: a reply speaker on an option with no reply - nothing would speak",
+                       word, screenIndex, index);
+    }
     // --- gating (#96 P2) ------------------------------------------------------------------------
     std::snprintf(where, sizeof(where), "%s[%d].opt[%d]", word, screenIndex, index);
     char list_where[64];
@@ -582,7 +624,7 @@ bool CheckOption(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& re
 // One SCREEN - a rule or a node. They are the same struct and share this one validator; `ref.kind`
 // only decides the prefix each refusal message carries and switches on the handful of things that
 // genuinely differ, which are the two fields a node has no use for.
-bool ValidateScreen(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& ref) {
+bool ValidateScreen(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& ref, SpeakerCheck speakers) {
     const char* word = RsNpc_ScreenKindName(ref.kind);
     const int32_t screenIndex = ref.index;
     const RsDialogueRule& screen = *ref.screen;
@@ -609,6 +651,9 @@ bool ValidateScreen(char* buf, size_t len, const RsNpcDef* def, const ScreenRef&
     char where[40];
     std::snprintf(where, sizeof(where), "%s[%d]: text", word, screenIndex);
     if (!CheckTokens(buf, len, where, screen.text)) {
+        return false;
+    }
+    if (!CheckSpeaker(buf, len, owner, screen.speaker, def, speakers)) {
         return false;
     }
     if (screen.optionCount < 0 || (screen.optionCount > 0 && screen.options == nullptr)) {
@@ -686,7 +731,7 @@ bool ValidateScreen(char* buf, size_t len, const RsNpcDef* def, const ScreenRef&
         }
     }
     for (int32_t i = 0; i < screen.optionCount; i++) {
-        if (!CheckOption(buf, len, def, ref, i)) {
+        if (!CheckOption(buf, len, def, ref, i, speakers)) {
             return false;
         }
     }
@@ -773,10 +818,10 @@ bool ValidateScreen(char* buf, size_t len, const RsNpcDef* def, const ScreenRef&
     return true;
 }
 
-bool ValidateBody(const RsNpcDef* def, char* buf, size_t len);
+bool ValidateBody(const RsNpcDef* def, char* buf, size_t len, SpeakerCheck speakers);
 
 // True when the definition is clean; otherwise writes the reason into `buf` and returns false.
-bool ValidateDef(const RsNpcDef* def, char* buf, size_t len) {
+bool ValidateDef(const RsNpcDef* def, char* buf, size_t len, SpeakerCheck speakers) {
     if (def == nullptr) {
         return Problem(buf, len, "NULL definition");
     }
@@ -786,12 +831,12 @@ bool ValidateDef(const RsNpcDef* def, char* buf, size_t len) {
     if (def->tier != NPC_ID_TIER(def->id)) {
         return Problem(buf, len, "tier does not match the id's band");
     }
-    return ValidateBody(def, buf, len);
+    return ValidateBody(def, buf, len, speakers);
 }
 
 // Everything but the id: what an interaction's definition is held to as well (#183), whose id is
 // in another space and is checked by its own registry.
-bool ValidateBody(const RsNpcDef* def, char* buf, size_t len) {
+bool ValidateBody(const RsNpcDef* def, char* buf, size_t len, SpeakerCheck speakers) {
     if (def == nullptr) {
         return Problem(buf, len, "NULL definition");
     }
@@ -820,13 +865,13 @@ bool ValidateBody(const RsNpcDef* def, char* buf, size_t len) {
     }
     for (int32_t r = 0; r < def->ruleCount; r++) {
         const ScreenRef ref = { &def->rules[r], RS_SCREEN_RULE, r };
-        if (!ValidateScreen(buf, len, def, ref)) {
+        if (!ValidateScreen(buf, len, def, ref, speakers)) {
             return false;
         }
     }
     for (int32_t n = 0; n < def->nodeCount; n++) {
         const ScreenRef ref = { &def->nodes[n], RS_SCREEN_NODE, n };
-        if (!ValidateScreen(buf, len, def, ref)) {
+        if (!ValidateScreen(buf, len, def, ref, speakers)) {
             return false;
         }
     }
@@ -917,19 +962,20 @@ extern "C" int32_t RsDialogue_BodyProblem(const RsNpcDef* def, char* buf, size_t
     if (buf != nullptr && len > 0) {
         buf[0] = '\0';
     }
-    return ValidateBody(def, buf, len) ? 0 : 1;
+    return ValidateBody(def, buf, len, SpeakerCheck::Range) ? 0 : 1;
 }
 
 extern "C" int32_t RsNpc_DefProblem(const RsNpcDef* def, char* buf, size_t len) {
     if (buf != nullptr && len > 0) {
         buf[0] = '\0';
     }
-    return ValidateDef(def, buf, len) ? 0 : 1;
+    // Asked after boot, so the registry is whole and a speaker's registration has an answer.
+    return ValidateDef(def, buf, len, SpeakerCheck::Registered) ? 0 : 1;
 }
 
 extern "C" int32_t RsNpc_Register(const RsNpcDef* def) {
     char problem[192];
-    if (!ValidateDef(def, problem, sizeof(problem))) {
+    if (!ValidateDef(def, problem, sizeof(problem), SpeakerCheck::Range)) {
         SPDLOG_ERROR("RsNpc: register npc {} ({}): {}", def != nullptr ? def->id : -1,
                      (def != nullptr && def->name != nullptr) ? def->name : "<null>", problem);
         assert(false && "npc definition failed validation");
@@ -945,9 +991,70 @@ extern "C" int32_t RsNpc_Register(const RsNpcDef* def) {
         return RS_NPC_ERR_DUPLICATE;
     }
     sDefs[def->id] = def;
+    sRegistrations++;
     SPDLOG_INFO("RsNpc: registered {} '{}' tier={} rules={} nodes={}", def->id, def->name, Quest_TierName(def->tier),
                 def->ruleCount, def->nodeCount);
     return RS_NPC_OK;
+}
+
+namespace {
+
+// Every speaker field of one registered definition, asked of the whole registry: the half of the
+// speaker check registration could not ask (SpeakerCheck says why). Only the speakers - the rest was
+// proven at registration - so it is cheap enough to ask whenever the registry has grown. True when
+// every speaker is registered; otherwise false, with the first one that is not in `buf`.
+bool SpeakersRegistered(const RsNpcDef* def, char* buf, size_t len) {
+    for (int32_t kind = RS_SCREEN_RULE; kind <= RS_SCREEN_NODE; kind++) {
+        const int32_t count = kind == RS_SCREEN_RULE ? def->ruleCount : def->nodeCount;
+        for (int32_t i = 0; i < count; i++) {
+            const RsDialogueRule& screen = *RsDialogue_Screen(def, kind, i);
+            char where[40];
+            std::snprintf(where, sizeof(where), "%s[%d]", RsNpc_ScreenKindName(kind), i);
+            if (!CheckSpeaker(buf, len, where, screen.speaker, def, SpeakerCheck::Registered)) {
+                return false;
+            }
+            for (int32_t o = 0; o < screen.optionCount; o++) {
+                std::snprintf(where, sizeof(where), "%s[%d].opt[%d]: reply", RsNpc_ScreenKindName(kind), i, o);
+                if (!CheckSpeaker(buf, len, where, screen.options[o].replySpeaker, def, SpeakerCheck::Registered)) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+extern "C" int32_t RsNpc_CheckSpeakers(void) {
+    // Asked again only when something registered since the last time: a ShipInit re-run re-registers
+    // the same pointers and changes nothing, and a placement spawning changes nothing at all.
+    static int32_t sCheckedAt = -1;
+    if (sCheckedAt == sRegistrations) {
+        return 0;
+    }
+    sCheckedAt = sRegistrations;
+    // Until a pass refuses nothing: refusing one character unregisters it, and a definition naming IT as
+    // a speaker may already have been passed over.
+    int32_t refused = 0;
+    for (bool again = true; again;) {
+        again = false;
+        for (int32_t id = 0; id < NPC_MAX; id++) {
+            const RsNpcDef* def = sDefs[id];
+            char problem[192];
+            if (def == nullptr || SpeakersRegistered(def, problem, sizeof(problem))) {
+                continue;
+            }
+            // Refused exactly as registration refuses: loudly, and the character is not registered - so
+            // its placements say "<unregistered npc>" rather than handing the camera to nobody.
+            SPDLOG_ERROR("RsNpc: npc {} ({}): {}", def->id, def->name, problem);
+            sDefs[id] = nullptr;
+            refused++;
+            again = true;
+            assert(false && "npc definition names a speaker that is not registered");
+        }
+    }
+    return refused;
 }
 
 extern "C" const RsNpcDef* RsNpc_GetDef(int32_t npcId) {

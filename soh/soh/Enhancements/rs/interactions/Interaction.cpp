@@ -40,15 +40,26 @@ bool Validate(const RsInteractionDef* def, char* buf, size_t len) {
     // ...less two actions. GIVE_ITEM and BUY_ITEM need a speaker that waits for Link to take the item
     // after the box closes (RsNpc's give states, sturdy-bassoon#281), and the trigger has no such state,
     // so a prop offering one would check the step and never hand anything over.
+    //
+    // ...and less a SPEAKER (sturdy-bassoon#281). Handing the floor to a character moves Player's talk
+    // actor, and that is exactly where the text hook finds WHICH interaction's line to render: the
+    // prop's next box would resolve the character's params as an interaction id.
+    static const char* const kSpeaker = "interaction %d: a speaker is an NPC conversation's; a prop speaks for itself";
     for (int32_t kind = RS_SCREEN_RULE; kind <= RS_SCREEN_NODE; kind++) {
         const int32_t count = kind == RS_SCREEN_RULE ? def->ruleCount : def->nodeCount;
         for (int32_t i = 0; i < count; i++) {
             const RsDialogueRule* screen = RsDialogue_Screen(def, kind, i);
+            if (screen != nullptr && screen->speaker != RS_DLG_SPEAKER_DEFAULT) {
+                return Problem(buf, len, kSpeaker, def->id);
+            }
             for (int32_t o = 0; screen != nullptr && o < screen->optionCount; o++) {
                 if (RsNpc_OptionItem(&screen->options[o]) >= 0) {
                     return Problem(buf, len,
                                    "interaction %d: give_item and buy_item are an NPC's; a prop cannot hand an item over",
                                    def->id);
+                }
+                if (screen->options[o].replySpeaker != RS_DLG_SPEAKER_DEFAULT) {
+                    return Problem(buf, len, kSpeaker, def->id);
                 }
             }
         }

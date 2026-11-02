@@ -160,6 +160,17 @@ int32_t BadCheck(std::vector<std::string>& lines) {
     static const RsDialogueRule kBuyRule[] = {
         { nullptr, 0, "A loaf.", kBuy, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
     };
+    // A speaker on a prop (#281), on a screen and on a reply: clean as a character's, refused here.
+    static const RsDialogueRule kSpeakerRule[] = {
+        { nullptr, 0, "A line.", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT, RS_DLG_SPEAKER(NPC_DEBUG_GIVER) },
+    };
+    static const RsDialogueOption kReplySpeaker[] = {
+        { "Ask", RS_DLG_ACTION_NONE, 0, "An answer.", RS_DLG_NO_NEXT, nullptr, 0, 0, RS_DLG_SPEAKER(NPC_DEBUG_GIVER) },
+        { "Leave", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    };
+    static const RsDialogueRule kReplySpeakerRule[] = {
+        { nullptr, 0, "A question.", kReplySpeaker, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    };
     struct Case {
         const char* label;
         RsInteractionDef def;
@@ -175,6 +186,13 @@ int32_t BadCheck(std::vector<std::string>& lines) {
         { "no_rules", { RS_INTERACTION(32767), QUEST_TIER_DEBUG, "bad_none", "Bad: none", kTwoPlain, 0 }, false },
         { "give_item", { RS_INTERACTION(32767), QUEST_TIER_DEBUG, "bad_give", "Bad: give", kGiveRule, 1 }, false },
         { "buy_item", { RS_INTERACTION(32767), QUEST_TIER_DEBUG, "bad_buy", "Bad: buy", kBuyRule, 1 }, false },
+        // #281, appended.
+        { "speaker",
+          { RS_INTERACTION(32767), QUEST_TIER_DEBUG, "bad_speaker", "Bad: speaker", kSpeakerRule, 1 },
+          false },
+        { "reply_speaker",
+          { RS_INTERACTION(32767), QUEST_TIER_DEBUG, "bad_reply_speaker", "Bad: reply speaker", kReplySpeakerRule, 1 },
+          false },
     };
     int32_t wrong = 0;
     for (const Case& c : cases) {

@@ -42,6 +42,10 @@
 //                          visit to a child starts fresh.
 //   NPC_DEBUG_SCROLL (201) added for #290: a list longer than the box, which scrolls - ten options on
 //                          the entry rule with one gated, and a node holding the cap of sixteen.
+//   NPC_DEBUG_SPEAKER_A (203) added for #281's speaker per screen: a conversation 203 owns whose lines
+//                          alternate between 203 and 204, whose replies come from whichever of them the
+//                          pick names, one reply from 205 (registered, never placed), and a gift whose
+//                          re-open lands on 204's line. 204 and 205 are its cast and say nothing alone.
 //
 // Prose here is NOT journal markup. Journal text carries `#tag:text#` (D23); dialogue text goes to
 // CustomMessageManager (D17), where '#' is a colour span, '%' starts a control code and '^' is a
@@ -632,6 +636,73 @@ const RsNpcDef sMemoryNpc = {
     NPC_DEBUG_MEMORY, QUEST_TIER_DEBUG, "debug_memory", "Debug: the memory", sMemoryRules, 1, sMemoryNodes, 3,
 };
 
+// --- NPC_DEBUG_SPEAKER_A (203), _B (204), _ABSENT (205) ----------------------------------------
+//
+// A speaker per screen (#281). 203 owns the conversation; every line says who speaks it ("A:" or "B:"),
+// so a screenshot shows the line matched its speaker and the markers show the camera went to it.
+//
+//   rule 0  B speaks FIRST, so the camera opens on 204 rather than on 203, whom Link talked to.
+//   node 0  A's menu (naming 203 outright). Six options, so it scrolls - a scroll re-lays the same
+//           screen and must not move the floor:
+//             Ask B         B answers (a reply speaker), back to the menu
+//             Ask A         A answers (the screen's speaker, by default), back to the menu
+//             Ask C         205 answers - registered, never placed, so A keeps the floor
+//             Hear them     B then A, two statements, back to the menu
+//             Take a token  GIVE_ITEM; B hands it over in words, the gift re-opens on B's node 3
+//             Goodbye       B says goodbye, and the conversation closes on B's line
+//   node 1  B: a statement continuing to node 2.
+//   node 2  A: (the default speaker), back to the menu.
+//   node 3  B: where the gift re-opens, back to the menu.
+
+const QuestPredicate sSpeakerTokenDueWhen[] = {
+    QP_NOT_QUEST_STEP_SET(QUEST_DEBUG_SPEAKER, 0),
+};
+
+const RsDialogueOption sSpeakerMenuOptions[] = {
+    { "Ask B", RS_DLG_ACTION_NONE, 0, "B: I answer what I am asked.", 0, nullptr, 0, 0,
+      RS_DLG_SPEAKER(NPC_DEBUG_SPEAKER_B) },
+    { "Ask A", RS_DLG_ACTION_NONE, 0, "A: And I answer mine.", 0 },
+    { "Ask C", RS_DLG_ACTION_NONE, 0, "A: C never came, so I will answer.", 0, nullptr, 0, 0,
+      RS_DLG_SPEAKER(NPC_DEBUG_SPEAKER_ABSENT) },
+    { "Hear them both", RS_DLG_ACTION_NONE, 0, nullptr, 1 },
+    { "Take a token", RS_DLG_ACTION_GIVE_ITEM, RS_DLG_ITEM(QUEST_DEBUG_SPEAKER, 0), "B: Here, take this.", 3,
+      sSpeakerTokenDueWhen, 1, 0, RS_DLG_SPEAKER(NPC_DEBUG_SPEAKER_B) },
+    { "Goodbye", RS_DLG_ACTION_NONE, 0, "B: Bye now.", RS_DLG_NO_NEXT, nullptr, 0, 0,
+      RS_DLG_SPEAKER(NPC_DEBUG_SPEAKER_B) },
+};
+
+const RsDialogueNode sSpeakerNodes[] = {
+    { nullptr, 0, "A: Two of us. Ask away.", sSpeakerMenuOptions, 6, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT,
+      RS_DLG_SPEAKER(NPC_DEBUG_SPEAKER_A) },
+    { nullptr, 0, "B: I go first.", nullptr, 0, RS_DLG_NO_MISSING, 2, RS_DLG_SPEAKER(NPC_DEBUG_SPEAKER_B) },
+    { nullptr, 0, "A: And I go second.", nullptr, 0, RS_DLG_NO_MISSING, 0 },
+    { nullptr, 0, "B: Keep it safe, now.", nullptr, 0, RS_DLG_NO_MISSING, 0, RS_DLG_SPEAKER(NPC_DEBUG_SPEAKER_B) },
+};
+
+const RsDialogueRule sSpeakerRules[] = {
+    { nullptr, 0, "B: Hold on, let me speak first.", nullptr, 0, RS_DLG_NO_MISSING, 0,
+      RS_DLG_SPEAKER(NPC_DEBUG_SPEAKER_B) },
+};
+
+const RsNpcDef sSpeakerA = {
+    NPC_DEBUG_SPEAKER_A, QUEST_TIER_DEBUG, "debug_speaker_a", "Debug: speaker A", sSpeakerRules, 1, sSpeakerNodes, 4,
+};
+
+// The cast. Each needs a conversation of its own to register - talking to one directly is harmless.
+const RsDialogueRule sSpeakerBRules[] = {
+    { nullptr, 0, "B: Talk to A; I only chime in.", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+const RsNpcDef sSpeakerB = {
+    NPC_DEBUG_SPEAKER_B, QUEST_TIER_DEBUG, "debug_speaker_b", "Debug: speaker B", sSpeakerBRules, 1,
+};
+const RsDialogueRule sSpeakerAbsentRules[] = {
+    { nullptr, 0, "C: You should not be able to find me.", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+const RsNpcDef sSpeakerAbsent = {
+    NPC_DEBUG_SPEAKER_ABSENT, QUEST_TIER_DEBUG, "debug_speaker_absent", "Debug: the absent speaker",
+    sSpeakerAbsentRules, 1,
+};
+
 // --- the malformed table --------------------------------------------------------------------
 //
 // One entry per refusal message in NpcDialogue.cpp's validator. `npc badcheck` runs
@@ -1160,6 +1231,33 @@ const RsDialogueRule sBadNoticeValue[] = {
 };
 BAD_NPC_DEF(sDefNoticeOnNone, sBadNoticeOnNone, 1);
 BAD_NPC_DEF(sDefNoticeValue, sBadNoticeValue, 1);
+// A speaker per screen (#281): out of range, and in range but never registered - the second is only
+// asked once the registry is whole, which `npc badcheck` always is - on a screen and on a reply; and a
+// reply speaker on an option with no reply. NPC_MAX - 1 is in the debug band and nothing registers it.
+const RsDialogueRule sBadSpeakerRange[] = {
+    { nullptr, 0, "text", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT, RS_DLG_SPEAKER(NPC_MAX) },
+};
+const RsDialogueRule sBadSpeakerUnregistered[] = {
+    { nullptr, 0, "text", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT, RS_DLG_SPEAKER(NPC_MAX - 1) },
+};
+const RsDialogueOption sOptReplySpeakerUnregistered[] = {
+    { "Yes", RS_DLG_ACTION_NONE, 0, "Fine.", RS_DLG_NO_NEXT, nullptr, 0, 0, RS_DLG_SPEAKER(NPC_MAX - 1) },
+    { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadReplySpeakerUnregistered[] = {
+    { nullptr, 0, "text", sOptReplySpeakerUnregistered, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+const RsDialogueOption sOptReplySpeakerNoReply[] = {
+    { "Yes", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT, nullptr, 0, 0, RS_DLG_SPEAKER(NPC_DEBUG_TWIN) },
+    { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadReplySpeakerNoReply[] = {
+    { nullptr, 0, "text", sOptReplySpeakerNoReply, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+BAD_NPC_DEF(sDefSpeakerRange, sBadSpeakerRange, 1);
+BAD_NPC_DEF(sDefSpeakerUnregistered, sBadSpeakerUnregistered, 1);
+BAD_NPC_DEF(sDefReplySpeakerUnregistered, sBadReplySpeakerUnregistered, 1);
+BAD_NPC_DEF(sDefReplySpeakerNoReply, sBadReplySpeakerNoReply, 1);
 
 struct BadEntry {
     const char* label;
@@ -1253,6 +1351,11 @@ const BadEntry sBadDefs[] = {
     { "notice_value_not_flag", &sDefNoticeValue },
     // #290, appended.
     { "scroll_label_too_wide_for_arrow", &sDefScrollLabelWide },
+    // A speaker per screen (#281), appended.
+    { "speaker_out_of_range", &sDefSpeakerRange },
+    { "speaker_unregistered", &sDefSpeakerUnregistered },
+    { "reply_speaker_unregistered", &sDefReplySpeakerUnregistered },
+    { "reply_speaker_without_reply", &sDefReplySpeakerNoReply },
 };
 
 // RsNpc_Register is idempotent for the same pointer, which is what makes a ShipInit "*" re-run safe.
@@ -1268,6 +1371,9 @@ void RegisterDebugNpcs() {
     RsNpc_Register(&sShop);
     RsNpc_Register(&sScrollNpc);
     RsNpc_Register(&sMemoryNpc);
+    RsNpc_Register(&sSpeakerA);
+    RsNpc_Register(&sSpeakerB);
+    RsNpc_Register(&sSpeakerAbsent);
 }
 
 RegisterShipInitFunc debugNpcsInitFunc(RegisterDebugNpcs);

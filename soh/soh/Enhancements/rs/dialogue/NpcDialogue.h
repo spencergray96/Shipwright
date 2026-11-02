@@ -43,6 +43,13 @@ int32_t RsNpc_Register(const RsNpcDef* def);
 // in a bad definition cannot reach a console sink through its own error message.
 int32_t RsNpc_DefProblem(const RsNpcDef* def, char* buf, size_t len);
 
+// The half of the SPEAKER check (sturdy-bassoon#281) registration cannot make: that every speaker a
+// registered definition names is itself registered. Characters register from several translation
+// units in no defined order, so it is asked once the registry is whole - by RsNpc_Init, before the
+// first placement can talk - and again only if something registered since. A definition that fails is
+// refused as registration refuses one: logged, asserted, and unregistered. Returns how many it refused.
+int32_t RsNpc_CheckSpeakers(void);
+
 const RsNpcDef* RsNpc_GetDef(int32_t npcId); // NULL if unregistered or invalid; never asserts
 int32_t RsNpc_IsRegistered(int32_t npcId);
 int32_t RsNpc_RegisteredCount(void);

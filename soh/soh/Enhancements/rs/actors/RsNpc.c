@@ -24,6 +24,7 @@
 #include "RsActorParams.h"
 #include "RsActors.h"
 #include "RsQuestItem.h"
+#include "RsSpeaker.h"
 #include "global.h"
 #include "objects/gameplay_keep/gameplay_keep.h"
 #include "soh/Enhancements/rs/dialogue/NpcDialogue.h"
@@ -85,6 +86,23 @@ static void RsNpc_Mark(RsNpc* this, const char* event) {
     RsAgent_Marker(line);
 }
 
+/* Hands the floor to whoever speaks the box this conversation just opened on `textId`, if it names one
+ * of this character's screens (#281). Every other box - a notice, a reply - says nothing about its
+ * speaker in its id, so its caller hands the floor itself or leaves it where it is. */
+static void RsNpc_HandToScreen(RsNpc* this, PlayState* play, u16 textId, const char* on) {
+    s32 screenNpc = -1;
+    s32 screenIndex = -1;
+    const s32 kind = RsNpc_DecodeScreen(textId, &screenNpc, &screenIndex);
+    const RsDialogueRule* screen = screenNpc == this->npcId ? RsNpc_Screen(this->npcId, kind, screenIndex) : NULL;
+
+    RsSpeaker_Hand(play, this->ruleIndex, screen != NULL ? screen->speaker : RS_DLG_SPEAKER_DEFAULT, on);
+}
+
+/* Who answers an option: its own reply speaker, or whoever spoke the screen it was picked on. */
+static s32 RsNpc_ReplySpeaker(const RsDialogueRule* screen, const RsDialogueOption* option) {
+    return option->replySpeaker != RS_DLG_SPEAKER_DEFAULT ? option->replySpeaker : screen->speaker;
+}
+
 void RsNpc_Init(Actor* thisx, PlayState* play) {
     RsNpc* this = (RsNpc*)thisx;
 
@@ -99,6 +117,9 @@ void RsNpc_Init(Actor* thisx, PlayState* play) {
     if (RS_NPC_PARAMS_GET_RSVD(thisx->params) != 0) {
         LUSLOG_ERROR("RsNpc: params 0x%04X has reserved bits set (npc %d)", (u16)thisx->params, this->npcId);
     }
+    // Before the registered check below: every character has registered by the time a placement
+    // spawns, so this is when a speaker naming an unregistered character can be refused (#281).
+    RsNpc_CheckSpeakers();
     if (!RsNpc_IsRegistered(this->npcId)) {
         LUSLOG_ERROR("RsNpc: npc id %d has no definition in this build", this->npcId);
     }
@@ -124,6 +145,7 @@ void RsNpc_Init(Actor* thisx, PlayState* play) {
 void RsNpc_Destroy(Actor* thisx, PlayState* play) {
     RsNpc* this = (RsNpc*)thisx;
 
+    RsSpeaker_ActorGone(play, thisx); /* never leave Player or the camera on a freed speaker (#281) */
     Collider_DestroyCylinder(play, &this->collider);
 }
 
@@ -134,6 +156,10 @@ void RsNpc_Destroy(Actor* thisx, PlayState* play) {
 // state change and a talk request landing on the same frame speaks one frame late; the next frame
 // corrects it, and nothing in the rule table depends on the difference.
 static void RsNpc_Wait(RsNpc* this, PlayState* play) {
+    /* The id Player has just opened a box with, if it accepted the offer this frame: Player updates first,
+     * so it read last frame's id, not the one about to be written (#281 hands the floor by it). */
+    const u16 offered = this->actor.textId;
+
     this->ruleIndex = RsNpc_ResolveRule(this->npcId);
     this->actor.textId = RS_TEXT_NPC_ID(this->npcId, this->ruleIndex >= 0 ? this->ruleIndex : 0);
 
@@ -143,6 +169,10 @@ static void RsNpc_Wait(RsNpc* this, PlayState* play) {
         RsDialogue_NoticeReset();
         this->giving = NULL;
         RsNpc_Mark(this, "open");
+        /* The floor, from the first line (#281): a conversation whose entry screen is someone else's
+         * opens the camera straight on them, because the talk camera has not framed anyone yet. */
+        RsSpeaker_Begin(&this->actor, this->npcId);
+        RsNpc_HandToScreen(this, play, offered, "entry");
         this->actionFunc = RsNpc_Talk;
         return;
     }
@@ -152,6 +182,7 @@ static void RsNpc_Wait(RsNpc* this, PlayState* play) {
 /* Back to idle, the conversation over: the one place that says so, whichever way it ended. */
 static void RsNpc_End(RsNpc* this) {
     this->giving = NULL;
+    RsSpeaker_End();
     RsNpc_Mark(this, "close");
     this->actionFunc = RsNpc_Wait;
 }
@@ -183,6 +214,8 @@ static void RsNpc_Leave(RsNpc* this, PlayState* play, s32 closeBox) {
     if (RsNpc_ShowNotice(this, play)) {
         return;
     }
+    /* The box closes now, so the floor goes with it - a gift's re-open begins a new lending (#281). */
+    RsSpeaker_End();
     if (closeBox) {
         Message_CloseTextbox(play);
     }
@@ -224,6 +257,7 @@ static void RsNpc_GoToNode(RsNpc* this, PlayState* play, s32 head) {
 
     RsNpc_MarkNode(this, node, head);
     Message_ContinueTextbox(play, RS_TEXT_NODE_ID(this->npcId, node));
+    RsNpc_HandToScreen(this, play, RS_TEXT_NODE_ID(this->npcId, node), "node");
 }
 
 static void RsNpc_Talk(RsNpc* this, PlayState* play) {
@@ -248,6 +282,7 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
     // ovl_En_Ms has exactly this hole; copying it wholesale would have inherited it.
     if (state == TEXT_STATE_NONE) {
         this->giving = NULL; /* a gift promised in a conversation that never reached its way out */
+        RsSpeaker_End();
         this->actionFunc = RsNpc_Wait;
         return;
     }
@@ -314,6 +349,7 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
             if (option->reply != NULL) {
                 RsText_SetDirectCopy(option->reply);
                 Message_ContinueTextbox(play, RS_TEXT_DIRECT);
+                RsSpeaker_Hand(play, this->ruleIndex, RsNpc_ReplySpeaker(screen, option), "reply");
             } else {
                 RsNpc_Leave(this, play, 1);
             }
@@ -329,6 +365,8 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
              * (NpcDialogueDef.h). A reply with nowhere to go afterwards keeps the plain id. */
             Message_ContinueTextbox(play, option->next != RS_DLG_NO_NEXT ? RS_TEXT_REPLY_TO_NODE(option->next)
                                                                         : RS_TEXT_DIRECT);
+            /* A reply's id names where it goes, not who said it, so the floor is handed here (#281). */
+            RsSpeaker_Hand(play, this->ruleIndex, RsNpc_ReplySpeaker(screen, option), "reply");
         } else if (option->next != RS_DLG_NO_NEXT) {
             RsNpc_GoToNode(this, play, option->next);
         } else {
@@ -444,8 +482,10 @@ static void RsNpc_Resume(RsNpc* this, PlayState* play) {
     if (Actor_ProcessTalkRequest(&this->actor, play)) {
         this->actor.flags &= ~ACTOR_FLAG_TALK_OFFER_AUTO_ACCEPTED;
         this->giving = NULL;
+        RsSpeaker_Begin(&this->actor, this->npcId);
         if (node >= 0) {
             RsNpc_MarkNode(this, node, head);
+            RsNpc_HandToScreen(this, play, RS_TEXT_NODE_ID(this->npcId, node), "node");
         } else {
             RsDialogue_NoticeTake(&questId, &kind);
             snprintf(line, sizeof(line), "rs_dialogue npc=%d event=notice rule=%d quest=%d kind=%s", this->npcId,
