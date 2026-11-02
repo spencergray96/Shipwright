@@ -64,6 +64,9 @@ typedef enum RsDialogueActionKind {
     // QUEST_ERR_CANNOT_AFFORD when short; gate it on RupeesAtLeast(price) as well, so a player who
     // cannot pay never sees it. RsNpc only, like GIVE_ITEM.
     RS_DLG_ACTION_BUY_ITEM = 6,
+    RS_DLG_ACTION_BOAT_SAIL = 7,      // a = RS_DLG_SAIL(sail, op) -> RsBoatSail_DialogueAction (sturdy-bassoon#287):
+                                      // the sailmaker arms a sail for a dropped picture, opens the file dialog,
+                                      // or puts the sail back to its colour
     RS_DLG_ACTION_KIND_COUNT,
 } RsDialogueActionKind;
 
@@ -79,6 +82,11 @@ typedef enum RsDialogueActionKind {
 #define RS_DLG_BUY(questId, step, price) ((int32_t)(((price) << RS_DLG_ITEM_BITS) | RS_DLG_ITEM(questId, step)))
 #define RS_DLG_BUY_GET_ITEM(a) ((int32_t)((a) & ((1 << RS_DLG_ITEM_BITS) - 1)))
 #define RS_DLG_BUY_GET_PRICE(a) ((int32_t)((a) >> RS_DLG_ITEM_BITS))
+
+// RS_DLG_ACTION_BOAT_SAIL's operand: an RsBoatSailId and an RsBoatSailOp (boats/RsBoatSail.h), four bits each.
+#define RS_DLG_SAIL(sail, op) ((sail) | ((op) << 4))
+#define RS_DLG_SAIL_SAIL(a) ((a) & 0xF)
+#define RS_DLG_SAIL_OP(a) (((a) >> 4) & 0xF)
 
 typedef struct RsDialogueOption {
     const char* label;         // the choice line; never NULL

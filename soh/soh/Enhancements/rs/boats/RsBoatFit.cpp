@@ -2,6 +2,7 @@
 // RsBoatFitCatalogue.cpp's.
 
 #include "RsBoatFit.h"
+#include "RsBoatSail.h"
 
 #include <cstdio>
 #include <string>
@@ -106,8 +107,9 @@ void MarkUpgrade(const char* event, const RsBoatUpgrade* u, int32_t result, int3
 // JSON shape, version 1, one object per kind, every key by NAME:
 //   "rsBoats": { "skiff": { "owned": 1, "hull": 1, "helm": 0, "sails": 0, "keel": 0, "salvaging_hook": 1,
 //                           "wind_catcher": 0, "sail_pattern": "red" }, "sloop": { ... }, "raft": { ... } }
-// Only the slots a kind has are written. Because everything is keyed by name, a new kind, slot or look is a new
-// key at version 1 and reads its default from an older file; what needs version 2 is changing what a key MEANS.
+// Only the slots and looks a kind has are written. Because everything is keyed by name, a new kind, slot or look is a
+// new key at version 1 and reads its default from an older file (#287's sail_image, jib_pattern and jib_image: none,
+// and the jib drawn as the sail); what needs version 2 is changing what a key MEANS.
 // Renaming a slot, look option or kind is a save break: its old key would be dropped.
 //
 // A save written before this landed has no section and reads as nothing owned, every default. An older build
@@ -129,6 +131,9 @@ void SaveRsBoats(SaveContext* saveContext, int sectionID, bool fullSave) {
                 }
             }
             for (int32_t look = 0; look < RS_BOAT_LOOK_COUNT; look++) {
+                if (!RsBoatFit_KindHasLook(kind, look)) {
+                    continue;
+                }
                 SaveManager::Instance->SaveData(RsBoatFit_LookName(look),
                                                 std::string(RsBoatFit_LookOptionName(look, sFit[kind].looks[look])));
             }
@@ -163,6 +168,11 @@ void LoadRsBoatsV1() {
                 sFit[kind].tiers[slot] = static_cast<uint8_t>(tier);
             }
             for (int32_t look = 0; look < RS_BOAT_LOOK_COUNT; look++) {
+                if (!RsBoatFit_KindHasLook(kind, look)) {
+                    continue;
+                }
+                // `custom` is kept even when its picture is missing now: the boat draws the default meanwhile
+                // (RsBoat.c), and the picture comes back with its file.
                 std::string name;
                 SaveManager::Instance->LoadData(RsBoatFit_LookName(look), name,
                                                 std::string(RsBoatFit_LookOptionName(look, 0)));
@@ -218,6 +228,18 @@ extern "C" int32_t RsBoatFit_LookOf(int32_t kind, int32_t look) {
     return (KindValid(kind) && look >= 0 && look < RS_BOAT_LOOK_COUNT) ? sFit[kind].looks[look] : 0;
 }
 
+extern "C" int32_t RsBoatFit_LookDrawn(int32_t kind, int32_t look, int32_t* drawnAs) {
+    int32_t option = RsBoatFit_LookOf(kind, look);
+    if (RsBoatFit_LookOptionKind(look, option) == RS_BOAT_LOOK_OPTION_MATCH && RsBoatFit_LookFollows(look) >= 0) {
+        look = RsBoatFit_LookFollows(look);
+        option = RsBoatFit_LookOf(kind, look);
+    }
+    if (drawnAs != nullptr) {
+        *drawnAs = look;
+    }
+    return option;
+}
+
 extern "C" void RsBoatFit_Stats(int32_t kind, RsBoatFitStats* out) {
     *out = {};
     if (!KindValid(kind)) {
@@ -259,6 +281,9 @@ extern "C" void RsBoatFit_Summary(int32_t kind, char* buf, size_t len) {
         }
     }
     for (int32_t look = 0; look < RS_BOAT_LOOK_COUNT; look++) {
+        if (!RsBoatFit_KindHasLook(kind, look)) {
+            continue;
+        }
         out += std::string("\n  ") + RsBoatFit_LookName(look) + " " +
                RsBoatFit_LookOptionName(look, RsBoatFit_LookOf(kind, look));
     }
@@ -370,12 +395,15 @@ extern "C" int32_t RsBoatFit_Grant(int32_t id) {
 
 extern "C" int32_t RsBoatFit_SetLook(int32_t kind, int32_t look, int32_t option) {
     int32_t result = RS_BOAT_FIT_OK;
-    if (!KindValid(kind) || option < 0 || option >= RsBoatFit_LookOptionCount(look)) {
+    if (!RsBoatFit_KindHasLook(kind, look) || option < 0 || option >= RsBoatFit_LookOptionCount(look)) {
         result = RS_BOAT_FIT_UNKNOWN;
     } else if (!sFit[kind].owned) {
         result = RS_BOAT_FIT_NOT_OWNED;
     } else if (!RsBoatFit_LookOptionAllowed(look, option)) {
         result = RS_BOAT_FIT_REQUIREMENT;
+    } else if (RsBoatFit_LookOptionKind(look, option) == RS_BOAT_LOOK_OPTION_CUSTOM &&
+               !RsBoatSail_Accepted(RsBoatSail_Of(kind, look))) {
+        result = RS_BOAT_FIT_NO_IMAGE;
     } else {
         sFit[kind].looks[look] = static_cast<uint8_t>(option);
     }

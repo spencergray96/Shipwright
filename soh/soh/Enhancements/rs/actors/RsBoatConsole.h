@@ -5,6 +5,11 @@
 #include <string>
 #include <vector>
 
+// Lake Hylia's boat (sturdy-bassoon#256): the issue's first test water, a large vanilla waterbox, so no scene
+// work. On by default while the prototype lives on its branch, so a human trying the branch finds a boat there. The
+// sailmaker (#287) stands on the shore under the same switch. CVAR_ENHANCEMENT is soh/cvar_prefixes.h's.
+#define CVAR_RS_BOAT_LAKE_HYLIA CVAR_ENHANCEMENT("RsBoatLakeHylia")
+
 // The one renderer behind both console surfaces for Rs_Boat (sturdy-bassoon#256), RsFireConsole's
 // arrangement: the human `boat ...` command joins `lines` into the ImGui console, and `agenttest boat ...`
 // writes each as its own `[agenttest] rs_boat <line>` marker.
