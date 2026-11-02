@@ -50,12 +50,12 @@ std::shared_ptr<Fast::DisplayList> Load(const char* path) {
 // By list path, once each: a null entry is a list with no recolour file, or one that would not read.
 std::map<std::string, std::unique_ptr<RsBoatRecolour>> sRecolours;
 
-// generate_props.py's THE RECOLOUR FILE: `segment`, `locs <part> <prop> <loc>...`, `slot <k> <part> <look> <n> <rgb>...`,
-// `image <k> <name>` (#287: slot k's cloth has texture coordinates for that sail's picture). A slot out of order, a part
-// or look the build does not know, or more slots or tiers than fit: the whole file is refused, logged, and an empty
-// table returned, so every slot the list calls is a no-op and it draws as its archive has it. An image line for a slot
-// or a sail this build does not know is logged and skipped: that cloth draws its colour. Only a list with no file at
-// all (an archive from before tiers) gets none.
+// generate_props.py's THE RECOLOUR FILE: `segment`, `locs <part> <prop> <loc>...`, `slot <k> <part> <look> <n>
+// <rgb>...`, `image <k> <name>` (#287: slot k's cloth has texture coordinates for that sail's picture). A slot out of
+// order, a part or look the build does not know, or more slots or tiers than fit: the whole file is refused, logged,
+// and an empty table returned, so every slot the list calls is a no-op and it draws as its archive has it. An image
+// line for a slot this file has not got, or a sail this build does not know or that is another kind's, is logged and
+// skipped: that cloth draws its colour. Only a list with no file at all (an archive from before tiers) gets none.
 std::unique_ptr<RsBoatRecolour> ReadRecolour(s32 kind, const std::string& path) {
     auto archives = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
     if (!archives->HasFile(path)) {
@@ -128,8 +128,9 @@ std::unique_ptr<RsBoatRecolour> ReadRecolour(s32 kind, const std::string& path) 
             std::string name;
             w >> k >> name;
             const int32_t sail = RsBoatSail_ByName(name.c_str());
-            if (w.fail() || k < 0 || k >= out->count || sail < 0) {
-                SPDLOG_WARN("[rs_boat] {}: '{}' names no slot or sail this build knows: that cloth draws its colour",
+            if (w.fail() || k < 0 || k >= out->count || sail < 0 || RsBoatSail_Kind(sail) != kind) {
+                SPDLOG_WARN("[rs_boat] {}: '{}' names no slot here, or no sail of this kind: that cloth draws its "
+                            "colour",
                             path, line);
                 continue;
             }

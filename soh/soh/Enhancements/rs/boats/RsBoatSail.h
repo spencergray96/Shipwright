@@ -26,7 +26,8 @@
 // TEMPLATES. Each boat's archive carries its sails' outlines (`<list>.template.<name>.png`, generate_props.py). They
 // are written to `sails/templates/<name>-template.png` when missing or different: paint inside the outline.
 //
-// Console: `boat sails ...` (RsBoatSailConsole_Run). Markers: `rs_boat event=sail sail=<name> result=<...>`.
+// Console: `boat sails ...` (RsBoatFitConsole.h). Markers: `rs_boat event=sail sail=<name> result=<...>` and
+// `rs_boat event=sail_arm sail=<name|none>`.
 
 #include <stddef.h>
 #include <stdint.h>
@@ -59,6 +60,12 @@ int32_t RsBoatSail_Look(int32_t sail);
 const uint8_t* RsBoatSail_Pixels(int32_t sail);
 // 1 when it has a picture to draw.
 int32_t RsBoatSail_Accepted(int32_t sail);
+// The picture the sail draws now: its image look, a `match` followed to the mainsail's, set to custom with that
+// picture accepted; NULL for none. A matched jib draws the mainsail's picture on its own texture coordinates. What the
+// boat, the window and the console all show.
+const uint8_t* RsBoatSail_DrawnPixels(int32_t sail);
+// The sail's pattern look, the colour under its picture (the sail's, or the jib's), or -1.
+int32_t RsBoatSail_Pattern(int32_t sail);
 // 1 when its file is on disk.
 int32_t RsBoatSail_Present(int32_t sail);
 // Why its file on disk is not drawn ("" when it is, or there is none). Kept with the last good picture when a changed
@@ -91,8 +98,9 @@ typedef enum RsBoatSailOp {
 // 1 when it did it; 0 for a sail or op out of range, or a look the boat's owner may not set.
 int32_t RsBoatSail_DialogueAction(int32_t sail, int32_t op);
 
-// The archive path of the sail's template (`<list>.template.<name>.png`), "" out of range. Valid until the next call.
-const char* RsBoatSail_TemplateInArchive(int32_t sail);
+// The archive path of the sail's template (`<list>.template.<name>.png`) in buf: 1, or 0 for a sail out of range or a
+// buffer too small.
+int32_t RsBoatSail_TemplateInArchive(int32_t sail, char* buf, size_t len);
 
 // The sails folder's full path, and its templates folder's.
 const char* RsBoatSail_Folder(void);

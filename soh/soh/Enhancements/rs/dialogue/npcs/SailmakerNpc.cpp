@@ -87,7 +87,7 @@ const RsDialogueOption sSloopOptions[] = {
         { "Browse files", RS_DLG_ACTION_BOAT_SAIL, RS_DLG_SAIL(sail, RS_BOAT_SAIL_OP_BROWSE),                      \
           "Pick it in the window that opens.", RS_DLG_NO_NEXT },                                                   \
             { "Back to its colour", RS_DLG_ACTION_BOAT_SAIL, RS_DLG_SAIL(sail, RS_BOAT_SAIL_OP_OFF),               \
-              "Plain cloth it is.", RS_DLG_NO_NEXT },                                                              \
+              "Just its colour, then.", RS_DLG_NO_NEXT },                                                          \
             { "Done", RS_DLG_ACTION_BOAT_SAIL, RS_DLG_SAIL(sail, RS_BOAT_SAIL_OP_DONE), nullptr, RS_DLG_NO_NEXT }, \
     }
 const RsDialogueOption sRaftSailOptions[] = SAIL_OPTIONS(RS_BOAT_SAIL_RAFT);
@@ -116,8 +116,8 @@ const RsNpcDef sSailmaker = {
     NPC_SAILMAKER, QUEST_TIER_PROD, "sailmaker", "The Sailmaker", sRules, 1, sNodes, NODE_COUNT,
 };
 
-// On the narrow beach due south of where the lake's boat lies (-875, 6000), facing it across the water. Measured in game
-// with the lake raised (`boat probe`: dry ground from z 6760 to 6800, its floor about -1290; the cliff past it).
+// On the narrow beach due south of where the lake's boat lies (-875, 6000), facing it across the water. Measured in
+// game with the lake raised (`boat probe`: dry ground from z 6760 to 6800, its floor about -1290; the cliff past it).
 constexpr float kSailmakerX = -875.0f;
 constexpr float kSailmakerY = -1270.0f;
 constexpr float kSailmakerZ = 6785.0f;

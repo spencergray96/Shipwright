@@ -37,8 +37,9 @@
 //   sails arm <sail>|off
 //                    the sail a file dropped on the window is for (the window's "Drop an image now")
 //   sails drop <path>
-//                    TEST AID: what dropping that file on the window does. `op=sails result=ok drop_handled=0|1` (0: no
-//                    sail armed, so SoH's own handlers would have it; they are not run)
+//                    TEST AID: drops the file on the window, through the drop manager: every handler runs in its real
+//                    order. `op=sails result=ok drop_handled=0|1 armed_before=<sail|none>` (1: a sail was armed, so the
+//                    file was that sail's; 0: SoH's own handlers had it, and their toasts show)
 //   sails window [on|off]
 //                    shows or hides the Boat Sails window. `op=sails result=ok window=0|1`
 //   own <kind> 0|1   TEST AID: owns or disowns the kind outright, no rules. `op=own result=ok kind= owned=0|1`

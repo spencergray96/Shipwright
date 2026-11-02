@@ -24,6 +24,9 @@
 #include <ship/resource/ResourceManager.h>
 #include <ship/resource/archive/ArchiveManager.h>
 #include <ship/window/FileDropMgr.h>
+#include <ship/window/Window.h>
+#include <ship/window/gui/ConsoleWindow.h>
+#include <ship/window/gui/Gui.h>
 
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/rs/actors/RsActors.h"
@@ -36,40 +39,58 @@ namespace fs = std::filesystem;
 // OTRGlobals.h declares it for C callers only.
 extern "C" void Gfx_TextureCacheDelete(const uint8_t* addr);
 
+// SoH's own drop handlers, registered before ShipInit runs (OTRGlobals.cpp, randomizer.cpp); declared in no header.
+bool SoH_HandleConfigDrop(char* filePath);
+bool Rando_HandleSpoilerDrop(char* filePath);
+
 namespace {
 
-// A path from a UTF-8 string (the app folder, the file dialog's answer). A dropped file's path comes in the system's
-// code page instead (DragQueryFileA), so a name that is not there as UTF-8 is tried that way too.
-fs::path Utf8(const std::string& s) {
-    return fs::path(std::u8string(s.begin(), s.end()));
+// A path from a string that is UTF-8 (the file dialog's answer) or in the system's code page (a dropped file's,
+// DragQueryFileA; the app folder). Converting bytes that are not UTF-8 as UTF-8 throws on MSVC, so that is tried
+// first and the code page is the fallback, never an exception out of a drop handler.
+fs::path PathOf(const std::string& s) {
+    try {
+        return fs::path(std::u8string(s.begin(), s.end()));
+    } catch (const std::exception&) {
+        return fs::path(s);
+    }
 }
 
+// The one that exists, when the two readings differ: a UTF-8 name and a code-page one can both be valid UTF-8.
 fs::path Existing(const std::string& s) {
     std::error_code ec;
-    const fs::path asUtf8 = Utf8(s);
+    const fs::path asUtf8 = PathOf(s);
     return fs::exists(asUtf8, ec) ? asUtf8 : fs::path(s);
+}
+
+// A path as UTF-8 text, for messages: .string() throws for a name the code page cannot hold.
+std::string Text(const fs::path& p) {
+    const std::u8string u = p.u8string();
+    return std::string(u.begin(), u.end());
 }
 
 struct SailInfo {
     const char* name; // generate_props' image name in the boat lists, and the file's stem
     int32_t kind;     // RsBoatKindId
     int32_t look;     // its image look
+    int32_t pattern;  // its pattern look, the colour under the picture
 };
 
 const SailInfo kSails[RS_BOAT_SAIL_COUNT] = {
-    { "raft", RS_BOAT_KIND_RAFT, RS_BOAT_LOOK_SAIL_IMAGE },
-    { "skiff", RS_BOAT_KIND_SKIFF, RS_BOAT_LOOK_SAIL_IMAGE },
-    { "sloop", RS_BOAT_KIND_SLOOP, RS_BOAT_LOOK_SAIL_IMAGE },
-    { "sloop-jib", RS_BOAT_KIND_SLOOP, RS_BOAT_LOOK_JIB_IMAGE },
+    { "raft", RS_BOAT_KIND_RAFT, RS_BOAT_LOOK_SAIL_IMAGE, RS_BOAT_LOOK_SAIL_PATTERN },
+    { "skiff", RS_BOAT_KIND_SKIFF, RS_BOAT_LOOK_SAIL_IMAGE, RS_BOAT_LOOK_SAIL_PATTERN },
+    { "sloop", RS_BOAT_KIND_SLOOP, RS_BOAT_LOOK_SAIL_IMAGE, RS_BOAT_LOOK_SAIL_PATTERN },
+    { "sloop-jib", RS_BOAT_KIND_SLOOP, RS_BOAT_LOOK_JIB_IMAGE, RS_BOAT_LOOK_JIB_PATTERN },
 };
 
 // What is refused (RsBoatSail.h, THE FILE).
-constexpr size_t kMaxFileBytes = 16u * 1024 * 1024;
+constexpr size_t kMaxFileMb = 16;
+constexpr size_t kMaxFileBytes = kMaxFileMb * 1024 * 1024;
 constexpr int kMaxSide = 8192;
 constexpr int kMinSide = 8;
 // Game frames a replaced picture outlives its last draw: SoH replays one tick's display list for every interpolated
 // frame, so a few ticks is past any list that could still name it.
-constexpr int kRetireTicks = 4;
+constexpr int kRetireFrames = 4;
 
 using Pixels = std::vector<uint8_t>;
 
@@ -83,7 +104,7 @@ struct Sail {
 
 struct Retired {
     std::unique_ptr<Pixels> pixels;
-    int ticks;
+    int framesLeft;
 };
 
 std::array<Sail, RS_BOAT_SAIL_COUNT> sSails;
@@ -99,7 +120,7 @@ bool SailValid(int32_t sail) {
 }
 
 fs::path FilePath(int32_t sail) {
-    return Utf8(RsBoatSail_Folder()) / (std::string(kSails[sail].name) + ".png");
+    return PathOf(RsBoatSail_Folder()) / (std::string(kSails[sail].name) + ".png");
 }
 
 // `source` names the file a refusal is about when it is not the sail's own (an import's pick), for the toast.
@@ -113,6 +134,11 @@ void Report(int32_t sail, const char* result, const std::string& why, const std:
             source.empty() ? std::string("sails/") + RsBoatSail_Name(sail) + ".png"
                            : source + " for the " + RsBoatSail_Name(sail) + " sail";
         SPDLOG_WARN("[rs_boat] {} refused: {}", file, why);
+        auto console = std::dynamic_pointer_cast<Ship::ConsoleWindow>(
+            Ship::Context::GetRawInstance()->GetWindow()->GetGui()->GetGuiWindow("Console"));
+        if (console != nullptr) {
+            console->SendErrorMessage(file + " refused: " + why);
+        }
         Notification::Emit({ .prefix = file,
                              .message = "refused: " + why,
                              .messageColor = ImVec4(1.0f, 0.45f, 0.4f, 1.0f),
@@ -125,9 +151,14 @@ void Report(int32_t sail, const char* result, const std::string& why, const std:
 // The picture as the boat draws it: cropped to a square from its middle, then resampled to RS_BOAT_SAIL_SIZE -
 // averaged over each texel's footprint when shrinking, bilinear when growing - in premultiplied alpha, so a
 // transparent pixel's colour never bleeds into its neighbours. Refuses as RsBoatSail.h's THE FILE says.
+std::string TooBig(uintmax_t bytes) {
+    return "the file is " + std::to_string(bytes / (1024 * 1024)) + " MB; the most is " + std::to_string(kMaxFileMb) +
+           " MB";
+}
+
 bool Convert(const std::vector<uint8_t>& bytes, Pixels& out, std::string& why) {
     if (bytes.size() > kMaxFileBytes) {
-        why = "the file is " + std::to_string(bytes.size() / (1024 * 1024)) + " MB; the most is 16 MB";
+        why = TooBig(bytes.size());
         return false;
     }
     int w = 0, h = 0, n = 0;
@@ -136,11 +167,13 @@ bool Convert(const std::vector<uint8_t>& bytes, Pixels& out, std::string& why) {
         return false;
     }
     if (w > kMaxSide || h > kMaxSide) {
-        why = std::to_string(w) + " x " + std::to_string(h) + " is wider or taller than 8192 pixels";
+        why = std::to_string(w) + " x " + std::to_string(h) + " is wider or taller than " + std::to_string(kMaxSide) +
+              " pixels";
         return false;
     }
     if (w < kMinSide || h < kMinSide) {
-        why = std::to_string(w) + " x " + std::to_string(h) + " is under 8 pixels a side";
+        why = std::to_string(w) + " x " + std::to_string(h) + " is under " + std::to_string(kMinSide) +
+              " pixels a side";
         return false;
     }
     stbi_uc* src = stbi_load_from_memory(bytes.data(), (int)bytes.size(), &w, &h, &n, 4);
@@ -195,6 +228,12 @@ bool Convert(const std::vector<uint8_t>& bytes, Pixels& out, std::string& why) {
         }
     }
     stbi_image_free(src);
+    // The renderer reads a texture address whose first bytes are "__OTR__" as an archive path (SETTIMG's
+    // gfx_check_image_signature, and Gfx_TextureCacheDelete), so a picture that happens to begin with them is nudged
+    // by one in its first byte.
+    if (std::memcmp(out.data(), "__OTR__", 7) == 0) {
+        out[0] ^= 1;
+    }
     return true;
 }
 
@@ -271,7 +310,7 @@ bool ReadFile(const fs::path& path, std::vector<uint8_t>& out, std::string& why)
         return false;
     }
     if (size > kMaxFileBytes) {
-        why = "the file is " + std::to_string(size / (1024 * 1024)) + " MB; the most is 16 MB";
+        why = TooBig(size);
         return false;
     }
     std::ifstream in(path, std::ios::binary);
@@ -284,7 +323,8 @@ bool ReadFile(const fs::path& path, std::vector<uint8_t>& out, std::string& why)
 }
 
 bool WriteFile(const fs::path& path, const std::vector<uint8_t>& bytes) {
-    const fs::path tmp = path.string() + ".tmp";
+    fs::path tmp = path;
+    tmp += ".tmp";
     {
         std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
         if (!out || !out.write(reinterpret_cast<const char*>(bytes.data()), (std::streamsize)bytes.size())) {
@@ -299,7 +339,7 @@ bool WriteFile(const fs::path& path, const std::vector<uint8_t>& bytes) {
 // The picture leaves the boat's hands now, and memory a few frames later.
 void Retire(int32_t sail) {
     if (sSails[sail].pixels != nullptr) {
-        sRetired.push_back({ std::move(sSails[sail].pixels), kRetireTicks });
+        sRetired.push_back({ std::move(sSails[sail].pixels), kRetireFrames });
         sGeneration++;
     }
 }
@@ -372,14 +412,17 @@ const char* kReadme =
 // write (a read-only install) only means no templates.
 void PrepareFolder() {
     std::error_code ec;
-    fs::create_directories(Utf8(RsBoatSail_TemplateFolder()), ec);
-    const fs::path readme = Utf8(RsBoatSail_Folder()) / "readme.txt";
+    fs::create_directories(PathOf(RsBoatSail_TemplateFolder()), ec);
+    const fs::path readme = PathOf(RsBoatSail_Folder()) / "readme.txt";
     if (!fs::exists(readme, ec)) {
         WriteFile(readme, std::vector<uint8_t>(kReadme, kReadme + std::strlen(kReadme)));
     }
     auto archives = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
     for (int32_t sail = 0; sail < RS_BOAT_SAIL_COUNT; sail++) {
-        const std::string inArchive = RsBoatSail_TemplateInArchive(sail);
+        char inArchive[256];
+        if (!RsBoatSail_TemplateInArchive(sail, inArchive, sizeof(inArchive))) {
+            continue;
+        }
         if (!archives->HasFile(inArchive)) {
             continue; // an archive from before #287
         }
@@ -388,12 +431,12 @@ void PrepareFolder() {
             continue;
         }
         const std::vector<uint8_t> bytes(file->Buffer->begin() + file->BufferOffset, file->Buffer->end());
-        const fs::path out = Utf8(RsBoatSail_TemplateFolder()) / (std::string(kSails[sail].name) + "-template.png");
+        const fs::path out = PathOf(RsBoatSail_TemplateFolder()) / (std::string(kSails[sail].name) + "-template.png");
         std::vector<uint8_t> was;
         std::string why;
         if (!fs::exists(out, ec) || !ReadFile(out, was, why) || was != bytes) {
             if (!WriteFile(out, bytes)) {
-                SPDLOG_WARN("[rs_boat] could not write {}", out.string());
+                SPDLOG_WARN("[rs_boat] could not write {}", Text(out));
             }
         }
     }
@@ -415,7 +458,7 @@ void OnFrameSails() {
         }
     }
     for (auto it = sRetired.begin(); it != sRetired.end();) {
-        if (--it->ticks > 0) {
+        if (--it->framesLeft > 0) {
             ++it;
             continue;
         }
@@ -437,7 +480,20 @@ void RegisterRsBoatSails() {
     registered = true;
     COND_HOOK(OnSceneInit, true, OnSceneInitSails);
     COND_HOOK(OnGameFrameUpdate, true, OnFrameSails);
-    Ship::Context::GetRawInstance()->GetFileDropMgr()->RegisterDropHandler(OnDropSails);
+    // An armed drop is the sail's whatever the file is, so this handler goes first: SoH's config handler, registered
+    // before ShipInit runs, toasts "Failed to load config file" on a picture before passing it on, and would apply a
+    // JSON dropped while armed. Its handlers go back behind this one in the order they had; one never registered stays
+    // so. Unarmed, this handler declines and they run as before.
+    auto drops = Ship::Context::GetRawInstance()->GetFileDropMgr();
+    const bool rando = drops->UnregisterDropHandler(Rando_HandleSpoilerDrop);
+    const bool config = drops->UnregisterDropHandler(SoH_HandleConfigDrop);
+    drops->RegisterDropHandler(OnDropSails);
+    if (rando) {
+        drops->RegisterDropHandler(Rando_HandleSpoilerDrop);
+    }
+    if (config) {
+        drops->RegisterDropHandler(SoH_HandleConfigDrop);
+    }
 }
 
 RegisterShipInitFunc rsBoatSailsInitFunc(RegisterRsBoatSails);
@@ -531,15 +587,15 @@ extern "C" int32_t RsBoatSail_Import(int32_t sail, const char* path, char* why, 
             RsBoatSail_Reload();
         }
         std::error_code ec;
-        fs::create_directories(Utf8(RsBoatSail_Folder()), ec);
+        fs::create_directories(PathOf(RsBoatSail_Folder()), ec);
         if (!WriteFile(FilePath(sail), EncodePng(*pixels, RS_BOAT_SAIL_SIZE))) {
             ok = false;
-            reason = "the game could not write " + FilePath(sail).string();
+            reason = "the game could not write " + Text(FilePath(sail));
         }
     }
     if (!ok) {
         if (SailValid(sail)) {
-            Report(sail, "refused", reason, path != nullptr ? Existing(path).filename().string() : "");
+            Report(sail, "refused", reason, path != nullptr ? Text(Existing(path).filename()) : "");
         }
         if (why != nullptr && len > 0) {
             std::snprintf(why, len, "%s", reason.c_str());
@@ -549,7 +605,7 @@ extern "C" int32_t RsBoatSail_Import(int32_t sail, const char* path, char* why, 
     Take(sail, std::move(pixels));
     sSails[sail].refusal.clear();
     Stamp(sail);
-    Report(sail, "accepted", std::string("imported from ") + Existing(path).filename().string());
+    Report(sail, "accepted", std::string("imported from ") + Text(Existing(path).filename()));
     const int32_t look = kSails[sail].look;
     RsBoatFit_SetLook(kSails[sail].kind, look, RsBoatFit_LookOptionByName(look, "custom"));
     if (why != nullptr && len > 0) {
@@ -604,13 +660,29 @@ extern "C" int32_t RsBoatSail_DialogueAction(int32_t sail, int32_t op) {
     }
 }
 
-extern "C" const char* RsBoatSail_TemplateInArchive(int32_t sail) {
-    static std::string out;
-    if (!SailValid(sail)) {
-        return "";
+extern "C" int32_t RsBoatSail_TemplateInArchive(int32_t sail, char* buf, size_t len) {
+    const char* list = SailValid(sail) ? RsBoat_KindListPath(kSails[sail].kind) : nullptr;
+    if (list == nullptr || buf == nullptr || len == 0) {
+        return 0;
     }
-    out = std::string(RsBoat_KindListPath(kSails[sail].kind)) + ".template." + kSails[sail].name + ".png";
-    return out.c_str();
+    const int n = std::snprintf(buf, len, "%s.template.%s.png", list, kSails[sail].name);
+    return n > 0 && (size_t)n < len ? 1 : 0;
+}
+
+extern "C" int32_t RsBoatSail_Pattern(int32_t sail) {
+    return SailValid(sail) ? kSails[sail].pattern : -1;
+}
+
+extern "C" const uint8_t* RsBoatSail_DrawnPixels(int32_t sail) {
+    if (!SailValid(sail)) {
+        return nullptr;
+    }
+    int32_t drawnAs = kSails[sail].look;
+    const int32_t option = RsBoatFit_LookDrawn(kSails[sail].kind, kSails[sail].look, &drawnAs);
+    if (RsBoatFit_LookOptionKind(drawnAs, option) != RS_BOAT_LOOK_OPTION_CUSTOM) {
+        return nullptr;
+    }
+    return RsBoatSail_Pixels(drawnAs == kSails[sail].look ? sail : RsBoatSail_Of(kSails[sail].kind, drawnAs));
 }
 
 extern "C" const char* RsBoatSail_Folder(void) {
@@ -622,7 +694,7 @@ extern "C" const char* RsBoatSail_Folder(void) {
 
 extern "C" const char* RsBoatSail_TemplateFolder(void) {
     if (sTemplateFolder.empty()) {
-        sTemplateFolder = (Utf8(RsBoatSail_Folder()) / "templates").string();
+        sTemplateFolder = Text(PathOf(RsBoatSail_Folder()) / "templates");
     }
     return sTemplateFolder.c_str();
 }

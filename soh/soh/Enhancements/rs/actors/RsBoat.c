@@ -2876,23 +2876,6 @@ static void RsBoat_DrawTestWater(GraphicsContext* gfxCtx) {
 
 _Static_assert(sizeof(Gfx) * 2 == RS_BOAT_RECOLOUR_STRIDE, "a recolour slot is two Gfx (generate_props' RECOLOUR_STRIDE)");
 
-// The picture a slot draws now (#287): its pattern look's image look, a `match` followed to the sail's, set to custom
-// with a picture accepted. A matched jib draws the mainsail's picture on its own texture coordinates. NULL for none.
-static const u8* RsBoat_SlotPicture(s32 kind, const RsBoatRecolourSlot* slot) {
-    s32 look = RsBoatFit_LookImage(slot->look);
-    s32 drawnAs = look;
-    s32 option;
-
-    if (slot->image < 0 || look < 0) {
-        return NULL;
-    }
-    option = RsBoatFit_LookDrawn(kind, look, &drawnAs);
-    if (RsBoatFit_LookOptionKind(drawnAs, option) != RS_BOAT_LOOK_OPTION_CUSTOM) {
-        return NULL;
-    }
-    return RsBoatSail_Pixels(drawnAs == look ? slot->image : RsBoatSail_Of(kind, drawnAs));
-}
-
 // The textured material a picture's slot calls (#287): the picture lerped over the slot's colour by its alpha (so a
 // transparent pixel shows the pattern), then lit by the shade, as the cloth's own PRIMITIVE * SHADE is; the cloth's
 // material is two-cycle (generate_props refuses an image on one that is not). An RGBA32 square loaded whole with the
@@ -2919,7 +2902,8 @@ static Gfx* RsBoat_PictureMaterial(GraphicsContext* gfxCtx, const u8* pixels, s3
     gDPPipeSync(g++);
     // An RGBA32 tile's line is in 64-bit words of its 16-bit half, as gDPLoadTextureBlock writes it.
     gDPSetTile(g++, G_IM_FMT_RGBA, G_IM_SIZ_32b, (RS_BOAT_SAIL_SIZE * 2 + 7) >> 3, 0, G_TX_RENDERTILE, 0,
-               G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOLOD);
+               G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK,
+               G_TX_NOLOD);
     gDPSetTileSize(g++, G_TX_RENDERTILE, 0, 0, (RS_BOAT_SAIL_SIZE - 1) << G_TEXTURE_IMAGE_FRAC,
                    (RS_BOAT_SAIL_SIZE - 1) << G_TEXTURE_IMAGE_FRAC);
     gSPEndDisplayList(g++);
@@ -2946,7 +2930,8 @@ static Gfx* RsBoat_RecolourList(GraphicsContext* gfxCtx, s32 kind, const RsBoatR
         s32 drawnAs = slot->look;
         const s32 option = slot->look >= 0 ? RsBoatFit_LookDrawn(kind, slot->look, &drawnAs) : 0;
         s32 coloured = slot->look >= 0 && RsBoatFit_LookColour(drawnAs, option, rgb);
-        const u8* picture = RsBoat_SlotPicture(kind, slot);
+        // The picture its cloth's texture coordinates are for (#287), or none: RsBoatSail_DrawnPixels.
+        const u8* picture = slot->image >= 0 ? RsBoatSail_DrawnPixels(slot->image) : NULL;
 
         if (!coloured && slot->part >= 0 && slot->tierCount > 0) {
             s32 tier = RsBoatFit_TierOf(kind, slot->part);

@@ -13,6 +13,7 @@
 #include "soh/cvar_prefixes.h"
 
 #include <ship/Context.h>
+#include <ship/window/FileDropMgr.h>
 #include <ship/window/Window.h>
 #include <ship/window/gui/Gui.h>
 #include <ship/window/gui/GuiWindow.h>
@@ -215,10 +216,7 @@ std::string Rest(const std::vector<std::string>& args, size_t from) {
 void SailLine(int32_t sail, std::vector<std::string>& lines) {
     const int32_t kind = RsBoatSail_Kind(sail);
     const int32_t look = RsBoatSail_Look(sail);
-    int32_t drawnAs = look;
-    const int32_t option = RsBoatFit_LookDrawn(kind, look, &drawnAs);
-    const int32_t drawn = RsBoatFit_LookOptionKind(drawnAs, option) == RS_BOAT_LOOK_OPTION_CUSTOM &&
-                          RsBoatSail_Accepted(drawnAs == look ? sail : RsBoatSail_Of(kind, drawnAs));
+    const int32_t drawn = RsBoatSail_DrawnPixels(sail) != nullptr ? 1 : 0;
     Addf(lines, "sail name=%s kind=%s look=%s option=%s drawn=%d file=%d accepted=%d armed=%d refusal=\"%s\"",
          RsBoatSail_Name(sail), RsBoat_KindName(kind), RsBoatFit_LookName(look),
          RsBoatFit_LookOptionName(look, RsBoatFit_LookOf(kind, look)), drawn, RsBoatSail_Present(sail),
@@ -246,9 +244,13 @@ int32_t Sails(const std::vector<std::string>& args, std::vector<std::string>& li
         }
         RsBoatSail_Arm(sail);
     } else if (op == "drop" && args.size() >= 3) {
-        // What dropping the file on the game window does, for the loop: the armed sail's, else SoH's (not run here).
-        const int32_t handled = RsBoatSail_HandleDrop(Rest(args, 2).c_str());
-        Addf(lines, "op=sails result=ok drop_handled=%d", handled);
+        // Dropping the file on the game window, for the loop: through the drop manager, so every handler runs in its
+        // real order (the armed sail's first, then SoH's config and spoiler handlers, then the "unsupported" toast).
+        const int32_t armedBefore = RsBoatSail_Armed();
+        std::string path = Rest(args, 2);
+        Ship::Context::GetRawInstance()->GetFileDropMgr()->SetDroppedFile(path.data());
+        Addf(lines, "op=sails result=ok drop_handled=%d armed_before=%s", armedBefore >= 0 ? 1 : 0,
+             armedBefore >= 0 ? RsBoatSail_Name(armedBefore) : "none");
         return 0;
     } else if (op == "window" && args.size() <= 3) {
         if (args.size() == 3 && (args[2] == "on" || args[2] == "off")) {

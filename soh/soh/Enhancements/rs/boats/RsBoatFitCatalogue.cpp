@@ -191,7 +191,15 @@ constexpr uint32_t kSloopOnly = 1u << RS_BOAT_KIND_SLOOP;
 // The sail image (sturdy-bassoon#287) is the player's picture over the pattern: `custom` is offered only while that
 // sail's file is accepted (RsBoatSail.h). The sloop's jib has a pattern and an image of its own, each `match` by
 // default: drawn as the sail's, so a save from before the jib had them draws both sails alike, as it did.
-#define RS_SAIL_COLOURS                                                                                                { "black", 0, {}, 1, { 39, 35, 35 } },       /* 12 */                                                                 { "blue", 0, {}, 1, { 47, 48, 100 } },   /* -22116 */                                                             { "green", 0, {}, 1, { 35, 101, 37 } },  /* 22042 */                                                              { "orange", 0, {}, 1, { 197, 132, 50 } }, /* 5815, not RS's: the orange cape's */                                 { "pink", 0, {}, 1, { 196, 147, 138 } },  /* 1356 */                                                              { "purple", 0, {}, 1, { 109, 72, 122 } }, /* -14041 */                                                            { "red", 0, {}, 1, { 135, 31, 7 } },      /* 1950 */                                                              { "yellow", 0, {}, 1, { 249, 246, 15 } }  /* 11200 */
+#define RS_SAIL_COLOURS                                                                                              \
+    { "black", 0, {}, 1, { 39, 35, 35 } },        /* 12 */                                                           \
+        { "blue", 0, {}, 1, { 47, 48, 100 } },    /* -22116 */                                                       \
+        { "green", 0, {}, 1, { 35, 101, 37 } },   /* 22042 */                                                        \
+        { "orange", 0, {}, 1, { 197, 132, 50 } }, /* 5815, not RS's: the orange cape's */                            \
+        { "pink", 0, {}, 1, { 196, 147, 138 } },  /* 1356 */                                                         \
+        { "purple", 0, {}, 1, { 109, 72, 122 } }, /* -14041 */                                                       \
+        { "red", 0, {}, 1, { 135, 31, 7 } },      /* 1950 */                                                         \
+        { "yellow", 0, {}, 1, { 249, 246, 15 } }  /* 11200 */
 const LookInfo kLooks[RS_BOAT_LOOK_COUNT] = {
     { "sail_pattern", 9, { { "plain", 0, {}, 0, { 0, 0, 0 } }, RS_SAIL_COLOURS }, kEveryKind, -1,
       RS_BOAT_LOOK_SAIL_IMAGE },

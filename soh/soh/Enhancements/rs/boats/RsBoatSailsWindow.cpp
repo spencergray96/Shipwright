@@ -1,7 +1,8 @@
-// The Boat Sails window (sturdy-bassoon#287): each sail's colour and picture, a preview of the picture inside the sail's
-// outline, and the two ways a picture gets into sails/ - the system's file dialog, or a file dropped on the game window
-// once a sail is armed for it. Enhancements > Boat Sails opens it; `boat sails window on` too. Everything it sets is
-// the save's looks (RsBoatFit_SetLook) and RsBoatSail.h's files, so the console and the sailmaker see the same state.
+// The Boat Sails window (sturdy-bassoon#287): each sail's colour and picture, a preview of the picture inside the
+// sail's outline, and the two ways a picture gets into sails/ - the system's file dialog, or a file dropped on the game
+// window once a sail is armed for it. Enhancements > Boat Sails opens it; `boat sails window on` too. Everything it
+// sets is the save's looks (RsBoatFit_SetLook) and RsBoatSail.h's files, so the console and the sailmaker see the same
+// state.
 
 #include <array>
 #include <filesystem>
@@ -37,12 +38,26 @@ const char* const kTitles[RS_BOAT_SAIL_COUNT] = { "Raft sail", "Skiff sail", "Sl
 const uint8_t kPlain[3] = { 226, 226, 222 };
 constexpr int kPreview = 128;
 
+// The system's file browser on the sails folder. The folder's string may be UTF-8 or the code page (RsBoatSail.cpp's
+// PathOf), and SDL wants a UTF-8 URL.
+void OpenFolder(const std::string& folder) {
+    std::filesystem::path path;
+    try {
+        path = std::filesystem::path(std::u8string(folder.begin(), folder.end()));
+    } catch (const std::exception&) {
+        path = std::filesystem::path(folder);
+    }
+    std::error_code ec;
+    const std::u8string url = u8"file:///" + std::filesystem::absolute(path, ec).u8string();
+    SDL_OpenURL(std::string(url.begin(), url.end()).c_str());
+}
+
 // A sail's outline on the picture's square, from its archive's template (generate_props' template_png): 0 outside
 // the cloth, 1 inside, 2 on its edge. Empty when the archive has none.
 std::vector<uint8_t> LoadOutline(int32_t sail) {
     auto archives = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
-    const std::string path = RsBoatSail_TemplateInArchive(sail);
-    if (!archives->HasFile(path)) {
+    char path[256];
+    if (!RsBoatSail_TemplateInArchive(sail, path, sizeof(path)) || !archives->HasFile(path)) {
         return {};
     }
     auto file = archives->LoadFile(path);
@@ -82,11 +97,7 @@ class RsBoatSailsWindow final : public Ship::GuiWindow {
                            "the game window. Pictures live in the sails folder, with a template of each sail's shape.");
         if (ImGui::Button("Open sails folder")) {
             RsBoatSail_Check();
-            const std::string folder = RsBoatSail_Folder();
-            SDL_OpenURL(("file:///" + std::filesystem::absolute(std::filesystem::path(std::u8string(
-                                          folder.begin(), folder.end())))
-                                          .string())
-                            .c_str());
+            OpenFolder(RsBoatSail_Folder());
         }
         ImGui::SameLine();
         if (ImGui::Button("Reload pictures")) {
@@ -105,26 +116,12 @@ class RsBoatSailsWindow final : public Ship::GuiWindow {
 
     // The colour a sail draws under its picture now: its pattern (a match followed), else the cloth's own.
     void SailColour(int32_t sail, uint8_t rgb[3]) {
-        const int32_t kind = RsBoatSail_Kind(sail);
-        const int32_t pattern = RsBoatSail_Look(sail) == RS_BOAT_LOOK_JIB_IMAGE ? RS_BOAT_LOOK_JIB_PATTERN
-                                                                                : RS_BOAT_LOOK_SAIL_PATTERN;
+        const int32_t pattern = RsBoatSail_Pattern(sail);
         int32_t drawnAs = pattern;
-        const int32_t option = RsBoatFit_LookDrawn(kind, pattern, &drawnAs);
+        const int32_t option = RsBoatFit_LookDrawn(RsBoatSail_Kind(sail), pattern, &drawnAs);
         if (!RsBoatFit_LookColour(drawnAs, option, rgb)) {
             rgb[0] = kPlain[0], rgb[1] = kPlain[1], rgb[2] = kPlain[2];
         }
-    }
-
-    // The picture the sail draws now (a match followed), or NULL.
-    const uint8_t* SailPicture(int32_t sail) {
-        const int32_t kind = RsBoatSail_Kind(sail);
-        const int32_t look = RsBoatSail_Look(sail);
-        int32_t drawnAs = look;
-        const int32_t option = RsBoatFit_LookDrawn(kind, look, &drawnAs);
-        if (RsBoatFit_LookOptionKind(drawnAs, option) != RS_BOAT_LOOK_OPTION_CUSTOM) {
-            return nullptr;
-        }
-        return RsBoatSail_Pixels(drawnAs == look ? sail : RsBoatSail_Of(kind, drawnAs));
     }
 
     // The preview: what the sail shows, its colour under the picture, the square outside the cloth dimmed and the
@@ -141,7 +138,7 @@ class RsBoatSailsWindow final : public Ship::GuiWindow {
         }
         uint8_t rgb[3];
         SailColour(sail, rgb);
-        const uint8_t* picture = SailPicture(sail);
+        const uint8_t* picture = RsBoatSail_DrawnPixels(sail);
         const std::string key = std::to_string(RsBoatSail_Generation()) + "/" + std::to_string((uintptr_t)picture) +
                                 "/" + std::to_string(rgb[0]) + "," + std::to_string(rgb[1]) + "," +
                                 std::to_string(rgb[2]);
@@ -224,9 +221,7 @@ class RsBoatSailsWindow final : public Ship::GuiWindow {
             ImGui::TextDisabled("(not owned)");
         }
         ImGui::BeginDisabled(!owned);
-        const int32_t pattern = RsBoatSail_Look(sail) == RS_BOAT_LOOK_JIB_IMAGE ? RS_BOAT_LOOK_JIB_PATTERN
-                                                                                : RS_BOAT_LOOK_SAIL_PATTERN;
-        LookCombo(sail, pattern, "Colour");
+        LookCombo(sail, RsBoatSail_Pattern(sail), "Colour");
         LookCombo(sail, RsBoatSail_Look(sail), "Picture");
         const bool waiting = RsBoatSailDialog_Waiting() >= 0;
         ImGui::BeginDisabled(waiting);
@@ -251,7 +246,8 @@ class RsBoatSailsWindow final : public Ship::GuiWindow {
             ImGui::TextDisabled("Waiting for the file dialog...");
         } else if (*RsBoatSail_Refusal(sail) != '\0') {
             ImGui::PushTextWrapPos(0.0f);
-            ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s refused: %s", file.c_str(), RsBoatSail_Refusal(sail));
+            ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s refused: %s", file.c_str(),
+                               RsBoatSail_Refusal(sail));
             ImGui::PopTextWrapPos();
         } else if (RsBoatSail_Accepted(sail)) {
             ImGui::TextDisabled("%s: ready", file.c_str());
