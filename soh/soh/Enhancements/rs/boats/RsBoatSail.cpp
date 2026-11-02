@@ -409,45 +409,112 @@ void Read(int32_t sail) {
     Report(sail, "accepted", "");
 }
 
-const char* kReadme =
-    "Boat sail pictures\n"
-    "\n"
-    "TLDR:\n"
-    "Put a picture here to draw it on a boat's sail. One file a sail:\n"
-    "  raft.png       the raft's sail\n"
-    "  skiff.png      the skiff's sail\n"
-    "  sloop.png      the sloop's mainsail\n"
-    "  sloop-jib.png  the sloop's jib (or set the jib to match the mainsail)\n"
-    "\n"
-    "The picture can then be applied to your chosen sail(s) by opening the SoH menu: Enhancements > Boat Sails,\n"
-    "and select \"custom\" from the desired drop-down. Alternatively, find the in-game NPC at any port to help you\n"
-    "change your sail settings.\n"
-    "\n"
-    "For more control over cropping, open the desired template from the templates/ directory in your preferred\n"
-    "photo editing software, make a new layer and draw your design inside the cut-out of the sail graphic, hide or\n"
-    "delete the layer with the sail graphic template (do not change the image size), and then make sure you save-as\n"
-    "with the appropriate file name (as a .png) in the sails/ directory.\n"
-    "\n"
-    "Transparent pixels will pick up the color you have your sail set to so you can test it against any color you\n"
-    "want in-game without exporting multiple.\n"
-    "\n"
-    "--\n"
-    "\n"
-    "More info:\n"
-    "Instead of copying a file here yourself, use the Boat Sails window: \"Choose image...\" copies one here for\n"
-    "you, and so does dropping one on the game window after pressing \"Drop an image now\". From the console:\n"
-    "`boat look <kind> sail_image custom`, or `boat look sloop jib_image custom` for the jib.\n"
-    "\n"
-    "Each template is the 1024 x 1024 square the game draws, the sail's outline in white: the grey around it never\n"
-    "shows. The picture reads correctly from the boat's right-hand (starboard) side, bow on the right; the other\n"
-    "side shows it mirrored. A jib set to match the mainsail shows the mainsail's picture flipped.\n"
-    "\n"
-    "Any PNG, JPG, BMP or TGA up to 8192 pixels a side and 16 MB. A picture that is not square is cropped to the\n"
-    "square in its middle, then scaled to 1024 x 1024. A file changed while the game runs is read again at the next\n"
-    "door, or with `boat sails reload`.\n"
-    "\n"
-    "The game rewrites this readme and the files in templates/ each time it starts, so keep your own notes and\n"
-    "edits in files of other names.\n";
+// The sails folder's readme, written twice from this one table: readme.txt as plain text, readme.md as Markdown. In a
+// block's text, {x} is code in the Markdown and plain x in the text file; a backticked `x` is code in both. A TEXT
+// block's line breaks are kept in both files (Markdown joins them back into one paragraph).
+enum class ReadmeKind { TITLE, HEADING, TEXT, FILE, RULE };
+
+struct ReadmeBlock {
+    ReadmeKind kind;
+    const char* text;           // a FILE's file name
+    const char* what = nullptr; // a FILE's sail
+};
+
+const ReadmeBlock kReadme[] = {
+    { ReadmeKind::TITLE, "Boat sail pictures" },
+    { ReadmeKind::HEADING, "TLDR" },
+    { ReadmeKind::TEXT, "Put a picture here to draw it on a boat's sail. One file a sail:" },
+    { ReadmeKind::FILE, "raft.png", "the raft's sail" },
+    { ReadmeKind::FILE, "skiff.png", "the skiff's sail" },
+    { ReadmeKind::FILE, "sloop.png", "the sloop's mainsail" },
+    { ReadmeKind::FILE, "sloop-jib.png", "the sloop's jib (or set the jib to match the mainsail)" },
+    { ReadmeKind::TEXT,
+      "The picture can then be applied to your chosen sail(s) by opening the SoH menu: {Enhancements > Boat Sails},\n"
+      "and select \"custom\" from the desired drop-down. Alternatively, find the in-game NPC at any port to help you\n"
+      "change your sail settings." },
+    { ReadmeKind::TEXT,
+      "For more control over cropping, open the desired template from the {templates/} directory in your preferred\n"
+      "photo editing software, make a new layer and draw your design inside the cut-out of the sail graphic, hide or\n"
+      "delete the layer with the sail graphic template (do not change the image size), and then make sure you "
+      "save-as\n"
+      "with the appropriate file name (as a {.png}) in the {sails/} directory." },
+    { ReadmeKind::TEXT,
+      "Transparent pixels will pick up the color you have your sail set to so you can test it against any color you\n"
+      "want in-game without exporting multiple." },
+    { ReadmeKind::RULE, "" },
+    { ReadmeKind::HEADING, "More info" },
+    { ReadmeKind::TEXT,
+      "Instead of copying a file here yourself, use the Boat Sails window: \"Choose image...\" copies one here for\n"
+      "you, and so does dropping one on the game window after pressing \"Drop an image now\". From the console:\n"
+      "`boat look <kind> sail_image custom`, or `boat look sloop jib_image custom` for the jib." },
+    { ReadmeKind::TEXT,
+      "Each template is the 1024 x 1024 square the game draws, the sail's outline in white: the grey around it never\n"
+      "shows. The picture reads correctly from the boat's right-hand (starboard) side, bow on the right; the other\n"
+      "side shows it mirrored. A jib set to match the mainsail shows the mainsail's picture flipped." },
+    { ReadmeKind::TEXT,
+      "Any PNG, JPG, BMP or TGA up to 8192 pixels a side and 16 MB. A picture that is not square is cropped to the\n"
+      "square in its middle, then scaled to 1024 x 1024. A file changed while the game runs is read again at the "
+      "next\n"
+      "door, or with `boat sails reload`." },
+    { ReadmeKind::TEXT,
+      "The game rewrites this readme and the files in {templates/} each time it starts, so keep your own notes and\n"
+      "edits in files of other names." },
+};
+
+// {x} as x in the text file, `x` in the Markdown.
+std::string ReadmeInline(const char* text, bool markdown) {
+    std::string out;
+    for (const char* c = text; *c != '\0'; c++) {
+        if (*c != '{' && *c != '}') {
+            out += *c;
+        } else if (markdown) {
+            out += '`';
+        }
+    }
+    return out;
+}
+
+std::string ReadmeText(bool markdown) {
+    std::string out;
+    ReadmeKind prev = ReadmeKind::TITLE;
+    for (size_t i = 0; i < sizeof(kReadme) / sizeof(kReadme[0]); i++) {
+        const ReadmeBlock& b = kReadme[i];
+        // Blocks are a blank line apart, but a table's rows run on, and the text file also runs a heading into its
+        // block and a table into the line that opens it. Markdown needs those blank lines.
+        const bool rows = b.kind == ReadmeKind::FILE && prev == ReadmeKind::FILE;
+        const bool runOn = rows || (!markdown && (prev == ReadmeKind::HEADING || b.kind == ReadmeKind::FILE));
+        if (i > 0 && !runOn) {
+            out += '\n';
+        }
+        switch (b.kind) {
+            case ReadmeKind::TITLE:
+                out += (markdown ? "# " : "") + std::string(b.text);
+                break;
+            case ReadmeKind::HEADING:
+                out += markdown ? "## " + std::string(b.text) : std::string(b.text) + ":";
+                break;
+            case ReadmeKind::TEXT:
+                out += ReadmeInline(b.text, markdown);
+                break;
+            case ReadmeKind::FILE:
+                if (markdown) {
+                    out += rows ? "" : "| File | Sail |\n| --- | --- |\n";
+                    out += "| `" + std::string(b.text) + "` | " + b.what + " |";
+                } else {
+                    char line[128];
+                    std::snprintf(line, sizeof(line), "  %-13s  %s", b.text, b.what);
+                    out += line;
+                }
+                break;
+            case ReadmeKind::RULE:
+                out += markdown ? "---" : "--";
+                break;
+        }
+        out += '\n';
+        prev = b.kind;
+    }
+    return out;
+}
 
 // Writes the file unless it already holds exactly these bytes: a readme or template from an older build is replaced.
 void WriteIfDifferent(const fs::path& out, const std::vector<uint8_t>& bytes) {
@@ -461,13 +528,16 @@ void WriteIfDifferent(const fs::path& out, const std::vector<uint8_t>& bytes) {
     }
 }
 
-// The folder, its readme and the templates, written when missing or different. Quiet: a folder the game cannot
+// The folder, its two readmes and the templates, written when missing or different. Quiet: a folder the game cannot
 // write (a read-only install) only means no templates.
 void PrepareFolder() {
     std::error_code ec;
     fs::create_directories(PathOf(RsBoatSail_TemplateFolder()), ec);
-    WriteIfDifferent(PathOf(RsBoatSail_Folder()) / "readme.txt",
-                     std::vector<uint8_t>(kReadme, kReadme + std::strlen(kReadme)));
+    for (const bool markdown : { false, true }) {
+        const std::string text = ReadmeText(markdown);
+        WriteIfDifferent(PathOf(RsBoatSail_Folder()) / (markdown ? "readme.md" : "readme.txt"),
+                         std::vector<uint8_t>(text.begin(), text.end()));
+    }
     auto archives = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
     for (int32_t sail = 0; sail < RS_BOAT_SAIL_COUNT; sail++) {
         char inArchive[256];
