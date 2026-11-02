@@ -580,8 +580,10 @@ void RsText_OnOpenText(uint16_t* textId, bool* loadFromMessageTable) {
         sScroll.offset = 0;
         sStartRow = 0;
         // A CONVERSATION starts here when the message system is idle (#281): the route is emptied,
-        // unless this is a gift re-opening the same conversation.
-        if (gPlayState != nullptr && gPlayState->msgCtx.msgMode == MSGMODE_NONE) {
+        // unless this is a gift re-opening the same conversation. A quest item's pickup box opens idle
+        // too, and it is not a conversation: in a gift it comes BETWEEN the conversation and its
+        // re-open, and counting it as a start emptied the route the re-open had asked to keep.
+        if (gPlayState != nullptr && gPlayState->msgCtx.msgMode == MSGMODE_NONE && !RS_TEXT_IS_ITEM(id)) {
             if (!sRouteKeep) {
                 sRouteDepth = 0;
             }
