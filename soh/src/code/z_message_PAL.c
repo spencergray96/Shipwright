@@ -16,6 +16,9 @@
 #include "soh/ResourceManagerHelpers.h"
 #include "soh/Enhancements/savestate_serialize.h"
 #include "soh/Enhancements/rs/actors/RsActors.h" // SOH [sturdy-bassoon#290] scrolling choices
+// SOH [sturdy-bassoon#290] The scroll arrows over a four-way box (RsActors.cpp). Declared here rather
+// than in RsActors.h because it takes engine types that header does not name.
+void RsText_DrawScrollArrows(PlayState* play, Gfx** p);
 
 // #region SOH [NTSC] - Allows custom messages to work on japanese
 static bool sDisplayNextMessageAsEnglish = false;
@@ -1547,10 +1550,7 @@ void Message_DrawText(PlayState* play, Gfx** gfxP) {
                 if (msgCtx->msgMode == MSGMODE_TEXT_DISPLAYING) {
                     msgCtx->choiceTextId = msgCtx->textId;
                     msgCtx->stateTimer = 4;
-                    // SOH [sturdy-bassoon#290] 0 unless this box is a scroll down re-opened, where the
-                    // cursor stays on the bottom row with the option it moved to. Only the four-way
-                    // scrolls - a longer list always shows four rows - and the four-way is ours.
-                    msgCtx->choiceIndex = RsText_ChoiceStartRow();
+                    msgCtx->choiceIndex = 0;
                     Font_LoadMessageBoxIcon(font, TEXTBOX_ICON_ARROW);
                 }
                 break;
@@ -4300,6 +4300,8 @@ void Message_DrawMain(PlayState* play, Gfx** p) {
                     case TEXTBOX_ENDTYPE_4_CHOICE:
                         Message_HandleChoiceSelection(play, 3);
                         Message_DrawTextboxIcon(play, &gfx, msgCtx->textPosX, msgCtx->textPosY);
+                        // SOH [sturdy-bassoon#290] A scrolling list's arrows; draws nothing on any other box.
+                        RsText_DrawScrollArrows(play, &gfx);
                         break;
                     case TEXTBOX_ENDTYPE_PERSISTENT:
                         if (msgCtx->textId >= 0x6D && msgCtx->textId < 0x73) {

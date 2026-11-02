@@ -1066,11 +1066,11 @@ const RsDialogueRule sBadBuyQuestBand[] = {
 };
 BAD_NPC_DEF(sDefBuyPriceZero, sBadBuyPriceZero, 1);
 BAD_NPC_DEF(sDefBuyQuestBand, sBadBuyQuestBand, 1);
-// #290: a label that fits a plain option row (184px) but not a SCROLLING one, which shares the row with
-// the scroll arrow. Fourteen W's are 168px in CustomMessage's table - over the 167 a scrolling row
-// leaves a label (a space and the arrow come off), under 184.
+// #290: a label that fits a plain option row (184px) but not a SCROLLING one, which stops 10px short
+// for the arrow's column. Fifteen W's are 180px in CustomMessage's table - over the 174 a scrolling
+// row leaves a label, under 184.
 const RsDialogueOption sOptScrollLabelWide[] = {
-    { "WWWWWWWWWWWWWW", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "WWWWWWWWWWWWWWW", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
     { "B", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
     { "C", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
     { "D", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },

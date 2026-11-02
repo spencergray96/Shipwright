@@ -2,12 +2,14 @@
 
 #include <cstdio>
 #include <ship/debug/Console.h>
+#include <libultraship/bridge/consolevariablebridge.h>
 
 #include "NpcDialogue.h"
 #include "NpcDialogueDef.h"
 #include "NpcIds.h"
 #include "soh/Enhancements/console/ConsoleSink.h"
 #include "soh/Enhancements/rs/actors/RsActorParams.h"
+#include "soh/Enhancements/rs/actors/RsActors.h" // CVAR_RS_SCROLL_ARROW_ANIM
 #include "soh/Enhancements/rs/quest/Quest.h"
 #include "soh/Enhancements/rs/quest/QuestDef.h"
 #include "soh/Enhancements/rs/quest/QuestPredicate.h"
@@ -333,7 +335,30 @@ int32_t BadCheck(std::vector<std::string>& lines) {
     return clean == 0 ? 0 : 1;
 }
 
-const char* kUsage = "usage: npc list | dump <id> | tree <id> | resolve <id> | actors | badcheck";
+const char* kUsage = "usage: npc list | dump <id> | tree <id> | resolve <id> | actors | badcheck | "
+                     "arrows [bounce|fade|none]";
+
+// The scroll arrows' animation (#290): a developer setting, kept in the config like the other
+// gDeveloperTools CVars. With no argument, prints what is set.
+int32_t Arrows(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    static const char* const kNames[] = { "bounce", "fade", "none" };
+    if (args.size() >= 2) {
+        int32_t mode = -1;
+        for (int32_t i = 0; i < 3; i++) {
+            if (args[1] == kNames[i]) {
+                mode = i;
+            }
+        }
+        if (mode < 0) {
+            lines.push_back("error=arrows takes bounce, fade or none");
+            return 1;
+        }
+        CVarSetInteger(CVAR_RS_SCROLL_ARROW_ANIM, mode);
+    }
+    const int32_t mode = CVarGetInteger(CVAR_RS_SCROLL_ARROW_ANIM, RS_SCROLL_ARROW_BOUNCE);
+    lines.push_back(std::string("op=arrows anim=") + (mode >= 0 && mode < 3 ? kNames[mode] : "?"));
+    return 0;
+}
 
 } // namespace
 
@@ -360,6 +385,9 @@ int32_t RsNpcConsole_Run(const std::vector<std::string>& args, std::vector<std::
     }
     if (sub == "badcheck") {
         return BadCheck(lines);
+    }
+    if (sub == "arrows") {
+        return Arrows(args, lines);
     }
     if (sub == "dump") {
         if (!ParseNpcId(args, 1, &npcId, lines)) {
@@ -408,8 +436,9 @@ const ConsoleSink::Command npcCommand(
     "NODE array a dialogue tree navigates through; tree prints the graph - every "
     "screen, every edge and each node's reachability; resolve prints the speaking "
     "rule's composed body alone; actors lists the live RS actor instances in the "
-    "loaded scene; badcheck proves registration refuses malformed definitions.",
-    { { "list|dump|tree|resolve|actors|badcheck", Ship::ArgumentType::TEXT },
+    "loaded scene; badcheck proves registration refuses malformed definitions; arrows sets how a "
+    "scrolling list's arrows animate (#290).",
+    { { "list|dump|tree|resolve|actors|badcheck|arrows", Ship::ArgumentType::TEXT },
       { "npc id", Ship::ArgumentType::TEXT, true } });
 
 } // namespace

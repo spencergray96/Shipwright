@@ -453,14 +453,14 @@ bool CheckOption(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& re
         return Problem(buf, len, "%s[%d].opt[%d]: the label is too wide for an option row (184 pixels)", word,
                        screenIndex, index);
     }
-    // A screen that can SCROLL (#290) puts an arrow at the right end of its top and bottom rows, and
-    // any label can land on either, so every label there leaves room for one. Measured against the
+    // A screen that can SCROLL (#290) draws an arrow in a column at the right end of its top and
+    // bottom rows, and any label can land on either, so every label there stops short of it. Measured against the
     // declared count: a scrolling screen gated down to four shows no arrow, and the narrower budget
     // is then merely conservative.
     if (ref.screen->optionCount > RS_DIALOGUE_WINDOW_OPTIONS && RsText_ScrollLabelWouldOverflow(option.label)) {
         return Problem(buf, len,
-                       "%s[%d].opt[%d]: the label is too wide for a scrolling option row (it shares 184 pixels with "
-                       "the scroll arrow)",
+                       "%s[%d].opt[%d]: the label is too wide for a scrolling option row (174 pixels: the scroll "
+                       "arrow's column takes the last 10)",
                        word, screenIndex, index);
     }
     if (option.reply != nullptr && !ProseIsClean(option.reply)) {

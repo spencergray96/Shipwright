@@ -27,6 +27,9 @@
 #include "soh/Enhancements/rs/quest/QuestStore.h"
 #include "soh/Enhancements/rs/stairs/Stairs.h"
 #include "soh/ShipInit.hpp"
+#include "soh/cvar_prefixes.h"
+#include "textures/parameter_static/parameter_static.h" // the ocarina staff's C-Up / C-Down icons (#290)
+#include <libultraship/bridge/consolevariablebridge.h>
 
 extern "C" {
 #include <z64.h>
@@ -110,31 +113,35 @@ std::string sDirectCopy;
 // direct-text slot above: a conversation's position is still the open box's id, and this only
 // says how far down that box's list the window sits.
 //
-// A scroll is a re-open, the way a node is reached: the engine reports the cursor pushed past an
-// edge from its DRAW pass (RsText_ChoiceEdge), which only queues it, and the OnGameFrameUpdate hook
+// A scroll re-lays the OPEN box in place: the engine reports the cursor pushed past an edge from its
+// DRAW pass (RsText_ChoiceEdge), which only queues it, and the OnGameFrameUpdate hook
 // (RsText_ApplyScroll) - which GameState_Update runs after the draw, in the same frame - moves the
-// window and continues the box onto its own id, outside the draw. The hook composes the
+// window, re-opens and re-decodes the box on its own id, and puts the choice state back. The box
+// never leaves its choice, so nothing blanks (RsText_ApplyScroll says why it is not a continue). The hook composes the
 // shifted window, and the decoder starts the cursor on the row it should be on (RsText_ChoiceStartRow).
 struct ChoiceScroll {
     uint16_t textId = 0;    // the box the rest belongs to
     int32_t total = 0;      // that screen's visible options; more than the window means it scrolls
     int32_t offset = 0;     // the visible option on the top row
-    int32_t startRow = 0;   // where the cursor starts when the box decodes
     int32_t pending = 0;    // a queued scroll: -1 up, +1 down
     bool reopening = false; // the next open of `textId` is a scroll, so keep the window where it is
 };
 ChoiceScroll sScroll;
 
-// The scroll arrow: the C-Up / C-Down button glyph, which the font draws as a triangle. Its width
-// in CustomMessage's pixel table's units (sFontWidths' 14 at the text scale), for the padding that
-// puts it at the right end of the row and for the label budget a scrolling screen leaves.
-constexpr const char* kScrollUpGlyph = "\xA5";
-constexpr const char* kScrollDownGlyph = "\xA6";
-constexpr size_t kScrollArrowPixels = 11;
 constexpr size_t kOptionRowPixels = 216 - 32; // a choice row is indented 32px
-constexpr size_t kSpacePixels = 6;              // ' ' in CustomMessage's pixel table
-constexpr size_t kDotPixels = 3;                // '.', the non-space a padding measurement ends on
-constexpr int32_t kMaxPadSpaces = 64;
+
+// --- the scroll arrows (#290) --------------------------------------------------------------------
+//
+// Drawn as ICONS at a fixed column, not as text, so they do not move with the length of a label. The
+// box is 256 wide from x=34 and its rows end at 65 + 216 = 281: the right gutter is 9px against the
+// left's 31, too narrow for a 12px icon on its own. So the arrow sits at 274..286 - mostly in the
+// gutter - and a label on a scrolling screen stops 10px short of the row's end, leaving a 3px gap.
+//
+// The icons are the ocarina staff's C-Up and C-Down (parameter_static, gOcarinaBtnIcon*Tex: 16x16 IA8),
+// in the staff's own yellow - vanilla's look for a C button inside a textbox.
+constexpr size_t kScrollArrowColumn = 10; // what a scrolling label gives up at the right of its row
+constexpr int32_t kScrollArrowInset = 16; // the box's right edge to the arrow's left
+constexpr int32_t kScrollArrowSize = 12;  // drawn at the cursor's size: 16 texels at the text scale
 
 // --- message building ---------------------------------------------------------------------------
 
@@ -176,28 +183,9 @@ constexpr int16_t RS_TEXTBOX_VANILLA_TEXHEIGHT = 512;
 // because the mapping between a rendered row and a definition option has to be the same list the
 // actor maps `msgCtx.choiceIndex` back through - two places computing it independently is how a
 // gated menu picks the wrong option.
-// One option row ending in a scroll arrow (#290): the label, spaces until the arrow would reach the
-// right end of the row, then the arrow in yellow - the colour a C button is written in. Measured with
-// CustomMessage's own pixel table, so the arrow lands within a space's width of the edge; the label
-// itself was proven at registration to leave room for it (RsText_ScrollLabelWouldOverflow).
-//
-// Every measurement ends on a non-space: LineFitsInPixels says a line FITS when the character that
-// tips it over the budget is a space (NextLineLength backs up only to a word boundary), so a trailing
-// space is never measured. A space is added while one more space and a 3-pixel '.' would still fit
-// the row less the arrow plus that '.', which is the space alone fitting the row less the arrow.
-std::string WithScrollArrow(const std::string& label, const char* glyph) {
-    std::string row = label;
-    // A bound on the loop, not a layout value: 184px of 6px spaces is 31, so it never binds.
-    for (int32_t i = 0; i < kMaxPadSpaces &&
-                        CustomMessage::LineFitsInPixels(row + " .", kOptionRowPixels - kScrollArrowPixels + kDotPixels);
-         i++) {
-        row += " ";
-    }
-    return row + "%y" + glyph + "%g";
-}
-
 // `offset` (#290) is the first VISIBLE option on the top row. A screen with more visible options
-// than the window shows four of them, from there, and arrows on the edge rows that have more beyond.
+// than the window shows four of them, from there. Its scroll arrows are not text: the engine draws
+// them over the box (RsText_DrawScrollArrows).
 std::string BuildScreenText(const RsDialogueRule& screen, const std::string& body, int32_t convention,
                             const int32_t* slots, int32_t visibleCount, int32_t offset) {
     std::string text = body;
@@ -218,13 +206,7 @@ std::string BuildScreenText(const RsDialogueRule& screen, const std::string& bod
             if (i > 0) {
                 text += "&";
             }
-            std::string label = RsFloorText_ExpandUnder(screen.options[slots[offset + i]].label, convention);
-            if (i == 0 && offset > 0) {
-                label = WithScrollArrow(label, kScrollUpGlyph);
-            } else if (i == shown - 1 && offset + shown < visibleCount) {
-                label = WithScrollArrow(label, kScrollDownGlyph);
-            }
-            text += label;
+            text += RsFloorText_ExpandUnder(screen.options[slots[offset + i]].label, convention);
         }
         text += "%w";
     }
@@ -491,7 +473,6 @@ void RsText_OnOpenText(uint16_t* textId, bool* loadFromMessageTable) {
     // LoadScreen finds a screen that scrolls, so the engine's edge call answers no for anything else.
     if (!(sScroll.reopening && id == sScroll.textId)) {
         sScroll.offset = 0;
-        sScroll.startRow = 0;
     }
     sScroll.reopening = false;
     sScroll.pending = 0;
@@ -628,9 +609,18 @@ void RsQuestItem_ShouldInit(void* actorRef, bool* should) {
 // --- scrolling: the update half (#290) -----------------------------------------------------------
 //
 // The engine found the cursor pushed past an edge during its draw pass and RsText_ChoiceEdge queued
-// it. Here, in the OnGameFrameUpdate hook after that draw, the window moves and the box continues onto its own id - the same
-// call a node takes - so the hook lays out the shifted window. Only while that box is still open
-// on its choice: a queued scroll for a box that has since closed or moved on is dropped.
+// it. Here, in the OnGameFrameUpdate hook after that draw, the window moves and the open box is
+// re-laid IN PLACE. Only while that box is still open on its choice: a queued scroll for a box that
+// has since closed or moved on is dropped.
+//
+// IN PLACE, NOT A CONTINUE. The first cut called Message_ContinueTextbox, the call a node takes, and
+// the box blinked on every scroll: Message_OpenText zeroes the box's alpha and its draw position, and
+// a continued box then sits in MSGMODE_TEXT_CONTINUING, drawing no text, until it decodes. A node can
+// afford that; a scroll is pressed many times in a row. This is the engine's own mid-text language
+// switch instead (Message_DrawMain, `#region SOH [NTSC]`): open and decode the same id - which runs the
+// text hook, so the shifted window is what gets decoded - then restore what the box was doing. It
+// stays in MSGMODE_TEXT_DONE on its four-way choice throughout, so the next draw shows the new rows
+// and the cursor where it belongs.
 void RsText_ApplyScroll() {
     if (sScroll.pending == 0) {
         return;
@@ -641,21 +631,26 @@ void RsText_ApplyScroll() {
         Message_GetState(&gPlayState->msgCtx) != TEXT_STATE_CHOICE) {
         return;
     }
+    MessageContext* msgCtx = &gPlayState->msgCtx;
+    const uint8_t mode = msgCtx->msgMode;
+    const uint8_t endType = msgCtx->textboxEndType;
+    const int16_t alpha = msgCtx->textboxColorAlphaCurrent;
+
     sScroll.offset += dir;
-    // Down leaves the cursor on the bottom row, on the option that just scrolled in; up, on the top.
-    sScroll.startRow = dir > 0 ? RS_DIALOGUE_WINDOW_OPTIONS - 1 : 0;
     sScroll.reopening = true;
     char line[96];
     std::snprintf(line, sizeof(line), "rs_text event=scroll id=0x%04X offset=%d total=%d dir=%d", sScroll.textId,
                   sScroll.offset, sScroll.total, dir);
     AgentTest_WriteMarker(line);
-    Message_ContinueTextbox(gPlayState, sScroll.textId);
-    // Decode on the NEXT Message_Update, not three later. A continued box waits in
-    // MSGMODE_TEXT_CONTINUING until its stateTimer (3, from Message_ContinueTextbox) runs out, and
-    // draws no text meanwhile - a node can afford that pause, but on a scroll it is the box blanking
-    // for two ticks on every push. Message_Update runs before the next draw, so the frame after a
-    // scroll already shows the moved rows.
-    gPlayState->msgCtx.stateTimer = 1;
+
+    Message_OpenText(gPlayState, sScroll.textId);
+    Message_Decode(gPlayState);
+    msgCtx->textDrawPos = msgCtx->decodedTextLen; // all of it, now: quick text, and no typing to wait for
+    msgCtx->msgMode = mode;
+    msgCtx->textboxEndType = endType;
+    msgCtx->textboxColorAlphaCurrent = alpha;
+    // Down leaves the cursor on the bottom row, on the option that just scrolled in; up, on the top.
+    msgCtx->choiceIndex = dir > 0 ? RS_DIALOGUE_WINDOW_OPTIONS - 1 : 0;
 }
 
 // --- ActorDB registration -----------------------------------------------------------------------
@@ -965,12 +960,11 @@ extern "C" int32_t RsText_ScrollLabelWouldOverflow(const char* label) {
     if (label == nullptr) {
         return 0;
     }
-    // The label against the row less the arrow and the space before it: what WithScrollArrow pads
-    // into. Measured without the space, which LineFitsInPixels would not count (WithScrollArrow says
-    // why). Under every convention for the reason RsText_LabelWouldOverflow gives.
+    // The row less the arrow's column (kScrollArrowColumn says where the arrow sits). Under every
+    // convention for the reason RsText_LabelWouldOverflow gives.
     for (int32_t convention = 0; convention < RS_FLOOR_CONVENTION_COUNT; convention++) {
         if (!CustomMessage::LineFitsInPixels(RsFloorText_ExpandUnder(label, convention),
-                                             kOptionRowPixels - kScrollArrowPixels - kSpacePixels)) {
+                                             kOptionRowPixels - kScrollArrowColumn)) {
             return 1;
         }
     }
@@ -1005,8 +999,65 @@ extern "C" int32_t RsText_ChoiceEdge(int32_t dir) {
     return 0; // the top or bottom of the whole list: vanilla's clamp, no wrap
 }
 
-extern "C" int32_t RsText_ChoiceStartRow(void) {
-    return ScrollIsForOpenBox() ? sScroll.startRow : 0;
+// The arrows, over the open box (#290): an up arrow beside the top row while options are hidden above,
+// a down arrow beside the bottom row while options are hidden below. Called by the engine while a
+// four-way choice is up (Message_DrawMain, after the cursor), so they share the box's frame and its
+// letterbox clamp. Draw runs once a tick, so the animation steps at 20Hz, as the cursor's colour does.
+extern "C" void RsText_DrawScrollArrows(PlayState* play, Gfx** p) {
+    if (!ScrollIsForOpenBox() || sScroll.total <= RS_DIALOGUE_WINDOW_OPTIONS) {
+        return;
+    }
+    const bool up = sScroll.offset > 0;
+    const bool down = sScroll.offset + RS_DIALOGUE_WINDOW_OPTIONS < sScroll.total;
+    if (!up && !down) {
+        return;
+    }
+    // In quarter pixels, a texture rectangle's unit. BOUNCE is a linear up-and-down of half the
+    // arrow's height (+-3px) over a second; FADE a linear dip to about 40% alpha and back over a
+    // second and a half; NONE holds still.
+    int32_t bounce = 0;
+    uint8_t alpha = 255;
+    const int32_t tick = static_cast<int32_t>(play->gameplayFrames);
+    switch (CVarGetInteger(CVAR_RS_SCROLL_ARROW_ANIM, RS_SCROLL_ARROW_BOUNCE)) {
+        case RS_SCROLL_ARROW_FADE: {
+            const int32_t phase = tick % 30;
+            const int32_t tri = phase < 15 ? phase : 30 - phase; // 0..15..0
+            alpha = static_cast<uint8_t>(255 - tri * 150 / 15);
+            break;
+        }
+        case RS_SCROLL_ARROW_NONE:
+            break;
+        default: { // RS_SCROLL_ARROW_BOUNCE
+            const int32_t phase = tick % 20;
+            const int32_t tri = phase < 10 ? phase : 20 - phase; // 0..10..0
+            bounce = tri * 24 / 10 - 12;                         // -12..12 quarter pixels
+            break;
+        }
+    }
+
+    Gfx* gfx = *p;
+    gDPPipeSync(gfx++);
+    gDPSetCombineLERP(gfx++, PRIMITIVE, ENVIRONMENT, TEXEL0, ENVIRONMENT, TEXEL0, 0, PRIMITIVE, 0, PRIMITIVE,
+                      ENVIRONMENT, TEXEL0, ENVIRONMENT, TEXEL0, 0, PRIMITIVE, 0);
+    gDPSetPrimColor(gfx++, 0, 0, 255, 255, 50, alpha); // the ocarina staff's C-button yellow
+    gDPSetEnvColor(gfx++, 10, 10, 10, 0);
+    const int32_t x = R_TEXTBOX_X + R_TEXTBOX_WIDTH - kScrollArrowInset;
+    // 16 texels over 12 pixels, in the 5.10 step a texture rectangle takes.
+    const int32_t step = (16 << 10) / kScrollArrowSize;
+    for (int32_t i = 0; i < 2; i++) {
+        const bool isUp = i == 0;
+        if (isUp ? !up : !down) {
+            continue;
+        }
+        const int32_t row = isUp ? 0 : RS_DIALOGUE_WINDOW_OPTIONS - 1;
+        const int32_t y = (R_TEXT_CHOICE_YPOS(row) << 2) + (isUp ? -bounce : bounce);
+        gDPLoadTextureBlock(gfx++, isUp ? gOcarinaBtnIconCUpTex : gOcarinaBtnIconCDownTex, G_IM_FMT_IA, G_IM_SIZ_8b,
+                            16, 16, 0, G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOMASK,
+                            G_TX_NOLOD, G_TX_NOLOD);
+        gSPTextureRectangle(gfx++, x << 2, y, (x + kScrollArrowSize) << 2, y + (kScrollArrowSize << 2),
+                            G_TX_RENDERTILE, 0, 0, step, step);
+    }
+    *p = gfx;
 }
 
 extern "C" int32_t RsText_ChoiceScroll(void) {

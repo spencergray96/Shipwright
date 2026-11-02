@@ -2,6 +2,7 @@
 #define SOH_RS_ACTORS_H
 
 #include <stdint.h>
+#include "soh/cvar_prefixes.h"
 
 // The C-callable surface RsActors.cpp gives the two C actors: message rendering and the agent-loop
 // marker. Kept small on purpose - everything else an actor needs is already extern "C" on
@@ -55,9 +56,13 @@ int32_t RsText_ScrollLabelWouldOverflow(const char* label);
 // clamping silently. 0 for every other box in the game, which keeps vanilla's clamp. Runs in the
 // draw pass, so it only queues; the re-open happens in the OnGameFrameUpdate hook that follows.
 int32_t RsText_ChoiceEdge(int32_t dir);
-// Called by the ENGINE when a four-choice box finishes decoding: the row the cursor starts on. 0,
-// except after a scroll down, where the cursor stays on the bottom row with the option it moved to.
-int32_t RsText_ChoiceStartRow(void);
+// The scroll arrows' animation, a developer setting: `npc arrows bounce|fade|none` sets it. Read
+// every draw by RsText_DrawScrollArrows, which the engine calls with the box's PlayState and display
+// list (declared there, in z_message_PAL.c, because this header names no engine types).
+#define CVAR_RS_SCROLL_ARROW_ANIM CVAR_DEVELOPER_TOOLS("RsScrollArrowAnim")
+#define RS_SCROLL_ARROW_BOUNCE 0
+#define RS_SCROLL_ARROW_FADE 1
+#define RS_SCROLL_ARROW_NONE 2
 // The open box's scroll offset: what an actor adds to msgCtx.choiceIndex to get the index into the
 // screen's VISIBLE options. 0 for any box that is not scrolled.
 int32_t RsText_ChoiceScroll(void);
