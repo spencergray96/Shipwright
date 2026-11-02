@@ -127,6 +127,10 @@ class Command {
 //     forwards to another command (`agenttest quest` is the `quest` command).
 //
 // The spec is parsed once, at static construction. Like Command, the object is inert afterwards.
+//
+// Nothing checks a tree against its parser, so a change to a command's words (a new subcommand, a
+// renamed or dropped option) changes its tree in the same commit, or the hint shows the wrong
+// options. Content rules: the soh-add-console-command skill, step 4.
 class Hints {
   public:
     Hints(std::string command, const char* spec);
