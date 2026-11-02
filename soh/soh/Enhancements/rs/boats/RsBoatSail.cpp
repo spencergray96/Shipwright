@@ -95,7 +95,8 @@ constexpr int kRetireFrames = 4;
 using Pixels = std::vector<uint8_t>;
 
 struct Sail {
-    std::unique_ptr<Pixels> pixels; // RS_BOAT_SAIL_SIZE square RGBA32, or null
+    std::unique_ptr<Pixels> pixels;   // RS_BOAT_SAIL_SIZE square RGBA32, or null
+    std::unique_ptr<Pixels> mirrored; // the same mirrored left to right, made when a matched sail first draws it
     std::string refusal;            // why the file on disk is not drawn
     bool present = false;           // a file is on disk
     fs::file_time_type time{};
@@ -338,10 +339,31 @@ bool WriteFile(const fs::path& path, const std::vector<uint8_t>& bytes) {
 
 // The picture leaves the boat's hands now, and memory a few frames later.
 void Retire(int32_t sail) {
-    if (sSails[sail].pixels != nullptr) {
-        sRetired.push_back({ std::move(sSails[sail].pixels), kRetireFrames });
-        sGeneration++;
+    for (std::unique_ptr<Pixels>* buffer : { &sSails[sail].pixels, &sSails[sail].mirrored }) {
+        if (*buffer != nullptr) {
+            sRetired.push_back({ std::move(*buffer), kRetireFrames });
+            sGeneration++;
+        }
     }
+}
+
+// The sail's picture mirrored left to right, made the first time it is asked for.
+const uint8_t* Mirrored(int32_t sail) {
+    Sail& s = sSails[sail];
+    if (s.pixels == nullptr) {
+        return nullptr;
+    }
+    if (s.mirrored == nullptr) {
+        const int size = RS_BOAT_SAIL_SIZE;
+        s.mirrored = std::make_unique<Pixels>(s.pixels->size());
+        for (int y = 0; y < size; y++) {
+            for (int x = 0; x < size; x++) {
+                std::memcpy(&(*s.mirrored)[((size_t)y * size + x) * 4],
+                            &(*s.pixels)[((size_t)y * size + (size - 1 - x)) * 4], 4);
+            }
+        }
+    }
+    return s.mirrored->data();
 }
 
 void Take(int32_t sail, std::unique_ptr<Pixels> pixels) {
@@ -405,7 +427,7 @@ const char* kReadme =
     "side shows it mirrored. Transparent pixels show the sail's colour through.\n"
     "\n"
     "Any PNG, JPG, BMP or TGA up to 8192 pixels a side and 16 MB. A picture that is not square is cropped to the\n"
-    "square in its middle, then scaled to 256 x 256. A file changed while the game runs is read again at the next\n"
+    "square in its middle, then scaled to 1024 x 1024. A file changed while the game runs is read again at the next\n"
     "door, or with `boat sails reload`.\n";
 
 // The folder, its readme and the templates, written when missing or different. Quiet: a folder the game cannot
@@ -687,17 +709,6 @@ extern "C" int32_t RsBoatSail_Pattern(int32_t sail) {
     return SailValid(sail) ? kSails[sail].pattern : -1;
 }
 
-static_assert((1 << RS_BOAT_SAIL_SIZE_LOG2) == RS_BOAT_SAIL_SIZE, "RS_BOAT_SAIL_SIZE_LOG2 is the size's log2");
-
-extern "C" int32_t RsBoatSail_DrawnFlipped(int32_t sail) {
-    if (!SailValid(sail) || RsBoatSail_DrawnPixels(sail) == nullptr) {
-        return 0;
-    }
-    int32_t drawnAs = kSails[sail].look;
-    RsBoatFit_LookDrawn(kSails[sail].kind, kSails[sail].look, &drawnAs);
-    return drawnAs != kSails[sail].look ? 1 : 0;
-}
-
 extern "C" const uint8_t* RsBoatSail_DrawnPixels(int32_t sail) {
     if (!SailValid(sail)) {
         return nullptr;
@@ -707,7 +718,11 @@ extern "C" const uint8_t* RsBoatSail_DrawnPixels(int32_t sail) {
     if (RsBoatFit_LookOptionKind(drawnAs, option) != RS_BOAT_LOOK_OPTION_CUSTOM) {
         return nullptr;
     }
-    return RsBoatSail_Pixels(drawnAs == kSails[sail].look ? sail : RsBoatSail_Of(kSails[sail].kind, drawnAs));
+    if (drawnAs == kSails[sail].look) {
+        return RsBoatSail_Pixels(sail);
+    }
+    const int32_t source = RsBoatSail_Of(kSails[sail].kind, drawnAs);
+    return SailValid(source) ? Mirrored(source) : nullptr;
 }
 
 extern "C" const char* RsBoatSail_Folder(void) {

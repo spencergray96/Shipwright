@@ -2880,18 +2880,12 @@ _Static_assert(sizeof(Gfx) * 2 == RS_BOAT_RECOLOUR_STRIDE, "a recolour slot is t
 // transparent pixel shows the pattern), then lit by the shade, as the cloth's own PRIMITIVE * SHADE is; the cloth's
 // material is two-cycle (generate_props refuses an image on one that is not). An RGBA32 square loaded whole with the
 // wide load block, which carries a texel count past the N64's 4096 (the interpreter keeps no TMEM limit), clamped.
-// The prim colour is set only when the slot recolours: else the cloth's own stays in force. Every material the list
-// calls after it sets its own combiner and prim colour (generate_props' look_unreset).
-// `flipped` draws the picture mirrored left to right: the jib wearing the mainsail's picture (its `match`), since the
-// jib is the mainsail's mirror image in shape and would otherwise show the other half of it. The tile's S wraps
-// mirrored over the picture's width and starts one width back, so every S the cloth carries reads its mirrored repeat.
-static Gfx* RsBoat_PictureMaterial(GraphicsContext* gfxCtx, const u8* pixels, s32 coloured, const u8 rgb[3],
-                                   s32 flipped) {
+// The render tile's shift doubles the cloth's S/T, which are stored at half (RS_BOAT_SAIL_ST_SHIFT). The prim colour
+// is set only when the slot recolours: else the cloth's own stays in force. Every material the list calls after it
+// sets its own combiner and prim colour (generate_props' look_unreset).
+static Gfx* RsBoat_PictureMaterial(GraphicsContext* gfxCtx, const u8* pixels, s32 coloured, const u8 rgb[3]) {
     Gfx* mat = Graph_Alloc(gfxCtx, 14 * sizeof(Gfx));
     Gfx* g = mat;
-    const u32 sMode = flipped ? (G_TX_MIRROR | G_TX_WRAP) : (G_TX_NOMIRROR | G_TX_CLAMP);
-    const u32 sMask = flipped ? RS_BOAT_SAIL_SIZE_LOG2 : G_TX_NOMASK;
-    const u32 sStart = flipped ? RS_BOAT_SAIL_SIZE << G_TEXTURE_IMAGE_FRAC : 0;
 
     gDPPipeSync(g++);
     if (coloured) {
@@ -2909,8 +2903,9 @@ static Gfx* RsBoat_PictureMaterial(GraphicsContext* gfxCtx, const u8* pixels, s3
     gDPPipeSync(g++);
     // An RGBA32 tile's line is in 64-bit words of its 16-bit half, as gDPLoadTextureBlock writes it.
     gDPSetTile(g++, G_IM_FMT_RGBA, G_IM_SIZ_32b, (RS_BOAT_SAIL_SIZE * 2 + 7) >> 3, 0, G_TX_RENDERTILE, 0,
-               G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOLOD, sMode, sMask, G_TX_NOLOD);
-    gDPSetTileSize(g++, G_TX_RENDERTILE, sStart, 0, sStart + ((RS_BOAT_SAIL_SIZE - 1) << G_TEXTURE_IMAGE_FRAC),
+               G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, RS_BOAT_SAIL_ST_SHIFT, G_TX_NOMIRROR | G_TX_CLAMP,
+               G_TX_NOMASK, RS_BOAT_SAIL_ST_SHIFT);
+    gDPSetTileSize(g++, G_TX_RENDERTILE, 0, 0, (RS_BOAT_SAIL_SIZE - 1) << G_TEXTURE_IMAGE_FRAC,
                    (RS_BOAT_SAIL_SIZE - 1) << G_TEXTURE_IMAGE_FRAC);
     gSPEndDisplayList(g++);
     return mat;
@@ -2947,8 +2942,7 @@ static Gfx* RsBoat_RecolourList(GraphicsContext* gfxCtx, s32 kind, const RsBoatR
             coloured = 1;
         }
         if (picture != NULL) {
-            gSPDisplayList(g++, RsBoat_PictureMaterial(gfxCtx, picture, coloured, rgb,
-                                                       RsBoatSail_DrawnFlipped(slot->image)));
+            gSPDisplayList(g++, RsBoat_PictureMaterial(gfxCtx, picture, coloured, rgb));
         } else if (coloured) {
             gDPSetPrimColor(g++, 0, 0, rgb[0], rgb[1], rgb[2], 255);
         } else {

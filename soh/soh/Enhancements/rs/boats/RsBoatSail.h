@@ -33,8 +33,11 @@
 #include <stdint.h>
 
 // The square a picture is drawn in: generate_props.py's IMAGE_SIZE, which the cloth's texture coordinates fill.
-#define RS_BOAT_SAIL_SIZE 256
-#define RS_BOAT_SAIL_SIZE_LOG2 8 // the tile mask that wraps it, for a flipped picture (RsBoat_PictureMaterial)
+#define RS_BOAT_SAIL_SIZE 1024
+// The cloth's S/T are written at half their S10.5 value (generate_props' ST_PER_TEXEL, 16 a texel), since 1024
+// texels at 32 a texel overflow a Vtx's signed short; the render tile's shift doubles them back (a shift past 10
+// multiplies by 1 << (16 - shift)). 1024 is also the most a tile takes: SetTileSize's 10.2 fields stop there.
+#define RS_BOAT_SAIL_ST_SHIFT 15
 
 #ifdef __cplusplus
 extern "C" {
@@ -62,13 +65,11 @@ const uint8_t* RsBoatSail_Pixels(int32_t sail);
 // 1 when it has a picture to draw.
 int32_t RsBoatSail_Accepted(int32_t sail);
 // The picture the sail draws now: its image look, a `match` followed to the mainsail's, set to custom with that
-// picture accepted; NULL for none. A matched jib draws the mainsail's picture on its own texture coordinates. What the
-// boat, the window and the console all show.
+// picture accepted; NULL for none. What the boat, the window and the console all show. A matched jib gets the
+// mainsail's picture mirrored left to right (a copy made once a picture): the jib is the mainsail's mirror image in
+// shape, so unmirrored it would show the other half of the picture. Text on it then reads backwards from starboard,
+// as the owner chose.
 const uint8_t* RsBoatSail_DrawnPixels(int32_t sail);
-// 1 when the sail draws another sail's picture (a `match`: the jib wearing the mainsail's), which it draws mirrored
-// left to right: the jib is the mainsail's mirror image in shape, so unflipped it would show the other half of the
-// picture. Text on the jib then reads backwards from starboard, as the owner chose.
-int32_t RsBoatSail_DrawnFlipped(int32_t sail);
 // The sail's pattern look, the colour under its picture (the sail's, or the jib's), or -1.
 int32_t RsBoatSail_Pattern(int32_t sail);
 // 1 when its file is on disk.

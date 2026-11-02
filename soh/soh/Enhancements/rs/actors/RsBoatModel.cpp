@@ -51,10 +51,11 @@ std::shared_ptr<Fast::DisplayList> Load(const char* path) {
 std::map<std::string, std::unique_ptr<RsBoatRecolour>> sRecolours;
 
 // generate_props.py's THE RECOLOUR FILE: `segment`, `locs <part> <prop> <loc>...`, `slot <k> <part> <look> <n>
-// <rgb>...`, `image <k> <name>` (#287: slot k's cloth has texture coordinates for that sail's picture). A slot out of
-// order, a part or look the build does not know, or more slots or tiers than fit: the whole file is refused, logged,
-// and an empty table returned, so every slot the list calls is a no-op and it draws as its archive has it. An image
-// line for a slot this file has not got, or a sail this build does not know or that is another kind's, is logged and
+// <rgb>...`, `image <k> <name> <size>` (#287: slot k's cloth has texture coordinates for that sail's picture, in a
+// square that size). A slot out of order, a part or look the build does not know, or more slots or tiers than fit: the
+// whole file is refused, logged, and an empty table returned, so every slot the list calls is a no-op and it draws as
+// its archive has it. An image line for a slot this file has not got, a sail this build does not know or that is
+// another kind's, or a size that is not RS_BOAT_SAIL_SIZE (coordinates scaled for another square) is logged and
 // skipped: that cloth draws its colour. Only a list with no file at all (an archive from before tiers) gets none.
 std::unique_ptr<RsBoatRecolour> ReadRecolour(s32 kind, const std::string& path) {
     auto archives = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
@@ -124,14 +125,15 @@ std::unique_ptr<RsBoatRecolour> ReadRecolour(s32 kind, const std::string& path) 
             }
             out->slots[out->count++] = s;
         } else if (what == "image") {
-            int32_t k = -1;
+            int32_t k = -1, size = 0;
             std::string name;
-            w >> k >> name;
+            w >> k >> name >> size;
             const int32_t sail = RsBoatSail_ByName(name.c_str());
-            if (w.fail() || k < 0 || k >= out->count || sail < 0 || RsBoatSail_Kind(sail) != kind) {
-                SPDLOG_WARN("[rs_boat] {}: '{}' names no slot here, or no sail of this kind: that cloth draws its "
-                            "colour",
-                            path, line);
+            if (w.fail() || k < 0 || k >= out->count || sail < 0 || RsBoatSail_Kind(sail) != kind ||
+                size != RS_BOAT_SAIL_SIZE) {
+                SPDLOG_WARN("[rs_boat] {}: '{}' names no slot here, no sail of this kind, or not this build's square "
+                            "({}): that cloth draws its colour",
+                            path, line, RS_BOAT_SAIL_SIZE);
                 continue;
             }
             out->slots[k].image = sail;
