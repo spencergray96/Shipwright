@@ -92,6 +92,8 @@ typedef enum RsBoatSailOp {
     RS_BOAT_SAIL_OP_BROWSE, // the system's file dialog for this sail (disarms)
     RS_BOAT_SAIL_OP_OFF,    // its image look back to none, so it draws its colour
     RS_BOAT_SAIL_OP_DONE,   // disarm
+    RS_BOAT_SAIL_OP_USE,    // its image look to custom, for a picture already in sails/ (disarms); refused, and said
+                            // in a toast, when it has none accepted
     RS_BOAT_SAIL_OP_COUNT,
 } RsBoatSailOp;
 

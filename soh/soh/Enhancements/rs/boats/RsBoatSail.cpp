@@ -655,6 +655,20 @@ extern "C" int32_t RsBoatSail_DialogueAction(int32_t sail, int32_t op) {
         case RS_BOAT_SAIL_OP_DONE:
             RsBoatSail_Arm(-1);
             return 1;
+        case RS_BOAT_SAIL_OP_USE: {
+            RsBoatSail_Arm(-1);
+            if (!RsBoatSail_Accepted(sail)) {
+                Report(sail, "refused",
+                       *RsBoatSail_Refusal(sail) != '\0'
+                           ? RsBoatSail_Refusal(sail)
+                           : std::string("there is no picture for it in the sails folder (") + kSails[sail].name +
+                                 ".png)");
+                return 0;
+            }
+            const int32_t look = kSails[sail].look;
+            return RsBoatFit_SetLook(kSails[sail].kind, look, RsBoatFit_LookOptionByName(look, "custom")) ==
+                   RS_BOAT_FIT_OK;
+        }
         default:
             return 0;
     }

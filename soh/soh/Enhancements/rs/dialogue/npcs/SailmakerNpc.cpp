@@ -5,7 +5,8 @@
 // The tree: an entry statement into a menu (which boat), then a screen per boat (which sail, each offered only on a
 // boat the player owns, BoatOwned), then a screen per sail. Taking a sail ARMS it (RS_DLG_ACTION_BOAT_SAIL): while
 // its screen is open, a picture dropped on the game window is that sail's, converted into sails/ and drawn at once
-// (RsBoatSail.h). The screen offers the system's file dialog instead, a way back to the sail's colour, and Done, which
+// (RsBoatSail.h). The screen offers a picture already in sails/ (put there by hand: the sail's picture look to custom,
+// or a toast saying there is none), the system's file dialog, a way back to the sail's colour, and Done, which
 // disarms. Every way out of a sail's screen disarms, so a later drop is SoH's again.
 //
 // Spawned on Lake Hylia's south shore each time the lake loads, beside the boat RsBoatConsole.cpp puts on the water
@@ -84,8 +85,10 @@ const RsDialogueOption sSloopOptions[] = {
 // One sail's screen: the drop is armed while it is open.
 #define SAIL_OPTIONS(sail)                                                                                         \
     {                                                                                                              \
-        { "Browse files", RS_DLG_ACTION_BOAT_SAIL, RS_DLG_SAIL(sail, RS_BOAT_SAIL_OP_BROWSE),                      \
-          "Pick it in the window that opens.", RS_DLG_NO_NEXT },                                                   \
+        { "Use my picture", RS_DLG_ACTION_BOAT_SAIL, RS_DLG_SAIL(sail, RS_BOAT_SAIL_OP_USE), nullptr,              \
+          RS_DLG_NO_NEXT },                                                                                        \
+            { "Browse files", RS_DLG_ACTION_BOAT_SAIL, RS_DLG_SAIL(sail, RS_BOAT_SAIL_OP_BROWSE),                  \
+              "Pick it in the window that opens.", RS_DLG_NO_NEXT },                                               \
             { "Back to its colour", RS_DLG_ACTION_BOAT_SAIL, RS_DLG_SAIL(sail, RS_BOAT_SAIL_OP_OFF),               \
               "Just its colour, then.", RS_DLG_NO_NEXT },                                                          \
             { "Done", RS_DLG_ACTION_BOAT_SAIL, RS_DLG_SAIL(sail, RS_BOAT_SAIL_OP_DONE), nullptr, RS_DLG_NO_NEXT }, \
@@ -102,10 +105,10 @@ const RsDialogueNode sNodes[NODE_COUNT] = {
     { nullptr, 0, "Which boat's sail?", sMenuOptions, 4, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
     { nullptr, 0, "Which sail?", sSmallBoatOptions, 4, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
     { nullptr, 0, "Which sail?", sSloopOptions, 4, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
-    { nullptr, 0, kDropIt, sRaftSailOptions, 3, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
-    { nullptr, 0, kDropIt, sSkiffSailOptions, 3, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
-    { nullptr, 0, kDropIt, sSloopSailOptions, 3, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
-    { nullptr, 0, kDropIt, sJibOptions, 3, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    { nullptr, 0, kDropIt, sRaftSailOptions, 4, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    { nullptr, 0, kDropIt, sSkiffSailOptions, 4, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    { nullptr, 0, kDropIt, sSloopSailOptions, 4, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    { nullptr, 0, kDropIt, sJibOptions, 4, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
 };
 
 const RsDialogueRule sRules[] = {

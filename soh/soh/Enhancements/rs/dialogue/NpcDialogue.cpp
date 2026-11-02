@@ -1227,8 +1227,10 @@ extern "C" int32_t RsNpc_RunAction(const RsDialogueOption* option) {
             Flags_SetWorldFlag(option->a);
             return QUEST_OK;
         case RS_DLG_ACTION_BOAT_SAIL:
-            return RsBoatSail_DialogueAction(RS_DLG_SAIL_SAIL(option->a), RS_DLG_SAIL_OP(option->a)) ? QUEST_OK
-                                                                                                    : QUEST_ERR_BAD_DEF;
+            // An outcome, not a bug, when it does not happen: "Use my picture" with none in sails/ (said in a toast).
+            return RsBoatSail_DialogueAction(RS_DLG_SAIL_SAIL(option->a), RS_DLG_SAIL_OP(option->a))
+                       ? QUEST_OK
+                       : QUEST_ERR_PREREQ_UNMET;
         default:
             return QUEST_ERR_BAD_DEF;
     }
