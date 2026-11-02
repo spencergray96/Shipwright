@@ -2055,6 +2055,11 @@ void SohMenu::AddMenuEnhancements() {
     // Boat Sails (sturdy-bassoon#287: the RS boats' sail colours and the player's pictures, RsBoatSailsWindow.cpp)
     path.sidebarName = "Boat Sails";
     AddSidebarEntry("Enhancements", path.sidebarName, 1);
+    // Where each setting lives: the choices are in the save (RsBoatFit's rsBoats section), the pictures are files.
+    AddWidget(path,
+              "Sail colours, and whether a sail shows its picture, are saved with each save file. The pictures "
+              "themselves are image files in the sails folder, shared by every save file.",
+              WIDGET_TEXT);
     AddWidget(path, "Popout Boat Sails Window", WIDGET_WINDOW_BUTTON)
         .CVar(CVAR_WINDOW("RsBoatSails"))
         .RaceDisable(false)
