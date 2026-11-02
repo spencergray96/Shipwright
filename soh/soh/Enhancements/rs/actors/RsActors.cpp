@@ -9,6 +9,7 @@
 #include "RsBoat.h"
 #include "RsBalloon.h"
 
+#include <array>
 #include <cstdio>
 #include <string>
 
@@ -125,8 +126,106 @@ struct ChoiceScroll {
     int32_t offset = 0;     // the visible option on the top row
     int32_t pending = 0;    // a queued scroll: -1 up, +1 down
     bool reopening = false; // the next open of `textId` is a scroll, so keep the window where it is
+    bool relayout = false;  // the box opening now IS that scroll's re-layout (set in OnOpenText)
 };
 ChoiceScroll sScroll;
+
+// --- choice memory: the conversation's route (sturdy-bassoon#281) ----------------------------------
+//
+// Within one conversation, coming BACK to a screen puts its scroll and cursor back on the option
+// picked there; going down to a child again is a FRESH entry. The node graph cannot say which screen
+// is a parent - cycles are legal and a node can be reached from several screens - so "parent" is
+// taken from the route this conversation actually took: a STACK of the screens it walked through.
+//
+//   - A screen NOT on the stack is pushed: fresh, list at the top, cursor on the first row.
+//   - A screen ALREADY on the stack is a return: everything above it is popped, and its scroll and
+//     cursor come back - by OPTION, not by row, so gating that changed the visible list meanwhile
+//     still finds it (or the nearest visible option if it is hidden now).
+//
+// So A -> B -> C -> A restores A and drops B and C, and picking the same option again lands on B
+// fresh. A self-loop keeps its place; a node reached by a second route is fresh; a node group keys on
+// the node it lands on. The one case this cannot tell apart is an author routing FORWARD to a screen
+// already on the route on purpose; under this rule that is always a return.
+//
+// Text-layer state like sScroll, keyed by the screens' text ids (a screen's id names it - NpcDialogueDef.h),
+// and nothing on an actor. Emptied whenever a CONVERSATION starts, which this hook can see for every
+// speaker at once: a box opened with the message system idle (MSGMODE_NONE) starts one, while a
+// continued box, a reply or a scroll re-layout opens with a box already up. The one fresh open that
+// is the SAME conversation is a gift's re-open (RsNpc_Resume, GIVE_ITEM / BUY_ITEM), which asks for the
+// route to be kept (RsText_KeepRouteOnNextOpen).
+struct RouteStep {
+    uint16_t textId; // the screen
+    int32_t offset;  // its window's scroll when an option was picked there
+    int32_t picked;  // the DECLARED option picked there, or -1 before any pick
+};
+constexpr int32_t kMaxRouteDepth = 32; // deeper than any tree here; a deeper route drops its oldest step
+std::array<RouteStep, kMaxRouteDepth> sRoute;
+int32_t sRouteDepth = 0;
+bool sRouteKeep = false;
+int32_t sStartRow = 0; // the row the cursor starts on in the box opening now (RsText_ChoiceStartRow)
+
+// A screen opening (not a scroll's re-layout): push it, or return to it. On a return, set where the
+// window sits (sScroll.offset) and where the cursor starts (sStartRow) from what was picked there.
+// `slots` / `visibleCount` are the options on offer now, the same list the renderer lays out.
+void RouteArrive(uint16_t id, const int32_t* slots, int32_t visibleCount) {
+    int32_t at = -1;
+    for (int32_t i = 0; i < sRouteDepth; i++) {
+        if (sRoute[i].textId == id) {
+            at = i;
+            break;
+        }
+    }
+    char line[128];
+    if (at < 0) {
+        if (sRouteDepth == kMaxRouteDepth) {
+            for (int32_t i = 1; i < kMaxRouteDepth; i++) {
+                sRoute[i - 1] = sRoute[i];
+            }
+            sRouteDepth--;
+        }
+        sRoute[sRouteDepth++] = { id, 0, -1 };
+        std::snprintf(line, sizeof(line), "rs_text event=route id=0x%04X depth=%d arrive=fresh", id, sRouteDepth);
+        AgentTest_WriteMarker(line);
+        return;
+    }
+    sRouteDepth = at + 1; // a return: everything entered after it is popped
+    const RouteStep& step = sRoute[at];
+    int32_t visible = -1;
+    if (step.picked >= 0) {
+        // By option: where the picked one sits in today's list. Hidden now -> the first option after
+        // it that is still offered, else the last one.
+        for (int32_t i = 0; i < visibleCount && visible < 0; i++) {
+            if (slots[i] >= step.picked) {
+                visible = i;
+            }
+        }
+        if (visible < 0 && visibleCount > 0) {
+            visible = visibleCount - 1;
+        }
+    }
+    int32_t offset = 0;
+    int32_t row = 0;
+    if (visible >= 0) {
+        // The window where it was, moved only as far as needed to keep the option in it.
+        const int32_t lastOffset =
+            visibleCount > RS_DIALOGUE_WINDOW_OPTIONS ? visibleCount - RS_DIALOGUE_WINDOW_OPTIONS : 0;
+        offset = step.offset;
+        if (visible < offset) {
+            offset = visible;
+        } else if (visible >= offset + RS_DIALOGUE_WINDOW_OPTIONS) {
+            offset = visible - (RS_DIALOGUE_WINDOW_OPTIONS - 1);
+        }
+        offset = offset < 0 ? 0 : (offset > lastOffset ? lastOffset : offset);
+        row = visible - offset;
+    }
+    sScroll.offset = offset;
+    sStartRow = row;
+    std::snprintf(line, sizeof(line),
+                  "rs_text event=route id=0x%04X depth=%d arrive=return picked=%d visible=%d offset=%d row=%d", id,
+                  sRouteDepth, step.picked, visible, offset, row);
+    AgentTest_WriteMarker(line);
+}
+
 
 constexpr size_t kOptionRowPixels = 216 - 32; // a choice row is indented 32px
 
@@ -309,6 +408,11 @@ void LoadScreen(const RsDialogueRule& screen, bool* loadFromMessageTable) {
     // A screen with more visible options than the window scrolls (#290): it is the four-row box, its
     // window sits where sScroll says - clamped, in case gating shortened the list since it scrolled -
     // and the engine is told it may scroll.
+    // ...and, unless this is that scroll's own re-layout, where this conversation's route says the
+    // window and cursor belong (#281).
+    if (!sScroll.relayout) {
+        RouteArrive(sScroll.textId, slots, visibleCount);
+    }
     sScroll.total = visibleCount;
     const int32_t lastOffset = visibleCount > RS_DIALOGUE_WINDOW_OPTIONS ? visibleCount - RS_DIALOGUE_WINDOW_OPTIONS : 0;
     sScroll.offset = sScroll.offset < 0 ? 0 : (sScroll.offset > lastOffset ? lastOffset : sScroll.offset);
@@ -471,8 +575,18 @@ void RsText_OnOpenText(uint16_t* textId, bool* loadFromMessageTable) {
     // The scroll window belongs to one box (#290): back to the top for every box that opens, ours or
     // not, unless this is a scrolling screen re-opened by its own scroll. `total` stays 0 unless
     // LoadScreen finds a screen that scrolls, so the engine's edge call answers no for anything else.
-    if (!(sScroll.reopening && id == sScroll.textId)) {
+    sScroll.relayout = sScroll.reopening && id == sScroll.textId;
+    if (!sScroll.relayout) {
         sScroll.offset = 0;
+        sStartRow = 0;
+        // A CONVERSATION starts here when the message system is idle (#281): the route is emptied,
+        // unless this is a gift re-opening the same conversation.
+        if (gPlayState != nullptr && gPlayState->msgCtx.msgMode == MSGMODE_NONE) {
+            if (!sRouteKeep) {
+                sRouteDepth = 0;
+            }
+            sRouteKeep = false;
+        }
     }
     sScroll.reopening = false;
     sScroll.pending = 0;
@@ -1072,4 +1186,20 @@ extern "C" void RsText_DrawScrollArrows(PlayState* play, Gfx** p) {
 
 extern "C" int32_t RsText_ChoiceScroll(void) {
     return ScrollIsForOpenBox() ? sScroll.offset : 0;
+}
+
+extern "C" int32_t RsText_ChoiceStartRow(void) {
+    return ScrollIsForOpenBox() ? sStartRow : 0;
+}
+
+extern "C" void RsText_RememberChoice(int32_t declared) {
+    // The screen picked on is the open box, which is the top of the route.
+    if (sRouteDepth > 0 && ScrollIsForOpenBox() && sRoute[sRouteDepth - 1].textId == sScroll.textId) {
+        sRoute[sRouteDepth - 1].picked = declared;
+        sRoute[sRouteDepth - 1].offset = sScroll.offset;
+    }
+}
+
+extern "C" void RsText_KeepRouteOnNextOpen(int32_t keep) {
+    sRouteKeep = keep != 0;
 }

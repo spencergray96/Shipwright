@@ -1530,7 +1530,9 @@ void Message_DrawText(PlayState* play, Gfx** gfxP) {
                 if (msgCtx->msgMode == MSGMODE_TEXT_DISPLAYING) {
                     msgCtx->choiceTextId = msgCtx->textId;
                     msgCtx->stateTimer = 4;
-                    msgCtx->choiceIndex = 0;
+                    // SOH [sturdy-bassoon#281] 0 for every box that is not an rs/ screen, so vanilla's
+                    // choices are unchanged; on ours, the row a return to this screen restores.
+                    msgCtx->choiceIndex = RsText_ChoiceStartRow();
                     GameInteractor_Should(VB_OWL_CHOOSE_BETTER, false);
                     Font_LoadMessageBoxIcon(font, TEXTBOX_ICON_ARROW);
                 }
@@ -1540,7 +1542,7 @@ void Message_DrawText(PlayState* play, Gfx** gfxP) {
                 if (msgCtx->msgMode == MSGMODE_TEXT_DISPLAYING) {
                     msgCtx->choiceTextId = msgCtx->textId;
                     msgCtx->stateTimer = 4;
-                    msgCtx->choiceIndex = 0;
+                    msgCtx->choiceIndex = RsText_ChoiceStartRow(); // SOH [sturdy-bassoon#281] as above
                     Font_LoadMessageBoxIcon(font, TEXTBOX_ICON_ARROW);
                 }
                 break;
@@ -1550,7 +1552,7 @@ void Message_DrawText(PlayState* play, Gfx** gfxP) {
                 if (msgCtx->msgMode == MSGMODE_TEXT_DISPLAYING) {
                     msgCtx->choiceTextId = msgCtx->textId;
                     msgCtx->stateTimer = 4;
-                    msgCtx->choiceIndex = 0;
+                    msgCtx->choiceIndex = RsText_ChoiceStartRow(); // SOH [sturdy-bassoon#281] as above
                     Font_LoadMessageBoxIcon(font, TEXTBOX_ICON_ARROW);
                 }
                 break;

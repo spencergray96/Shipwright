@@ -230,6 +230,7 @@ static void RsInteraction_Talk(RsInteraction* this, PlayState* play) {
         }
         declared = slots[choice];
         option = &screen->options[declared];
+        RsText_RememberChoice(declared); // for a return to this screen (sturdy-bassoon#281)
         result = RsNpc_RunAction(option);
         snprintf(line, sizeof(line),
                  "rs_interaction id=%d event=choice slot=%d index=%d option=%d action=%s a=%d result=%s next=%d "

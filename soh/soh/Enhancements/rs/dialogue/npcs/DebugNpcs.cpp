@@ -37,6 +37,9 @@
 //                          and one that is always refused, wares sold with BUY_ITEM, an errand
 //                          whose start and completion each queue a journal notice, and GIVE_ITEM
 //                          re-opening on a node.
+//   NPC_DEBUG_MEMORY (202) added for #281's choice memory: a menu node to come back to, a long child
+//                          list and a level below it, so a return restores the pick and a second
+//                          visit to a child starts fresh.
 //   NPC_DEBUG_SCROLL (201) added for #290: a list longer than the box, which scrolls - ten options on
 //                          the entry rule with one gated, and a node holding the cap of sixteen.
 //
@@ -567,6 +570,66 @@ const RsDialogueRule sScrollRules[] = {
 
 const RsNpcDef sScrollNpc = {
     NPC_DEBUG_SCROLL, QUEST_TIER_DEBUG, "debug_scroll", "Debug: the long list", sScrollRules, 1, sScrollNodes, 1,
+};
+
+// --- NPC_DEBUG_MEMORY (202) ----------------------------------------------------------------------
+//
+// Choice memory (#281). The menu is a NODE, since options can only point at nodes and a menu you come
+// back to has to be one; the entry rule is a statement that leads into it.
+//
+//   node 0  A: ten topics, each replying and coming BACK to A - the plainest return, which should put
+//           the cursor straight back on the topic. "The long list" goes down to B.
+//   node 1  B: sixteen entries, each replying and going back up to A, "Go deeper" down to C, and
+//           "Back" up to A.
+//   node 2  C: two ways up - to A (popping B and C), or to B (popping C).
+
+const RsDialogueOption sMemoryTopicOptions[] = {
+    { "Topic 1", RS_DLG_ACTION_NONE, 0, "You picked topic 1.", 0 },
+    { "Topic 2", RS_DLG_ACTION_NONE, 0, "You picked topic 2.", 0 },
+    { "Topic 3", RS_DLG_ACTION_NONE, 0, "You picked topic 3.", 0 },
+    { "Topic 4", RS_DLG_ACTION_NONE, 0, "You picked topic 4.", 0 },
+    { "Topic 5", RS_DLG_ACTION_NONE, 0, "You picked topic 5.", 0 },
+    { "Topic 6", RS_DLG_ACTION_NONE, 0, "You picked topic 6.", 0 },
+    { "Topic 7", RS_DLG_ACTION_NONE, 0, "You picked topic 7.", 0 },
+    { "Topic 8", RS_DLG_ACTION_NONE, 0, "You picked topic 8.", 0 },
+    { "The long list", RS_DLG_ACTION_NONE, 0, nullptr, 1 },
+    { "Goodbye", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueOption sMemoryEntryOptions[] = {
+    { "Entry 1", RS_DLG_ACTION_NONE, 0, "Entry 1.", 0 },
+    { "Entry 2", RS_DLG_ACTION_NONE, 0, "Entry 2.", 0 },
+    { "Entry 3", RS_DLG_ACTION_NONE, 0, "Entry 3.", 0 },
+    { "Entry 4", RS_DLG_ACTION_NONE, 0, "Entry 4.", 0 },
+    { "Entry 5", RS_DLG_ACTION_NONE, 0, "Entry 5.", 0 },
+    { "Entry 6", RS_DLG_ACTION_NONE, 0, "Entry 6.", 0 },
+    { "Entry 7", RS_DLG_ACTION_NONE, 0, "Entry 7.", 0 },
+    { "Entry 8", RS_DLG_ACTION_NONE, 0, "Entry 8.", 0 },
+    { "Entry 9", RS_DLG_ACTION_NONE, 0, "Entry 9.", 0 },
+    { "Entry 10", RS_DLG_ACTION_NONE, 0, "Entry 10.", 0 },
+    { "Entry 11", RS_DLG_ACTION_NONE, 0, "Entry 11.", 0 },
+    { "Entry 12", RS_DLG_ACTION_NONE, 0, "Entry 12.", 0 },
+    { "Entry 13", RS_DLG_ACTION_NONE, 0, "Entry 13.", 0 },
+    { "Entry 14", RS_DLG_ACTION_NONE, 0, "Entry 14.", 0 },
+    { "Go deeper", RS_DLG_ACTION_NONE, 0, nullptr, 2 },
+    { "Back", RS_DLG_ACTION_NONE, 0, nullptr, 0 },
+};
+const RsDialogueOption sMemoryDeepOptions[] = {
+    { "Back to the topics", RS_DLG_ACTION_NONE, 0, nullptr, 0 },
+    { "Back to the long list", RS_DLG_ACTION_NONE, 0, nullptr, 1 },
+};
+
+const RsDialogueNode sMemoryNodes[] = {
+    { nullptr, 0, "What shall we discuss?", sMemoryTopicOptions, 10, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    { nullptr, 0, "All sixteen:", sMemoryEntryOptions, 16, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    { nullptr, 0, "Deeper still.", sMemoryDeepOptions, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+
+const RsDialogueRule sMemoryRules[] = {
+    { nullptr, 0, "Let us talk.", nullptr, 0, RS_DLG_NO_MISSING, 0 },
+};
+
+const RsNpcDef sMemoryNpc = {
+    NPC_DEBUG_MEMORY, QUEST_TIER_DEBUG, "debug_memory", "Debug: the memory", sMemoryRules, 1, sMemoryNodes, 3,
 };
 
 // --- the malformed table --------------------------------------------------------------------
@@ -1204,6 +1267,7 @@ void RegisterDebugNpcs() {
     RsNpc_Register(&sQuestMenu);
     RsNpc_Register(&sShop);
     RsNpc_Register(&sScrollNpc);
+    RsNpc_Register(&sMemoryNpc);
 }
 
 RegisterShipInitFunc debugNpcsInitFunc(RegisterDebugNpcs);

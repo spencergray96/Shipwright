@@ -68,6 +68,20 @@ int32_t RsText_ChoiceEdge(int32_t dir);
 // screen's VISIBLE options. 0 for any box that is not scrolled.
 int32_t RsText_ChoiceScroll(void);
 
+// --- choice memory (sturdy-bassoon#281) ----------------------------------------------------------
+//
+// Coming back to a screen within one conversation restores its scroll and cursor; going down to a
+// child again is fresh. RsActors.cpp's route stack says how "back" is told from "down".
+
+// Called by the ENGINE when a two-, three- or four-choice box finishes decoding: the row the cursor
+// starts on. 0 for every box that is not one of ours, and for ours unless the route restored a pick.
+int32_t RsText_ChoiceStartRow(void);
+// An actor picked `declared` on the open screen: remembered with the window's scroll, for a return.
+void RsText_RememberChoice(int32_t declared);
+// The next box that starts a conversation continues this one instead (a gift's re-open), so the
+// route is kept. 0 withdraws the request (the re-open was given up).
+void RsText_KeepRouteOnNextOpen(int32_t keep);
+
 // Hands one string to the NEXT textbox opened with RS_TEXT_DIRECT (an option's reply, or the notice
 // from an item whose params this build cannot read). A one-slot pointer, and safe as one because it
 // is a PARAMETER, not shared state: it is

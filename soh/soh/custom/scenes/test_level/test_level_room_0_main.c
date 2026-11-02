@@ -69,6 +69,9 @@ ActorEntry test_level_room_0_header00_actorList[] = {
     // A scrolling option list (sturdy-bassoon#290): ten options, one gated, and a node of sixteen.
     // At z=200, 400 units along +X from the twin: outside anyone's talk range.
     { ACTOR_RS_NPC, { 800, 20, 200 }, { 0, -0x4000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_SCROLL) },
+    // Choice memory (sturdy-bassoon#281): a menu node, a long child list and a level below it. At
+    // x=-800 on the z=200 row, 400 units from 193: outside anyone's talk range.
+    { ACTOR_RS_NPC, { -800, 20, 200 }, { 0, 0x4000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_MEMORY) },
 
     // Step 0 of the giver's quest. Its sibling (step 1) is in terrain_f2p_step2, so finishing the
     // quest requires both scenes — which is what makes "advancing in one scene is reflected in the

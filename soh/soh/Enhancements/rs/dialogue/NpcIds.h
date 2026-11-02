@@ -77,6 +77,9 @@ typedef enum NpcId {
                           // item handed over with GIVE_ITEM that re-opens the conversation.
     NPC_DEBUG_SCROLL = 201, // a SCROLLING option list (sturdy-bassoon#290): ten options on its
                             // entry rule, one gated, and a node with sixteen - the cap.
+    NPC_DEBUG_MEMORY = 202, // CHOICE MEMORY (sturdy-bassoon#281): a menu node, a sixteen-option child
+                            // and a third level, each with ways back up, so a return restores the
+                            // pick and a second visit to a child is fresh.
 } NpcId;
 
 #define NPC_ID_IS_VALID(id) ((id) >= 0 && (id) < NPC_MAX)
@@ -107,5 +110,7 @@ RS_STATIC_ASSERT(NPC_DEBUG_SHOP >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_SHOP < NPC_MA
                  "NPC_DEBUG_SHOP must sit in the debug band");
 RS_STATIC_ASSERT(NPC_DEBUG_SCROLL >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_SCROLL < NPC_MAX,
                  "NPC_DEBUG_SCROLL must sit in the debug band");
+RS_STATIC_ASSERT(NPC_DEBUG_MEMORY >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_MEMORY < NPC_MAX,
+                 "NPC_DEBUG_MEMORY must sit in the debug band");
 
 #endif // SOH_RS_NPC_IDS_H

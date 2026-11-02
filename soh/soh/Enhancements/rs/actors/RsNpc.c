@@ -286,6 +286,8 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
         }
         declared = slots[choice];
         option = &screen->options[declared];
+        /* Remembered for a return to this screen (sturdy-bassoon#281), before anything moves on. */
+        RsText_RememberChoice(declared);
         /* ACTION -> REPLY -> NEXT. The action fires wherever navigation goes afterwards. */
         result = RsNpc_RunAction(option);
         /* A GIVE_ITEM or BUY_ITEM whose checks pass promises an item. The promise is all that is kept:
@@ -455,10 +457,13 @@ static void RsNpc_Resume(RsNpc* this, PlayState* play) {
     }
     if (this->actor.xzDistToPlayer > RS_NPC_RESUME_RANGE) {
         this->actor.flags &= ~ACTOR_FLAG_TALK_OFFER_AUTO_ACCEPTED;
+        RsText_KeepRouteOnNextOpen(0);
         RsNpc_End(this);
         return;
     }
     this->actor.flags |= ACTOR_FLAG_TALK_OFFER_AUTO_ACCEPTED;
+    /* The box this opens continues the conversation, so its route is kept (sturdy-bassoon#281). */
+    RsText_KeepRouteOnNextOpen(1);
     /* Both ranges from where Link stands. Actor_OfferTalk would use one radius for both, and a Link a
      * step up from the NPC but close to it would fail the height test every frame. */
     Actor_OfferTalkExchange(&this->actor, play, this->actor.xzDistToPlayer + 1.0f,
