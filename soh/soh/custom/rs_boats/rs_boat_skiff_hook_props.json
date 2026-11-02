@@ -1,0 +1,34 @@
+{
+ "format": 2,
+ "scene": "rs_boat",
+ "list": "objects/rs_props/rs_boat_skiff_hook/props",
+ "kinds": {
+  "bronze-salvaging-hook-60490": "rs_60490"
+ },
+ "props": [
+  {
+   "id": "hook",
+   "kind": "bronze-salvaging-hook-60490",
+   "pos": [
+    -20,
+    0,
+    60
+   ],
+   "rot": 2,
+   "tiers": {
+    "part": "salvaging_hook",
+    "segment": 12,
+    "locs": [
+     60490,
+     60491,
+     60492,
+     60493,
+     60494,
+     60495,
+     60496
+    ],
+    "why": "RS's seven skiff salvaging hooks, bronze to dragon, are this mesh recoloured; the boat draws the fitted tier's colours (sturdy-bassoon#288)"
+   }
+  }
+ ]
+}

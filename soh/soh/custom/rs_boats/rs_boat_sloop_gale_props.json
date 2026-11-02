@@ -1,0 +1,20 @@
+{
+ "format": 2,
+ "scene": "rs_boat",
+ "list": "objects/rs_props/rs_boat_sloop_gale/props",
+ "kinds": {
+  "gale-catcher-59686-no-mote": "rs_59686_no_mote"
+ },
+ "props": [
+  {
+   "id": "catcher",
+   "kind": "gale-catcher-59686-no-mote",
+   "pos": [
+    40,
+    0,
+    57
+   ],
+   "rot": 0
+  }
+ ]
+}

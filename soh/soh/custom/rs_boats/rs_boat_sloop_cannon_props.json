@@ -1,0 +1,56 @@
+{
+ "format": 2,
+ "scene": "rs_boat",
+ "list": "objects/rs_props/rs_boat_sloop_cannon/props",
+ "kinds": {
+  "bronze-cannon-59446-no-fire": "rs_59446_no_fire"
+ },
+ "props": [
+  {
+   "id": "starboard",
+   "kind": "bronze-cannon-59446-no-fire",
+   "pos": [
+    -44,
+    0,
+    -20
+   ],
+   "rot": 2,
+   "tiers": {
+    "part": "cannon",
+    "segment": 12,
+    "locs": [
+     59446,
+     59447,
+     59448,
+     59449,
+     59450,
+     59451
+    ],
+    "why": "RS's bronze to rune cannons are this mesh recoloured; the dragon cannon is a mesh of its own, on rs_boat_sloop_cannon_dragon (sturdy-bassoon#288)"
+   }
+  },
+  {
+   "id": "port",
+   "kind": "bronze-cannon-59446-no-fire",
+   "pos": [
+    44,
+    0,
+    -60
+   ],
+   "rot": 6,
+   "tiers": {
+    "part": "cannon",
+    "segment": 12,
+    "locs": [
+     59446,
+     59447,
+     59448,
+     59449,
+     59450,
+     59451
+    ],
+    "why": "RS's bronze to rune cannons are this mesh recoloured; the dragon cannon is a mesh of its own, on rs_boat_sloop_cannon_dragon (sturdy-bassoon#288)"
+   }
+  }
+ ]
+}

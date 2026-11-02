@@ -111,7 +111,7 @@ typedef enum RsBoatKindId {
 typedef struct RsBoatRecolourSlot {
     s32 part;      // RsBoatSlot whose fitted tier picks the colour, or -1 for a look alone
     s32 look;      // RsBoatLook whose chosen option recolours it first, or -1
-    s32 tierCount; // colours a tier, tier 0 first; a tier past the last draws the last
+    s32 tierCount; // colours a tier, the part's first first (a facility's is 1, #288); a tier past the last draws the last
     u8 rgb[RS_BOAT_RECOLOUR_MAX_TIERS][3];
 } RsBoatRecolourSlot;
 
@@ -296,6 +296,11 @@ s32 RsBoat_KindByName(const char* name);
 
 // The kind's collision triangles, for the console and the DynaPoly budget.
 s32 RsBoat_KindPolyCount(s32 kind);
+// Of those, its fitted facilities' boxes' (#288): 10 a box, 0 with none fitted that is solid.
+s32 RsBoat_FacilityPolyCount(s32 kind);
+// The kind's facilities drawn now (#288), for `boat list`: each list's name less its "rs_boat_" ("sloop_cannon"),
+// comma-separated, "?" after one whose archive is not mounted, or "-" for none fitted.
+void RsBoat_FacilityNames(s32 kind, char* buf, size_t len);
 
 // Takes or lets go of the helm as A/B would, for the console. Returns 0 if Link is not on this boat's deck.
 s32 RsBoat_SetHelm(RsBoat* boat, PlayState* play, s32 on);
@@ -420,6 +425,9 @@ void RsBoat_HelmPos(const RsBoat* boat, Vec3f* out);
 // A kind's display list, in its own model space (RsBoatModel.cpp), by its archive path, or NULL when its archive
 // is not in mods/ - the boat then draws its placeholder box.
 Gfx* RsBoat_ModelList(const char* listPath);
+// The list's translucent twin, `<listPath>.xlu` (generate_props.py's THE TRANSLUCENT LIST, #216), or NULL when its
+// kinds draw nothing translucent: a facility's faded faces (#288). Not logged when absent, which is the usual case.
+Gfx* RsBoat_TranslucentList(const char* listPath);
 // The list's recolour slots (#283), read once from `<listPath>.recolour` in its archive, or NULL when it has none (an
 // archive from before tiers, whose one slot is the sail pattern's). `kind` is checked against: a part's tier locs
 // that differ from RsBoatFit's catalogue are logged once.

@@ -367,6 +367,98 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
       { { 13.0f, 22.0f }, { 12.0f, 20.0f }, 96.0f } },
 };
 
+// A facility on a hotspot (#288): its own archive list, in the kind's model space as the kind's list is (one placement
+// list each, rs_boat_<name>_props.json), drawn while its slot's fitted tier is at least `fromTier` and below the next
+// row's for the same slot: the gale catcher and the dragon cannon are meshes of their own, so a list each. Tier 0 is an
+// empty hotspot and draws nothing. `boxes`, boat space, are what Link walks round, a post's box each (RsBoatPost; top 0
+// ends them), in the hull's collision while the row is drawn (RsBoat_FitFacilityBoxes); arrows and the hookshot pass
+// them, as they pass the sloop's rail openings the cannons stand in. A box is measured off its list's placement
+// (`pos`, `rot`) and the kind's footprint: move one and move the other. The owner's picks, 2026-11-01: the hook on the
+// bow tile's starboard side of the raft, at Sailing's own spot on the skiff (its template boat, map square 5958) and
+// on the sloop's starboard side forward; the wind catcher opposite the hook; on the sloop a cannon each side, through
+// the forward opening to starboard and the aft one to port, 4 further out than Sailing's template (15459) places
+// them, so Link passes between. The hooks are not solid; nearly all of each hangs over the side.
+#define RS_BOAT_MAX_FACILITIES 6
+#define RS_BOAT_FACILITY_BOXES 2
+// Boxes one kind can carry at once: the sloop's two cannons and its catcher. A fit past it leaves the rest out.
+#define RS_BOAT_MAX_FACILITY_BOXES 3
+typedef struct RsBoatFacility {
+    s32 slot;         // RsBoatSlot
+    s32 fromTier;
+    const char* name; // `boat list`'s, and the list's: objects/rs_props/rs_boat_<name>/props. NULL ends the kind's
+    const char* list;
+    RsBoatPost boxes[RS_BOAT_FACILITY_BOXES];
+} RsBoatFacility;
+
+static const RsBoatFacility sRsBoatFacilities[RS_BOAT_KIND_COUNT][RS_BOAT_MAX_FACILITIES] = {
+    // skiff: the catcher's box is its legs and tub, 39 tall; the gale catcher's is wider
+    {
+        { RS_BOAT_SLOT_SALVAGING_HOOK, 1, "skiff_hook", "objects/rs_props/rs_boat_skiff_hook/props" },
+        { RS_BOAT_SLOT_WIND_CATCHER, 1, "skiff_catcher", "objects/rs_props/rs_boat_skiff_catcher/props",
+          { { { 14.0f, 35.0f }, { 17.0f, 53.0f }, 39.0f } } },
+        { RS_BOAT_SLOT_WIND_CATCHER, 2, "skiff_gale", "objects/rs_props/rs_boat_skiff_gale/props",
+          { { { 11.0f, 38.0f }, { 18.0f, 52.0f }, 39.0f } } },
+    },
+    // sloop: each cannon's box is its carriage, 40 square and 33 tall; the barrel over the rail is the rail's
+    {
+        { RS_BOAT_SLOT_SALVAGING_HOOK, 1, "sloop_hook", "objects/rs_props/rs_boat_sloop_hook/props" },
+        { RS_BOAT_SLOT_WIND_CATCHER, 1, "sloop_catcher", "objects/rs_props/rs_boat_sloop_catcher/props",
+          { { { 32.0f, 53.0f }, { 36.0f, 72.0f }, 39.0f } } },
+        { RS_BOAT_SLOT_WIND_CATCHER, 2, "sloop_gale", "objects/rs_props/rs_boat_sloop_gale/props",
+          { { { 29.0f, 56.0f }, { 36.0f, 72.0f }, 39.0f } } },
+        { RS_BOAT_SLOT_CANNON, 1, "sloop_cannon", "objects/rs_props/rs_boat_sloop_cannon/props",
+          { { { -64.0f, -24.0f }, { -43.0f, -3.0f }, 33.0f }, { { 24.0f, 64.0f }, { -83.0f, -43.0f }, 33.0f } } },
+        { RS_BOAT_SLOT_CANNON, 7, "sloop_cannon_dragon", "objects/rs_props/rs_boat_sloop_cannon_dragon/props",
+          { { { -64.0f, -24.0f }, { -43.0f, -3.0f }, 33.0f }, { { 24.0f, 64.0f }, { -83.0f, -43.0f }, 33.0f } } },
+    },
+    // raft
+    {
+        { RS_BOAT_SLOT_SALVAGING_HOOK, 1, "raft_hook", "objects/rs_props/rs_boat_raft_hook/props" },
+    },
+};
+
+// The kind's facility row `i` is drawn: its slot's fitted tier reaches it, and no later row of the slot's does.
+static s32 RsBoat_FacilityShown(s32 kind, s32 i) {
+    const RsBoatFacility* row = &sRsBoatFacilities[kind][i];
+    const s32 tier = RsBoatFit_TierOf(kind, row->slot);
+    s32 j;
+
+    if (row->name == NULL || tier < row->fromTier) {
+        return 0;
+    }
+    for (j = 0; j < RS_BOAT_MAX_FACILITIES && sRsBoatFacilities[kind][j].name != NULL; j++) {
+        const RsBoatFacility* other = &sRsBoatFacilities[kind][j];
+
+        if (other->slot == row->slot && other->fromTier > row->fromTier && tier >= other->fromTier) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+void RsBoat_FacilityNames(s32 kind, char* buf, size_t len) {
+    size_t at = 0;
+    s32 i;
+
+    if (len == 0) {
+        return;
+    }
+    buf[0] = '\0';
+    for (i = 0; kind >= 0 && kind < RS_BOAT_KIND_COUNT && i < RS_BOAT_MAX_FACILITIES; i++) {
+        const RsBoatFacility* row = &sRsBoatFacilities[kind][i];
+
+        if (row->name == NULL || !RsBoat_FacilityShown(kind, i) || at + 1 >= len) {
+            continue;
+        }
+        at += (size_t)snprintf(buf + at, len - at, "%s%s%s", at > 0 ? "," : "", row->name,
+                               RsBoat_ModelList(row->list) != NULL ? "" : "?");
+        at = MIN(at, len - 1);
+    }
+    if (at == 0) {
+        snprintf(buf, len, "-");
+    }
+}
+
 static s32 RsBoat_NumStations(const RsBoatKind* kind) {
     s32 n = 0;
 
@@ -440,9 +532,10 @@ s32 RsBoat_KindByName(const char* name) {
 #define RS_BOAT_MIN_ALTITUDE 4.0f
 // The stations' eight each, then a covered bow's: its grid's knots, and a foot (and at the ends a top) for each strip
 // of its aft face; then a skinned stretch's skin and trim corners, eleven at each of its two stations. A skinned side
-// is 26 triangles where the plain rail is 6. Then a post's eight corners, its four sides and top.
-#define RS_BOAT_MAX_VTX     (RS_BOAT_MAX_STATIONS * 8 + RS_BOAT_FOREDECK_ROWS * RS_BOAT_FOREDECK_COLS + RS_BOAT_FOREDECK_COLS + 4 + RS_BOAT_MAX_SKINNED * 22 + 8)
-#define RS_BOAT_MAX_POLYS                             ((RS_BOAT_MAX_STATIONS - 1) * 14 + 12 +            (RS_BOAT_FOREDECK_ROWS - 1) * (RS_BOAT_FOREDECK_COLS - 1) * 2 + (RS_BOAT_FOREDECK_COLS + 1) * 2 + RS_BOAT_MAX_SKINNED * 20 + 10)
+// is 26 triangles where the plain rail is 6. Then a post's eight corners, its four sides and top, and as many again
+// for each fitted facility's box (#288).
+#define RS_BOAT_MAX_VTX     (RS_BOAT_MAX_STATIONS * 8 + RS_BOAT_FOREDECK_ROWS * RS_BOAT_FOREDECK_COLS + RS_BOAT_FOREDECK_COLS + 4 + RS_BOAT_MAX_SKINNED * 22 + 8 + RS_BOAT_MAX_FACILITY_BOXES * 8)
+#define RS_BOAT_MAX_POLYS                             ((RS_BOAT_MAX_STATIONS - 1) * 14 + 12 +            (RS_BOAT_FOREDECK_ROWS - 1) * (RS_BOAT_FOREDECK_COLS - 1) * 2 + (RS_BOAT_FOREDECK_COLS + 1) * 2 + RS_BOAT_MAX_SKINNED * 20 + 10 + RS_BOAT_MAX_FACILITY_BOXES * 10)
 // The shore probes: the floor's edge and the gunwale's edge at every station, both sides, and the stern's middle.
 #define RS_BOAT_MAX_POINTS (RS_BOAT_MAX_STATIONS * 2 + 1)
 #define RS_BOAT_BOX_VTX 24
@@ -475,6 +568,9 @@ typedef struct RsBoatHull {
     u8 interior[RS_BOAT_MAX_POLYS]; // the poly is an interior wall: the inner rail walls and the ends' inner walls
     u8 railTop[RS_BOAT_MAX_POLYS];  // the poly is a rail top (RsBoat_SmoothLinkOnDeck eases Link onto the drawn trim)
     s32 interiorHands;              // their surface is RS_BOAT_SURFACE_HANDS_RAIL now (RsBoat_SetInteriorClimb)
+    s32 hullVtx;                    // the hull's own corners and triangles; the fitted facilities' boxes follow
+    s32 hullPolys;
+    s32 facilities;                 // which facility rows' boxes are in (bit i: row i), -1 before the first fit
     CollisionHeader col;
     // The placeholder boxes (the issue allows a box until the RS model lands): the hull, a tiller post at the
     // stern so the helm is findable, and a prow at the bow so the heading reads.
@@ -525,6 +621,11 @@ static CamData sHullCamData[1] = { { CAM_SET_NONE, 0, NULL } };
 
 s32 RsBoat_KindPolyCount(s32 kind) {
     return (kind >= 0 && kind < RS_BOAT_KIND_COUNT && sHulls[kind].built) ? sHulls[kind].numPolys : 0;
+}
+
+s32 RsBoat_FacilityPolyCount(s32 kind) {
+    return (kind >= 0 && kind < RS_BOAT_KIND_COUNT && sHulls[kind].built) ? sHulls[kind].numPolys - sHulls[kind].hullPolys
+                                                                           : 0;
 }
 
 static void RsBoat_AddTri(RsBoatHull* hull, s32 a, s32 b, s32 c, f32 outX, f32 outY, f32 outZ) {
@@ -864,10 +965,9 @@ static void RsBoat_BuildSkinned(RsBoatHull* hull, const RsBoatKind* kind, s32 i,
     RsBoat_FlagLineTests(hull, first, RS_BOAT_POLY_SHOTS_ONLY);
 }
 
-// A mast on an open deck (RsBoatPost): its four sides from the deck up, and its top. Corners 0-3 on the deck, 4-7
-// over them, round the box from (x0, z0).
-static void RsBoat_BuildPost(RsBoatHull* hull, const RsBoatKind* kind) {
-    const RsBoatPost* post = &kind->post;
+// A mast on an open deck (RsBoatPost), or a fitted facility's box (#288): its four sides from the deck up, and its
+// top. Corners 0-3 on the deck, 4-7 over them, round the box from (x0, z0).
+static void RsBoat_BuildPost(RsBoatHull* hull, const RsBoatKind* kind, const RsBoatPost* post) {
     const s32 v = hull->numVtx;
     const f32 cx = (post->x[0] + post->x[1]) * 0.5f;
     const f32 cz = (post->z[0] + post->z[1]) * 0.5f;
@@ -895,6 +995,53 @@ static void RsBoat_BuildPost(RsBoatHull* hull, const RsBoatKind* kind) {
         hull->polys[k].type = RS_BOAT_SURFACE_POST;
     }
     RsBoat_FlagLineTests(hull, first, RS_BOAT_POLY_CAMERA_PASS);
+}
+
+// The fitted facilities' boxes (#288), after the hull's own triangles: put back each time the kind's fit-out changes
+// which rows are drawn, and 1 returned then. A box is a post's, which Link walks round and the camera passes, and here
+// projectiles pass it too (RsBoatFacility). The engine copies a boat's collision into its dyna pool afresh only when
+// the boat moved or the pool is marked stale (DynaPoly_ExpandSRT), so the caller marks it on a change: a boat held
+// still would otherwise keep last tick's triangles, and every dyna after it would read the pool at the wrong place.
+static s32 RsBoat_FitFacilityBoxes(s32 kindId) {
+    const RsBoatKind* kind = &sRsBoatKinds[kindId];
+    RsBoatHull* hull = &sHulls[kindId];
+    CollisionHeader* col = &hull->col;
+    s32 shown = 0;
+    s32 first;
+    s32 i;
+    s32 b;
+
+    for (i = 0; i < RS_BOAT_MAX_FACILITIES && sRsBoatFacilities[kindId][i].name != NULL; i++) {
+        shown |= RsBoat_FacilityShown(kindId, i) << i;
+    }
+    if (shown == hull->facilities) {
+        return 0;
+    }
+    hull->facilities = shown;
+    hull->numVtx = hull->hullVtx;
+    hull->numPolys = hull->hullPolys;
+    for (i = 0; i < RS_BOAT_MAX_FACILITIES; i++) {
+        for (b = 0; (shown & (1 << i)) && b < RS_BOAT_FACILITY_BOXES; b++) {
+            const RsBoatPost* box = &sRsBoatFacilities[kindId][i].boxes[b];
+
+            if (box->top > 0.0f && hull->numVtx + 8 <= RS_BOAT_MAX_VTX && hull->numPolys + 10 <= RS_BOAT_MAX_POLYS) {
+                first = hull->numPolys;
+                RsBoat_BuildPost(hull, kind, box);
+                RsBoat_FlagLineTests(hull, first, RS_BOAT_POLY_SHOTS_PASS);
+            }
+        }
+    }
+    for (i = hull->hullPolys; i < hull->numPolys; i++) {
+        hull->interior[i] = 0;
+        hull->railTop[i] = 0;
+    }
+    col->maxBounds.y = 0;
+    for (i = 0; i < hull->numVtx; i++) {
+        col->maxBounds.y = MAX(col->maxBounds.y, hull->vtx[i].y);
+    }
+    col->numVertices = (u32)hull->numVtx;
+    col->numPolygons = (u32)hull->numPolys;
+    return 1;
 }
 
 static void RsBoat_BuildHull(s32 kindId) {
@@ -1016,27 +1163,26 @@ static void RsBoat_BuildHull(s32 kindId) {
         RsBoat_BuildForedeck(hull, kind);
     }
     if (kind->post.top > 0.0f) {
-        RsBoat_BuildPost(hull, kind);
+        RsBoat_BuildPost(hull, kind, &kind->post);
     }
+    hull->hullVtx = hull->numVtx;
+    hull->hullPolys = hull->numPolys;
+    hull->facilities = -1;
 
     col->minBounds.x = (s16)-lroundf(hull->halfWidth);
     col->minBounds.y = (s16)RS_BOAT_SIDE_FOOT_Y;
     col->minBounds.z = (s16)lroundf(hull->sternZ);
     col->maxBounds.x = (s16)lroundf(hull->halfWidth);
-    col->maxBounds.y = (s16)0;
     col->maxBounds.z = (s16)lroundf(hull->bowZ);
-    for (i = 0; i < hull->numVtx; i++) {
-        col->maxBounds.y = MAX(col->maxBounds.y, hull->vtx[i].y);
-    }
-    col->numVertices = (u32)hull->numVtx;
     col->vtxList = hull->vtx;
-    col->numPolygons = (u32)hull->numPolys;
     col->polyList = hull->polys;
     col->surfaceTypeList = sHullSurface;
     col->cameraDataList = sHullCamData;
     col->numWaterBoxes = 0;
     col->waterBoxes = NULL;
     col->cameraDataListLen = (size_t)ARRAY_COUNT(sHullCamData);
+    // the counts and the top, with whatever the fit-out has on its hotspots
+    (void)RsBoat_FitFacilityBoxes(kindId);
 
     hull->rollAmp = (s16)(atan2f(RS_BOAT_ROLL_DIP, hull->halfWidth) * (32768.0f / (f32)M_PI));
     hull->pitchAmp = (s16)(atan2f(RS_BOAT_PITCH_DIP, halfLength) * (32768.0f / (f32)M_PI));
@@ -2692,6 +2838,11 @@ void RsBoat_Update(Actor* thisx, PlayState* play) {
     if (sHulls[this->kind].interiorHands != (CVarGetInteger(CVAR_RS_BOAT_INTERIOR_CLIMB, RS_BOAT_INTERIOR_CLIMB_DEFAULT) != 0)) {
         RsBoat_SetInteriorClimb(&sHulls[this->kind], CVarGetInteger(CVAR_RS_BOAT_INTERIOR_CLIMB, RS_BOAT_INTERIOR_CLIMB_DEFAULT) != 0);
     }
+    // A facility fitted or taken off since last tick (`boat fit`) puts its box in or out of the hull's collision, and
+    // the dyna pool takes it next tick (func_8003EE6C marks it stale, as Bg_Sst_Floor does after changing its own).
+    if (RsBoat_FitFacilityBoxes(this->kind)) {
+        func_8003EE6C(play, &play->colCtx.dyna);
+    }
     RsBoat_CountRailPush(this, play, player);
 
     // The tiller is targetable while the helm is free: the arrow and the lock-on ride over the post at head
@@ -2889,7 +3040,8 @@ static Gfx* RsBoat_RecolourList(GraphicsContext* gfxCtx, s32 kind, const RsBoatR
         s32 coloured = slot->look >= 0 && RsBoatFit_LookColour(slot->look, RsBoatFit_LookOf(kind, slot->look), rgb);
 
         if (!coloured && slot->part >= 0 && slot->tierCount > 0) {
-            s32 tier = RsBoatFit_TierOf(kind, slot->part);
+            // The file's colours start at the part's first tier: a facility's is 1, its 0 an empty hotspot (#288).
+            s32 tier = RsBoatFit_TierOf(kind, slot->part) - (RsBoatFit_SlotIsCore(slot->part) ? 0 : 1);
 
             tier = CLAMP(tier, 0, slot->tierCount - 1);
             rgb[0] = slot->rgb[tier][0], rgb[1] = slot->rgb[tier][1], rgb[2] = slot->rgb[tier][2];
@@ -2948,6 +3100,40 @@ void RsBoat_Draw(Actor* thisx, PlayState* play) {
             gSPDisplayList(POLY_OPA_DISP++, rudderModel);
             Matrix_Pop();
             Gfx_SetupDL_25Opa(gfxCtx);
+        }
+    }
+    if (model != NULL) {
+        // The fitted facilities (#288), each its own list in the kind's model space, in its tier's colours through its
+        // own slots. A list's faded faces are its `.xlu`, drawn in the translucent pass under the same matrix.
+        s32 i;
+
+        for (i = 0; i < RS_BOAT_MAX_FACILITIES; i++) {
+            const char* path = sRsBoatFacilities[this->kind][i].list;
+            Gfx* list = (hull->facilities & (1 << i)) ? RsBoat_ModelList(path) : NULL;
+            Gfx* xlu;
+            Gfx* colours;
+            Mtx* mtx;
+
+            if (list == NULL) {
+                continue;
+            }
+            xlu = RsBoat_TranslucentList(path);
+            colours = RsBoat_RecolourList(gfxCtx, this->kind, RsBoat_Recolour(this->kind, path));
+            Matrix_Push();
+            Matrix_Translate(0.0f, sRsBoatKinds[this->kind].modelY, sRsBoatKinds[this->kind].modelZ, MTXMODE_APPLY);
+            mtx = MATRIX_NEWMTX(gfxCtx);
+            Matrix_Pop();
+            gSPSegment(POLY_OPA_DISP++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)colours);
+            gSPMatrix(POLY_OPA_DISP++, mtx, G_MTX_MODELVIEW | G_MTX_LOAD);
+            gSPDisplayList(POLY_OPA_DISP++, list);
+            Gfx_SetupDL_25Opa(gfxCtx);
+            if (xlu != NULL) {
+                Gfx_SetupDL_25Xlu(gfxCtx);
+                gSPSegment(POLY_XLU_DISP++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)colours);
+                gSPMatrix(POLY_XLU_DISP++, mtx, G_MTX_MODELVIEW | G_MTX_LOAD);
+                gSPDisplayList(POLY_XLU_DISP++, xlu);
+                gSPSegment(POLY_XLU_DISP++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)gCullBackDList);
+            }
         }
     }
     if (model != NULL) {
