@@ -775,4 +775,37 @@ const ConsoleSink::Command stairsCommand(
       { "staircase id, ticks, or on|off|default|hold", Ship::ArgumentType::TEXT, true },
       { "row or ticks", Ship::ArgumentType::TEXT, true } });
 
+const ConsoleSink::Hints stairsHints("stairs", R"(
+list                      every registered staircase
+dump <id>                 one staircase's rows, labels and menu
+menu <id> <row>           the menu shown from one storey's landing
+where                     the staircases in this scene, nearest row
+go <id> <row>             make the move now, without the conversation
+status                    the move in progress, and the last one
+fade [ticks]              how long the move fades, 0 is a hard cut
+  default                 back to the build's fade
+  <ticks>                 fade length in ticks
+bump                      walk-into: push at a staircase to open it
+  on                      push into a staircase to open its menu
+  off                     only talking to it opens the menu
+  default                 back to the build's setting
+  hold                    how long to push before the menu opens
+    default               back to the build's hold
+    <ticks>               hold length in ticks
+order                     the order the menu lists destinations in
+  list                    which destinations come first
+    nearest               closest storey first (the default)
+    highest               top storey first
+    lowest                bottom storey first
+  lead                    which way leads from a middle storey
+    up                    storeys above first (the default)
+    down                  storeys below first
+  default                 back to the build's order
+ordercheck                the menu order against the written spec
+limits                    the staircase budgets and what is in use
+measure <text>            how wide a line of text draws in the menu
+actors                    the staircase actors in the room
+badcheck                  that deliberately bad tables are refused
+)");
+
 } // namespace

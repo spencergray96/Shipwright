@@ -100,6 +100,45 @@ class Command {
     RegisterShipInitFunc mInitFunc;
 };
 
+// A command's hint tree (sturdy-bassoon#292): what the dev console shows above its input while the
+// command is typed. Instead of the whole usage line, it lists the options for the NEXT word, one per
+// line with a short explanation, and narrows as the words are typed: `boat` lists boat's
+// subcommands, `boat shadow` lists shadow's, `boat shadow si` only the ones starting with "si". A
+// command without a tree keeps the usage line, which is how every vanilla command stays as it was.
+//
+// Declare it at file scope beside the command's Command. The spec is one option per line:
+//
+//     const ConsoleSink::Hints boatHints("boat", R"(
+//     list                    every boat, oldest first
+//     spawn [<x> <z> [<yaw>]] a boat in front of Link, or at x z
+//     shadow                  the boat's shadow
+//       feet                  under Link's feet
+//       size <n>              its radius
+//     quest =quest            the quest command's options
+//     )");
+//
+//   - Indent two spaces per level: an indented line is an option for the word after the line above.
+//   - Left of the first run of two or more spaces is the word, then any arguments it takes; right of
+//     it is the explanation, kept short (it shares a line with the word). One space between the word
+//     and its arguments, never two.
+//   - A word written `<like this>` or `[like this]` stands for any value: a typed word that matches
+//     no option walks into it.
+//   - `=<command>` in place of the arguments borrows that command's tree, for a subcommand that
+//     forwards to another command (`agenttest quest` is the `quest` command).
+//
+// The spec is parsed once, at static construction. Like Command, the object is inert afterwards.
+class Hints {
+  public:
+    Hints(std::string command, const char* spec);
+
+    Hints(const Hints&) = delete;
+    Hints& operator=(const Hints&) = delete;
+};
+
+// Lays out the hint for `input`, the console's input text. False when its first word is not a
+// command with a Hints tree, which leaves the console's own usage line in place.
+bool BuildHint(const std::string& input, std::string* hint);
+
 } // namespace ConsoleSink
 
 #endif // SOH_CONSOLE_SINK_H

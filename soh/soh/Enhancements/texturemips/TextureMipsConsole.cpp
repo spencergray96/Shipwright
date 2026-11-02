@@ -138,4 +138,17 @@ const ConsoleSink::Command textureMipsCommand(
     { { "status|archive|on|off|lod|bias", Ship::ArgumentType::TEXT, true },
       { "value", Ship::ArgumentType::TEXT, true } });
 
+// What the dev console lists for the next word (sturdy-bassoon#292).
+const ConsoleSink::Hints textureMipsHints("mipmaps", R"(
+status           whether mipmaps are active and the level choice
+archive          the prop textures and the levels each uploaded with
+on               mip this mod's scene textures (saved)
+off              plain textures, to compare (saved)
+lod              how sharp a wall at a grazing angle stays
+  max            softest
+  mean           in between
+  aniso          sharpest that still does not crawl
+bias <n>         nudge sharpness, -4 to 4, negative is sharper
+)");
+
 } // namespace

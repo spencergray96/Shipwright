@@ -3326,6 +3326,128 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
     return 1;
 }
 
+// The dev console's hint tree for `agenttest` (sturdy-bassoon#292). A subcommand that forwards to another
+// console command's parser (`agenttest boat ...` runs RsBoatConsole_Run, the `boat` command's own) borrows
+// that command's tree with `=<command>`; the rest are agenttest's own and are written out here.
+const ConsoleSink::Hints agentTestHints("agenttest", R"(
+perf <ticks>             game ticks between fps markers
+state                    where Link is, as a marker
+goto <x> <y> <z> [yaw]   teleport Link to a point
+walk <frames> [sx] [sy] [btn] [at]   hold the left stick for N frames
+walkyaw <frames> <yaw> [mag]   walk toward a world heading
+look <frames> [rx] [ry]  hold the right stick (free look)
+press <buttons> [frames]  tap buttons, default 2 frames
+hold                     keep buttons held between other inputs
+  none                   let everything go
+  <buttons>              comma list, e.g. Z or A,R
+ocarina <notes> [hold] [gap]   play notes: A,CDOWN,CRIGHT,CLEFT,CUP
+song                     play a named ocarina song
+  zelda                  Zelda's Lullaby
+  epona                  Epona's Song
+  saria                  Saria's Song
+  sun                    Sun's Song
+  time                   Song of Time
+  storms                 Song of Storms
+  minuet                 Minuet of Forest
+  bolero                 Bolero of Fire
+  serenade               Serenade of Water
+  requiem                Requiem of Spirit
+  nocturne               Nocturne of Shadow
+  prelude                Prelude of Light
+stats                    roll and sword swing counts
+rooms                    the scene's room transition actors
+time                     set the time of day
+  dawn                   early morning
+  day                    midday
+  dusk                   evening
+  night                  midnight
+  <value>                clock 0..65535, 0x hex ok
+eventflag                read or set a save event flag
+  <flag>                 the flag number, 0x hex ok
+    on                   set it
+    off                  clear it
+sunssong                 start Sun's Song's effect without playing it
+display                  window size against render size
+env                      the outdoor lighting inputs and output
+  lights                 every light setting the scene holds
+camclear                 does the camera's near plane poke through walls
+ray                      line test between two points: kind, from, to
+  projectile <x y z> <x y z>   what arrows, seeds and nuts fly on
+  entity <x y z> <x y z>       what Link's own probes use
+  hookshot <x y z> <x y z>     the hookshot's test, boat walls pass
+  boomerang <x y z> <x y z>    same test as the hookshot
+  camera <x y z> <x y z>       what the camera's line tests use
+  any <x y z> <x y z>          skips nothing
+trace <ticks>            pre and post markers each tick, 0 cancels
+octrace <ticks>          one ocarina marker each tick, 0 cancels
+ocstall                  stall the game during ocarina playback
+  off                    cancel the stall
+  <ms>                   how long to stall, in milliseconds
+    <tick>               playback tick to stall at
+cutscene                 make the next scene load a cutscene entry
+  off                    next load enters plain
+  <layer>                0..15, or an index 0xFFF0..0xFFFF
+fog =fog                 the fog command's options
+tiers                    update far actors less often
+  off                    back to vanilla updating
+  <near> <mid> <n> [mitb] [drawcull]   radii, then every nth tick
+roomdist                 pick the room by nearest centre
+  off                    back to vanilla room switching
+  [hysteresis]           extra distance before a room change
+uncull                   stop camera culling of every live actor
+kill <actor>             remove every live copy of an actor, name or id
+sceneflag <scene> [value]   read or set a scene's chest and switch flags
+worldflag                read or set a project world flag
+  count                  how many flags are set
+  <n>                    read flag n
+    0                    clear it
+    1                    set it
+queststore               the raw quest store, no definitions needed
+  count                  how many entries are touched
+  <id>                   read a quest's status and step mask
+    <status> <mask>      write both, mask accepts 0x hex
+questpred                evaluate one predicate, negate 0 or 1
+  0 <a> <b> <negate>     always true
+  1 <a> <b> <negate>     quest a has status b
+  2 <a> <b> <negate>     quest a has step b set
+  3 <a> <b> <negate>     world flag a is set
+  4 <a> <b> <negate>     all of quest a's steps are set
+  5 <a> <b> <negate>     quest a's prerequisites are met
+quest =quest             the quest command's options
+npc =npc                 the npc command's options
+region =region          the region command's options
+worldctx =worldctx       the worldctx command's options
+swim =swim               the swim command's options
+stairs =stairs           the stairs command's options
+warps =warps             the warps command's options
+interaction =interaction  the interaction command's options
+boat =boat               the boat command's options
+balloon =balloon         the balloon command's options
+rsfire =rsfire           the rsfire command's options
+rsambience =rsambience   the rsambience command's options
+animprop =animprop       the animprop command's options
+lights =lights           the lights command's options
+graph =graph             the graph command's options
+menu =menu               the menu command's options
+music =rsmusic           the rsmusic command's options
+staticbake =staticbake   the staticbake command's options
+colview =colview         the colview command's options
+imgui =imgui             the imgui command's options
+mipmaps =mipmaps         the mipmaps command's options
+keepinput                keep injected input across the next scene load
+  on                     arm it
+  off                    disarm it
+kaleidoinput             let injected input run while paused
+  on                     allow it
+  off                    stand down
+altassets                alternate assets, as the menu checkbox
+  on                     use them
+  off                    use the originals
+save <fileNum>           write the save to slot 0..2
+loadsave <fileNum>       read a save slot back into the game
+mark <text...>           put a note in the marker log
+)");
+
 // ShipInit functions run again whenever a config or preset is loaded, so COND_HOOK (which unregisters
 // its previous hook first) keeps every hook registered exactly once.
 void RegisterAgentTest() {

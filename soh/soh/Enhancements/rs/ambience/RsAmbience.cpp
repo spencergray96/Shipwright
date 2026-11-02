@@ -788,4 +788,18 @@ const ConsoleSink::Command rsAmbienceCommand(
       { "n|emitter", Ship::ArgumentType::TEXT, true },
       { "value", Ship::ArgumentType::TEXT, true } });
 
+// What the dev console shows while `rsambience` is typed (sturdy-bassoon#292): each word's next options.
+const ConsoleSink::Hints rsAmbienceHints("rsambience", R"(
+status                         every emitter, with distance and sound
+on                             switch the area ambience on
+off                            switch the area ambience off
+max [<n>|default]              nearest OoT-sound emitters at once, 0 to 3
+radius                         how far an emitter is heard
+  all [<value>|default]        every emitter, in RS tiles
+  <emitter> [<value>|default]  one emitter, by name from status
+gain                           how loud an emitter is
+  all [<value>|default]        every emitter, 0 to 1
+  <emitter> [<value>|default]  one emitter, by name from status
+)");
+
 } // namespace

@@ -1226,4 +1226,56 @@ const ConsoleSink::Command distanceFogCommand(
       { "clip=<c>|b0", Ship::ArgumentType::TEXT, true },
       { "b1", Ship::ArgumentType::TEXT, true } });
 
+// The dev console's option-per-line hint (sturdy-bassoon#292). Follows the parser above, not the usage string.
+const ConsoleSink::Hints distanceFogHints("fog", R"(
+status                                     the live fog band and every light setting
+off                                        hand the fog back to the scene
+world <start> <end> [r g b] [clip=<c>]     fog linear in world units, clear to start
+edge                                       boundary fog past the playable area
+  status                                   show the boundary fog now
+  off                                      no boundary fog, even if the scene has one
+  scene                                    hand the scene's boundary back
+  rect <x0> <z0> <x1> <z1> [<b0> <b1>]     one hand-set boundary rectangle
+  <b0> <b1>                                ramp from b0 units past the edge to full at b1
+haze                                       the horizon haze band over the sky
+  status                                   show the haze now
+  off                                      switch the band off
+  on                                       switch the band back on
+  scene                                    hand the scene's height and fade back
+  site                                     where the band draws under the sky colour
+    before                                 before the sun and moon (default)
+    after                                  after the sky copy
+  <H> <F>                                  opaque to H degrees, fading out over F more
+sky                                        blend fogged pixels toward the sky
+  status                                   show the sky fog now
+  auto                                     edge layer under world fog with a boundary (default)
+  edge                                     only the boundary fog's share
+  all                                      every fogged pixel
+  on                                       same as all
+  off                                      no sky blend
+  mirror                                   fogged ground takes the mirrored sky
+  clamp                                    fogged ground takes the sky above the horizon
+  dump [<path-prefix>]                     write the sky copy and frame as PPM files
+  hold                                     keep fogging toward the copy already taken
+    on                                     hold the current copy
+    off                                    take a fresh copy every frame
+colour                                     where depth fog gets its colour
+  status                                   show the colour source now
+  auto                                     the live sky above the horizon (default)
+  scene                                    the scene's own fog colour
+  band <lo> <hi>                           degrees above the horizon to sample
+  smooth <seconds>                         how slowly the colour follows the sky
+  snap                                     jump to the sky colour at once
+  reset                                    restart from the scene's fog colour
+  log                                      record the sampled colour to a file
+    on [<path>]                            start logging, default in the TEMP folder
+    off                                    stop logging
+rows <start> <end> <clip>                  make every world-fog row of the scene this one
+znear                                      the near clip plane
+  status                                   show the near plane now
+  off                                      back to the game's 10
+  <n>                                      near plane, 1 to 60
+<near> <far> [r g b] [max=<m>]             vanilla band: fog-space near, far in units
+)");
+
 } // namespace

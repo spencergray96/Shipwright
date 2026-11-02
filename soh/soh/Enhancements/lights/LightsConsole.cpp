@@ -433,4 +433,46 @@ const ConsoleSink::Command lightsCommand(
         Ship::ArgumentType::TEXT },
       { "value", Ship::ArgumentType::TEXT, true } });
 
+// What the dev console lists for the next word (sturdy-bassoon#292).
+const ConsoleSink::Hints lightsHints("lights", R"(
+status                                 lights held, binds walked, Link's lights
+sunfirst                               keep the sun when a light crowd binds
+  on                                   directional lights keep their slots
+  off                                  newest seven lights crowd the sun out
+  default                              back to the built-in rule
+nullbind                               fast bind that visits only directional lights
+  on                                   use the fast bind
+  off                                  walk every node as before
+  default                              back to the built-in choice
+  verify                               check each fast bind against the walk
+    on                                 check this session
+    off                                stop checking
+    plant                              plant a fault to prove the check bites
+pool [<n>]                             cap on light nodes this session
+  default                              back to the full pool
+shadow                                 Link's feet shadows, last 120 ticks
+  clear                                start the record afresh
+shadowsmooth                           feet shadows fade instead of jumping
+  on                                   smooth the shadows
+  off                                  plain, unsmoothed shadows
+  default                              back to the built-in choice
+shadowrate [<k>]                       fade fraction per tick, 0.01 to 1
+  default                              back to 0.12
+shadowpulse [<amount> <seconds>]       slow breathing of each smoothed shadow
+  on                                   breathe
+  off                                  plain fade
+  default                              back to the built-in choice
+shadowinterp                           how interpolation bends one actor's shadow
+  clear                                start the record afresh
+  on                                   world-space interpolation of shadows
+  off                                  matrix interpolation as vanilla
+  default                              back to the built-in choice
+  pair                                 pair each foot shadow with its own light
+    on                                 pair them
+    off                                do not pair them
+    default                            back to the built-in choice
+  probe <actor>                        watch one actor's shadow, for this session
+    link                               watch Link's shadow
+)");
+
 } // namespace

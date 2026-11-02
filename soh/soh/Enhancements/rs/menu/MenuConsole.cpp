@@ -1022,4 +1022,71 @@ const ConsoleSink::Command menuCommand(
         Ship::ArgumentType::TEXT },
       { "argument", Ship::ArgumentType::TEXT, true } });
 
+// The dev console's option-per-line hint (sturdy-bassoon#292). Follows the parser, not the usage string: flight's
+// loop, stop and probe are accepted but unlisted there.
+const ConsoleSink::Hints menuHints("menu", R"(
+open                          open the pause scroll
+close                         slide the scroll shut
+  now                         shut it at once, no slide
+page <n>                      go to page n, counting from 1
+primary                       which menu START opens
+  custom                      the scroll
+  vanilla                     the original pause screen
+sweep                         roll the scroll one page, as a shoulder press does
+  l                           roll left
+  r                           roll right
+  loop                        keep rolling
+  hold <l|r> <tick>           park the roll at a tick
+  stop                        end the loop or hold
+level                         go into a quest's journal and back
+  down                        into the quest under the cursor
+  up                          back out to the quest list
+  loop                        keep going down and up
+  hold <down|up> <tick>       park the gesture at a tick
+  stop                        end the loop or hold
+filler [<n>]                  add n test rows to the quest list
+stress                        replace the page with a dense glyph test
+  off                         end the test and restore everything
+  memo                        flip the texture-path memo to isolate its cost
+    on                        memo on
+    off                       memo off
+  <n> [same]                  n glyphs, optionally all the same one
+cursor                        walk the node graph the cursor moves on
+  left                        move one node left
+  right                       move one node right
+  up                          move one node up
+  down                        move one node down
+  select                      press the node under the cursor
+  <id>                        jump to a node by its id
+probe                         stepped offset to test frame interpolation
+  on                          start the probe
+  off                         stop the probe
+kaleido                       vanilla pause's live cursor
+equips                        the save's equip fields and what Link wears
+hud                           the gameplay HUD as the interface sees it
+flight                        the equip icon's flight (test only)
+  hold <n>                    park the icon after n ticks
+  release                     let it fly on
+  loop                        replay the last flight
+  stop                        end the replay
+  probe                       draw a probe trail on the flight
+    on                        trail on
+    off                       trail off
+song                          the song page's playback and ocarina staves
+inv                           write a sparse inventory (test only)
+  item <slot> <id>            put an item id in an inventory slot
+  equip <bit> <0|1>           give or take an equipment bit
+  upgrade <type> <level>      set an upgrade level
+  quest <bit> <0|1>           give or take a quest item bit
+  sword <bgs> <health>        set the Biggoron flag and sword health
+  age <0|1>                   switch Link's age
+namepanel                     the name panel's custom-name hook (test only)
+  custom <item>               name an item with the Ocarina's name
+  off                         clear the custom name
+timer                         the main countdown timer (test only)
+  off                         stop it
+  <seconds>                   start it at this many seconds
+dump                          everything the menu knows, one line each
+)");
+
 } // namespace

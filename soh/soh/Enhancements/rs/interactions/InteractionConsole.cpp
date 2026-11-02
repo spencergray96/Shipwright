@@ -318,4 +318,14 @@ const ConsoleSink::Command interactionCommand(
       { "cols", Ship::ArgumentType::TEXT, true },
       { "spacing", Ship::ArgumentType::TEXT, true } });
 
+// What the dev console lists for the next word (sturdy-bassoon#292).
+const ConsoleSink::Hints interactionHints("interaction", R"(
+status                                           interaction props in this scene
+list                                             every interaction with code
+describe <id>                                    one interaction's rules, e.g. I-0042
+badcheck                                         prove registration refuses bad rows
+spawn <id> <n> [dist] [cols] [spacing]           a wall of n triggers ahead of Link
+clear                                            remove every interaction prop
+)");
+
 } // namespace

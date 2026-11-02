@@ -488,4 +488,20 @@ const ConsoleSink::Command npcCommand(
     { { "list|dump|tree|resolve|actors|badcheck|arrows|speaker|swing", Ship::ArgumentType::TEXT },
       { "npc id", Ship::ArgumentType::TEXT, true } });
 
+// The dev console's hint tree for the command (sturdy-bassoon#292).
+const ConsoleSink::Hints npcHints("npc", R"(
+list              every registered npc
+dump <id>         one npc's rules, options and live gates
+tree <id>         one npc's dialogue graph and reachability
+resolve <id>      the text the npc would speak right now
+actors            live rs actors in the loaded scene
+badcheck          prove malformed definitions are refused
+arrows            how scroll-list arrows animate
+  bounce          arrows hop up and down
+  fade            arrows fade in and out
+  none            arrows stay still
+speaker           who has the floor in this conversation
+swing [<ticks>]   ticks the camera takes to turn to a speaker
+)");
+
 } // namespace

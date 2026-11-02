@@ -108,4 +108,11 @@ const ConsoleSink::Command colViewerCommand(
     "Popout Collision Viewer, Colour by.",
     { { "status|climb", Ship::ArgumentType::TEXT, true }, { "on|off", Ship::ArgumentType::TEXT, true } });
 
+const ConsoleSink::Hints colViewerHints("colview", R"(
+status                    the viewer's layers, colour mode and counts
+climb                     colour walls by what the ledge climb does
+  on                      show climb colours, switching the viewer on
+  off                     back to class colours, as it was before
+)");
+
 } // namespace

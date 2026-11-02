@@ -467,4 +467,43 @@ const ConsoleSink::Command rsBalloonCommand(
       { "arg4", Ship::ArgumentType::TEXT, true },
       { "arg5", Ship::ArgumentType::TEXT, true } });
 
+// The dev console's hint tree for the command (sturdy-bassoon#292).
+const ConsoleSink::Hints rsBalloonHints("balloon", R"(
+list                          every balloon, oldest first
+spawn [<x> <z> [<yaw> [<h>]]]   a balloon ahead of Link, or at x z
+board [<idx>]                 stand Link at its controls
+controls                      take or let go of the controls
+  on [<idx>]                  take the controls (Link must be aboard)
+  off [<idx>]                 let go of the controls
+drive <thr> <turn> <lift> <ticks>   fly it for some ticks without the pad
+tune                          the handling (saved)
+  default                     put every knob back
+  climb <n>                   top climb rate
+  sink <n>                    top sink rate
+  lift <n>                    how slowly climb and sink build up
+  drift <n>                   sink rate with no button held
+  fwd <n>                     top forward speed
+  accel <n>                   how fast it picks up speed
+  drag <n>                    speed lost a tick while coasting
+  brake <n>                   speed lost with the stick pulled back
+  turn <n>                    turn rate at full stick
+  ceiling <n>                 how high over its launch spot
+  abandonsink <n>             sink rate once left alone
+cam                           the steering camera (saved)
+  on                          use the steering camera
+  off                         keep the normal camera
+  default                     put the camera settings back
+  height <n>                  eye height over the floor
+  dist <n>                    eye distance behind Link
+  ease <n>                    percent of the way it moves a tick
+abandon                       what a balloon does once left alone
+  sink                        sink until it lands (default)
+  hang                        stay where it is
+  home                        go back where it was put down
+field                         Hyrule Field's own balloon (saved)
+  on                          one appears in front of Link on entry
+  off                         none appears
+clear                         kill every balloon
+)");
+
 } // namespace

@@ -215,4 +215,14 @@ const ConsoleSink::Command warpsCommand(
     "`stairs fade` sets its fade too.",
     { { "list|dump|where|maps|status|badcheck", Ship::ArgumentType::TEXT } });
 
+// What the dev console lists for the next word (sturdy-bassoon#292).
+const ConsoleSink::Hints warpsHints("warps", R"(
+list       every scene with warp tiles, and where Link is
+dump       this scene's warp tiles: place, landing, armed or not
+where      Link's position and the warp tile under him
+maps       this scene's grid-tool maps and the one Link is in
+status     the move in progress and the last warp event
+badcheck   prove registration refuses bad warp tables
+)");
+
 } // namespace

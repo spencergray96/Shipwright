@@ -557,4 +557,24 @@ const ConsoleSink::Command animPropCommand(
       { "value", Ship::ArgumentType::TEXT, true },
       { "frames", Ship::ArgumentType::TEXT, true } });
 
+const ConsoleSink::Hints animPropHints("animprop", R"(
+status                    counts of copies, draws and pose changes
+list                      each animated prop, its clock and last pose
+pose                      hold every animated prop on one pose
+  rest                    the still pose, as baked
+  clock                   let them play again
+  <k>                     a pose number, from 0
+reset                     zero the pose-change counts, for a rate
+pick                      where the pose is chosen
+  tick                    once per game tick
+  frame                   once per drawn frame (the default)
+  default                 clear the saved choice
+trace [<idx> <frames>]    log one prop's poses, or read the log
+selftest [plant]          check the tick and frame picks agree
+  plant                   nudge one pose, the test must then fail
+plant                     draw a flip inside a baked list on purpose
+  off                     take the planted list away
+  unheld                  plant a flip the bake never registered
+)");
+
 } // namespace

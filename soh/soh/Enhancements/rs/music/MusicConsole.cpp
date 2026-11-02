@@ -577,4 +577,31 @@ const ConsoleSink::Command musicCommand(
       { "placeholder", Ship::ArgumentType::TEXT, true },
       { "fade_in_sec", Ship::ArgumentType::TEXT, true } });
 
+const ConsoleSink::Hints musicHints("rsmusic", R"(
+status                    the director's state, one group per line
+where                     Link's position and the zone that wins there
+zones                     every zone, its rects and its tracks
+scenes                    which scenes the director is switched on in
+bags                      each zone's shuffled track order
+firstvisit                the one-shot openers and whether each played
+players                   what is on all four sequence players
+on                        switch the zone director on
+off                       switch it off, the vanilla music plays
+dwell <sec>               how long Link stays in a zone before a switch
+fadeout <sec>             fade out of the old track, 0 to 20 seconds
+fadein <sec>              fade into the new track, 0 to 20 seconds
+baseline                  bookmark the transition count for status
+tracks                    every imported track and its sequence number
+testplay <track> <placeholder> [<fade_in_sec>]  play a track on its own
+teststop [<fade_out_sec>]  stop the track from testplay
+combat                    which actors may start combat music
+  status                  the combat music policy and its test list
+  add <actor>             let one actor id start combat music
+  remove <actor>          take an actor id off the test list
+  clear                   empty the test list
+  policy                  who may start combat music in a zone
+    opt_in                only the listed actors do
+    vanilla               every enemy does, as in the base game
+)");
+
 } // namespace

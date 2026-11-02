@@ -2,6 +2,7 @@
 #include "soh/OTRGlobals.h"
 #include "soh/SohGui/UIWidgets.hpp"
 #include "soh/SohGui/SohGui.hpp"
+#include "soh/Enhancements/console/ConsoleSink.h"
 
 void SohConsoleWindow::DrawElement() {
     ImGui::BeginDisabled(CVarGetInteger(CVAR_SETTING("DisableChanges"), 0));
@@ -21,4 +22,8 @@ void SohConsoleWindow::DrawElement() {
     ImGui::PopFont();
     UIWidgets::PopStyleInput();
     ImGui::EndDisabled();
+}
+
+bool SohConsoleWindow::CustomCommandHint(const std::string& input, std::string* hint) {
+    return ConsoleSink::BuildHint(input, hint);
 }

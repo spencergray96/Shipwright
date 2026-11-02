@@ -449,4 +449,32 @@ const ConsoleSink::Command questCommand(
       { "quest id / text", Ship::ArgumentType::TEXT, true },
       { "step / runs", Ship::ArgumentType::TEXT, true } });
 
+// The dev console's hint tree for the command (sturdy-bassoon#292).
+const ConsoleSink::Hints questHints("quest", R"(
+list                     every registered quest
+dump <id>                a quest's steps, requirements and rewards
+start <id>               start a quest
+setstep <id> <step>      mark a step done, in order
+clearstep <id> <step>    mark a step not done
+check <id> <step>        ask whether a step could be set, change nothing
+complete <id>            finish a quest if its steps allow
+force <id>               finish a quest without its steps
+reset <id>               put a quest back to not started
+debugwipe                clear only the debug quests and world flags
+journal                  the journal entry as the player reads it
+  all                    every registered quest
+    runs                 with the spans in each line
+  <id>                   one quest
+    runs                 with the spans in each line
+parse <text>             show how markup in some text is read
+badcheck                 prove malformed quests are refused
+overlay                  the on-screen journal overlay
+  on                     show it
+  off                    hide it
+  all                    show it, tracking every quest
+  <id>                   show it, tracking one quest
+itemart                  which sprite each quest item wears
+pickup <id> <step>       what a step's item says when picked up
+)");
+
 } // namespace

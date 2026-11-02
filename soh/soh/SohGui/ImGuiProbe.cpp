@@ -15,7 +15,7 @@
 namespace ImGuiProbe {
 namespace {
 
-enum class StepType { MouseMove, MouseDown, MouseUp, MousePark, KeyDown, KeyUp };
+enum class StepType { MouseMove, MouseDown, MouseUp, MousePark, KeyDown, KeyUp, Text };
 
 struct Step {
     StepType type;
@@ -25,6 +25,8 @@ struct Step {
     ImGuiKey key = ImGuiKey_None;
     // Written after this step's events are queued, when non-empty.
     std::string doneMarker;
+    // The characters a Text step types.
+    std::string text;
 };
 
 // Everything is touched from the game thread today (widget drawing and console commands both run
@@ -132,6 +134,9 @@ void Apply(const Step& step) {
         case StepType::KeyDown:
         case StepType::KeyUp:
             io.AddKeyEvent(step.key, step.type == StepType::KeyDown);
+            break;
+        case StepType::Text:
+            io.AddInputCharactersUTF8(step.text.c_str());
             break;
     }
 }
@@ -302,6 +307,11 @@ bool QueueKey(const std::string& name) {
     sSteps.push_back({ StepType::KeyDown, 0.0f, 0.0f, 0, key });
     sSteps.push_back({ StepType::KeyUp, 0.0f, 0.0f, 0, key, done });
     return true;
+}
+
+void QueueText(const std::string& text) {
+    std::lock_guard<std::mutex> lock(sMutex);
+    sSteps.push_back({ StepType::Text, 0.0f, 0.0f, 0, ImGuiKey_None, "imgui op=delivered what=text", text });
 }
 
 size_t Pending() {
