@@ -139,8 +139,9 @@ class RsBoatSailsWindow final : public Ship::GuiWindow {
         uint8_t rgb[3];
         SailColour(sail, rgb);
         const uint8_t* picture = RsBoatSail_DrawnPixels(sail);
+        const bool flipped = RsBoatSail_DrawnFlipped(sail) != 0; // as the boat draws it: a matched jib, mirrored
         const std::string key = std::to_string(RsBoatSail_Generation()) + "/" + std::to_string((uintptr_t)picture) +
-                                "/" + std::to_string(rgb[0]) + "," + std::to_string(rgb[1]) + "," +
+                                (flipped ? "/f/" : "/") + std::to_string(rgb[0]) + "," + std::to_string(rgb[1]) + "," +
                                 std::to_string(rgb[2]);
         if (key == mPreviewKey[sail] && gui->HasTextureByName(name)) {
             return name;
@@ -152,9 +153,10 @@ class RsBoatSailsWindow final : public Ship::GuiWindow {
         for (int i = 0; i < size * size; i++) {
             float c[3] = { (float)rgb[0], (float)rgb[1], (float)rgb[2] };
             if (picture != nullptr) {
-                const float a = picture[i * 4 + 3] / 255.0f;
+                const int p = flipped ? (i / size) * size + (size - 1 - i % size) : i;
+                const float a = picture[p * 4 + 3] / 255.0f;
                 for (int k = 0; k < 3; k++) {
-                    c[k] = picture[i * 4 + k] * a + c[k] * (1.0f - a);
+                    c[k] = picture[p * 4 + k] * a + c[k] * (1.0f - a);
                 }
             }
             const uint8_t where = outline.empty() ? 1 : outline[i];

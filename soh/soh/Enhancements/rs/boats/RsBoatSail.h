@@ -34,6 +34,7 @@
 
 // The square a picture is drawn in: generate_props.py's IMAGE_SIZE, which the cloth's texture coordinates fill.
 #define RS_BOAT_SAIL_SIZE 256
+#define RS_BOAT_SAIL_SIZE_LOG2 8 // the tile mask that wraps it, for a flipped picture (RsBoat_PictureMaterial)
 
 #ifdef __cplusplus
 extern "C" {
@@ -64,6 +65,10 @@ int32_t RsBoatSail_Accepted(int32_t sail);
 // picture accepted; NULL for none. A matched jib draws the mainsail's picture on its own texture coordinates. What the
 // boat, the window and the console all show.
 const uint8_t* RsBoatSail_DrawnPixels(int32_t sail);
+// 1 when the sail draws another sail's picture (a `match`: the jib wearing the mainsail's), which it draws mirrored
+// left to right: the jib is the mainsail's mirror image in shape, so unflipped it would show the other half of the
+// picture. Text on the jib then reads backwards from starboard, as the owner chose.
+int32_t RsBoatSail_DrawnFlipped(int32_t sail);
 // The sail's pattern look, the colour under its picture (the sail's, or the jib's), or -1.
 int32_t RsBoatSail_Pattern(int32_t sail);
 // 1 when its file is on disk.

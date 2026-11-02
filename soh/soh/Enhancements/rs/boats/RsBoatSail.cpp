@@ -687,6 +687,17 @@ extern "C" int32_t RsBoatSail_Pattern(int32_t sail) {
     return SailValid(sail) ? kSails[sail].pattern : -1;
 }
 
+static_assert((1 << RS_BOAT_SAIL_SIZE_LOG2) == RS_BOAT_SAIL_SIZE, "RS_BOAT_SAIL_SIZE_LOG2 is the size's log2");
+
+extern "C" int32_t RsBoatSail_DrawnFlipped(int32_t sail) {
+    if (!SailValid(sail) || RsBoatSail_DrawnPixels(sail) == nullptr) {
+        return 0;
+    }
+    int32_t drawnAs = kSails[sail].look;
+    RsBoatFit_LookDrawn(kSails[sail].kind, kSails[sail].look, &drawnAs);
+    return drawnAs != kSails[sail].look ? 1 : 0;
+}
+
 extern "C" const uint8_t* RsBoatSail_DrawnPixels(int32_t sail) {
     if (!SailValid(sail)) {
         return nullptr;
