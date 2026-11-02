@@ -139,4 +139,20 @@ const ConsoleSink::Command graphCommand(
       { "arena|value", Ship::ArgumentType::TEXT, true },
       { "words", Ship::ArgumentType::TEXT, true } });
 
+// What the dev console lists for the next word (sturdy-bassoon#292).
+const ConsoleSink::Hints graphHints("graph", R"(
+status               each arena's use, peak and size, and the fail-safe
+reset                clear the counters and peaks
+cap                  limit an arena for this session
+  opa [<words>]      the opaque draw list
+    default          back to its full size
+  xlu [<words>]      the see-through draw list
+    default          back to its full size
+  overlay [<words>]  the overlay draw list
+    default          back to its full size
+failsafe             skip actors when the lists run nearly full
+  on                 skip them rather than overrun
+  off                draw regardless, as before the fix
+)");
+
 } // namespace

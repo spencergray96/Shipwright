@@ -6,8 +6,10 @@
 
 #include "ConsoleSink.h"
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdio>
+#include <map>
 #include <memory>
 
 #include <ship/Context.h>
@@ -95,6 +97,190 @@ Command::Command(std::string name, RunFn run, std::string description, std::vect
                      },
                       description, arguments });
       }) {
+}
+
+namespace {
+
+struct HintNode {
+    std::string word;
+    // Shown after the word: the values it takes.
+    std::string args;
+    // `=<command>`: the options are that command's.
+    std::string alias;
+    std::string text;
+    std::vector<HintNode> children;
+};
+
+// Function-local so a Hints in another file's static initialisation finds it already constructed.
+std::map<std::string, HintNode>& HintTrees() {
+    static std::map<std::string, HintNode> trees;
+    return trees;
+}
+
+std::vector<std::string> SplitWords(const std::string& s) {
+    std::vector<std::string> words;
+    size_t start = 0;
+    while (start < s.size()) {
+        size_t end = s.find(' ', start);
+        if (end == std::string::npos) {
+            end = s.size();
+        }
+        if (end > start) {
+            words.push_back(s.substr(start, end - start));
+        }
+        start = end + 1;
+    }
+    return words;
+}
+
+bool IsPlaceholder(const std::string& word) {
+    return !word.empty() && (word[0] == '<' || word[0] == '[');
+}
+
+const std::vector<HintNode>& Options(const HintNode& node) {
+    if (!node.alias.empty()) {
+        auto it = HintTrees().find(node.alias);
+        if (it != HintTrees().end()) {
+            return it->second.children;
+        }
+    }
+    return node.children;
+}
+
+std::string Left(const HintNode& node) {
+    return node.args.empty() ? node.word : node.word + " " + node.args;
+}
+
+} // namespace
+
+Hints::Hints(std::string command, const char* spec) {
+    HintNode root;
+    root.word = command;
+    // stack[d] is the node a line indented to depth d belongs to. A sibling's push_back may move the
+    // vector the previous sibling lives in, so the stack is cut back to the parent before it.
+    std::vector<HintNode*> stack{ &root };
+    const std::string text(spec);
+    size_t start = 0;
+    while (start < text.size()) {
+        size_t end = text.find('\n', start);
+        if (end == std::string::npos) {
+            end = text.size();
+        }
+        std::string line = text.substr(start, end - start);
+        start = end + 1;
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        const size_t indent = line.find_first_not_of(' ');
+        if (indent == std::string::npos) {
+            continue;
+        }
+        const size_t depth = std::min(indent / 2, stack.size() - 1);
+        line = line.substr(indent);
+
+        HintNode node;
+        const size_t gap = line.find("  ");
+        const std::string left = line.substr(0, gap);
+        if (gap != std::string::npos) {
+            const size_t explanation = line.find_first_not_of(' ', gap);
+            node.text = explanation == std::string::npos ? "" : line.substr(explanation);
+        }
+        const size_t space = left.find(' ');
+        node.word = left.substr(0, space);
+        if (space != std::string::npos) {
+            node.args = left.substr(space + 1);
+            if (node.args[0] == '=') {
+                node.alias = node.args.substr(1);
+                node.args.clear();
+            }
+        }
+
+        stack.resize(depth + 1);
+        HintNode* parent = stack[depth];
+        parent->children.push_back(std::move(node));
+        stack.push_back(&parent->children.back());
+    }
+    HintTrees()[command] = std::move(root);
+}
+
+bool BuildHint(const std::string& input, std::string* hint) {
+    const std::vector<std::string> words = SplitWords(input);
+    if (words.empty()) {
+        return false;
+    }
+    auto tree = HintTrees().find(words[0]);
+    if (tree == HintTrees().end()) {
+        return false;
+    }
+
+    // The last word is still being typed until a space follows it: it narrows the options rather
+    // than choosing one.
+    const bool typing = input.back() != ' ';
+    const size_t chosen = std::max<size_t>(1, typing ? words.size() - 1 : words.size());
+    const HintNode* node = &tree->second;
+    std::string path = words[0];
+    size_t i = 1;
+    for (; i < chosen; i++) {
+        const HintNode* next = nullptr;
+        for (const HintNode& option : Options(*node)) {
+            if (option.word == words[i]) {
+                next = &option;
+                break;
+            }
+        }
+        if (next == nullptr) {
+            for (const HintNode& option : Options(*node)) {
+                if (IsPlaceholder(option.word)) {
+                    next = &option;
+                    break;
+                }
+            }
+        }
+        // A word with no option of its own (a value for a subcommand's arguments, or a typo) stops
+        // the walk where it is.
+        if (next == nullptr) {
+            break;
+        }
+        node = next;
+        path += " " + words[i];
+    }
+
+    const std::string partial = (typing && i == chosen && words.size() > 1) ? words.back() : "";
+    std::vector<const HintNode*> shown;
+    for (const HintNode& option : Options(*node)) {
+        if (option.word.compare(0, partial.size(), partial) == 0) {
+            shown.push_back(&option);
+        }
+    }
+    // Nothing starts with what is typed: list every option rather than none.
+    if (shown.empty()) {
+        for (const HintNode& option : Options(*node)) {
+            shown.push_back(&option);
+        }
+    }
+
+    std::string out = path;
+    if (!node->args.empty()) {
+        out += " " + node->args;
+    }
+    if (node != &tree->second && !node->text.empty()) {
+        out += " - " + node->text;
+    }
+    // Explanations line up in a column, unless one word is long enough to push it too far out.
+    size_t width = 0;
+    for (const HintNode* option : shown) {
+        width = std::max(width, Left(*option).size());
+    }
+    width = std::min<size_t>(width, 24);
+    for (const HintNode* option : shown) {
+        std::string left = Left(*option);
+        out += "\n  " + left;
+        if (!option->text.empty()) {
+            out += std::string(left.size() < width ? width - left.size() : 0, ' ') + "  " + option->text;
+        }
+    }
+    *hint = out;
+    return true;
 }
 
 } // namespace ConsoleSink

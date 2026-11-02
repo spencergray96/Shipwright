@@ -233,4 +233,23 @@ const ConsoleSink::Command imguiCommand(
     { { "status|dump|click|clickat|key|type", Ship::ArgumentType::TEXT },
       { "argument", Ship::ArgumentType::TEXT, true } });
 
+// What the dev console lists for the next word (sturdy-bassoon#292).
+const ConsoleSink::Hints imguiHints("imgui", R"(
+status                      is the probe armed, items drawn, menu open
+dump [<kind>]               every widget the menu drew last frame
+  header                    collapsing headers
+  sidebar                   sidebar entries
+  checkbox                  tick boxes
+  combo                     drop-down boxes
+  option                    entries inside a drop-down
+  slider                    sliders, with their values
+  dec                       a slider's minus button
+  inc                       a slider's plus button
+  button                    plain buttons
+click [<kind:>] <label>     press the widget with that label
+clickat <x> <y>             press at screen coordinates
+key <name>                  press a key by name, e.g. Escape opens the menu
+type <text>                 type into the focused text box
+)");
+
 } // namespace

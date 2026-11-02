@@ -167,4 +167,17 @@ const ConsoleSink::Command regionCommand(
     { { "get|set|toggle|expand|overlay", Ship::ArgumentType::TEXT },
       { "argument", Ship::ArgumentType::TEXT, true } });
 
+// What the dev console lists for the next word (sturdy-bassoon#292).
+const ConsoleSink::Hints regionHints("region", R"(
+get                 the save's floor convention
+set                 choose how storeys are named
+  uk                ground floor, first floor above it
+  us                first floor is the ground level
+toggle              switch to the other convention
+expand <text>       a sentence read under both conventions
+overlay             the on-screen convention overlay
+  on                show the overlay
+  off               hide the overlay
+)");
+
 } // namespace

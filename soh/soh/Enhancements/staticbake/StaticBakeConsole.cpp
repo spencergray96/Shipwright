@@ -513,4 +513,44 @@ const ConsoleSink::Command staticBakeCommand(
       { "key", Ship::ArgumentType::TEXT, true },
       { "value", Ship::ArgumentType::TEXT, true } });
 
+// The dev console's hint tree for the command (sturdy-bassoon#292).
+const ConsoleSink::Hints staticBakeHints("staticbake", R"(
+status                 the switch, setting and bake counts
+on                     bake rooms and replay them (saved)
+off                    interpret every room, keep the bakes (saved)
+rebake                 record every baked room again
+reset                  free every bake, record this room again
+link <scene> <scene>   join two scenes' bake groups for now
+sort                   order recordings by material
+  on                   sort by material (default)
+  off                  keep list order
+props                  the archive prop lists the group holds
+scroll                 scrolling textures
+  list                 every texture set to scroll
+  clear                stop every scroll
+  <path>               archive path, then du dv [tile 0|1]
+clock                  the clock scrolls and wind read
+  <seconds>            pin it at this time
+  run                  let it run again
+texclear               empty the texture cache
+wind                   wind that sways marked props
+  list                 the wind now
+  reset                the owner's default wind
+  saved                the saved wind
+  amp <n>              swing at the hem in units, 0 stills
+  freq <n>             sway rate in Hz
+  wavelength <n>       distance between waves
+  yaw <n>              direction it blows to, degrees
+  ripple <n>           ripple along the wind
+xlu                    translucent halves of prop lists
+  on                   draw them (default, saved)
+  off                  skip them (saved)
+wobble                 flame fade on marked props
+  list                 the wobble now
+  reset                the default wobble
+  saved                the saved wobble
+  strength <n>         how far alpha falls, 0 to 1
+  speed <n>            fade rate in Hz
+)");
+
 } // namespace

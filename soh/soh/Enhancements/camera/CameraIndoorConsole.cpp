@@ -361,4 +361,46 @@ const ConsoleSink::Command cameraIndoorCommand(
         Ship::ArgumentType::TEXT },
       { "value", Ship::ArgumentType::TEXT, true } });
 
+// What the dev console shows while `camindoor` is typed (sturdy-bassoon#292): each word's next options.
+const ConsoleSink::Hints cameraIndoorHints("camindoor", R"(
+status                  what the indoor check reads right now
+on                      pull the camera in under a low ceiling
+off                     leave the follow distance alone
+scale <f>               follow distance multiplier indoors
+height <f>              ceiling height that counts as indoors
+ease <f>                share of the step taken pulling in
+ring <n>                samples in the check ring, 0 for one
+radius <f>              how wide the check ring is
+bias <f>                how far the ring leans ahead of Link
+k <n>                   samples that must hit to count
+ceilclamp               our ceiling clamp, to bisect a fight
+  on                    clamp the camera under a ceiling
+  off                   no clamp
+floorahead              the floor-ahead correction
+  on                    look at the floor ahead
+  off                   skip it
+probeceil               the ceiling probe correction
+  on                    probe for a ceiling
+  off                   skip it
+corner <f>              how far back a wall hit looks for a ceiling
+hold <f>                extra reach after a ceiling was found
+ledgecap <f>            deepest drop ahead that counts, 0 for none
+ledgerail               ignore a low top with a drop behind it
+  on                    a parapet is not a step up
+  off                   read it as a step up
+ledgeall                ledge rules in vanilla scenes too
+  on                    apply them everywhere
+  off                   grid-tool scenes and boats only
+ledgelean               look down at a ledge edge
+  on                    lean down, up to ledgecap
+  off                   read a drop as level ground
+risewall                a rise behind a wall reads level
+  on                    no dip to look up a prop's tier
+  off                   dip to look up it
+risestage <n>           how much of that rule runs, 1 to 3
+heightt <f>             adult camera height toward the child's
+release <f>             how fast the eye may leave Link per frame
+defaults                put every camera knob back
+)");
+
 } // namespace

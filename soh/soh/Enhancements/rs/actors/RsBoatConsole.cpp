@@ -888,4 +888,105 @@ const ConsoleSink::Command rsBoatCommand(
       { "arg4", Ship::ArgumentType::TEXT, true },
       { "arg5", Ship::ArgumentType::TEXT, true } });
 
+// What the dev console shows while `boat` is typed (sturdy-bassoon#292): each word's next options.
+const ConsoleSink::Hints rsBoatHints("boat", R"(
+list                              every boat, oldest first
+spawn [<x> <z> [<yaw>]]           a boat in front of Link, or at x z
+probe <x> <z>                     the water and floor at a point
+water                             a test waterbox, until the scene reloads
+  <x0>                            first corner x, then z0 x1 z1 y
+  clear                           take the test water away
+board [<idx>]                     stand Link at a boat's tiller
+helm                              take or let go of the tiller
+  on                              take the tiller
+  off                             let go of it
+drive <throttle> <turn> <ticks>   steer the boat at the helm, no pad
+lakehylia                         Lake Hylia's own boat
+  on                              it waits in the lake
+  off                             no boat in the lake
+lakelevel                         fill or drain Lake Hylia
+  full                            the raised lake
+  drained                         the drained lake
+cam                               the steering camera
+  on                              use the steering camera
+  off                             use the normal camera
+  default                         back to the default camera
+  height <n>                      eye height over the deck
+  dist <n>                        distance behind Link
+  ease <n>                        percent it eases in a tick
+hud                               the steering label
+  on                              show it
+  off                             hide it
+climb                             how Link gets onto a rail
+  hop                             the boat's hop
+  hands                           the hands-on climb
+kind                              the hull Lake Hylia's boat and spawn use
+  skiff                           the small boat
+  sloop                           the sailing boat
+  raft                            the raft
+tune                              the boat's handling
+  default                         clear every handling knob
+  fwd <n>                         top speed, 0 for each kind's own
+  rev <n>                         astern share of top speed
+  accel <n>                       how fast it speeds up
+  drag <n>                        how fast it slows down
+  brake <n>                       how hard the brake bites
+  turnstill <n>                   turn rate at rest
+  turnmove <n>                    turn rate at speed
+  steps <n>                       throttle steps, 0 for smooth
+wake                              the trail a moving boat leaves
+  default                         clear every wake knob
+  reset                           zero the effect pool's peak
+  slots                           the soft-sprite table's size
+    default                       the game's own size
+    <n>                           slots, 85 to 512
+  on <0|1>                        the wake on or off
+  spacing <n>                     units between rings
+  size <n>                        times the hull's own size
+  grow <n>                        how much a ring grows at speed
+  lines <n>                       one or two lines
+  bow <0|1>                       the bow wave
+  foam <n>                        share of top speed for a stern splash
+  reserve <n>                     effect slots kept for everything else
+contact [<idx>]                   what the hull's outline meets
+still                             hold every boat level
+  on                              no bob or rock
+  off                             let them bob again
+shadow                            Link's shadow over a boat
+  feet                            under Link's feet, as on land
+  circle                          vanilla's flat shadow
+  draped                          draped over the drawn hull
+  default                         mode, size and anchor back to default
+  reset                           clear the draped shadow's stats
+  size <n>                        percent of his shadow scale
+  anchor                          what the draped shadow follows
+    auto                          pick by the situation
+    hull                          follow the hull
+    link                          follow Link
+  trace                           the draped shadow's recent frames
+clear                             remove every boat
+fitout                            each kind's parts and looks
+  hud                             the readout under the steering label
+    on                            show it
+    off                           hide it
+  reset                           empty the fit-out, as a new save
+  skiff                           just the skiff
+  sloop                           just the sloop
+  raft                            just the raft
+upgrades                          what can be built, and why not
+build <upgrade>                   build one: flag, parts and rupees
+grant <upgrade>                   build one free
+look <kind> [<look> [<option>]]   read or swap a look, such as a sail pattern
+own <kind> <0|1>                  set ownership outright, no rules
+fit <kind> <slot> <tier>          set a part's tier outright, no rules
+sails                             sail pattern files
+  reload                          read the sail folder again
+  import <sail> <path>            take a picture file in as a sail
+  arm <sail|off>                  next dropped file becomes this sail
+  drop <path>                     pretend a file was dropped on the game
+  window                          the Boat Sails window
+    on                            show it
+    off                           hide it
+)");
+
 } // namespace

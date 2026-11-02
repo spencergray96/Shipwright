@@ -130,4 +130,15 @@ const ConsoleSink::Command worldctxCommand(
     "here to test the other world. pick says what a trip to a map would load from here.",
     { { "get|set|pick|scenes", Ship::ArgumentType::TEXT }, { "argument", Ship::ArgumentType::TEXT, true } });
 
+// What the dev console lists for the next word (sturdy-bassoon#292).
+const ConsoleSink::Hints worldctxHints("worldctx", R"(
+get                 the save's current world context
+set                 choose which world a trip into a chunk map loads
+  unset             no world chosen yet
+  solo              the map's own solo scene
+  <scene>           the stitched overworld scene, e.g. 0xA2
+pick <map>          which scene a trip to that map would load
+scenes <map>        every scene that holds that map
+)");
+
 } // namespace

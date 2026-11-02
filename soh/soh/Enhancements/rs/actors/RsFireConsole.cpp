@@ -394,4 +394,43 @@ const ConsoleSink::Command rsFireCommand(
       { "value", Ship::ArgumentType::TEXT, true },
       { "on|off", Ship::ArgumentType::TEXT, true } });
 
+// What the dev console lists for the next word (sturdy-bassoon#292).
+const ConsoleSink::Hints rsFireHints("rsfire", R"(
+list                     every fire: place, size, lit, awake, drawn
+pool                     light nodes in use against the cap
+distance [<n>]           how far ahead of the camera flames draw
+  default                back to the built-in distance
+glow                     halo round each lit fire
+  on                     show the halo
+  off                    no halo
+  default                back to the built-in choice
+pointlights              unlit flames bind point lights
+  on                     bind them, as before
+  off                    ignore point lights
+  default                back to the built-in choice
+directdraw               draw each flame alone, outside the actor draw
+  on                     draw directly
+  off                    draw through the actor as usual
+  default                back to the built-in choice
+reach [<n>]              how far from Link a fire's collider counts
+  off                    every fire in view counts
+  default                back to the built-in reach
+accap [<n>]              collider list cap for this session
+  default                back to the full list
+freeze                   stop actor updates so captures compare
+  on                     freeze the scene
+  off                    let it move again
+probe                    switch off one fire cost, this session
+  clear                  turn every probe off
+  nosound                the fire's sound
+    on                   silence it
+    off                  restore it
+  nocollider             the fire's collider
+    on                   drop it
+    off                  restore it
+  noflame                the flame's drawing
+    on                   hide it
+    off                  restore it
+)");
+
 } // namespace

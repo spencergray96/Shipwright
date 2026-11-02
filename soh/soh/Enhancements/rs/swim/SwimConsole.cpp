@@ -148,4 +148,20 @@ const ConsoleSink::Command swimCommand(
     { { "status|on|off|length|budget|drown|refuge|points", Ship::ArgumentType::TEXT },
       { "argument", Ship::ArgumentType::TEXT, true } });
 
+// What the dev console lists for the next word (sturdy-bassoon#292).
+const ConsoleSink::Hints swimHints("swim", R"(
+status             stamina, phase and where Link would drown to
+on                 swimming drains a stamina budget
+off                swim freely as vanilla
+length             seconds of swimming before drowning
+  <s>              seconds, 1 up to the maximum
+  default          back to the built-in length
+budget <ticks>     set the remaining budget in ticks
+drown              drown Link now
+refuge             where a drowned Link comes back
+  here             use Link's current spot
+  clear            go back to boat or drown point
+points             the drown points and whether each is unlocked
+)");
+
 } // namespace
