@@ -410,7 +410,7 @@ void Read(int32_t sail) {
 }
 
 const char* kReadme =
-    "Boat sail pictures (sturdy-bassoon#287)\n"
+    "Boat sail pictures\n"
     "\n"
     "Put a picture here to draw it on a boat's sail. One file a sail:\n"
     "  raft.png       the raft's sail\n"
