@@ -63,6 +63,23 @@ ActorEntry test_level_room_0_header00_actorList[] = {
     // missing-steps clause on a node. 400 units from 197 along -X and 800 from Link's spawn; the
     // floor runs to +/-2000 on both axes, so it is well inside it.
     { ACTOR_RS_NPC, { -800, 20, -600 }, { 0, 0x4000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_QUEST_MENU) },
+    // The Majora's Mask verbs (sturdy-bassoon#281): prices, journal notices, an item handed over.
+    // 400 units from 198 along +X, the mirror of 199, outside the talk range of anything.
+    { ACTOR_RS_NPC, { 800, 20, -600 }, { 0, -0x4000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_SHOP) },
+    // A scrolling option list (sturdy-bassoon#290): ten options, one gated, and a node of sixteen.
+    // At z=200, 400 units along +X from the twin: outside anyone's talk range.
+    { ACTOR_RS_NPC, { 800, 20, 200 }, { 0, -0x4000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_SCROLL) },
+    // Choice memory (sturdy-bassoon#281): a menu node, a long child list and a level below it. At
+    // x=-800 on the z=200 row, 400 units from 193: outside anyone's talk range.
+    { ACTOR_RS_NPC, { -800, 20, 200 }, { 0, 0x4000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_MEMORY) },
+    // A speaker per screen (sturdy-bassoon#281): 203 owns a conversation 204 speaks in. They stand 120
+    // apart at z=1300, behind the Cook's ingredients, facing -z: Link talking to 203 from in front of it
+    // is ~145 from 204, outside the 110-unit talk range, so only 203 offers. 204 is placed a SECOND time
+    // 1600 units away, so the camera going to the near one shows the nearest placement gets the floor.
+    // 205, the third speaker, is registered and never placed anywhere.
+    { ACTOR_RS_NPC, { -800, 20, 1300 }, { 0, -0x8000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_SPEAKER_A) },
+    { ACTOR_RS_NPC, { -680, 20, 1300 }, { 0, -0x8000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_SPEAKER_B) },
+    { ACTOR_RS_NPC, { 800, 20, 1300 }, { 0, -0x8000, 0 }, RS_NPC_PARAMS(NPC_DEBUG_SPEAKER_B) },
 
     // Step 0 of the giver's quest. Its sibling (step 1) is in terrain_f2p_step2, so finishing the
     // quest requires both scenes — which is what makes "advancing in one scene is reflected in the

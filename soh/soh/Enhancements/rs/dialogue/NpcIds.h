@@ -71,6 +71,20 @@ typedef enum NpcId {
                                 // and the missing-steps clause on a node covered each of the three
                                 // ways registration accepts one. "Ask about the job, hear what is
                                 // left, back to the menu".
+    NPC_DEBUG_SHOP = 200, // the Majora's Mask verbs (sturdy-bassoon#281): a price behind
+                          // RupeesAtLeast and one nobody can pay, wares sold with BUY_ITEM, an
+                          // errand whose start and completion each show a journal notice, and an
+                          // item handed over with GIVE_ITEM that re-opens the conversation.
+    NPC_DEBUG_SCROLL = 201, // a SCROLLING option list (sturdy-bassoon#290): ten options on its
+                            // entry rule, one gated, and a node with sixteen - the cap.
+    NPC_DEBUG_MEMORY = 202, // CHOICE MEMORY (sturdy-bassoon#281): a menu node, a sixteen-option child
+                            // and a third level, each with ways back up, so a return restores the
+                            // pick and a second visit to a child is fresh.
+    NPC_DEBUG_SPEAKER_A = 203, // A SPEAKER PER SCREEN (sturdy-bassoon#281): the owner of a conversation
+                               // with two speakers, placed beside 204 - whose lines move the camera
+    NPC_DEBUG_SPEAKER_B = 204, // the second speaker of 203's conversation, placed TWICE: beside 203 and
+                               // far away, so the nearer placement is the one that gets the floor
+    NPC_DEBUG_SPEAKER_ABSENT = 205, // registered and never placed: the speaker who does not turn up
 } NpcId;
 
 #define NPC_ID_IS_VALID(id) ((id) >= 0 && (id) < NPC_MAX)
@@ -97,5 +111,17 @@ RS_STATIC_ASSERT(NPC_DEBUG_PAGE >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_PAGE < NPC_MA
                  "NPC_DEBUG_PAGE must sit in the debug band");
 RS_STATIC_ASSERT(NPC_DEBUG_QUEST_MENU >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_QUEST_MENU < NPC_MAX,
                  "NPC_DEBUG_QUEST_MENU must sit in the debug band");
+RS_STATIC_ASSERT(NPC_DEBUG_SHOP >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_SHOP < NPC_MAX,
+                 "NPC_DEBUG_SHOP must sit in the debug band");
+RS_STATIC_ASSERT(NPC_DEBUG_SCROLL >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_SCROLL < NPC_MAX,
+                 "NPC_DEBUG_SCROLL must sit in the debug band");
+RS_STATIC_ASSERT(NPC_DEBUG_MEMORY >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_MEMORY < NPC_MAX,
+                 "NPC_DEBUG_MEMORY must sit in the debug band");
+RS_STATIC_ASSERT(NPC_DEBUG_SPEAKER_A >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_SPEAKER_A < NPC_MAX,
+                 "NPC_DEBUG_SPEAKER_A must sit in the debug band");
+RS_STATIC_ASSERT(NPC_DEBUG_SPEAKER_B >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_SPEAKER_B < NPC_MAX,
+                 "NPC_DEBUG_SPEAKER_B must sit in the debug band");
+RS_STATIC_ASSERT(NPC_DEBUG_SPEAKER_ABSENT >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_SPEAKER_ABSENT < NPC_MAX,
+                 "NPC_DEBUG_SPEAKER_ABSENT must sit in the debug band");
 
 #endif // SOH_RS_NPC_IDS_H

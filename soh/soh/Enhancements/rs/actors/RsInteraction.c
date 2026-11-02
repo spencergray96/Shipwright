@@ -123,6 +123,7 @@ static void RsInteraction_Wait(RsInteraction* this, PlayState* play) {
         // (Player opened the box earlier this tick), so the two agree on the rule.
         this->ruleIndex = RsDialogue_ResolveRule(RsInteraction_GetDef(this->interactionId));
         this->checks++;
+        RsDialogue_NoticeReset(); // a new check: nothing an earlier conversation left is its to show
         RsInteraction_Mark(this, "open");
         this->actionFunc = RsInteraction_Talk;
         return;
@@ -140,6 +141,24 @@ static void RsInteraction_Wait(RsInteraction* this, PlayState* play) {
 static void RsInteraction_End(RsInteraction* this) {
     RsInteraction_Mark(this, "close");
     this->actionFunc = RsInteraction_Wait;
+}
+
+// A journal notice queued by this check's options, as its next box (RsNpc's rule, sturdy-bassoon#281):
+// asked wherever the check would otherwise end, so the queue is shown before it does. 1 when a box
+// was opened.
+static s32 RsInteraction_ShowNotice(RsInteraction* this, PlayState* play) {
+    char line[128];
+    s32 questId;
+    s32 kind;
+
+    if (!RsDialogue_NoticeTake(&questId, &kind)) {
+        return 0;
+    }
+    snprintf(line, sizeof(line), "rs_interaction id=%d event=notice quest=%d kind=%s", this->interactionId,
+             (int)questId, Quest_NoticeKindName(kind));
+    RsAgent_Marker(line);
+    Message_ContinueTextbox(play, RS_TEXT_NOTICE_ID(questId, kind));
+    return 1;
 }
 
 static void RsInteraction_GoToNode(RsInteraction* this, PlayState* play, s32 head) {
@@ -181,6 +200,7 @@ static void RsInteraction_Talk(RsInteraction* this, PlayState* play) {
     u16 openId = play->msgCtx.textId;
     s32 slots[RS_DIALOGUE_MAX_OPTIONS];
     s32 visibleCount;
+    s32 scroll;
     s32 slot = -1;
     s32 choice;
     s32 declared;
@@ -200,19 +220,23 @@ static void RsInteraction_Talk(RsInteraction* this, PlayState* play) {
         if (screen == NULL) {
             return; // a reply box, or not ours
         }
-        // The cursor counts VISIBLE rows; map it back through the list the renderer laid out.
+        // The cursor counts VISIBLE rows from the top of the window (a long list scrolls, #290); map
+        // it back through the list the renderer laid out.
         visibleCount = RsNpc_VisibleOptions(screen, slots, RS_DIALOGUE_MAX_OPTIONS);
-        choice = play->msgCtx.choiceIndex;
+        scroll = RsText_ChoiceScroll();
+        choice = play->msgCtx.choiceIndex + scroll;
         if (choice < 0 || choice >= visibleCount) {
             return;
         }
         declared = slots[choice];
         option = &screen->options[declared];
+        RsText_RememberChoice(declared); // for a return to this screen (sturdy-bassoon#281)
         result = RsNpc_RunAction(option);
         snprintf(line, sizeof(line),
-                 "rs_interaction id=%d event=choice slot=%d index=%d option=%d action=%s a=%d result=%s next=%d",
+                 "rs_interaction id=%d event=choice slot=%d index=%d option=%d action=%s a=%d result=%s next=%d "
+                 "scroll=%d",
                  this->interactionId, (int)slot, (int)choice, (int)declared, RsNpc_ActionName(option->kind),
-                 option->a, Quest_ResultName(result), (int)option->next);
+                 option->a, Quest_ResultName(result), (int)option->next, (int)scroll);
         RsAgent_Marker(line);
         if (option->reply != NULL) {
             // The reply's id names this screen and this option, so the hook composes it from the
@@ -220,7 +244,7 @@ static void RsInteraction_Talk(RsInteraction* this, PlayState* play) {
             Message_ContinueTextbox(play, RS_TEXT_INTERACTION_REPLY_ID(slot, declared));
         } else if (option->next != RS_DLG_NO_NEXT) {
             RsInteraction_GoToNode(this, play, option->next);
-        } else {
+        } else if (!RsInteraction_ShowNotice(this, play)) {
             Message_CloseTextbox(play);
             RsInteraction_End(this);
         }
@@ -242,6 +266,9 @@ static void RsInteraction_Talk(RsInteraction* this, PlayState* play) {
                 RsInteraction_GoToNode(this, play, screen->next);
                 return;
             }
+        }
+        if (RsInteraction_ShowNotice(this, play)) {
+            return;
         }
         RsInteraction_End(this);
     }

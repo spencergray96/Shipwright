@@ -34,8 +34,42 @@ typedef enum RsDialogueActionKind {
     RS_DLG_ACTION_COMPLETE_QUEST = 2, // a = QuestId -> Quest_Complete (COMPLETE-before-rewards, D12,
                                       // so a second one is `already_complete` and grants nothing)
     RS_DLG_ACTION_SET_WORLD_FLAG = 3, // a = WorldFlagId -> Flags_SetWorldFlag
+    // a = RS_DLG_ITEM(questId, step): the NPC hands Link that quest step's item (sturdy-bassoon#281).
+    // Picking it only CHECKS the step (Quest_CheckSetStep); the step is SET when Link accepts the item,
+    // after the conversation closes, exactly as a get-item quest item sets its own. So the order is
+    // action check -> reply -> any journal notices -> the box closes -> the offer -> Player's get-item
+    // ceremony and pickup box (Quest_ComposePickupText) -> the conversation re-opens on `next`, with no
+    // A press, or ends if `next` is RS_DLG_NO_NEXT. A refused check gives nothing and the conversation
+    // carries on as for any other refusal. RsNpc only: an interaction refuses it at registration.
+    RS_DLG_ACTION_GIVE_ITEM = 4,
+    // a = price, 1..QUEST_RUPEE_AMOUNT_MAX (sturdy-bassoon#281). Refused as QUEST_ERR_CANNOT_AFFORD when Link holds less
+    // (Quest_RupeesAfterPending), and then nothing is taken. The price lives HERE, in the definition, so
+    // `npc dump` prints it - Majora's Mask keeps a shop's prices in the message header, where no tool
+    // sees them. Gate the option on RupeesAtLeast(price) so a player who cannot pay never sees it.
+    RS_DLG_ACTION_CHARGE_RUPEES = 5,
+    // a = RS_DLG_BUY(questId, step, price): a SALE in one pick (sturdy-bassoon#281) - GIVE_ITEM's hand-over,
+    // paid for. Picking it checks both halves (the step can be set, Link can afford the price) and
+    // takes nothing; the rupees go when Link ACCEPTS the item, in the same breath as the step is set.
+    // So a sale is all or nothing: a hand-over withdrawn or lost to a scene change charges nothing,
+    // and there is no screen between paying and receiving for the player to leave by. Refused as
+    // QUEST_ERR_CANNOT_AFFORD when short; gate it on RupeesAtLeast(price) as well, so a player who
+    // cannot pay never sees it. RsNpc only, like GIVE_ITEM.
+    RS_DLG_ACTION_BUY_ITEM = 6,
     RS_DLG_ACTION_KIND_COUNT,
 } RsDialogueActionKind;
+
+// GIVE_ITEM's operand: a quest and one of its steps, packed as the pickup text id packs them, so one
+// int names the item an RsQuestItem placement of the same (quest, step) would be. Eleven bits.
+#define RS_DLG_ITEM(questId, step) ((int32_t)(((questId) << 5) | (step)))
+#define RS_DLG_ITEM_GET_QUEST(a) ((int32_t)((a) >> 5))
+#define RS_DLG_ITEM_GET_STEP(a) ((int32_t)((a)&31))
+
+// BUY_ITEM's operand: the price above the item, so the item half reads back through the RS_DLG_ITEM
+// getters. 15 bits of price over 11 of item is 26 bits: positive in an int32 for every legal price.
+#define RS_DLG_ITEM_BITS 11
+#define RS_DLG_BUY(questId, step, price) ((int32_t)(((price) << RS_DLG_ITEM_BITS) | RS_DLG_ITEM(questId, step)))
+#define RS_DLG_BUY_GET_ITEM(a) ((int32_t)((a) & ((1 << RS_DLG_ITEM_BITS) - 1)))
+#define RS_DLG_BUY_GET_PRICE(a) ((int32_t)((a) >> RS_DLG_ITEM_BITS))
 
 typedef struct RsDialogueOption {
     const char* label;         // the choice line; never NULL
@@ -68,13 +102,43 @@ typedef struct RsDialogueOption {
     // after it: an option row that says nothing about gating is an ungated option, and that is what
     // every row written before #96 meant.
     //
-    // Gating can only ever HIDE. The declared count is still capped at RS_DIALOGUE_MAX_OPTIONS, so
-    // the visible count can never exceed what registration already measured, and every pixel-width
-    // check stands unchanged. What it CAN do is take a four-option screen down to one, which is a
-    // textbox OoT does not have - see the two-ungated rule in NpcDialogue.cpp.
+    // Gating can only ever HIDE. The declared count is still capped at RS_DIALOGUE_MAX_OPTIONS, and
+    // the box never shows more than RS_DIALOGUE_WINDOW_OPTIONS of them (a longer list scrolls,
+    // sturdy-bassoon#290), so every pixel-width check stands unchanged. What it CAN do is take a
+    // screen down to one, which is a textbox OoT does not have - see the two-ungated rule in
+    // NpcDialogue.cpp.
     const QuestPredicate* when;
     int32_t whenCount;
+
+    // JOURNAL NOTICE, OPT-IN (sturdy-bassoon#281). RS_DLG_NOTICE shows the "New quest" / "Quest
+    // updated" / "Quest complete" box this option's action would earn; 0 - the value-initialised
+    // default, so every row that says nothing - shows none. A developer's choice per option, not a
+    // player setting: notices on every step get tiresome, so a quest turns them on where they earn
+    // their place. Only START_QUEST, COMPLETE_QUEST, GIVE_ITEM and BUY_ITEM can earn one;
+    // registration refuses the flag on any other action, where it could never fire. The action's
+    // own rules still apply when it is set: a sale for a quest not started shows nothing.
+    int32_t notice;
+
+    // WHO SPEAKS THE REPLY (sturdy-bassoon#281, a speaker per screen). RS_DLG_SPEAKER(npcId) hands the
+    // camera, and Link's attention, to that character while the reply is open; 0 - the
+    // value-initialised default, so every row that says nothing - is the SCREEN's speaker, so an
+    // option names nobody unless the answer comes from someone other than whoever asked. Which
+    // option the player picks therefore decides who answers. Refused on an option with no reply
+    // (nothing would ever speak it) and on an interaction's option (RsSpeaker.h says why).
+    int32_t replySpeaker;
 } RsDialogueOption;
+
+// RsDialogueOption.notice's "on". Spelled out so a row reads `..., nullptr, 0, RS_DLG_NOTICE }`.
+#define RS_DLG_NOTICE 1
+
+// A SPEAKER (sturdy-bassoon#281): RsDialogueRule.speaker and RsDialogueOption.replySpeaker. Stored as
+// the NpcId PLUS ONE, so that 0 - what a brace list that stops early leaves behind - means "the
+// default" rather than NPC_COOK, who is NpcId 0. The default is the conversation's OWNER on a screen
+// (the character Link talked to) and the screen's own speaker on a reply. Naming the owner outright
+// is allowed, and is how an alternating conversation reads best.
+#define RS_DLG_SPEAKER(npcId) ((int32_t)((npcId) + 1))
+#define RS_DLG_SPEAKER_DEFAULT 0
+#define RS_DLG_SPEAKER_GET_ID(speaker) ((int32_t)((speaker)-1)) // -1 for the default
 
 typedef struct RsDialogueRule {
     // Visible when EVERY predicate here is true. A count of 0 means unconditional - the list is
@@ -140,6 +204,19 @@ typedef struct RsDialogueRule {
     // THERE IS NO SAFE DEFAULT, for the reason RsDialogueOption.next gives: a value-initialised 0
     // is node 0. Every rule row and node row in the tree states it.
     int32_t next; // RS_DLG_NO_NEXT = close when dismissed; otherwise a node index (see "node groups")
+
+    // WHO SPEAKS THIS SCREEN (sturdy-bassoon#281). RS_DLG_SPEAKER(npcId), or 0 for the conversation's
+    // owner - the character Link talked to, which is what every screen written before this meant. The
+    // owner still runs the conversation: its rules, its tree, its gifts. The speaker only gets the
+    // camera and Link's attention while this screen is open, through Player's talk and focus actors
+    // (actors/RsSpeaker.h). It is NOT part of the screen's text id, so a screen's identity - which
+    // choice memory and a scroll's re-layout key on - does not depend on who says it.
+    //
+    // SAFE TO APPEND: a row that stops at `next` value-initialises this to 0, the owner. The registry
+    // checks the id is in range at registration and that it is registered once every character has
+    // registered (RsNpc_CheckSpeakers); whether that character is PLACED in the scene is a runtime
+    // fact, and a speaker who is not there leaves the owner speaking, with a marker that says so.
+    int32_t speaker;
 } RsDialogueRule;
 
 // A NODE is the same shape as a rule - a body plus up to four options - reached only by an EDGE
@@ -184,7 +261,14 @@ typedef struct RsNpcDef {
 } RsNpcDef;
 
 #define RS_DIALOGUE_MAX_RULES 32
-#define RS_DIALOGUE_MAX_OPTIONS 4
+
+// TWO numbers since sturdy-bassoon#290, which used to be one. The MODEL caps a screen at 16 options;
+// the BOX shows four of them at once - a body row plus four choice rows is all that fits above the
+// letterbox - and a screen offering more SCROLLS: Down on the bottom row moves the list up by one,
+// Up on the top row moves it down (RsActors.cpp). Only the window is a renderer fact; the cap is an
+// array size, and raising it is a recompile plus the interaction reply band (InteractionIds.h).
+#define RS_DIALOGUE_MAX_OPTIONS 16
+#define RS_DIALOGUE_WINDOW_OPTIONS 4
 
 // Symmetric with the rule cap, and raisable into the id band's tail later. Unlike the rule cap
 // this one is cheap to raise: NO NODE ID IS BAKED INTO A SCENE FILE (only an NpcId is - see
@@ -200,11 +284,13 @@ typedef struct RsNpcDef {
 
 // --- text ids -----------------------------------------------------------------------------------
 //
-// The band is 0xA000..0xF01F, in seven pieces: entry rules (0xA000..0xBFFF), the one direct-text id
-// (0xC000), interaction screens (0xC100..0xC27F, #183 - defined in interactions/InteractionIds.h,
+// The band is 0xA000..0xF4FF, in nine pieces: entry rules (0xA000..0xBFFF), the one direct-text id
+// (0xC000), interaction screens (0xC100..0xC13F, #183 - defined in interactions/InteractionIds.h,
 // which asserts it clear of its neighbours), staircase menus (0xC400..0xC403, #147; 0xC404..0xC7FF freed by #214 - defined in
-// stairs/StairDef.h, which asserts it clear of its neighbours), quest-item pickups (0xC800..0xCFFF, #99), nodes (0xD000..0xEFFF, #96)
-// and the reply-then-navigate ids (0xF000..0xF01F, #96).
+// stairs/StairDef.h, which asserts it clear of its neighbours), journal notices (0xC600..0xC6FF, #281),
+// quest-item pickups (0xC800..0xCFFF, #99), nodes (0xD000..0xEFFF, #96)
+// and the reply-then-navigate ids (0xF000..0xF01F, #96). Above them, interaction replies
+// (0xF100..0xF4FF, moved there by #290 - InteractionIds.h).
 // SoH's own highest custom id is 0x9215
 // (Enhancements/custom-message/CustomMessageTypes.h), and nothing in Message_OpenText's
 // special-case ladder (z_message_PAL.c) touches this range - and `loadFromMessageTable = false`
@@ -249,6 +335,23 @@ typedef struct RsNpcDef {
 #define RS_TEXT_ITEM_GET_STEP(textId) ((int32_t)(((textId)-RS_TEXT_ITEM_BASE) & (QUEST_STEP_MAX - 1)))
 #define RS_TEXT_ITEM_END (RS_TEXT_ITEM_BASE + (QUEST_MAX << RS_TEXT_ITEM_SHIFT) - 1)
 #define RS_TEXT_IS_ITEM(textId) ((textId) >= RS_TEXT_ITEM_BASE && (textId) <= RS_TEXT_ITEM_END)
+
+// --- the JOURNAL NOTICE band (sturdy-bassoon#281) ------------------------------------------------
+//
+//     0xC600 + (questId << 2) + kind    64 quests x 4 kinds (3 used)  ->  0xC600..0xC6FF
+//
+// A notice box carries its quest and kind in its id, as a pickup box does, and the OnOpenText hook
+// composes it from the definition (Quest_ComposeJournalNotice). So neither speaker touches the
+// direct-text slot for one - which an interaction never may (RsInteraction.c) - and dismissing it
+// decodes as no screen of anyone's, which is what sends the speaker back to its way out to ask for
+// the next one.
+#define RS_TEXT_NOTICE_BASE 0xC600
+#define RS_TEXT_NOTICE_SHIFT 2
+#define RS_TEXT_NOTICE_ID(questId, kind) ((uint16_t)(RS_TEXT_NOTICE_BASE + ((questId) << RS_TEXT_NOTICE_SHIFT) + (kind)))
+#define RS_TEXT_NOTICE_GET_QUEST(textId) ((int32_t)(((textId)-RS_TEXT_NOTICE_BASE) >> RS_TEXT_NOTICE_SHIFT))
+#define RS_TEXT_NOTICE_GET_KIND(textId) ((int32_t)(((textId)-RS_TEXT_NOTICE_BASE) & ((1 << RS_TEXT_NOTICE_SHIFT) - 1)))
+#define RS_TEXT_NOTICE_END (RS_TEXT_NOTICE_BASE + (QUEST_MAX << RS_TEXT_NOTICE_SHIFT) - 1)
+#define RS_TEXT_IS_NOTICE(textId) ((textId) >= RS_TEXT_NOTICE_BASE && (textId) <= RS_TEXT_NOTICE_END)
 
 // --- the NODE band (sturdy-bassoon#96 P1) -------------------------------------------------------
 //
@@ -303,9 +406,13 @@ RS_STATIC_ASSERT(RS_DIALOGUE_MAX_NODES == (1 << RS_TEXT_NODE_SHIFT),
 RS_STATIC_ASSERT(RS_TEXT_NPC_END < RS_TEXT_DIRECT,
                  "raising NPC_MAX must not push an NPC text id onto RS_TEXT_DIRECT");
 RS_STATIC_ASSERT(RS_TEXT_DIRECT < RS_TEXT_NODE_BASE, "the node band must start above RS_TEXT_DIRECT");
+RS_STATIC_ASSERT(QUEST_STEP_MAX == 32, "RS_DLG_ITEM's step field is five bits");
+RS_STATIC_ASSERT(QUEST_MAX << 5 == 1 << RS_DLG_ITEM_BITS, "RS_DLG_ITEM fills exactly RS_DLG_ITEM_BITS bits");
 RS_STATIC_ASSERT(QUEST_STEP_MAX == (1 << RS_TEXT_ITEM_SHIFT),
                  "the item text id's step field width and QUEST_STEP_MAX are the same number");
 RS_STATIC_ASSERT(RS_TEXT_DIRECT < RS_TEXT_ITEM_BASE, "the item pickup band must start above RS_TEXT_DIRECT");
+RS_STATIC_ASSERT(RS_TEXT_NOTICE_END < RS_TEXT_ITEM_BASE,
+                 "raising QUEST_MAX must not push a journal notice id onto the item pickup band");
 RS_STATIC_ASSERT(RS_TEXT_ITEM_END < RS_TEXT_NODE_BASE,
                  "raising QUEST_MAX must not push an item pickup text id onto the node band");
 RS_STATIC_ASSERT(RS_TEXT_NODE_END < RS_TEXT_REPLY_TO_NODE_BASE,
@@ -313,8 +420,9 @@ RS_STATIC_ASSERT(RS_TEXT_NODE_END < RS_TEXT_REPLY_TO_NODE_BASE,
 // 0xFFFF and 0xFFFD are message-table terminators (z_message_PAL.c) and must stay clear.
 RS_STATIC_ASSERT(RS_TEXT_REPLY_TO_NODE_END < 0xFFFD, "the reply-to-node band must stay clear of the table terminators");
 // Four is the box, not the model. A choice puts one option per row and the body needs a row of its
-// own, so five options need six rows; six rows is 96px, and the LOWER box position starts at y=142
-// on a 240px screen. Raising this again means moving the box, not adding another control code.
-RS_STATIC_ASSERT(RS_DIALOGUE_MAX_OPTIONS <= 4, "the four-way is the widest choice the textbox renders");
+// own, so five rows of options need six rows; six rows is 96px, and the LOWER box position starts at
+// y=142 on a 240px screen. More options than four scroll through this window (#290) instead.
+RS_STATIC_ASSERT(RS_DIALOGUE_WINDOW_OPTIONS == 4, "the four-way is the widest choice the textbox renders");
+RS_STATIC_ASSERT(RS_DIALOGUE_MAX_OPTIONS >= RS_DIALOGUE_WINDOW_OPTIONS, "a screen holds at least what the box shows");
 
 #endif // SOH_RS_NPC_DIALOGUE_DEF_H

@@ -195,12 +195,12 @@ static void RsQuestItem_ReportCollect(RsQuestItem* this, s32 result) {
 //                        Randomizer_Item_Give
 //   gi 1                 Player draws a held item only while unk_862 = |gi| is positive
 //   drawFunc             our sprite, instead of a vanilla get-item model
-static GetItemEntry RsQuestItem_GetItemEntry(RsQuestItem* this) {
+static GetItemEntry RsQuestItem_GetItemEntryFor(s32 questId, s32 step) {
     GetItemEntry entry = GET_ITEM_NONE;
 
     entry.itemId = ITEM_NONE;
     entry.gi = 1;
-    entry.textId = RS_TEXT_ITEM_ID(this->questId, this->step);
+    entry.textId = RS_TEXT_ITEM_ID(questId, step);
     entry.objectId = OBJECT_GAMEPLAY_KEEP;
     entry.modIndex = MOD_NONE;
     entry.tableId = MOD_NONE;
@@ -212,6 +212,10 @@ static GetItemEntry RsQuestItem_GetItemEntry(RsQuestItem* this) {
     entry.drawModIndex = MOD_NONE;
     entry.drawFunc = RsQuestItem_DrawHeld;
     return entry;
+}
+
+s32 RsQuestItem_OfferFrom(Actor* giver, PlayState* play, s32 questId, s32 step, f32 xzRange, f32 yRange) {
+    return GiveItemEntryFromActor(giver, play, RsQuestItem_GetItemEntryFor(questId, step), xzRange, yRange);
 }
 
 static void RsQuestItem_Wait(RsQuestItem* this, PlayState* play) {
@@ -245,8 +249,8 @@ static void RsQuestItem_Wait(RsQuestItem* this, PlayState* play) {
     if (this->style == RS_ITEM_STYLE_GET_ITEM) {
         // An offer, not a collection: Player decides on its own update, next frame, and may decline
         // (Link mid-air, carrying something). Made every frame for that reason, as vanilla does.
-        GiveItemEntryFromActor(&this->actor, play, RsQuestItem_GetItemEntry(this), RS_ITEM_COLLECT_RANGE,
-                               RS_ITEM_COLLECT_HEIGHT);
+        RsQuestItem_OfferFrom(&this->actor, play, this->questId, this->step, RS_ITEM_COLLECT_RANGE,
+                              RS_ITEM_COLLECT_HEIGHT);
         return;
     }
 

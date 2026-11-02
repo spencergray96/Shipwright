@@ -25,6 +25,9 @@
 // zero-initialised POD array, so there is no static-initialisation-order hazard with the
 // RegisterShipInitFunc objects that call RsNpc_Register.
 static std::array<const RsNpcDef*, NPC_MAX> sDefs = {};
+// How many definitions have registered, ever: RsNpc_CheckSpeakers asks the registry again only when
+// this has moved. A plain int for the same initialisation-order reason as the array.
+static int32_t sRegistrations = 0;
 
 namespace {
 
@@ -160,6 +163,11 @@ bool CheckPredicate(char* buf, size_t len, const char* where, const QuestPredica
                 return Problem(buf, len, "%s: boat predicate operands %d, %d out of range", where, p.a, p.b);
             }
             break;
+        case QUEST_PRED_RUPEES_AT_LEAST:
+            if (p.a < 0 || p.a > QUEST_RUPEE_AMOUNT_MAX) {
+                return Problem(buf, len, "%s: RupeesAtLeast amount %d out of range", where, p.a);
+            }
+            break;
         default:
             return Problem(buf, len, "%s: unknown predicate kind %d", where, static_cast<int>(p.kind));
     }
@@ -198,6 +206,32 @@ struct ScreenRef {
     int32_t kind; // RS_SCREEN_RULE or RS_SCREEN_NODE
     int32_t index;
 };
+
+// How far a SPEAKER (#281) is checked. Registration can only ask for the range: characters register
+// from several translation units' ShipInit functions in no defined order, so "is NPC 204 registered"
+// has no stable answer while NPC 203 registers. Once every one of them has run, the registry is
+// whole and the question has one - which is when RsNpc_CheckSpeakers and `npc badcheck` ask it.
+enum class SpeakerCheck {
+    Range,
+    Registered,
+};
+
+// One speaker field: the default, or RS_DLG_SPEAKER of an NpcId in range - and, when the registry is
+// whole, of one that is registered. The owner naming itself is always fine, registered or not yet.
+bool CheckSpeaker(char* buf, size_t len, const char* where, int32_t speaker, const RsNpcDef* def,
+                  SpeakerCheck check) {
+    if (speaker == RS_DLG_SPEAKER_DEFAULT) {
+        return true;
+    }
+    const int32_t id = RS_DLG_SPEAKER_GET_ID(speaker);
+    if (!NPC_ID_IS_VALID(id)) {
+        return Problem(buf, len, "%s: speaker %d is neither RS_DLG_SPEAKER(<npc id>) nor 0", where, speaker);
+    }
+    if (check == SpeakerCheck::Registered && id != def->id && !RsNpc_IsRegistered(id)) {
+        return Problem(buf, len, "%s: speaker npc %d is not registered", where, id);
+    }
+    return true;
+}
 
 // --- graph helpers (#96) -------------------------------------------------------------------------
 //
@@ -416,7 +450,8 @@ void ComputeArrivalGates(const RsNpcDef* def, std::bitset<QUEST_MAX>* arrival) {
     }
 }
 
-bool CheckOption(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& ref, int32_t index) {
+bool CheckOption(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& ref, int32_t index,
+                 SpeakerCheck speakers) {
     const char* word = RsNpc_ScreenKindName(ref.kind);
     const int32_t screenIndex = ref.index;
     const RsDialogueOption& option = ref.screen->options[index];
@@ -447,6 +482,16 @@ bool CheckOption(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& re
     if (RsText_LabelWouldOverflow(option.label)) {
         return Problem(buf, len, "%s[%d].opt[%d]: the label is too wide for an option row (184 pixels)", word,
                        screenIndex, index);
+    }
+    // A screen that can SCROLL (#290) draws an arrow in a column at the right end of its top and
+    // bottom rows, and any label can land on either, so every label there stops short of it. Measured against the
+    // declared count: a scrolling screen gated down to four shows no arrow, and the narrower budget
+    // is then merely conservative.
+    if (ref.screen->optionCount > RS_DIALOGUE_WINDOW_OPTIONS && RsText_ScrollLabelWouldOverflow(option.label)) {
+        return Problem(buf, len,
+                       "%s[%d].opt[%d]: the label is too wide for a scrolling option row (174 pixels: the scroll "
+                       "arrow's column takes the last 10)",
+                       word, screenIndex, index);
     }
     if (option.reply != nullptr && !ProseIsClean(option.reply)) {
         return Problem(buf, len, "%s[%d].opt[%d]: reply carries percent, hash, quote, caret or a newline", word,
@@ -486,6 +531,38 @@ bool CheckOption(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& re
                                index, option.a);
             }
             break;
+        case RS_DLG_ACTION_GIVE_ITEM:
+        case RS_DLG_ACTION_BUY_ITEM: {
+            const char* name = RsNpc_ActionName(option.kind);
+            if (option.kind == RS_DLG_ACTION_BUY_ITEM) {
+                const int32_t price = option.a < 0 ? 0 : RS_DLG_BUY_GET_PRICE(option.a);
+                if (price <= 0 || price > QUEST_RUPEE_AMOUNT_MAX) {
+                    return Problem(buf, len, "%s[%d].opt[%d]: buy_item price %d is outside 1..32767", word,
+                                   screenIndex, index, price);
+                }
+            }
+            const int32_t item = option.kind == RS_DLG_ACTION_BUY_ITEM ? RS_DLG_BUY_GET_ITEM(option.a) : option.a;
+            // Ranges only, as for a quest id anywhere here: whether the quest has that many steps is a
+            // question about another translation unit's registration, which has no defined order.
+            if (item < 0 || !QUEST_ID_IS_VALID(RS_DLG_ITEM_GET_QUEST(item))) {
+                return Problem(buf, len, "%s[%d].opt[%d]: %s quest id %d out of range", word, screenIndex, index,
+                               name, RS_DLG_ITEM_GET_QUEST(item));
+            }
+            // The world-flag rule, for the same reason: a debug NPC that sets a production quest's step
+            // leaves state `quest debugwipe` cannot clear.
+            if ((QUEST_ID_IS_DEBUG(RS_DLG_ITEM_GET_QUEST(item)) != 0) != (def->tier == QUEST_TIER_DEBUG)) {
+                return Problem(buf, len, "%s[%d].opt[%d]: %s quest %d is in the other tier's band", word,
+                               screenIndex, index, name, RS_DLG_ITEM_GET_QUEST(item));
+            }
+            break;
+        }
+        case RS_DLG_ACTION_CHARGE_RUPEES:
+            // Zero is refused: an option that charges nothing is a NONE that reports a price.
+            if (option.a <= 0 || option.a > QUEST_RUPEE_AMOUNT_MAX) {
+                return Problem(buf, len, "%s[%d].opt[%d]: charge_rupees price %d is outside 1..32767", word,
+                               screenIndex, index, option.a);
+            }
+            break;
         default:
             return Problem(buf, len, "%s[%d].opt[%d]: unknown action kind %d", word, screenIndex, index,
                            static_cast<int>(option.kind));
@@ -502,6 +579,38 @@ bool CheckOption(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& re
         return Problem(buf, len, "%s[%d].opt[%d]: next=%d names no node (this npc has %d; use RS_DLG_NO_NEXT to close)",
                        word, screenIndex, index, option.next, def->nodeCount);
     }
+    // --- journal notice (#281) --------------------------------------------------------------------
+    //
+    // Opt-in: 0 or RS_DLG_NOTICE, and only on an action that can earn a notice. The flag on any
+    // other action would read as a promise the game never keeps.
+    if (option.notice != 0) {
+        if (option.notice != RS_DLG_NOTICE) {
+            return Problem(buf, len, "%s[%d].opt[%d]: notice=%d is neither 0 nor RS_DLG_NOTICE", word, screenIndex,
+                           index, option.notice);
+        }
+        switch (option.kind) {
+            case RS_DLG_ACTION_START_QUEST:
+            case RS_DLG_ACTION_COMPLETE_QUEST:
+            case RS_DLG_ACTION_GIVE_ITEM:
+            case RS_DLG_ACTION_BUY_ITEM:
+                break;
+            default:
+                return Problem(buf, len, "%s[%d].opt[%d]: notice on %s, which never earns a journal notice", word,
+                               screenIndex, index, RsNpc_ActionName(option.kind));
+        }
+    }
+    // --- who answers (#281) -----------------------------------------------------------------------
+    //
+    // Only a reply is spoken, so a reply speaker on an option without one would be dead data that
+    // looks live: an author who wrote it expected someone to say something.
+    std::snprintf(where, sizeof(where), "%s[%d].opt[%d]: reply", word, screenIndex, index);
+    if (!CheckSpeaker(buf, len, where, option.replySpeaker, def, speakers)) {
+        return false;
+    }
+    if (option.replySpeaker != RS_DLG_SPEAKER_DEFAULT && option.reply == nullptr) {
+        return Problem(buf, len, "%s[%d].opt[%d]: a reply speaker on an option with no reply - nothing would speak",
+                       word, screenIndex, index);
+    }
     // --- gating (#96 P2) ------------------------------------------------------------------------
     std::snprintf(where, sizeof(where), "%s[%d].opt[%d]", word, screenIndex, index);
     char list_where[64];
@@ -515,7 +624,7 @@ bool CheckOption(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& re
 // One SCREEN - a rule or a node. They are the same struct and share this one validator; `ref.kind`
 // only decides the prefix each refusal message carries and switches on the handful of things that
 // genuinely differ, which are the two fields a node has no use for.
-bool ValidateScreen(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& ref) {
+bool ValidateScreen(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& ref, SpeakerCheck speakers) {
     const char* word = RsNpc_ScreenKindName(ref.kind);
     const int32_t screenIndex = ref.index;
     const RsDialogueRule& screen = *ref.screen;
@@ -544,6 +653,9 @@ bool ValidateScreen(char* buf, size_t len, const RsNpcDef* def, const ScreenRef&
     if (!CheckTokens(buf, len, where, screen.text)) {
         return false;
     }
+    if (!CheckSpeaker(buf, len, owner, screen.speaker, def, speakers)) {
+        return false;
+    }
     if (screen.optionCount < 0 || (screen.optionCount > 0 && screen.options == nullptr)) {
         return Problem(buf, len, "%s[%d]: `options` is NULL with a nonzero count", word, screenIndex);
     }
@@ -553,9 +665,9 @@ bool ValidateScreen(char* buf, size_t len, const RsNpcDef* def, const ScreenRef&
         return Problem(buf, len, "%s[%d]: one option is not a choice; use 0 for a statement", word, screenIndex);
     }
     if (screen.optionCount > RS_DIALOGUE_MAX_OPTIONS) {
-        // The MODEL is N (NpcDialogueDef.h). This is the RENDERER's limit, and lifting it is a
-        // change to one function - see sturdy-bassoon#59.
-        return Problem(buf, len, "%s[%d]: %d options; the renderer does at most %d (see sturdy-bassoon#59)", word,
+        // The MODEL is N (NpcDialogueDef.h); this is its array size. The box shows four at a time
+        // and scrolls the rest (sturdy-bassoon#290), so the cap is not the renderer's any more.
+        return Problem(buf, len, "%s[%d]: %d options; a screen holds at most %d (see sturdy-bassoon#290)", word,
                        screenIndex, screen.optionCount, RS_DIALOGUE_MAX_OPTIONS);
     }
     // --- continue (#96 follow-up) -----------------------------------------------------------------
@@ -619,7 +731,7 @@ bool ValidateScreen(char* buf, size_t len, const RsNpcDef* def, const ScreenRef&
         }
     }
     for (int32_t i = 0; i < screen.optionCount; i++) {
-        if (!CheckOption(buf, len, def, ref, i)) {
+        if (!CheckOption(buf, len, def, ref, i, speakers)) {
             return false;
         }
     }
@@ -667,7 +779,12 @@ bool ValidateScreen(char* buf, size_t len, const RsNpcDef* def, const ScreenRef&
     // Which K options stand in for a given count does not change the answer: every label has
     // already been proven to fit its 184-pixel row, so the choice block is exactly K rows whichever
     // K are showing, and what the measurement is really asking about is the BODY.
-    for (int32_t visible = (ungated < 2 ? 2 : ungated); visible <= screen.optionCount; visible++) {
+    //
+    // Past four visible the layout is the four-row window whatever the count (#290 scrolls the rest),
+    // so the sweep stops at the window: a fifth visible option adds no layout to measure.
+    const int32_t widest = screen.optionCount < RS_DIALOGUE_WINDOW_OPTIONS ? screen.optionCount
+                                                                           : RS_DIALOGUE_WINDOW_OPTIONS;
+    for (int32_t visible = (ungated < 2 ? 2 : ungated); visible <= widest; visible++) {
         if (visible >= 3) {
             // CustomMessage::AutoFormatString is CTRL_TWO_CHOICE-aware and lays the choice out
             // itself, but it knows neither CTRL_THREE_CHOICE nor our CTRL_FOUR_CHOICE - so those
@@ -701,10 +818,10 @@ bool ValidateScreen(char* buf, size_t len, const RsNpcDef* def, const ScreenRef&
     return true;
 }
 
-bool ValidateBody(const RsNpcDef* def, char* buf, size_t len);
+bool ValidateBody(const RsNpcDef* def, char* buf, size_t len, SpeakerCheck speakers);
 
 // True when the definition is clean; otherwise writes the reason into `buf` and returns false.
-bool ValidateDef(const RsNpcDef* def, char* buf, size_t len) {
+bool ValidateDef(const RsNpcDef* def, char* buf, size_t len, SpeakerCheck speakers) {
     if (def == nullptr) {
         return Problem(buf, len, "NULL definition");
     }
@@ -714,12 +831,12 @@ bool ValidateDef(const RsNpcDef* def, char* buf, size_t len) {
     if (def->tier != NPC_ID_TIER(def->id)) {
         return Problem(buf, len, "tier does not match the id's band");
     }
-    return ValidateBody(def, buf, len);
+    return ValidateBody(def, buf, len, speakers);
 }
 
 // Everything but the id: what an interaction's definition is held to as well (#183), whose id is
 // in another space and is checked by its own registry.
-bool ValidateBody(const RsNpcDef* def, char* buf, size_t len) {
+bool ValidateBody(const RsNpcDef* def, char* buf, size_t len, SpeakerCheck speakers) {
     if (def == nullptr) {
         return Problem(buf, len, "NULL definition");
     }
@@ -748,13 +865,13 @@ bool ValidateBody(const RsNpcDef* def, char* buf, size_t len) {
     }
     for (int32_t r = 0; r < def->ruleCount; r++) {
         const ScreenRef ref = { &def->rules[r], RS_SCREEN_RULE, r };
-        if (!ValidateScreen(buf, len, def, ref)) {
+        if (!ValidateScreen(buf, len, def, ref, speakers)) {
             return false;
         }
     }
     for (int32_t n = 0; n < def->nodeCount; n++) {
         const ScreenRef ref = { &def->nodes[n], RS_SCREEN_NODE, n };
-        if (!ValidateScreen(buf, len, def, ref)) {
+        if (!ValidateScreen(buf, len, def, ref, speakers)) {
             return false;
         }
     }
@@ -845,19 +962,20 @@ extern "C" int32_t RsDialogue_BodyProblem(const RsNpcDef* def, char* buf, size_t
     if (buf != nullptr && len > 0) {
         buf[0] = '\0';
     }
-    return ValidateBody(def, buf, len) ? 0 : 1;
+    return ValidateBody(def, buf, len, SpeakerCheck::Range) ? 0 : 1;
 }
 
 extern "C" int32_t RsNpc_DefProblem(const RsNpcDef* def, char* buf, size_t len) {
     if (buf != nullptr && len > 0) {
         buf[0] = '\0';
     }
-    return ValidateDef(def, buf, len) ? 0 : 1;
+    // Asked after boot, so the registry is whole and a speaker's registration has an answer.
+    return ValidateDef(def, buf, len, SpeakerCheck::Registered) ? 0 : 1;
 }
 
 extern "C" int32_t RsNpc_Register(const RsNpcDef* def) {
     char problem[192];
-    if (!ValidateDef(def, problem, sizeof(problem))) {
+    if (!ValidateDef(def, problem, sizeof(problem), SpeakerCheck::Range)) {
         SPDLOG_ERROR("RsNpc: register npc {} ({}): {}", def != nullptr ? def->id : -1,
                      (def != nullptr && def->name != nullptr) ? def->name : "<null>", problem);
         assert(false && "npc definition failed validation");
@@ -873,9 +991,70 @@ extern "C" int32_t RsNpc_Register(const RsNpcDef* def) {
         return RS_NPC_ERR_DUPLICATE;
     }
     sDefs[def->id] = def;
+    sRegistrations++;
     SPDLOG_INFO("RsNpc: registered {} '{}' tier={} rules={} nodes={}", def->id, def->name, Quest_TierName(def->tier),
                 def->ruleCount, def->nodeCount);
     return RS_NPC_OK;
+}
+
+namespace {
+
+// Every speaker field of one registered definition, asked of the whole registry: the half of the
+// speaker check registration could not ask (SpeakerCheck says why). Only the speakers - the rest was
+// proven at registration - so it is cheap enough to ask whenever the registry has grown. True when
+// every speaker is registered; otherwise false, with the first one that is not in `buf`.
+bool SpeakersRegistered(const RsNpcDef* def, char* buf, size_t len) {
+    for (int32_t kind = RS_SCREEN_RULE; kind <= RS_SCREEN_NODE; kind++) {
+        const int32_t count = kind == RS_SCREEN_RULE ? def->ruleCount : def->nodeCount;
+        for (int32_t i = 0; i < count; i++) {
+            const RsDialogueRule& screen = *RsDialogue_Screen(def, kind, i);
+            char where[40];
+            std::snprintf(where, sizeof(where), "%s[%d]", RsNpc_ScreenKindName(kind), i);
+            if (!CheckSpeaker(buf, len, where, screen.speaker, def, SpeakerCheck::Registered)) {
+                return false;
+            }
+            for (int32_t o = 0; o < screen.optionCount; o++) {
+                std::snprintf(where, sizeof(where), "%s[%d].opt[%d]: reply", RsNpc_ScreenKindName(kind), i, o);
+                if (!CheckSpeaker(buf, len, where, screen.options[o].replySpeaker, def, SpeakerCheck::Registered)) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+extern "C" int32_t RsNpc_CheckSpeakers(void) {
+    // Asked again only when something registered since the last time: a ShipInit re-run re-registers
+    // the same pointers and changes nothing, and a placement spawning changes nothing at all.
+    static int32_t sCheckedAt = -1;
+    if (sCheckedAt == sRegistrations) {
+        return 0;
+    }
+    sCheckedAt = sRegistrations;
+    // Until a pass refuses nothing: refusing one character unregisters it, and a definition naming IT as
+    // a speaker may already have been passed over.
+    int32_t refused = 0;
+    for (bool again = true; again;) {
+        again = false;
+        for (int32_t id = 0; id < NPC_MAX; id++) {
+            const RsNpcDef* def = sDefs[id];
+            char problem[192];
+            if (def == nullptr || SpeakersRegistered(def, problem, sizeof(problem))) {
+                continue;
+            }
+            // Refused exactly as registration refuses: loudly, and the character is not registered - so
+            // its placements say "<unregistered npc>" rather than handing the camera to nobody.
+            SPDLOG_ERROR("RsNpc: npc {} ({}): {}", def->id, def->name, problem);
+            sDefs[id] = nullptr;
+            refused++;
+            again = true;
+            assert(false && "npc definition names a speaker that is not registered");
+        }
+    }
+    return refused;
 }
 
 extern "C" const RsNpcDef* RsNpc_GetDef(int32_t npcId) {
@@ -1104,6 +1283,12 @@ extern "C" const char* RsNpc_ActionName(int32_t kind) {
             return "complete_quest";
         case RS_DLG_ACTION_SET_WORLD_FLAG:
             return "set_world_flag";
+        case RS_DLG_ACTION_GIVE_ITEM:
+            return "give_item";
+        case RS_DLG_ACTION_CHARGE_RUPEES:
+            return "charge_rupees";
+        case RS_DLG_ACTION_BUY_ITEM:
+            return "buy_item";
         default:
             return "?";
     }
@@ -1192,6 +1377,72 @@ std::string RsNpc_ComposeOptionReply(const RsDialogueOption& option) {
     return RsFloorText_Compose(option.reply != nullptr ? option.reply : "");
 }
 
+// --- the journal notice queue (#281) -------------------------------------------------------------
+//
+// Process-lifetime storage for one conversation's notices, which is the whole of its state: a quest
+// and the greatest kind queued for it. Bounded by how many quests one conversation can touch, so a
+// full queue drops the newest rather than growing; the journal still says it.
+namespace {
+
+struct Notice {
+    int32_t questId;
+    int32_t kind;
+};
+constexpr int32_t kMaxNotices = 8;
+std::array<Notice, kMaxNotices> sNotices;
+int32_t sNoticeCount = 0;
+
+void QueueNotice(int32_t questId, int32_t kind) {
+    for (int32_t i = 0; i < sNoticeCount; i++) {
+        if (sNotices[i].questId == questId) {
+            sNotices[i].kind = std::max(sNotices[i].kind, kind);
+            return;
+        }
+    }
+    if (sNoticeCount < kMaxNotices) {
+        sNotices[sNoticeCount++] = { questId, kind };
+    } else {
+        SPDLOG_WARN("RsDialogue: journal notice queue full, dropping quest {}", questId);
+    }
+}
+
+} // namespace
+
+extern "C" void RsDialogue_NoticeReset(void) {
+    sNoticeCount = 0;
+}
+
+extern "C" int32_t RsDialogue_NoticePeek(int32_t* questId, int32_t* kind) {
+    if (sNoticeCount == 0) {
+        return 0;
+    }
+    if (questId != nullptr) {
+        *questId = sNotices[0].questId;
+    }
+    if (kind != nullptr) {
+        *kind = sNotices[0].kind;
+    }
+    return 1;
+}
+
+extern "C" int32_t RsDialogue_NoticeTake(int32_t* questId, int32_t* kind) {
+    if (sNoticeCount == 0) {
+        return 0;
+    }
+    const Notice next = sNotices[0];
+    for (int32_t i = 1; i < sNoticeCount; i++) {
+        sNotices[i - 1] = sNotices[i];
+    }
+    sNoticeCount--;
+    if (questId != nullptr) {
+        *questId = next.questId;
+    }
+    if (kind != nullptr) {
+        *kind = next.kind;
+    }
+    return 1;
+}
+
 extern "C" int32_t RsNpc_RunAction(const RsDialogueOption* option) {
     if (option == nullptr) {
         return QUEST_ERR_INVALID_ID;
@@ -1203,20 +1454,88 @@ extern "C" int32_t RsNpc_RunAction(const RsDialogueOption* option) {
             // Check-then-write, the P1 rule: an outcome-class refusal (prereqs unmet, already
             // started) must not reach the write path's log-and-assert on a Debug build.
             const int32_t check = Quest_CheckStart(option->a);
-            return check == QUEST_OK ? Quest_Start(option->a) : check;
+            const int32_t result = check == QUEST_OK ? Quest_Start(option->a) : check;
+            if (result == QUEST_OK && option->notice) {
+                QueueNotice(option->a, QUEST_NOTICE_STARTED);
+            }
+            return result;
         }
         case RS_DLG_ACTION_COMPLETE_QUEST: {
             // D12: status goes COMPLETE before rewards dispatch, so a second completion - from a
             // second placement of this same character, in this scene or another - is
             // QUEST_ALREADY_COMPLETE and grants nothing. That idempotency lives in Quest.cpp, not
-            // here; this must not grow a "have I already done this" flag of its own.
+            // here; this must not grow a "have I already done this" flag of its own. The same holds
+            // for the notice: only the completion that happened queues one.
             const int32_t check = Quest_CheckComplete(option->a);
-            return check == QUEST_OK ? Quest_Complete(option->a) : check;
+            const int32_t result = check == QUEST_OK ? Quest_Complete(option->a) : check;
+            if (result == QUEST_OK && option->notice) {
+                QueueNotice(option->a, QUEST_NOTICE_COMPLETE);
+            }
+            return result;
         }
         case RS_DLG_ACTION_SET_WORLD_FLAG:
             Flags_SetWorldFlag(option->a);
             return QUEST_OK;
+        case RS_DLG_ACTION_GIVE_ITEM:
+        case RS_DLG_ACTION_BUY_ITEM: {
+            // Checks only: the writes wait for Link to take the item (RsNpc_SetGivenStep).
+            const int32_t item = RsNpc_OptionItem(option);
+            const int32_t check = Quest_CheckSetStep(RS_DLG_ITEM_GET_QUEST(item), RS_DLG_ITEM_GET_STEP(item));
+            if (check != QUEST_OK || option->kind == RS_DLG_ACTION_GIVE_ITEM) {
+                return check;
+            }
+            return Quest_CheckChargeRupees(RsNpc_OptionPrice(option));
+        }
+        case RS_DLG_ACTION_CHARGE_RUPEES:
+            return Quest_ChargeRupees(option->a);
         default:
             return QUEST_ERR_BAD_DEF;
     }
+}
+
+extern "C" int32_t RsNpc_OptionItem(const RsDialogueOption* option) {
+    if (option == nullptr) {
+        return -1;
+    }
+    switch (option->kind) {
+        case RS_DLG_ACTION_GIVE_ITEM:
+            return option->a;
+        case RS_DLG_ACTION_BUY_ITEM:
+            return RS_DLG_BUY_GET_ITEM(option->a);
+        default:
+            return -1;
+    }
+}
+
+extern "C" int32_t RsNpc_OptionPrice(const RsDialogueOption* option) {
+    return option != nullptr && option->kind == RS_DLG_ACTION_BUY_ITEM ? RS_DLG_BUY_GET_PRICE(option->a) : 0;
+}
+
+extern "C" int32_t RsNpc_SetGivenStep(const RsDialogueOption* option) {
+    const int32_t item = RsNpc_OptionItem(option);
+    if (item < 0) {
+        return QUEST_ERR_BAD_DEF;
+    }
+    const int32_t questId = RS_DLG_ITEM_GET_QUEST(item);
+    const int32_t step = RS_DLG_ITEM_GET_STEP(item);
+    const int32_t price = RsNpc_OptionPrice(option);
+    // Both halves checked before either is written: a sale that could take the rupees and then fail
+    // to set the step - or the reverse - is the half-done sale this action exists to rule out.
+    int32_t check = Quest_CheckSetStep(questId, step);
+    if (check == QUEST_OK && price > 0) {
+        check = Quest_CheckChargeRupees(price);
+    }
+    if (check != QUEST_OK) {
+        return check;
+    }
+    if (price > 0) {
+        Quest_ChargeRupees(price);
+    }
+    const int32_t result = Quest_SetStep(questId, step);
+    // Only a quest the journal shows: a step bought for a quest not yet started is real state, but
+    // "Quest updated" about a quest the player has never heard of would be noise.
+    if (result == QUEST_OK && option->notice && QuestStore_GetStatus(questId) == QUEST_STATUS_IN_PROGRESS) {
+        QueueNotice(questId, QUEST_NOTICE_UPDATED);
+    }
+    return result;
 }

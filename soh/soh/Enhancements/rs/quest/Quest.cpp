@@ -170,6 +170,11 @@ static bool CheckPredicate(char* buf, size_t len, const char* what, int32_t inde
                 return Problem(buf, len, "%s[%d]: boat predicate operands %d, %d out of range", what, index, p.a, p.b);
             }
             break;
+        case QUEST_PRED_RUPEES_AT_LEAST:
+            if (p.a < 0 || p.a > QUEST_RUPEE_AMOUNT_MAX) {
+                return Problem(buf, len, "%s[%d]: RupeesAtLeast amount %d out of range", what, index, p.a);
+            }
+            break;
         default:
             return Problem(buf, len, "%s[%d]: unknown predicate kind %d", what, index, static_cast<int>(p.kind));
     }
@@ -858,6 +863,8 @@ extern "C" const char* Quest_ResultName(int32_t result) {
             return "bad_def";
         case QUEST_ERR_DUPLICATE:
             return "duplicate";
+        case QUEST_ERR_CANNOT_AFFORD:
+            return "cannot_afford";
         default:
             return "<bad result>";
     }
@@ -885,6 +892,71 @@ extern "C" const char* Quest_TierName(int32_t tier) {
         default:
             return "<bad tier>";
     }
+}
+
+extern "C" const char* Quest_NoticeKindName(int32_t kind) {
+    switch (kind) {
+        case QUEST_NOTICE_UPDATED:
+            return "updated";
+        case QUEST_NOTICE_STARTED:
+            return "started";
+        case QUEST_NOTICE_COMPLETE:
+            return "complete";
+        default:
+            return "?";
+    }
+}
+
+extern "C" int32_t Quest_RupeesAfterPending(void) {
+    return gSaveContext.rupees + gSaveContext.rupeeAccumulator;
+}
+
+extern "C" int32_t Quest_CheckChargeRupees(int32_t amount) {
+    if (amount <= 0 || amount > QUEST_RUPEE_AMOUNT_MAX) {
+        return QUEST_ERR_BAD_DEF;
+    }
+    // Checked against what Link will hold once the HUD has counted, so a second purchase a frame after
+    // the first cannot spend the same rupees.
+    return Quest_RupeesAfterPending() < amount ? QUEST_ERR_CANNOT_AFFORD : QUEST_OK;
+}
+
+extern "C" int32_t Quest_ChargeRupees(int32_t amount) {
+    const int32_t check = Quest_CheckChargeRupees(amount);
+    if (check != QUEST_OK) {
+        return check;
+    }
+    Rupees_ChangeBy(static_cast<s16>(-amount));
+    return QUEST_OK;
+}
+
+// The title as a player reads it in a textbox. Its markup spans are dropped rather than coloured: a
+// notice is a system line, and the journal is where emphasis lives. '&' and '^' are line and box
+// breaks in a textbox and plain text in the journal, so a title carrying one is read as a space here
+// rather than breaking the box in half.
+static std::string PlainTitle(const QuestDef* def) {
+    std::vector<QuestRun> runs;
+    QuestMarkup_Parse(def->title, &runs); // registration proved it parses; the runs come back expanded
+    std::string out;
+    for (const QuestRun& run : runs) {
+        out += run.text;
+    }
+    for (char& c : out) {
+        if (c == '&' || c == '^') {
+            c = ' ';
+        }
+    }
+    return out;
+}
+
+std::string Quest_ComposeJournalNotice(int32_t questId, int32_t kind) {
+    const QuestDef* def = Quest_GetDef(questId);
+    if (def == nullptr || kind < 0 || kind >= QUEST_NOTICE_KIND_COUNT) {
+        return "<no quest " + std::to_string(questId) + " notice " + std::to_string(kind) + ">";
+    }
+    const char* head = kind == QUEST_NOTICE_COMPLETE  ? "Quest complete: "
+                       : kind == QUEST_NOTICE_STARTED ? "New quest: "
+                                                      : "Quest updated: ";
+    return std::string(head) + PlainTitle(def) + "&Your quest journal has been updated.";
 }
 
 extern "C" const char* Quest_RewardKindName(int32_t kind) {

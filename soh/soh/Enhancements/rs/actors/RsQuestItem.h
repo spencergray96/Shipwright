@@ -45,4 +45,11 @@ typedef struct RsQuestItem {
     /* */ int32_t style; // #99: RsItemStyle, decoded at Init; always TOUCH when `valid` is 0
 } RsQuestItem;
 
+// Offers Link the get-item for (quest, step) FROM ANOTHER ACTOR - the entry this actor's get-item style
+// offers, with its sprite and its pickup box - so an NPC handing an item over (RS_DLG_ACTION_GIVE_ITEM,
+// sturdy-bassoon#281) shows exactly what picking that item up shows. Call it every frame until
+// Actor_HasParent(giver), as vanilla's givers do; it SETS nothing, and the step is the giver's to set on
+// acceptance. Returns GiveItemEntryFromActor's answer: whether Player could take it this frame.
+s32 RsQuestItem_OfferFrom(Actor* giver, PlayState* play, s32 questId, s32 step, f32 xzRange, f32 yRange);
+
 #endif // SOH_RS_QUEST_ITEM_ACTOR_H

@@ -33,6 +33,19 @@
 //   NPC_DEBUG_QUEST_MENU (199)  added for the #96 follow-ups: an entry statement that continues,
 //                          a node group, and the missing-steps clause on a node - "ask about the
 //                          job, hear what is left, back to the menu".
+//   NPC_DEBUG_SHOP  (200)  added for #281: the Majora's Mask verbs - a charge behind RupeesAtLeast
+//                          and one that is always refused, wares sold with BUY_ITEM, an errand
+//                          whose start and completion each queue a journal notice, and GIVE_ITEM
+//                          re-opening on a node.
+//   NPC_DEBUG_MEMORY (202) added for #281's choice memory: a menu node to come back to, a long child
+//                          list and a level below it, so a return restores the pick and a second
+//                          visit to a child starts fresh.
+//   NPC_DEBUG_SCROLL (201) added for #290: a list longer than the box, which scrolls - ten options on
+//                          the entry rule with one gated, and a node holding the cap of sixteen.
+//   NPC_DEBUG_SPEAKER_A (203) added for #281's speaker per screen: a conversation 203 owns whose lines
+//                          alternate between 203 and 204, whose replies come from whichever of them the
+//                          pick names, one reply from 205 (registered, never placed), and a gift whose
+//                          re-open lands on 204's line. 204 and 205 are its cast and say nothing alone.
 //
 // Prose here is NOT journal markup. Journal text carries `#tag:text#` (D23); dialogue text goes to
 // CustomMessageManager (D17), where '#' is a colour span, '%' starts a control code and '^' is a
@@ -413,6 +426,283 @@ const RsNpcDef sQuestMenu = {
     sMenuNodes,           6,
 };
 
+// --- NPC_DEBUG_SHOP (200) ------------------------------------------------------------------------
+//
+// The #281 verbs, on QUEST_DEBUG_ERRAND (53) and QUEST_DEBUG_GROCERIES (54):
+//
+//   rule 0      the menu. "Buy a token" charges 10 and is GATED on RupeesAtLeast(10), so a player who
+//               cannot pay never sees it. "Wares" leads to node 5.
+//   node 5      the wares. "A loaf" is a BUY_ITEM of 54's step 0 for 10, gated on affording it and on
+//               not having it; its `next` is node 6. "A gold bar" (1000) and "Buy the shop" (a
+//               CHARGE_RUPEES of 1000) are ungated and more than any wallet holds, so each is the
+//               refusal, cannot_afford, every time, and takes nothing.
+//   nodes 0-3   a node GROUP behind "About the errand", by quest state:
+//                 0  not started: "Gladly" STARTS it - a journal notice at the close
+//                 1  started, parcel not given: "Take it" is GIVE_ITEM with a reply and a `next`
+//                 2  parcel held: "Here it is" COMPLETES it - a notice, and the 15-rupee reward
+//                 3  the group's ungated end: done
+//   node 4      where GIVE_ITEM's `next` re-opens the conversation, with no A press, once the
+//               get-item ceremony and the pickup box are over.
+//   node 6      the same, after the loaf is bought - and paid for, only then.
+
+const QuestPredicate sShopCanAffordWhen[] = {
+    QP_RUPEES_AT_LEAST(10),
+};
+const QuestPredicate sShopErrandOpenWhen[] = {
+    QP_QUEST_STATUS_IS(QUEST_DEBUG_ERRAND, QUEST_STATUS_NOT_STARTED),
+};
+const QuestPredicate sShopParcelDueWhen[] = {
+    QP_QUEST_STATUS_IS(QUEST_DEBUG_ERRAND, QUEST_STATUS_IN_PROGRESS),
+    QP_NOT_QUEST_STEP_SET(QUEST_DEBUG_ERRAND, 0),
+};
+const QuestPredicate sShopParcelHeldWhen[] = {
+    QP_QUEST_STATUS_IS(QUEST_DEBUG_ERRAND, QUEST_STATUS_IN_PROGRESS),
+    QP_QUEST_STEP_SET(QUEST_DEBUG_ERRAND, 0),
+};
+
+const QuestPredicate sShopLoafWhen[] = {
+    QP_RUPEES_AT_LEAST(10),
+    QP_NOT_QUEST_STEP_SET(QUEST_DEBUG_GROCERIES, 0),
+};
+
+const RsDialogueOption sShopMenuOptions[] = {
+    { "Buy a token (10)", RS_DLG_ACTION_CHARGE_RUPEES, 10, "Ten rupees. Thank you kindly!", RS_DLG_NO_NEXT,
+      sShopCanAffordWhen, 1 },
+    { "Wares", RS_DLG_ACTION_NONE, 0, nullptr, 5 },
+    { "About the errand", RS_DLG_ACTION_NONE, 0, nullptr, 0 },
+    { "Goodbye", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueOption sShopWaresOptions[] = {
+    { "A loaf (10)", RS_DLG_ACTION_BUY_ITEM, RS_DLG_BUY(QUEST_DEBUG_GROCERIES, 0, 10), "Fresh this morning.", 6,
+      sShopLoafWhen, 2, RS_DLG_NOTICE },
+    { "A gold bar (1000)", RS_DLG_ACTION_BUY_ITEM, RS_DLG_BUY(QUEST_DEBUG_GROCERIES, 1, 1000),
+      "Ha! Not on your wages.", RS_DLG_NO_NEXT },
+    { "Buy the shop (1000)", RS_DLG_ACTION_CHARGE_RUPEES, 1000, "Ha! Come back with the money.", RS_DLG_NO_NEXT },
+    { "Never mind", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueOption sShopOfferOptions[] = {
+    { "Gladly", RS_DLG_ACTION_START_QUEST, QUEST_DEBUG_ERRAND, "Splendid. Ask me for it.", RS_DLG_NO_NEXT, nullptr, 0,
+      RS_DLG_NOTICE },
+    { "Not today", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueOption sShopGiveOptions[] = {
+    { "Take it", RS_DLG_ACTION_GIVE_ITEM, RS_DLG_ITEM(QUEST_DEBUG_ERRAND, 0), "Mind it, it is fragile.", 4, nullptr, 0,
+      RS_DLG_NOTICE },
+    { "Not yet", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueOption sShopDeliverOptions[] = {
+    { "Here it is", RS_DLG_ACTION_COMPLETE_QUEST, QUEST_DEBUG_ERRAND, "Wonderful, thank you!", RS_DLG_NO_NEXT, nullptr, 0,
+      RS_DLG_NOTICE },
+    { "Not yet", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+
+const RsDialogueNode sShopNodes[] = {
+    // 0-3 - the errand group
+    { sShopErrandOpenWhen, 1, "Fetch a parcel for me?", sShopOfferOptions, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    { sShopParcelDueWhen, 2, "Here is the parcel.", sShopGiveOptions, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    { sShopParcelHeldWhen, 2, "Have you the parcel?", sShopDeliverOptions, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    { nullptr, 0, "No more errands today.", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    // 4 - where the give re-opens
+    { nullptr, 0, "Now bring it straight back.", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    // 5 - the wares
+    { nullptr, 0, "Anything take your fancy?", sShopWaresOptions, 4, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    // 6 - where the sale re-opens
+    { nullptr, 0, "Enjoy it.", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+
+const RsDialogueRule sShopRules[] = {
+    { nullptr, 0, "What can I do for you?", sShopMenuOptions, 4, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+
+const RsNpcDef sShop = {
+    NPC_DEBUG_SHOP, QUEST_TIER_DEBUG, "debug_shop", "Debug: the shopkeeper", sShopRules, 1, sShopNodes, 7,
+};
+
+// --- NPC_DEBUG_SCROLL (201) ----------------------------------------------------------------------
+//
+// A list longer than the box (#290). Every topic's reply names it, so a pick made after scrolling
+// proves by its reply - and by the marker's `option=` - that the window's offset was added.
+//
+//   rule 0      ten options. "Topic 6" is GATED on RupeesAtLeast(100), so `rupee 150` and `rupee 50`
+//               switch the list between ten and nine visible, and a pick below it shows whether the
+//               mapping skipped the hidden row. "The long list" leads to node 0; "Goodbye" closes.
+//   node 0      the cap: sixteen options, every one ungated.
+
+const QuestPredicate sScrollRichWhen[] = {
+    QP_RUPEES_AT_LEAST(100),
+};
+
+const RsDialogueOption sScrollTopicOptions[] = {
+    { "Topic 1", RS_DLG_ACTION_NONE, 0, "You picked topic 1.", RS_DLG_NO_NEXT },
+    { "Topic 2", RS_DLG_ACTION_NONE, 0, "You picked topic 2.", RS_DLG_NO_NEXT },
+    { "Topic 3", RS_DLG_ACTION_NONE, 0, "You picked topic 3.", RS_DLG_NO_NEXT },
+    { "Topic 4", RS_DLG_ACTION_NONE, 0, "You picked topic 4.", RS_DLG_NO_NEXT },
+    { "Topic 5", RS_DLG_ACTION_NONE, 0, "You picked topic 5.", RS_DLG_NO_NEXT },
+    { "Topic 6 (rich only)", RS_DLG_ACTION_NONE, 0, "You picked topic 6.", RS_DLG_NO_NEXT, sScrollRichWhen, 1 },
+    { "Topic 7", RS_DLG_ACTION_NONE, 0, "You picked topic 7.", RS_DLG_NO_NEXT },
+    { "Topic 8", RS_DLG_ACTION_NONE, 0, "You picked topic 8.", RS_DLG_NO_NEXT },
+    { "The long list", RS_DLG_ACTION_NONE, 0, nullptr, 0 },
+    { "Goodbye", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+
+const RsDialogueOption sScrollLongOptions[] = {
+    { "Entry 1", RS_DLG_ACTION_NONE, 0, "Entry 1.", RS_DLG_NO_NEXT },
+    { "Entry 2", RS_DLG_ACTION_NONE, 0, "Entry 2.", RS_DLG_NO_NEXT },
+    { "Entry 3", RS_DLG_ACTION_NONE, 0, "Entry 3.", RS_DLG_NO_NEXT },
+    { "Entry 4", RS_DLG_ACTION_NONE, 0, "Entry 4.", RS_DLG_NO_NEXT },
+    { "Entry 5", RS_DLG_ACTION_NONE, 0, "Entry 5.", RS_DLG_NO_NEXT },
+    { "Entry 6", RS_DLG_ACTION_NONE, 0, "Entry 6.", RS_DLG_NO_NEXT },
+    { "Entry 7", RS_DLG_ACTION_NONE, 0, "Entry 7.", RS_DLG_NO_NEXT },
+    { "Entry 8", RS_DLG_ACTION_NONE, 0, "Entry 8.", RS_DLG_NO_NEXT },
+    { "Entry 9", RS_DLG_ACTION_NONE, 0, "Entry 9.", RS_DLG_NO_NEXT },
+    { "Entry 10", RS_DLG_ACTION_NONE, 0, "Entry 10.", RS_DLG_NO_NEXT },
+    { "Entry 11", RS_DLG_ACTION_NONE, 0, "Entry 11.", RS_DLG_NO_NEXT },
+    { "Entry 12", RS_DLG_ACTION_NONE, 0, "Entry 12.", RS_DLG_NO_NEXT },
+    { "Entry 13", RS_DLG_ACTION_NONE, 0, "Entry 13.", RS_DLG_NO_NEXT },
+    { "Entry 14", RS_DLG_ACTION_NONE, 0, "Entry 14.", RS_DLG_NO_NEXT },
+    { "Entry 15", RS_DLG_ACTION_NONE, 0, "Entry 15.", RS_DLG_NO_NEXT },
+    { "Done", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+
+const RsDialogueNode sScrollNodes[] = {
+    { nullptr, 0, "All sixteen:", sScrollLongOptions, 16, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+
+const RsDialogueRule sScrollRules[] = {
+    { nullptr, 0, "Ask me anything.", sScrollTopicOptions, 10, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+
+const RsNpcDef sScrollNpc = {
+    NPC_DEBUG_SCROLL, QUEST_TIER_DEBUG, "debug_scroll", "Debug: the long list", sScrollRules, 1, sScrollNodes, 1,
+};
+
+// --- NPC_DEBUG_MEMORY (202) ----------------------------------------------------------------------
+//
+// Choice memory (#281). The menu is a NODE, since options can only point at nodes and a menu you come
+// back to has to be one; the entry rule is a statement that leads into it.
+//
+//   node 0  A: ten topics, each replying and coming BACK to A - the plainest return, which should put
+//           the cursor straight back on the topic. "The long list" goes down to B.
+//   node 1  B: sixteen entries, each replying and going back up to A, "Go deeper" down to C, and
+//           "Back" up to A.
+//   node 2  C: two ways up - to A (popping B and C), or to B (popping C).
+
+const RsDialogueOption sMemoryTopicOptions[] = {
+    { "Topic 1", RS_DLG_ACTION_NONE, 0, "You picked topic 1.", 0 },
+    { "Topic 2", RS_DLG_ACTION_NONE, 0, "You picked topic 2.", 0 },
+    { "Topic 3", RS_DLG_ACTION_NONE, 0, "You picked topic 3.", 0 },
+    { "Topic 4", RS_DLG_ACTION_NONE, 0, "You picked topic 4.", 0 },
+    { "Topic 5", RS_DLG_ACTION_NONE, 0, "You picked topic 5.", 0 },
+    { "Topic 6", RS_DLG_ACTION_NONE, 0, "You picked topic 6.", 0 },
+    { "Topic 7", RS_DLG_ACTION_NONE, 0, "You picked topic 7.", 0 },
+    { "Topic 8", RS_DLG_ACTION_NONE, 0, "You picked topic 8.", 0 },
+    { "The long list", RS_DLG_ACTION_NONE, 0, nullptr, 1 },
+    { "Goodbye", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueOption sMemoryEntryOptions[] = {
+    { "Entry 1", RS_DLG_ACTION_NONE, 0, "Entry 1.", 0 },
+    { "Entry 2", RS_DLG_ACTION_NONE, 0, "Entry 2.", 0 },
+    { "Entry 3", RS_DLG_ACTION_NONE, 0, "Entry 3.", 0 },
+    { "Entry 4", RS_DLG_ACTION_NONE, 0, "Entry 4.", 0 },
+    { "Entry 5", RS_DLG_ACTION_NONE, 0, "Entry 5.", 0 },
+    { "Entry 6", RS_DLG_ACTION_NONE, 0, "Entry 6.", 0 },
+    { "Entry 7", RS_DLG_ACTION_NONE, 0, "Entry 7.", 0 },
+    { "Entry 8", RS_DLG_ACTION_NONE, 0, "Entry 8.", 0 },
+    { "Entry 9", RS_DLG_ACTION_NONE, 0, "Entry 9.", 0 },
+    { "Entry 10", RS_DLG_ACTION_NONE, 0, "Entry 10.", 0 },
+    { "Entry 11", RS_DLG_ACTION_NONE, 0, "Entry 11.", 0 },
+    { "Entry 12", RS_DLG_ACTION_NONE, 0, "Entry 12.", 0 },
+    { "Entry 13", RS_DLG_ACTION_NONE, 0, "Entry 13.", 0 },
+    { "Entry 14", RS_DLG_ACTION_NONE, 0, "Entry 14.", 0 },
+    { "Go deeper", RS_DLG_ACTION_NONE, 0, nullptr, 2 },
+    { "Back", RS_DLG_ACTION_NONE, 0, nullptr, 0 },
+};
+const RsDialogueOption sMemoryDeepOptions[] = {
+    { "Back to the topics", RS_DLG_ACTION_NONE, 0, nullptr, 0 },
+    { "Back to the long list", RS_DLG_ACTION_NONE, 0, nullptr, 1 },
+};
+
+const RsDialogueNode sMemoryNodes[] = {
+    { nullptr, 0, "What shall we discuss?", sMemoryTopicOptions, 10, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    { nullptr, 0, "All sixteen:", sMemoryEntryOptions, 16, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    { nullptr, 0, "Deeper still.", sMemoryDeepOptions, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+
+const RsDialogueRule sMemoryRules[] = {
+    { nullptr, 0, "Let us talk.", nullptr, 0, RS_DLG_NO_MISSING, 0 },
+};
+
+const RsNpcDef sMemoryNpc = {
+    NPC_DEBUG_MEMORY, QUEST_TIER_DEBUG, "debug_memory", "Debug: the memory", sMemoryRules, 1, sMemoryNodes, 3,
+};
+
+// --- NPC_DEBUG_SPEAKER_A (203), _B (204), _ABSENT (205) ----------------------------------------
+//
+// A speaker per screen (#281). 203 owns the conversation; every line says who speaks it ("A:" or "B:"),
+// so a screenshot shows the line matched its speaker and the markers show the camera went to it.
+//
+//   rule 0  B speaks FIRST, so the camera opens on 204 rather than on 203, whom Link talked to.
+//   node 0  A's menu (naming 203 outright). Six options, so it scrolls - a scroll re-lays the same
+//           screen and must not move the floor:
+//             Ask B         B answers (a reply speaker), back to the menu
+//             Ask A         A answers (the screen's speaker, by default), back to the menu
+//             Ask C         205 answers - registered, never placed, so A keeps the floor
+//             Hear them     B then A, two statements, back to the menu
+//             Take a token  GIVE_ITEM; B hands it over in words, the gift re-opens on B's node 3
+//             Goodbye       B says goodbye, and the conversation closes on B's line
+//   node 1  B: a statement continuing to node 2.
+//   node 2  A: (the default speaker), back to the menu.
+//   node 3  B: where the gift re-opens, back to the menu.
+
+const QuestPredicate sSpeakerTokenDueWhen[] = {
+    QP_NOT_QUEST_STEP_SET(QUEST_DEBUG_SPEAKER, 0),
+};
+
+const RsDialogueOption sSpeakerMenuOptions[] = {
+    { "Ask B", RS_DLG_ACTION_NONE, 0, "B: I answer what I am asked.", 0, nullptr, 0, 0,
+      RS_DLG_SPEAKER(NPC_DEBUG_SPEAKER_B) },
+    { "Ask A", RS_DLG_ACTION_NONE, 0, "A: And I answer mine.", 0 },
+    { "Ask C", RS_DLG_ACTION_NONE, 0, "A: C never came, so I will answer.", 0, nullptr, 0, 0,
+      RS_DLG_SPEAKER(NPC_DEBUG_SPEAKER_ABSENT) },
+    { "Hear them both", RS_DLG_ACTION_NONE, 0, nullptr, 1 },
+    { "Take a token", RS_DLG_ACTION_GIVE_ITEM, RS_DLG_ITEM(QUEST_DEBUG_SPEAKER, 0), "B: Here, take this.", 3,
+      sSpeakerTokenDueWhen, 1, 0, RS_DLG_SPEAKER(NPC_DEBUG_SPEAKER_B) },
+    { "Goodbye", RS_DLG_ACTION_NONE, 0, "B: Bye now.", RS_DLG_NO_NEXT, nullptr, 0, 0,
+      RS_DLG_SPEAKER(NPC_DEBUG_SPEAKER_B) },
+};
+
+const RsDialogueNode sSpeakerNodes[] = {
+    { nullptr, 0, "A: Two of us. Ask away.", sSpeakerMenuOptions, 6, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT,
+      RS_DLG_SPEAKER(NPC_DEBUG_SPEAKER_A) },
+    { nullptr, 0, "B: I go first.", nullptr, 0, RS_DLG_NO_MISSING, 2, RS_DLG_SPEAKER(NPC_DEBUG_SPEAKER_B) },
+    { nullptr, 0, "A: And I go second.", nullptr, 0, RS_DLG_NO_MISSING, 0 },
+    { nullptr, 0, "B: Keep it safe, now.", nullptr, 0, RS_DLG_NO_MISSING, 0, RS_DLG_SPEAKER(NPC_DEBUG_SPEAKER_B) },
+};
+
+const RsDialogueRule sSpeakerRules[] = {
+    { nullptr, 0, "B: Hold on, let me speak first.", nullptr, 0, RS_DLG_NO_MISSING, 0,
+      RS_DLG_SPEAKER(NPC_DEBUG_SPEAKER_B) },
+};
+
+const RsNpcDef sSpeakerA = {
+    NPC_DEBUG_SPEAKER_A, QUEST_TIER_DEBUG, "debug_speaker_a", "Debug: speaker A", sSpeakerRules, 1, sSpeakerNodes, 4,
+};
+
+// The cast. Each needs a conversation of its own to register - talking to one directly is harmless.
+const RsDialogueRule sSpeakerBRules[] = {
+    { nullptr, 0, "B: Talk to A; I only chime in.", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+const RsNpcDef sSpeakerB = {
+    NPC_DEBUG_SPEAKER_B, QUEST_TIER_DEBUG, "debug_speaker_b", "Debug: speaker B", sSpeakerBRules, 1,
+};
+const RsDialogueRule sSpeakerAbsentRules[] = {
+    { nullptr, 0, "C: You should not be able to find me.", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+const RsNpcDef sSpeakerAbsent = {
+    NPC_DEBUG_SPEAKER_ABSENT, QUEST_TIER_DEBUG, "debug_speaker_absent", "Debug: the absent speaker",
+    sSpeakerAbsentRules, 1,
+};
+
 // --- the malformed table --------------------------------------------------------------------
 //
 // One entry per refusal message in NpcDialogue.cpp's validator. `npc badcheck` runs
@@ -472,13 +762,21 @@ const RsDialogueRule sBadOneOption[] = { { nullptr, 0, "text", sOkOptions, 1, RS
 // out-of-bounds read inside the validator whose entire job is to refuse bad definitions, so the
 // array is now genuinely as long as the count claims. Replaced IN PLACE, never reordered: the
 // acceptance drivers pin these by index.
-const RsDialogueOption sFiveOpts[] = {
+// One past the cap. It was five options when the cap was four; #290 raised the cap to sixteen, so the
+// array is sized from the cap now and the row keeps its index (the label says what it tests).
+const RsDialogueOption sOverCapOpts[RS_DIALOGUE_MAX_OPTIONS + 1] = {
     { "A", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT }, { "B", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
     { "C", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT }, { "D", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
-    { "E", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "E", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT }, { "F", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "G", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT }, { "H", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "I", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT }, { "J", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "K", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT }, { "L", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "M", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT }, { "N", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "O", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT }, { "P", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "Q", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
-const RsDialogueRule sBadFiveOptions[] = {
-    { nullptr, 0, "text", sFiveOpts, RS_DIALOGUE_MAX_OPTIONS + 1, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+const RsDialogueRule sBadOverCapOptions[] = {
+    { nullptr, 0, "text", sOverCapOpts, RS_DIALOGUE_MAX_OPTIONS + 1, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
 };
 
 const RsDialogueOption sThreeOk[] = {
@@ -809,7 +1107,7 @@ BAD_NPC_DEF(sDefTextQuote, sBadTextQuote, 1);
 BAD_NPC_DEF(sDefTextEmpty, sBadTextEmpty, 1);
 BAD_NPC_DEF(sDefOptionsNull, sBadOptionsNull, 1);
 BAD_NPC_DEF(sDefOneOption, sBadOneOption, 1);
-BAD_NPC_DEF(sDefFiveOptions, sBadFiveOptions, 1);
+BAD_NPC_DEF(sDefOverCapOptions, sBadOverCapOptions, 1);
 BAD_NPC_DEF(sDefThreeLong, sBadThreeLong, 1);
 BAD_NPC_DEF(sDefThreeMultiline, sBadThreeMultiline, 1);
 BAD_NPC_DEF(sDefLabelNull, sBadLabelNull, 1);
@@ -855,6 +1153,112 @@ BAD_TREE_DEF(sDefMenuLoop, sLoopEntryWithExitRules, 1, sMenuLoopNodes, 1);
 BAD_TREE_DEF(sDefStatementLoop, sLoopEntryRules, 1, sStatementLoopNodes, 2);
 BAD_TREE_DEF(sDefGatedExit, sLoopEntryRules, 1, sGatedExitNodes, 1);
 
+// #281: the rupee predicate's range, and the two new actions' operands.
+const QuestPredicate sPredRupeesRange[] = { QP_RUPEES_AT_LEAST(-1) };
+const RsDialogueRule sBadPredRupees[] = {
+    { sPredRupeesRange, 1, "text", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+const RsDialogueOption sOptGiveQuestRange[] = {
+    { "Yes", RS_DLG_ACTION_GIVE_ITEM, RS_DLG_ITEM(QUEST_MAX, 0), nullptr, RS_DLG_NO_NEXT },
+    { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadGiveQuestRange[] = {
+    { nullptr, 0, "text", sOptGiveQuestRange, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+// A DEBUG NPC handing over a PRODUCTION quest's item: the world-flag band rule, for a step.
+const RsDialogueOption sOptGiveQuestBand[] = {
+    { "Yes", RS_DLG_ACTION_GIVE_ITEM, RS_DLG_ITEM(QUEST_COOKS_ASSISTANT, 0), nullptr, RS_DLG_NO_NEXT },
+    { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadGiveQuestBand[] = {
+    { nullptr, 0, "text", sOptGiveQuestBand, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+const RsDialogueOption sOptChargeZero[] = {
+    { "Yes", RS_DLG_ACTION_CHARGE_RUPEES, 0, nullptr, RS_DLG_NO_NEXT },
+    { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadChargeZero[] = {
+    { nullptr, 0, "text", sOptChargeZero, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+BAD_NPC_DEF(sDefPredRupees, sBadPredRupees, 1);
+BAD_NPC_DEF(sDefGiveQuestRange, sBadGiveQuestRange, 1);
+BAD_NPC_DEF(sDefGiveQuestBand, sBadGiveQuestBand, 1);
+BAD_NPC_DEF(sDefChargeZero, sBadChargeZero, 1);
+const RsDialogueOption sOptBuyPriceZero[] = {
+    { "Yes", RS_DLG_ACTION_BUY_ITEM, RS_DLG_BUY(QUEST_DEBUG_GROCERIES, 0, 0), nullptr, RS_DLG_NO_NEXT },
+    { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadBuyPriceZero[] = {
+    { nullptr, 0, "text", sOptBuyPriceZero, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+const RsDialogueOption sOptBuyQuestBand[] = {
+    { "Yes", RS_DLG_ACTION_BUY_ITEM, RS_DLG_BUY(QUEST_COOKS_ASSISTANT, 0, 5), nullptr, RS_DLG_NO_NEXT },
+    { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadBuyQuestBand[] = {
+    { nullptr, 0, "text", sOptBuyQuestBand, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+BAD_NPC_DEF(sDefBuyPriceZero, sBadBuyPriceZero, 1);
+BAD_NPC_DEF(sDefBuyQuestBand, sBadBuyQuestBand, 1);
+// #290: a label that fits a plain option row (184px) but not a SCROLLING one, which stops 10px short
+// for the arrow's column. Fifteen W's are 180px in CustomMessage's table - over the 174 a scrolling
+// row leaves a label, under 184.
+const RsDialogueOption sOptScrollLabelWide[] = {
+    { "WWWWWWWWWWWWWWW", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "B", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "C", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "D", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+    { "E", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadScrollLabelWide[] = {
+    { nullptr, 0, "text", sOptScrollLabelWide, 5, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+BAD_NPC_DEF(sDefScrollLabelWide, sBadScrollLabelWide, 1);
+// The opt-in journal notice (#281): on an action that can never earn one, and a value that is not the flag.
+const RsDialogueOption sOptNoticeOnNone[] = {
+    { "Yes", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT, nullptr, 0, RS_DLG_NOTICE },
+    { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadNoticeOnNone[] = {
+    { nullptr, 0, "text", sOptNoticeOnNone, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+const RsDialogueOption sOptNoticeValue[] = {
+    { "Yes", RS_DLG_ACTION_START_QUEST, QUEST_DEBUG_GIVER, nullptr, RS_DLG_NO_NEXT, nullptr, 0, 2 },
+    { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadNoticeValue[] = {
+    { nullptr, 0, "text", sOptNoticeValue, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+BAD_NPC_DEF(sDefNoticeOnNone, sBadNoticeOnNone, 1);
+BAD_NPC_DEF(sDefNoticeValue, sBadNoticeValue, 1);
+// A speaker per screen (#281): out of range, and in range but never registered - the second is only
+// asked once the registry is whole, which `npc badcheck` always is - on a screen and on a reply; and a
+// reply speaker on an option with no reply. NPC_MAX - 1 is in the debug band and nothing registers it.
+const RsDialogueRule sBadSpeakerRange[] = {
+    { nullptr, 0, "text", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT, RS_DLG_SPEAKER(NPC_MAX) },
+};
+const RsDialogueRule sBadSpeakerUnregistered[] = {
+    { nullptr, 0, "text", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT, RS_DLG_SPEAKER(NPC_MAX - 1) },
+};
+const RsDialogueOption sOptReplySpeakerUnregistered[] = {
+    { "Yes", RS_DLG_ACTION_NONE, 0, "Fine.", RS_DLG_NO_NEXT, nullptr, 0, 0, RS_DLG_SPEAKER(NPC_MAX - 1) },
+    { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadReplySpeakerUnregistered[] = {
+    { nullptr, 0, "text", sOptReplySpeakerUnregistered, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+const RsDialogueOption sOptReplySpeakerNoReply[] = {
+    { "Yes", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT, nullptr, 0, 0, RS_DLG_SPEAKER(NPC_DEBUG_TWIN) },
+    { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadReplySpeakerNoReply[] = {
+    { nullptr, 0, "text", sOptReplySpeakerNoReply, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+BAD_NPC_DEF(sDefSpeakerRange, sBadSpeakerRange, 1);
+BAD_NPC_DEF(sDefSpeakerUnregistered, sBadSpeakerUnregistered, 1);
+BAD_NPC_DEF(sDefReplySpeakerUnregistered, sBadReplySpeakerUnregistered, 1);
+BAD_NPC_DEF(sDefReplySpeakerNoReply, sBadReplySpeakerNoReply, 1);
+
 struct BadEntry {
     const char* label;
     const RsNpcDef* def;
@@ -886,7 +1290,7 @@ const BadEntry sBadDefs[] = {
     { "text_empty", &sDefTextEmpty },
     { "options_null_nonzero_count", &sDefOptionsNull },
     { "one_option", &sDefOneOption },
-    { "five_options", &sDefFiveOptions },
+    { "over_option_cap", &sDefOverCapOptions },
     { "three_option_body_too_long", &sDefThreeLong },
     { "three_option_body_multiline", &sDefThreeMultiline },
     { "label_null", &sDefLabelNull },
@@ -935,6 +1339,23 @@ const BadEntry sBadDefs[] = {
     { "cannot_end_menu_loop", &sDefMenuLoop },
     { "cannot_end_statement_loop", &sDefStatementLoop },
     { "cannot_end_only_exit_gated", &sDefGatedExit },
+    // #281, appended: the rupee predicate and the two new actions.
+    { "predicate_rupees_range", &sDefPredRupees },
+    { "action_give_item_quest_range", &sDefGiveQuestRange },
+    { "action_give_item_other_band", &sDefGiveQuestBand },
+    { "action_charge_rupees_zero", &sDefChargeZero },
+    { "action_buy_item_price_zero", &sDefBuyPriceZero },
+    { "action_buy_item_other_band", &sDefBuyQuestBand },
+    // The opt-in journal notice, appended.
+    { "notice_on_action_without_one", &sDefNoticeOnNone },
+    { "notice_value_not_flag", &sDefNoticeValue },
+    // #290, appended.
+    { "scroll_label_too_wide_for_arrow", &sDefScrollLabelWide },
+    // A speaker per screen (#281), appended.
+    { "speaker_out_of_range", &sDefSpeakerRange },
+    { "speaker_unregistered", &sDefSpeakerUnregistered },
+    { "reply_speaker_unregistered", &sDefReplySpeakerUnregistered },
+    { "reply_speaker_without_reply", &sDefReplySpeakerNoReply },
 };
 
 // RsNpc_Register is idempotent for the same pointer, which is what makes a ShipInit "*" re-run safe.
@@ -947,6 +1368,12 @@ void RegisterDebugNpcs() {
     RsNpc_Register(&sTree);
     RsNpc_Register(&sPage);
     RsNpc_Register(&sQuestMenu);
+    RsNpc_Register(&sShop);
+    RsNpc_Register(&sScrollNpc);
+    RsNpc_Register(&sMemoryNpc);
+    RsNpc_Register(&sSpeakerA);
+    RsNpc_Register(&sSpeakerB);
+    RsNpc_Register(&sSpeakerAbsent);
 }
 
 RegisterShipInitFunc debugNpcsInitFunc(RegisterDebugNpcs);

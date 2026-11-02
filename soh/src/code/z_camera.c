@@ -11,6 +11,7 @@
 #include "soh/Enhancements/camera/CameraIndoorTuning.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/savestate_serialize.h"
+#include "soh/Enhancements/rs/actors/RsSpeaker.h" // SOH [sturdy-bassoon#281] the talk camera's re-swing
 #include "soh/custom/scenes/grid_tool/GridToolSceneRegistry.h"
 
 s16 Camera_ChangeSettingFlags(Camera* camera, s16 setting, s16 flags);
@@ -4371,6 +4372,15 @@ s32 Camera_KeepOn3(Camera* camera) {
         Camera_RequestMode(camera, CAM_MODE_TARGET);
         return 1;
     }
+    // #region SOH [sturdy-bassoon#281] A conversation that hands the floor to another speaker
+    // (soh/Enhancements/rs/actors/RsSpeaker.h) moves this camera's target mid-talk, and the set-up below
+    // framed the old one. Re-run it on the new one, as Majora's Mask's KeepOn3 does on any change - here
+    // only on a change RsSpeaker made, so no vanilla conversation ever re-swings.
+    if (RsSpeaker_CameraReswing(camera->target, anim->target,
+                                camera->animState == 0 || camera->animState == 0xA || camera->animState == 0x14)) {
+        camera->animState = 0xA;
+    }
+    // #endregion
     if (camera->animState == 0 || camera->animState == 0xA || camera->animState == 0x14) {
         if (camera->play->view.unk_124 == 0) {
             camera->unk_14C |= 0x20;
@@ -4418,6 +4428,7 @@ s32 Camera_KeepOn3(Camera* camera) {
         anim->target = camera->target;
         temp_f0 = (keep3->maxDist < targetToPlayerDir.r ? 1.0f : targetToPlayerDir.r / keep3->maxDist);
         anim->animTimer = keep3->initTimer;
+        anim->animTimer = RsSpeaker_CameraSwingTicks(anim->animTimer); // SOH [sturdy-bassoon#281] a re-swing's own time
         spBC = ((1.0f - temp_f0) * targetToPlayerDir.r) / anim->animTimer;
         swingAngle = F32_LERPIMP(keep3->swingPitchInitial, keep3->swingPitchFinal, temp_f0);
         atToEyeAdj.pitch = DEGF_TO_BINANG(swingAngle) + ((s16)(-(targetToPlayerDir.pitch * keep3->swingPitchAdj)));

@@ -6,8 +6,9 @@
 #include "QuestIds.h"
 #include "QuestStore.h"
 
-// The predicate vocabulary (sturdy-bassoon#58 decisions D10/D11). Nine words - five at P0, one
-// added in P2, one in P3 and two for boat upgrades (#263), each on the bar described below:
+// The predicate vocabulary (sturdy-bassoon#58 decisions D10/D11). Ten words - five at P0, one
+// added in P2, one in P3, two for boat upgrades (#263) and one for prices (#281), each on the bar
+// described below:
 //
 //     Always            true
 //     QuestStatusIs     QuestStore_GetStatus(a) == b
@@ -17,6 +18,7 @@
 //     WorldFlagSet      Flags_GetWorldFlag(a)
 //     BoatOwned         the player owns boat kind a (sturdy-bassoon#263)
 //     BoatTierAtLeast   a boat kind's slot (a) is fitted at tier b or higher (#263)
+//     RupeesAtLeast     Link holds at least a rupees, counting a change still being counted (#281)
 //     Not               negates any of the above
 //
 // A predicate is CONSTRAINED DATA, never a callback. That is the whole point: quest prerequisites,
@@ -67,8 +69,17 @@ typedef enum QuestPredicateKind {
     QUEST_PRED_BOAT_OWNED = 6,         // a = RsBoatKindId (sturdy-bassoon#263, boats/RsBoatFit.h). Same append rule.
     QUEST_PRED_BOAT_TIER_AT_LEAST = 7, // a = RS_BOAT_FIT_KEY(kind, slot), b = tier: the slot's tier on that kind is
                                        // at least b. What makes "tier 2 only after tier 1 is built" a line of data.
+    QUEST_PRED_RUPEES_AT_LEAST = 8, // a = amount [0, QUEST_RUPEE_AMOUNT_MAX] (sturdy-bassoon#281): "can afford", the gate a
+                                    // dialogue option that charges (RS_DLG_ACTION_CHARGE_RUPEES) sits behind.
+                                    // Reads Quest_RupeesAfterPending, so a charge still being counted down
+                                    // already counts. Same append rule.
     QUEST_PRED_KIND_COUNT,
 } QuestPredicateKind;
+
+// The largest rupee amount a definition may name - a RupeesAtLeast operand, a dialogue price: the s16
+// Rupees_ChangeBy takes. Here rather than in Quest.h because both registration gates read it and this is
+// the header they share.
+#define QUEST_RUPEE_AMOUNT_MAX 0x7FFF
 
 typedef struct QuestPredicate {
     QuestPredicateKind kind;
@@ -90,12 +101,14 @@ typedef struct QuestPredicate {
 #define QP_BOAT_OWNED(kind) { QUEST_PRED_BOAT_OWNED, (kind), 0, 0 }
 // BoatTierAtLeast packs kind and slot as RS_BOAT_FIT_KEY does (boats/RsBoatFit.cpp asserts the three forms agree).
 #define QP_BOAT_TIER_AT_LEAST(kind, slot, tier) { QUEST_PRED_BOAT_TIER_AT_LEAST, (kind) * 256 + (slot), (tier), 0 }
+#define QP_RUPEES_AT_LEAST(amount) { QUEST_PRED_RUPEES_AT_LEAST, (amount), 0, 0 }
 #define QP_NOT_ALWAYS() { QUEST_PRED_ALWAYS, 0, 0, 1 }
 #define QP_NOT_QUEST_STATUS_IS(questId, status) { QUEST_PRED_QUEST_STATUS_IS, (questId), (status), 1 }
 #define QP_NOT_QUEST_STEP_SET(questId, step) { QUEST_PRED_QUEST_STEP_SET, (questId), (step), 1 }
 #define QP_NOT_WORLD_FLAG_SET(flag) { QUEST_PRED_WORLD_FLAG_SET, (flag), 0, 1 }
 #define QP_NOT_ALL_STEPS_SET(questId) { QUEST_PRED_ALL_STEPS_SET, (questId), 0, 1 }
 #define QP_NOT_QUEST_PREREQS_MET(questId) { QUEST_PRED_QUEST_PREREQS_MET, (questId), 0, 1 }
+#define QP_NOT_RUPEES_AT_LEAST(amount) { QUEST_PRED_RUPEES_AT_LEAST, (amount), 0, 1 }
 
 #ifdef __cplusplus
 extern "C" {
@@ -147,6 +160,9 @@ constexpr QuestPredicate BoatOwned(int32_t kind) {
 }
 constexpr QuestPredicate BoatTierAtLeast(int32_t kind, int32_t slot, int32_t tier) {
     return { QUEST_PRED_BOAT_TIER_AT_LEAST, kind * 256 + slot, tier, 0 };
+}
+constexpr QuestPredicate RupeesAtLeast(int32_t amount) {
+    return { QUEST_PRED_RUPEES_AT_LEAST, amount, 0, 0 };
 }
 constexpr QuestPredicate Not(QuestPredicate pred) {
     pred.negate = pred.negate ? 0 : 1;

@@ -2,12 +2,15 @@
 
 #include <cstdio>
 #include <ship/debug/Console.h>
+#include <libultraship/bridge/consolevariablebridge.h>
 
 #include "NpcDialogue.h"
 #include "NpcDialogueDef.h"
 #include "NpcIds.h"
 #include "soh/Enhancements/console/ConsoleSink.h"
 #include "soh/Enhancements/rs/actors/RsActorParams.h"
+#include "soh/Enhancements/rs/actors/RsActors.h" // CVAR_RS_SCROLL_ARROW_ANIM
+#include "soh/Enhancements/rs/actors/RsSpeaker.h"
 #include "soh/Enhancements/rs/quest/Quest.h"
 #include "soh/Enhancements/rs/quest/QuestDef.h"
 #include "soh/Enhancements/rs/quest/QuestPredicate.h"
@@ -71,13 +74,40 @@ bool ParseNpcId(const std::vector<std::string>& args, size_t index, int32_t* npc
 // (RS_DLG_NO_NEXT prints as -1, which is "close"); `when=` is how many predicates gate it and
 // `visible=` is what those predicates say RIGHT NOW - which is what makes the dynamic reveal
 // assertable from a console instead of from six screenshots.
+//
+// A give_item or buy_item option's `a=` is packed, so it also prints `give=Q.S` (#281) - the item it
+// hands over, readable without unpacking RS_DLG_ITEM by hand - and a sale `price=N`. A charge_rupees
+// option's `a=` is already its price. `notice=` is the opt-in journal-notice flag. `reply_speaker=` (#281)
+// is who answers it - an NpcId, or `screen` for whoever spoke the screen - last on every line.
 std::string OptionLine(const char* prefix, int32_t screenIndex, int32_t optionIndex, const RsDialogueOption& option) {
-    return std::string(prefix) + "[" + std::to_string(screenIndex) + "." + std::to_string(optionIndex) +
-           "]=" + RsNpc_ActionName(option.kind) + " a=" + std::to_string(option.a) + " label=\"" +
-           RsNpc_ComposeOptionLabel(option) + "\" reply=\"" +
-           (option.reply != nullptr ? RsNpc_ComposeOptionReply(option) : std::string("-")) +
-           "\" next=" + std::to_string(option.next) + " when=" + std::to_string(option.whenCount) +
-           " visible=" + std::to_string(RsNpc_OptionVisible(&option));
+    std::string line = std::string(prefix) + "[" + std::to_string(screenIndex) + "." +
+                       std::to_string(optionIndex) + "]=" + RsNpc_ActionName(option.kind) +
+                       " a=" + std::to_string(option.a) + " label=\"" + RsNpc_ComposeOptionLabel(option) +
+                       "\" reply=\"" +
+                       (option.reply != nullptr ? RsNpc_ComposeOptionReply(option) : std::string("-")) +
+                       "\" next=" + std::to_string(option.next) + " when=" + std::to_string(option.whenCount) +
+                       " visible=" + std::to_string(RsNpc_OptionVisible(&option));
+    const int32_t item = RsNpc_OptionItem(&option);
+    if (item >= 0) {
+        line += " give=" + std::to_string(RS_DLG_ITEM_GET_QUEST(item)) + "." +
+                std::to_string(RS_DLG_ITEM_GET_STEP(item));
+    }
+    if (option.kind == RS_DLG_ACTION_BUY_ITEM) {
+        line += " price=" + std::to_string(RsNpc_OptionPrice(&option));
+    }
+    line += " notice=" + std::to_string(option.notice);
+    line += " reply_speaker=" + (option.replySpeaker == RS_DLG_SPEAKER_DEFAULT
+                                     ? std::string("screen")
+                                     : std::to_string(RS_DLG_SPEAKER_GET_ID(option.replySpeaker)));
+    return line;
+}
+
+// A screen's speaker (#281): an NpcId, or `owner` for the character the conversation belongs to.
+std::string SpeakerField(const RsDialogueRule& screen) {
+    if (screen.speaker == RS_DLG_SPEAKER_DEFAULT) {
+        return " speaker=owner";
+    }
+    return " speaker=" + std::to_string(RS_DLG_SPEAKER_GET_ID(screen.speaker));
 }
 
 // `node.K` for where an edge naming node `n` lands right now, `-` if it lands nowhere (refused at
@@ -109,6 +139,7 @@ void Dump(int32_t npcId, std::vector<std::string>& lines) {
         }
         // Appended last (#96 follow-up): where a STATEMENT continues when dismissed, -1 for close.
         line += " next=" + std::to_string(rule.next);
+        line += SpeakerField(rule); // appended (#281)
         lines.push_back(line);
         for (int32_t i = 0; i < rule.whenCount; i++) {
             char desc[96];
@@ -147,6 +178,7 @@ void Dump(int32_t npcId, std::vector<std::string>& lines) {
             // The arrival analysis's verdict on this clause - its own gate, or every path in.
             line += " clause_gated=" + std::to_string(RsNpc_NodeClauseGated(npcId, n));
         }
+        line += SpeakerField(node); // appended (#281)
         lines.push_back(line);
         for (int32_t i = 0; i < node.whenCount; i++) {
             char desc[96];
@@ -318,7 +350,55 @@ int32_t BadCheck(std::vector<std::string>& lines) {
     return clean == 0 ? 0 : 1;
 }
 
-const char* kUsage = "usage: npc list | dump <id> | tree <id> | resolve <id> | actors | badcheck";
+const char* kUsage = "usage: npc list | dump <id> | tree <id> | resolve <id> | actors | badcheck | "
+                     "arrows [bounce|fade|none] | speaker | swing [ticks]";
+
+// Who has the floor right now (#281): the conversation's owner, Player's talk and focus actors, and
+// whether the talk camera still owes a re-swing. Read while a box is open to assert a handoff landed.
+int32_t Speaker(std::vector<std::string>& lines) {
+    char buf[160];
+    RsSpeaker_Describe(gPlayState, buf, sizeof(buf));
+    lines.push_back(std::string("op=speaker ") + buf);
+    return 0;
+}
+
+// How long the talk camera takes to swing to a new speaker (#281), in 20 Hz ticks: a developer setting,
+// kept in the config like `arrows`. With no argument, prints what is set.
+int32_t Swing(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() >= 2) {
+        int32_t ticks = 0;
+        if (!ParseInt(args[1], &ticks) || ticks < RS_SPEAKER_SWING_MIN || ticks > RS_SPEAKER_SWING_MAX) {
+            lines.push_back("error=swing takes " + std::to_string(RS_SPEAKER_SWING_MIN) + ".." +
+                            std::to_string(RS_SPEAKER_SWING_MAX) + " ticks");
+            return 1;
+        }
+        CVarSetInteger(CVAR_RS_SPEAKER_SWING, ticks);
+    }
+    lines.push_back("op=swing ticks=" + std::to_string(RsSpeaker_SwingTicks()));
+    return 0;
+}
+
+// The scroll arrows' animation (#290): a developer setting, kept in the config like the other
+// gDeveloperTools CVars. With no argument, prints what is set.
+int32_t Arrows(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    static const char* const kNames[] = { "bounce", "fade", "none" };
+    if (args.size() >= 2) {
+        int32_t mode = -1;
+        for (int32_t i = 0; i < 3; i++) {
+            if (args[1] == kNames[i]) {
+                mode = i;
+            }
+        }
+        if (mode < 0) {
+            lines.push_back("error=arrows takes bounce, fade or none");
+            return 1;
+        }
+        CVarSetInteger(CVAR_RS_SCROLL_ARROW_ANIM, mode);
+    }
+    const int32_t mode = CVarGetInteger(CVAR_RS_SCROLL_ARROW_ANIM, RS_SCROLL_ARROW_FADE);
+    lines.push_back(std::string("op=arrows anim=") + (mode >= 0 && mode < 3 ? kNames[mode] : "?"));
+    return 0;
+}
 
 } // namespace
 
@@ -345,6 +425,15 @@ int32_t RsNpcConsole_Run(const std::vector<std::string>& args, std::vector<std::
     }
     if (sub == "badcheck") {
         return BadCheck(lines);
+    }
+    if (sub == "arrows") {
+        return Arrows(args, lines);
+    }
+    if (sub == "speaker") {
+        return Speaker(lines);
+    }
+    if (sub == "swing") {
+        return Swing(args, lines);
     }
     if (sub == "dump") {
         if (!ParseNpcId(args, 1, &npcId, lines)) {
@@ -393,8 +482,10 @@ const ConsoleSink::Command npcCommand(
     "NODE array a dialogue tree navigates through; tree prints the graph - every "
     "screen, every edge and each node's reachability; resolve prints the speaking "
     "rule's composed body alone; actors lists the live RS actor instances in the "
-    "loaded scene; badcheck proves registration refuses malformed definitions.",
-    { { "list|dump|tree|resolve|actors|badcheck", Ship::ArgumentType::TEXT },
+    "loaded scene; badcheck proves registration refuses malformed definitions; arrows sets how a "
+    "scrolling list's arrows animate (#290); speaker prints who has the floor in the conversation "
+    "in progress and swing sets how many ticks the camera takes to turn to a new speaker (#281).",
+    { { "list|dump|tree|resolve|actors|badcheck|arrows|speaker|swing", Ship::ArgumentType::TEXT },
       { "npc id", Ship::ArgumentType::TEXT, true } });
 
 } // namespace
