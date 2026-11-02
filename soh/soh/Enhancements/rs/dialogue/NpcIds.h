@@ -43,6 +43,10 @@ typedef enum NpcId {
                   // production-band character. Defined in dialogue/npcs/CookNpc.cpp, placed in the
                   // test level (0x614). Six rules, one of which speaks all seven of the quest's
                   // incomplete collection states.
+    NPC_SAILMAKER = 1, // sturdy-bassoon#287 - puts the player's own picture on a boat's sail (arms a dropped
+                       // file, or opens the file dialog). Defined in dialogue/npcs/SailmakerNpc.cpp, spawned on
+                       // Lake Hylia's shore beside the lake's boat. A proof of concept: no quest, no model of
+                       // its own.
 
     // --- debug band: [NPC_ID_DEBUG_FIRST, NPC_MAX) ----------------------------------------
     NPC_DEBUG_GIVER = 192, // the P3 quest-giver (dialogue/npcs/DebugNpcs.cpp). Placed TWICE in

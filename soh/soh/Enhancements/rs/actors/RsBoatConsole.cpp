@@ -26,9 +26,6 @@ extern "C" {
 extern PlayState* gPlayState;
 }
 
-// Lake Hylia's boat (sturdy-bassoon#256): the issue's first test water, a large vanilla waterbox, so no scene
-// work. On by default while the prototype lives on its branch, so a human trying the branch finds a boat there.
-#define CVAR_RS_BOAT_LAKE_HYLIA CVAR_ENHANCEMENT("RsBoatLakeHylia")
 // The soft-sprite table's size, read by z_play.c at each scene load (sturdy-bassoon#268); unset is its default.
 #define CVAR_RS_EFFECT_SLOTS CVAR_ENHANCEMENT("RsEffectSlots")
 

@@ -113,6 +113,7 @@ typedef struct RsBoatRecolourSlot {
     s32 look;      // RsBoatLook whose chosen option recolours it first, or -1
     s32 tierCount; // colours a tier, tier 0 first; a tier past the last draws the last
     u8 rgb[RS_BOAT_RECOLOUR_MAX_TIERS][3];
+    s32 image;     // the RsBoatSailId whose picture its texture coordinates are for (an `image` line, #287), or -1
 } RsBoatRecolourSlot;
 
 typedef struct RsBoatRecolour {
@@ -293,6 +294,9 @@ extern RsBoatTestWater gRsBoatTestWater;
 // The kind's console name ("skiff", "sloop"), or "?" out of range; and back, -1 for no such kind.
 const char* RsBoat_KindName(s32 kind);
 s32 RsBoat_KindByName(const char* name);
+// The kind's archive list path ("objects/rs_props/rs_boat_skiff/props"), or NULL out of range: where its sails'
+// templates live beside it (RsBoatSail.h).
+const char* RsBoat_KindListPath(s32 kind);
 
 // The kind's collision triangles, for the console and the DynaPoly budget.
 s32 RsBoat_KindPolyCount(s32 kind);

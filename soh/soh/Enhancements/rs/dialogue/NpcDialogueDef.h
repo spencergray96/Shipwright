@@ -34,8 +34,17 @@ typedef enum RsDialogueActionKind {
     RS_DLG_ACTION_COMPLETE_QUEST = 2, // a = QuestId -> Quest_Complete (COMPLETE-before-rewards, D12,
                                       // so a second one is `already_complete` and grants nothing)
     RS_DLG_ACTION_SET_WORLD_FLAG = 3, // a = WorldFlagId -> Flags_SetWorldFlag
+    // 4-6 are #281's (GIVE_ITEM, CHARGE_RUPEES, BUY_ITEM, on feat/281-mm-dialogue): kept free so the two merge.
+    RS_DLG_ACTION_BOAT_SAIL = 7,      // a = RS_DLG_SAIL(sail, op) -> RsBoatSail_DialogueAction (sturdy-bassoon#287):
+                                      // the sailmaker arms a sail for a dropped picture, opens the file dialog,
+                                      // or puts the sail back to its colour
     RS_DLG_ACTION_KIND_COUNT,
 } RsDialogueActionKind;
+
+// RS_DLG_ACTION_BOAT_SAIL's operand: an RsBoatSailId and an RsBoatSailOp (boats/RsBoatSail.h), four bits each.
+#define RS_DLG_SAIL(sail, op) ((sail) | ((op) << 4))
+#define RS_DLG_SAIL_SAIL(a) ((a) & 0xF)
+#define RS_DLG_SAIL_OP(a) (((a) >> 4) & 0xF)
 
 typedef struct RsDialogueOption {
     const char* label;         // the choice line; never NULL

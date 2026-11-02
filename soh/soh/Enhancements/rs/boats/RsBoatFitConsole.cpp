@@ -6,10 +6,16 @@
 #include <libultraship/bridge/consolevariablebridge.h>
 
 #include "RsBoatFit.h"
+#include "RsBoatSail.h"
 #include "soh/Enhancements/console/ConsoleSink.h"
 #include "soh/Enhancements/rs/actors/RsBoat.h"
 #include "soh/Enhancements/worldstate/WorldFlags.h"
 #include "soh/cvar_prefixes.h"
+
+#include <ship/Context.h>
+#include <ship/window/Window.h>
+#include <ship/window/gui/Gui.h>
+#include <ship/window/gui/GuiWindow.h>
 
 namespace {
 
@@ -44,6 +50,9 @@ void FitoutLine(int32_t kind, std::vector<std::string>& lines) {
                 (row != nullptr ? row->name : "-");
     }
     for (int32_t look = 0; look < RS_BOAT_LOOK_COUNT; look++) {
+        if (!RsBoatFit_KindHasLook(kind, look)) {
+            continue;
+        }
         line += std::string(" ") + RsBoatFit_LookName(look) + "=" +
                 RsBoatFit_LookOptionName(look, RsBoatFit_LookOf(kind, look));
     }
@@ -152,6 +161,9 @@ int32_t Look(const std::vector<std::string>& args, std::vector<std::string>& lin
             return 1;
         }
     }
+    if (!RsBoatFit_KindHasLook(kind, look)) {
+        return BadValue(lines, "look");
+    }
     std::string options;
     for (int32_t o = 0; o < RsBoatFit_LookOptionCount(look); o++) {
         options += std::string(o > 0 ? "," : "") + RsBoatFit_LookOptionName(look, o);
@@ -191,6 +203,76 @@ int32_t Fit(const std::vector<std::string>& args, std::vector<std::string>& line
     return 0;
 }
 
+// The rest of the line from word `from`, spaces kept: a path may have them.
+std::string Rest(const std::vector<std::string>& args, size_t from) {
+    std::string out;
+    for (size_t i = from; i < args.size(); i++) {
+        out += (i > from ? " " : "") + args[i];
+    }
+    return out;
+}
+
+void SailLine(int32_t sail, std::vector<std::string>& lines) {
+    const int32_t kind = RsBoatSail_Kind(sail);
+    const int32_t look = RsBoatSail_Look(sail);
+    int32_t drawnAs = look;
+    const int32_t option = RsBoatFit_LookDrawn(kind, look, &drawnAs);
+    const int32_t drawn = RsBoatFit_LookOptionKind(drawnAs, option) == RS_BOAT_LOOK_OPTION_CUSTOM &&
+                          RsBoatSail_Accepted(drawnAs == look ? sail : RsBoatSail_Of(kind, drawnAs));
+    Addf(lines, "sail name=%s kind=%s look=%s option=%s drawn=%d file=%d accepted=%d armed=%d refusal=\"%s\"",
+         RsBoatSail_Name(sail), RsBoat_KindName(kind), RsBoatFit_LookName(look),
+         RsBoatFit_LookOptionName(look, RsBoatFit_LookOf(kind, look)), drawn, RsBoatSail_Present(sail),
+         RsBoatSail_Accepted(sail), RsBoatSail_Armed() == sail ? 1 : 0, RsBoatSail_Refusal(sail));
+}
+
+int32_t Sails(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    const std::string op = args.size() >= 2 ? args[1] : "";
+    if (op == "reload" && args.size() == 2) {
+        RsBoatSail_Reload();
+    } else if (op == "import" && args.size() >= 4) {
+        const int32_t sail = RsBoatSail_ByName(args[2].c_str());
+        if (sail < 0) {
+            return BadValue(lines, "sails");
+        }
+        char why[256];
+        if (!RsBoatSail_Import(sail, Rest(args, 3).c_str(), why, sizeof(why))) {
+            Addf(lines, "op=sails result=error error=refused sail=%s why=\"%s\"", args[2].c_str(), why);
+            return 1;
+        }
+    } else if (op == "arm" && args.size() == 3) {
+        const int32_t sail = args[2] == "off" ? -1 : RsBoatSail_ByName(args[2].c_str());
+        if (sail < 0 && args[2] != "off") {
+            return BadValue(lines, "sails");
+        }
+        RsBoatSail_Arm(sail);
+    } else if (op == "drop" && args.size() >= 3) {
+        // What dropping the file on the game window does, for the loop: the armed sail's, else SoH's (not run here).
+        const int32_t handled = RsBoatSail_HandleDrop(Rest(args, 2).c_str());
+        Addf(lines, "op=sails result=ok drop_handled=%d", handled);
+        return 0;
+    } else if (op == "window" && args.size() <= 3) {
+        if (args.size() == 3 && (args[2] == "on" || args[2] == "off")) {
+            CVarSetInteger(CVAR_WINDOW("RsBoatSails"), args[2] == "on" ? 1 : 0);
+            auto window = Ship::Context::GetRawInstance()->GetWindow()->GetGui()->GetGuiWindow("Boat Sails");
+            if (window != nullptr) {
+                args[2] == "on" ? window->Show() : window->Hide();
+            }
+        } else if (args.size() != 2) {
+            return Usage(lines);
+        }
+        Addf(lines, "op=sails result=ok window=%d", CVarGetInteger(CVAR_WINDOW("RsBoatSails"), 0) ? 1 : 0);
+        return 0;
+    } else if (args.size() != 1) {
+        return Usage(lines);
+    }
+    for (int32_t sail = 0; sail < RS_BOAT_SAIL_COUNT; sail++) {
+        SailLine(sail, lines);
+    }
+    Addf(lines, "op=sails result=ok folder=\"%s\" armed=%s", RsBoatSail_Folder(),
+         RsBoatSail_Armed() >= 0 ? RsBoatSail_Name(RsBoatSail_Armed()) : "none");
+    return 0;
+}
+
 } // namespace
 
 int32_t RsBoatFitConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines) {
@@ -212,6 +294,9 @@ int32_t RsBoatFitConsole_Run(const std::vector<std::string>& args, std::vector<s
     }
     if (sub == "fit") {
         return Fit(args, lines);
+    }
+    if (sub == "sails") {
+        return Sails(args, lines);
     }
     return -1;
 }

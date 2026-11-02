@@ -15,6 +15,7 @@
 #include "overlays/effects/ovl_Effect_Ss_G_Ripple/z_eff_ss_g_ripple.h" // the wake's rings and splash, spawned at
 #include "overlays/effects/ovl_Effect_Ss_G_Splash/z_eff_ss_g_splash.h" // its own priority
 #include "soh/Enhancements/rs/boats/RsBoatFit.h"
+#include "soh/Enhancements/rs/boats/RsBoatSail.h"
 #include "soh/Enhancements/rs/swim/SwimStamina.h"
 
 void RsBoat_Init(Actor* thisx, PlayState* play);
@@ -410,6 +411,10 @@ static f32 RsBoat_TurnRate(const RsBoat* boat, f32 speed) {
 
 const char* RsBoat_KindName(s32 kind) {
     return (kind >= 0 && kind < RS_BOAT_KIND_COUNT) ? sRsBoatKinds[kind].name : "?";
+}
+
+const char* RsBoat_KindListPath(s32 kind) {
+    return (kind >= 0 && kind < RS_BOAT_KIND_COUNT) ? sRsBoatKinds[kind].list : NULL;
 }
 
 s32 RsBoat_KindByName(const char* name) {
@@ -2871,14 +2876,66 @@ static void RsBoat_DrawTestWater(GraphicsContext* gfxCtx) {
 
 _Static_assert(sizeof(Gfx) * 2 == RS_BOAT_RECOLOUR_STRIDE, "a recolour slot is two Gfx (generate_props' RECOLOUR_STRIDE)");
 
+// The picture a slot draws now (#287): its pattern look's image look, a `match` followed to the sail's, set to custom
+// with a picture accepted. A matched jib draws the mainsail's picture on its own texture coordinates. NULL for none.
+static const u8* RsBoat_SlotPicture(s32 kind, const RsBoatRecolourSlot* slot) {
+    s32 look = RsBoatFit_LookImage(slot->look);
+    s32 drawnAs = look;
+    s32 option;
+
+    if (slot->image < 0 || look < 0) {
+        return NULL;
+    }
+    option = RsBoatFit_LookDrawn(kind, look, &drawnAs);
+    if (RsBoatFit_LookOptionKind(drawnAs, option) != RS_BOAT_LOOK_OPTION_CUSTOM) {
+        return NULL;
+    }
+    return RsBoatSail_Pixels(drawnAs == look ? slot->image : RsBoatSail_Of(kind, drawnAs));
+}
+
+// The textured material a picture's slot calls (#287): the picture lerped over the slot's colour by its alpha (so a
+// transparent pixel shows the pattern), then lit by the shade, as the cloth's own PRIMITIVE * SHADE is; the cloth's
+// material is two-cycle (generate_props refuses an image on one that is not). An RGBA32 square loaded whole with the
+// wide load block, which carries a texel count past the N64's 4096 (the interpreter keeps no TMEM limit), clamped.
+// The prim colour is set only when the slot recolours: else the cloth's own stays in force. Every material the list
+// calls after it sets its own combiner and prim colour (generate_props' look_unreset).
+static Gfx* RsBoat_PictureMaterial(GraphicsContext* gfxCtx, const u8* pixels, s32 coloured, const u8 rgb[3]) {
+    Gfx* mat = Graph_Alloc(gfxCtx, 14 * sizeof(Gfx));
+    Gfx* g = mat;
+
+    gDPPipeSync(g++);
+    if (coloured) {
+        gDPSetPrimColor(g++, 0, 0, rgb[0], rgb[1], rgb[2], 255);
+    }
+    gDPSetCombineLERP(g++, TEXEL0, PRIMITIVE, TEXEL0_ALPHA, PRIMITIVE, 0, 0, 0, 1, COMBINED, 0, SHADE, 0, 0, 0, 0,
+                      COMBINED);
+    gSPTexture(g++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
+    gDPSetTextureImage(g++, G_IM_FMT_RGBA, G_IM_SIZ_32b, RS_BOAT_SAIL_SIZE, pixels);
+    gDPSetTile(g++, G_IM_FMT_RGBA, G_IM_SIZ_32b, 0, 0, G_TX_LOADTILE, 0, G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK,
+               G_TX_NOLOD, G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOLOD);
+    gDPLoadSync(g++);
+    gDPLoadBlockWide(g, G_TX_LOADTILE, 0, 0, RS_BOAT_SAIL_SIZE * RS_BOAT_SAIL_SIZE - 1, 0);
+    g += 2;
+    gDPPipeSync(g++);
+    // An RGBA32 tile's line is in 64-bit words of its 16-bit half, as gDPLoadTextureBlock writes it.
+    gDPSetTile(g++, G_IM_FMT_RGBA, G_IM_SIZ_32b, (RS_BOAT_SAIL_SIZE * 2 + 7) >> 3, 0, G_TX_RENDERTILE, 0,
+               G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOLOD);
+    gDPSetTileSize(g++, G_TX_RENDERTILE, 0, 0, (RS_BOAT_SAIL_SIZE - 1) << G_TEXTURE_IMAGE_FRAC,
+                   (RS_BOAT_SAIL_SIZE - 1) << G_TEXTURE_IMAGE_FRAC);
+    gSPEndDisplayList(g++);
+    return mat;
+}
+
 // What fills RS_BOAT_LOOK_SEGMENT for one of the kind's lists (#283): a slot a recoloured material, each a SetPrimColor
 // (or a no-op, to leave the material's own colour) and an end. A slot's colour is its look's chosen option when that
-// recolours (the sail pattern over the cloth), else its part's fitted tier's, the last tier the list knows for one past
-// it. With no recolour file (an archive from before tiers) slot 0 is the sail pattern's. Every slot the segment can
-// hold is written, the ones past the file's as no-ops, so a list whose file was refused calls nothing out of bounds.
+// recolours (the sail pattern over the cloth; the jib's, or the sail's when it matches), else its part's fitted tier's,
+// the last tier the list knows for one past it. A slot drawing a picture (#287) calls its material instead, which sets
+// the same colour under it. With no recolour file (an archive from before tiers) slot 0 is the sail pattern's. Every
+// slot the segment can hold is written, the ones past the file's as no-ops, so a list whose file was refused calls
+// nothing out of bounds.
 static Gfx* RsBoat_RecolourList(GraphicsContext* gfxCtx, s32 kind, const RsBoatRecolour* rc) {
-    static const RsBoatRecolourSlot sPatternOnly = { -1, RS_BOAT_LOOK_SAIL_PATTERN, 0, { { 0 } } };
-    static const RsBoatRecolourSlot sNone = { -1, -1, 0, { { 0 } } };
+    static const RsBoatRecolourSlot sPatternOnly = { -1, RS_BOAT_LOOK_SAIL_PATTERN, 0, { { 0 } }, -1 };
+    static const RsBoatRecolourSlot sNone = { -1, -1, 0, { { 0 } }, -1 };
     Gfx* list = Graph_Alloc(gfxCtx, RS_BOAT_RECOLOUR_MAX_SLOTS * RS_BOAT_RECOLOUR_STRIDE);
     Gfx* g = list;
 
@@ -2886,7 +2943,10 @@ static Gfx* RsBoat_RecolourList(GraphicsContext* gfxCtx, s32 kind, const RsBoatR
         const RsBoatRecolourSlot* slot =
             rc != NULL ? (i < rc->count ? &rc->slots[i] : &sNone) : (i == 0 ? &sPatternOnly : &sNone);
         u8 rgb[3];
-        s32 coloured = slot->look >= 0 && RsBoatFit_LookColour(slot->look, RsBoatFit_LookOf(kind, slot->look), rgb);
+        s32 drawnAs = slot->look;
+        const s32 option = slot->look >= 0 ? RsBoatFit_LookDrawn(kind, slot->look, &drawnAs) : 0;
+        s32 coloured = slot->look >= 0 && RsBoatFit_LookColour(drawnAs, option, rgb);
+        const u8* picture = RsBoat_SlotPicture(kind, slot);
 
         if (!coloured && slot->part >= 0 && slot->tierCount > 0) {
             s32 tier = RsBoatFit_TierOf(kind, slot->part);
@@ -2895,7 +2955,9 @@ static Gfx* RsBoat_RecolourList(GraphicsContext* gfxCtx, s32 kind, const RsBoatR
             rgb[0] = slot->rgb[tier][0], rgb[1] = slot->rgb[tier][1], rgb[2] = slot->rgb[tier][2];
             coloured = 1;
         }
-        if (coloured) {
+        if (picture != NULL) {
+            gSPDisplayList(g++, RsBoat_PictureMaterial(gfxCtx, picture, coloured, rgb));
+        } else if (coloured) {
             gDPSetPrimColor(g++, 0, 0, rgb[0], rgb[1], rgb[2], 255);
         } else {
             gDPNoOp(g++);

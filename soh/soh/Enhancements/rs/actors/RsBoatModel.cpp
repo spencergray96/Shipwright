@@ -14,6 +14,7 @@
 
 #include "RsBoat.h"
 #include "soh/Enhancements/rs/boats/RsBoatFit.h"
+#include "soh/Enhancements/rs/boats/RsBoatSail.h"
 
 #include <map>
 #include <memory>
@@ -49,10 +50,12 @@ std::shared_ptr<Fast::DisplayList> Load(const char* path) {
 // By list path, once each: a null entry is a list with no recolour file, or one that would not read.
 std::map<std::string, std::unique_ptr<RsBoatRecolour>> sRecolours;
 
-// generate_props.py's THE RECOLOUR FILE: `segment`, `locs <part> <prop> <loc>...`, `slot <k> <part> <look> <n> <rgb>...`.
-// A slot out of order, a part or look the build does not know, or more slots or tiers than fit: the whole file is
-// refused, logged, and an empty table returned, so every slot the list calls is a no-op and it draws as its archive
-// has it. Only a list with no file at all (an archive from before tiers) gets none.
+// generate_props.py's THE RECOLOUR FILE: `segment`, `locs <part> <prop> <loc>...`, `slot <k> <part> <look> <n> <rgb>...`,
+// `image <k> <name>` (#287: slot k's cloth has texture coordinates for that sail's picture). A slot out of order, a part
+// or look the build does not know, or more slots or tiers than fit: the whole file is refused, logged, and an empty
+// table returned, so every slot the list calls is a no-op and it draws as its archive has it. An image line for a slot
+// or a sail this build does not know is logged and skipped: that cloth draws its colour. Only a list with no file at
+// all (an archive from before tiers) gets none.
 std::unique_ptr<RsBoatRecolour> ReadRecolour(s32 kind, const std::string& path) {
     auto archives = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
     if (!archives->HasFile(path)) {
@@ -104,6 +107,7 @@ std::unique_ptr<RsBoatRecolour> ReadRecolour(s32 kind, const std::string& path) 
             std::string part, look;
             w >> k >> part >> look >> n;
             RsBoatRecolourSlot s = {};
+            s.image = -1;
             s.part = part == "-" ? -1 : RsBoatFit_SlotByName(part.c_str());
             s.look = look == "-" ? -1 : RsBoatFit_LookByName(look.c_str());
             s.tierCount = n;
@@ -119,6 +123,17 @@ std::unique_ptr<RsBoatRecolour> ReadRecolour(s32 kind, const std::string& path) 
                 return std::make_unique<RsBoatRecolour>();
             }
             out->slots[out->count++] = s;
+        } else if (what == "image") {
+            int32_t k = -1;
+            std::string name;
+            w >> k >> name;
+            const int32_t sail = RsBoatSail_ByName(name.c_str());
+            if (w.fail() || k < 0 || k >= out->count || sail < 0) {
+                SPDLOG_WARN("[rs_boat] {}: '{}' names no slot or sail this build knows: that cloth draws its colour",
+                            path, line);
+                continue;
+            }
+            out->slots[k].image = sail;
         }
     }
     SPDLOG_INFO("[rs_boat] {}: {} recolour slots", path, out->count);

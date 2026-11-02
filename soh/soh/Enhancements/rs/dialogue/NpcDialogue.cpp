@@ -11,6 +11,7 @@
 
 #include "soh/Enhancements/rs/actors/RsActors.h" // RsText_ChoiceWouldPaginate - the renderer answers
 #include "soh/Enhancements/rs/boats/RsBoatFit.h"
+#include "soh/Enhancements/rs/boats/RsBoatSail.h"
 #include "soh/Enhancements/rs/prefs/FloorText.h"
 #include "soh/Enhancements/rs/quest/Quest.h"
 #include "soh/Enhancements/rs/quest/QuestDef.h"
@@ -466,6 +467,13 @@ bool CheckOption(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& re
             if (!QUEST_ID_IS_VALID(option.a)) {
                 return Problem(buf, len, "%s[%d].opt[%d]: quest id %d out of range", word, screenIndex, index,
                                option.a);
+            }
+            break;
+        case RS_DLG_ACTION_BOAT_SAIL:
+            if (option.a < 0 || option.a > 0xFF || RS_DLG_SAIL_SAIL(option.a) >= RS_BOAT_SAIL_COUNT ||
+                RS_DLG_SAIL_OP(option.a) >= RS_BOAT_SAIL_OP_COUNT) {
+                return Problem(buf, len, "%s[%d].opt[%d]: boat sail operand %d names no sail or op", word, screenIndex,
+                               index, option.a);
             }
             break;
         case RS_DLG_ACTION_SET_WORLD_FLAG:
@@ -1104,6 +1112,8 @@ extern "C" const char* RsNpc_ActionName(int32_t kind) {
             return "complete_quest";
         case RS_DLG_ACTION_SET_WORLD_FLAG:
             return "set_world_flag";
+        case RS_DLG_ACTION_BOAT_SAIL:
+            return "boat_sail";
         default:
             return "?";
     }
@@ -1216,6 +1226,9 @@ extern "C" int32_t RsNpc_RunAction(const RsDialogueOption* option) {
         case RS_DLG_ACTION_SET_WORLD_FLAG:
             Flags_SetWorldFlag(option->a);
             return QUEST_OK;
+        case RS_DLG_ACTION_BOAT_SAIL:
+            return RsBoatSail_DialogueAction(RS_DLG_SAIL_SAIL(option->a), RS_DLG_SAIL_OP(option->a)) ? QUEST_OK
+                                                                                                    : QUEST_ERR_BAD_DEF;
         default:
             return QUEST_ERR_BAD_DEF;
     }

@@ -2052,6 +2052,15 @@ void SohMenu::AddMenuEnhancements() {
         .HideInSearch(true)
         .Options(WindowButtonOptions().Tooltip("Enables the separate Time Splits Window."));
 
+    // Boat Sails (sturdy-bassoon#287: the RS boats' sail colours and the player's pictures, RsBoatSailsWindow.cpp)
+    path.sidebarName = "Boat Sails";
+    AddSidebarEntry("Enhancements", path.sidebarName, 1);
+    AddWidget(path, "Popout Boat Sails Window", WIDGET_WINDOW_BUTTON)
+        .CVar(CVAR_WINDOW("RsBoatSails"))
+        .RaceDisable(false)
+        .WindowName("Boat Sails")
+        .Options(WindowButtonOptions().Tooltip("Each boat's sail colour, and a picture of your own on its sail."));
+
     // Timers
     path.sidebarName = "Timers";
     AddSidebarEntry("Enhancements", path.sidebarName, 3);

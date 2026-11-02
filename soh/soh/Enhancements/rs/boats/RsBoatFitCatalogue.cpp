@@ -153,20 +153,29 @@ constexpr int kTierCount = static_cast<int>(sizeof(kTiers) / sizeof(kTiers[0]));
 
 // A look's options, unordered: index 0 is the default. Each may carry requirements (a race's sail, later); none do.
 // `recolours` 0 draws the model's own colour; 1 draws `prim` over the material the boat's list hands to the look
-// (RsBoatFit_LookColour).
+// (RsBoatFit_LookColour). `kind` says what else it is (RsBoatLookKind, #287): a `match`, or the player's picture.
 struct LookOption {
     const char* name;
     int32_t reqCount;
     QuestPredicate reqs[2];
     int32_t recolours;
     uint8_t prim[3];
+    int32_t kind;
 };
 
+// `kinds`: the boat kinds that have it, a bit each. `follows`: the look a `match` option draws as, or -1. `image`: a
+// pattern look's picture look, or -1.
 struct LookInfo {
     const char* name;
     int32_t optionCount;
-    LookOption options[9];
+    LookOption options[10];
+    uint32_t kinds;
+    int32_t follows;
+    int32_t image;
 };
+
+constexpr uint32_t kEveryKind = (1u << RS_BOAT_KIND_COUNT) - 1;
+constexpr uint32_t kSloopOnly = 1u << RS_BOAT_KIND_SLOOP;
 
 // RS's sail patterns (the wiki's Sail customisation): plain is the default, the seven colours need 41 Sailing and
 // 27 Construction there. Free and ungated here. In the cache (build 240) each kind's ten "Sails" locs are one cloth:
@@ -178,19 +187,37 @@ struct LookInfo {
 // Each of RS's seven is its dyed cape's main colour (the cape's 7700 recolour: red cape 1007, black 1019, blue 1021,
 // yellow 1023, green 1027, purple 1029, pink 6959). RS has a sail for every dye but orange; ours is the orange cape's
 // (1031), the owner's addition.
+//
+// The sail image (sturdy-bassoon#287) is the player's picture over the pattern: `custom` is offered only while that
+// sail's file is accepted (RsBoatSail.h). The sloop's jib has a pattern and an image of its own, each `match` by
+// default: drawn as the sail's, so a save from before the jib had them draws both sails alike, as it did.
+#define RS_SAIL_COLOURS                                                                                                { "black", 0, {}, 1, { 39, 35, 35 } },       /* 12 */                                                                 { "blue", 0, {}, 1, { 47, 48, 100 } },   /* -22116 */                                                             { "green", 0, {}, 1, { 35, 101, 37 } },  /* 22042 */                                                              { "orange", 0, {}, 1, { 197, 132, 50 } }, /* 5815, not RS's: the orange cape's */                                 { "pink", 0, {}, 1, { 196, 147, 138 } },  /* 1356 */                                                              { "purple", 0, {}, 1, { 109, 72, 122 } }, /* -14041 */                                                            { "red", 0, {}, 1, { 135, 31, 7 } },      /* 1950 */                                                              { "yellow", 0, {}, 1, { 249, 246, 15 } }  /* 11200 */
 const LookInfo kLooks[RS_BOAT_LOOK_COUNT] = {
-    { "sail_pattern",
-      9,
-      { { "plain", 0, {}, 0, { 0, 0, 0 } },
-        { "black", 0, {}, 1, { 39, 35, 35 } },     // 12
-        { "blue", 0, {}, 1, { 47, 48, 100 } },     // -22116
-        { "green", 0, {}, 1, { 35, 101, 37 } },    // 22042
-        { "orange", 0, {}, 1, { 197, 132, 50 } },  // 5815, not RS's: the orange cape's
-        { "pink", 0, {}, 1, { 196, 147, 138 } },   // 1356
-        { "purple", 0, {}, 1, { 109, 72, 122 } },  // -14041
-        { "red", 0, {}, 1, { 135, 31, 7 } },       // 1950
-        { "yellow", 0, {}, 1, { 249, 246, 15 } } } }, // 11200
+    { "sail_pattern", 9, { { "plain", 0, {}, 0, { 0, 0, 0 } }, RS_SAIL_COLOURS }, kEveryKind, -1,
+      RS_BOAT_LOOK_SAIL_IMAGE },
+    { "sail_image",
+      2,
+      { { "none", 0, {}, 0, { 0, 0, 0 } }, { "custom", 0, {}, 0, { 0, 0, 0 }, RS_BOAT_LOOK_OPTION_CUSTOM } },
+      kEveryKind,
+      -1,
+      -1 },
+    { "jib_pattern",
+      10,
+      { { "match", 0, {}, 0, { 0, 0, 0 }, RS_BOAT_LOOK_OPTION_MATCH }, { "plain", 0, {}, 0, { 0, 0, 0 } },
+        RS_SAIL_COLOURS },
+      kSloopOnly,
+      RS_BOAT_LOOK_SAIL_PATTERN,
+      RS_BOAT_LOOK_JIB_IMAGE },
+    { "jib_image",
+      3,
+      { { "match", 0, {}, 0, { 0, 0, 0 }, RS_BOAT_LOOK_OPTION_MATCH },
+        { "none", 0, {}, 0, { 0, 0, 0 } },
+        { "custom", 0, {}, 0, { 0, 0, 0 }, RS_BOAT_LOOK_OPTION_CUSTOM } },
+      kSloopOnly,
+      RS_BOAT_LOOK_SAIL_IMAGE,
+      -1 },
 };
+#undef RS_SAIL_COLOURS
 
 // What can be built. An upgrade's fits on a boat imply owning it (RsBoatFit_Check), so they do not list it. The
 // costs are the owner's placeholders for testing, 5 and 10 rupees (#263, 2026-10-30), marked so. A tier that
@@ -309,7 +336,7 @@ const RsBoatUpgrade kUpgrades[RS_BOAT_UPGRADE_COUNT] = {
 };
 
 const char* const kResultNames[] = {
-    "ok", "unknown", "already", "locked", "not_owned", "requirement", "cant_afford",
+    "ok", "unknown", "already", "locked", "not_owned", "requirement", "cant_afford", "no_image",
 };
 static_assert(sizeof(kResultNames) / sizeof(kResultNames[0]) == RS_BOAT_FIT_RESULT_COUNT,
               "kResultNames names every RsBoatFitResult");
@@ -414,12 +441,24 @@ void CheckCatalogue() {
         }
     }
     for (int32_t look = 0; look < RS_BOAT_LOOK_COUNT; look++) {
-        for (int32_t o = 0; o < kLooks[look].optionCount; o++) {
-            for (int32_t r = 0; r < kLooks[look].options[o].reqCount; r++) {
-                if (!RequirementValid(kLooks[look].options[o].reqs[r])) {
+        const LookInfo& info = kLooks[look];
+        for (int32_t o = 0; o < info.optionCount; o++) {
+            for (int32_t r = 0; r < info.options[o].reqCount; r++) {
+                if (!RequirementValid(info.options[o].reqs[r])) {
                     Problem("look option (a requirement)", look * 256 + o);
                 }
             }
+            // A match follows a look every kind with this one has; a picture belongs to a look no pattern colours.
+            if (info.options[o].kind == RS_BOAT_LOOK_OPTION_MATCH &&
+                (info.follows < 0 || (kLooks[info.follows].kinds & info.kinds) != info.kinds)) {
+                Problem("look option (a match with nothing to follow)", look * 256 + o);
+            }
+            if (info.options[o].kind == RS_BOAT_LOOK_OPTION_CUSTOM && info.options[o].recolours) {
+                Problem("look option (a custom picture that recolours)", look * 256 + o);
+            }
+        }
+        if (info.optionCount < 1 || info.options[0].kind == RS_BOAT_LOOK_OPTION_CUSTOM) {
+            Problem("look (its default is a picture that may not be there)", look);
         }
     }
     if (!SaveKeysDistinct()) {
@@ -482,6 +521,25 @@ extern "C" int32_t RsBoatFit_LookByName(const char* name) {
         }
     }
     return -1;
+}
+
+extern "C" int32_t RsBoatFit_KindHasLook(int32_t kind, int32_t look) {
+    return KindValid(kind) && look >= 0 && look < RS_BOAT_LOOK_COUNT && (kLooks[look].kinds & (1u << kind)) ? 1 : 0;
+}
+
+extern "C" int32_t RsBoatFit_LookOptionKind(int32_t look, int32_t option) {
+    if (option < 0 || option >= RsBoatFit_LookOptionCount(look)) {
+        return RS_BOAT_LOOK_OPTION_COLOUR;
+    }
+    return kLooks[look].options[option].kind;
+}
+
+extern "C" int32_t RsBoatFit_LookFollows(int32_t look) {
+    return (look >= 0 && look < RS_BOAT_LOOK_COUNT) ? kLooks[look].follows : -1;
+}
+
+extern "C" int32_t RsBoatFit_LookImage(int32_t patternLook) {
+    return (patternLook >= 0 && patternLook < RS_BOAT_LOOK_COUNT) ? kLooks[patternLook].image : -1;
 }
 
 extern "C" int32_t RsBoatFit_LookOptionCount(int32_t look) {

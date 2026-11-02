@@ -9,7 +9,9 @@
 //   - a CORE PART (hull, helm, sails, keel): always filled, from tier 0, the free default. The raft has no keel.
 //   - a FACILITY HOTSPOT, typed to one facility (a salvaging hook, a wind catcher, a cannon): tier 0 is empty.
 //   - a LOOK (the sail pattern): one of an unordered set of options, swapped freely back and forth, free. The sail
-//     pattern recolours the sail's cloth as the boat draws (RsBoatFit_LookColour, sturdy-bassoon#283).
+//     pattern recolours the sail's cloth as the boat draws (RsBoatFit_LookColour, sturdy-bassoon#283); the sail image
+//     draws the player's own picture over that colour (RsBoatSail.h, sturdy-bassoon#287). The sloop's jib has a
+//     pattern and an image of its own, which `match` the sail's by default.
 // Core parts and hotspots share one slot list (RsBoatSlot) and one rule: a slot's tier only ever goes UP. A look is
 // not a tier, so it is never one-way.
 //
@@ -61,11 +63,22 @@ typedef enum RsBoatSlot {
 // A slot's highest tier, for the fit-out's storage. RS has seven of each; tier 0 is the default (or empty).
 #define RS_BOAT_TIER_MAX 15
 
-// Every look a boat may have, and RS's options for each. Saved by name, like the slots.
+// Every look a boat may have, and RS's options for each. Saved by name, like the slots; a kind has only some
+// (RsBoatFit_KindHasLook), and the save keeps only those.
 typedef enum RsBoatLook {
     RS_BOAT_LOOK_SAIL_PATTERN, // RS's sail colours; plain is the default
+    RS_BOAT_LOOK_SAIL_IMAGE,   // none, or custom: the player's picture over the pattern (#287)
+    RS_BOAT_LOOK_JIB_PATTERN,  // the sloop's jib: match (the sail's), plain or a colour (#287)
+    RS_BOAT_LOOK_JIB_IMAGE,    // the jib's picture: match (the sail's), none or custom (#287)
     RS_BOAT_LOOK_COUNT,
 } RsBoatLook;
+
+// What an option is, besides its name (#287).
+typedef enum RsBoatLookKind {
+    RS_BOAT_LOOK_OPTION_COLOUR, // plain (the model's own colour) or a colour; none, for an image look
+    RS_BOAT_LOOK_OPTION_MATCH,  // whatever the look it follows draws (RsBoatFit_LookFollows)
+    RS_BOAT_LOOK_OPTION_CUSTOM, // the player's picture, offered only while its file is accepted (RsBoatSail_Accepted)
+} RsBoatLookKind;
 
 // What each tier does, on one kind. A stat at 0 is one this tier leaves alone: the boat's own (RsBoat.c's
 // sRsBoatKinds, or a `boat tune` knob) stands.
@@ -160,6 +173,7 @@ typedef enum RsBoatFitResult {
     RS_BOAT_FIT_NOT_OWNED,     // a fit is on a boat the player does not own
     RS_BOAT_FIT_REQUIREMENT,   // a requirement does not hold (`*failIndex` names it)
     RS_BOAT_FIT_CANT_AFFORD,   // a cost is more than the player has (`*failIndex` names it)
+    RS_BOAT_FIT_NO_IMAGE,      // a look's custom option with no accepted picture for that sail (#287)
     RS_BOAT_FIT_RESULT_COUNT,
 } RsBoatFitResult;
 
@@ -180,6 +194,14 @@ int32_t RsBoatFit_TopTier(int32_t kind, int32_t slot);
 
 const char* RsBoatFit_LookName(int32_t look); // "sail_pattern"
 int32_t RsBoatFit_LookByName(const char* name);
+// 1 when the kind has the look: every kind its sail's two, the sloop its jib's too.
+int32_t RsBoatFit_KindHasLook(int32_t kind, int32_t look);
+// The option's RsBoatLookKind (RS_BOAT_LOOK_OPTION_COLOUR out of range).
+int32_t RsBoatFit_LookOptionKind(int32_t look, int32_t option);
+// The look a `match` option draws as (the jib's pattern the sail's, the jib's image the sail's), or -1.
+int32_t RsBoatFit_LookFollows(int32_t look);
+// A pattern look's image look (the sail's, the jib's), or -1.
+int32_t RsBoatFit_LookImage(int32_t patternLook);
 int32_t RsBoatFit_LookOptionCount(int32_t look);
 const char* RsBoatFit_LookOptionName(int32_t look, int32_t option); // "plain", "red"; "?" out of range
 int32_t RsBoatFit_LookOptionByName(int32_t look, const char* name);
@@ -204,6 +226,9 @@ int32_t RsBoatFit_Owned(int32_t kind);
 // The slot's tier on the kind: 0 for a slot the kind does not have.
 int32_t RsBoatFit_TierOf(int32_t kind, int32_t slot);
 int32_t RsBoatFit_LookOf(int32_t kind, int32_t look);
+// The option the look draws with now, a `match` followed to the look it names; `*drawnAs` (may be NULL) gets that
+// look. What the boat draws and the window shows.
+int32_t RsBoatFit_LookDrawn(int32_t kind, int32_t look, int32_t* drawnAs);
 // The kind's stats from its fit-out (see RsBoatFitStats). RsBoat.c reads it every tick.
 void RsBoatFit_Stats(int32_t kind, RsBoatFitStats* out);
 
@@ -228,7 +253,8 @@ int32_t RsBoatFit_Build(int32_t id, int32_t* failIndex);
 // Applies its fits free, ignoring the unlock, the requirements and the costs: a quest's gift. Still refuses a fit
 // onto a boat the player does not own, so a reward list grants the boat before its parts.
 int32_t RsBoatFit_Grant(int32_t id);
-// Swaps a look, free, either way. Refuses an unowned boat.
+// Swaps a look, free, either way. Refuses an unowned boat, a look the kind does not have, and a custom option whose
+// picture is not accepted (RS_BOAT_FIT_NO_IMAGE).
 int32_t RsBoatFit_SetLook(int32_t kind, int32_t look, int32_t option);
 
 // --- quest predicates (QuestPredicate.h's BoatOwned and BoatTierAtLeast) --------------------------
