@@ -151,6 +151,72 @@ std::string Left(const HintNode& node) {
     return node.args.empty() ? node.word : node.word + " " + node.args;
 }
 
+// Appends one line per row, its explanation lined up in a column unless one left side is long
+// enough to push the column too far out.
+void AppendRows(std::string& out, const std::vector<std::pair<std::string, std::string>>& rows) {
+    size_t width = 0;
+    for (const auto& [left, text] : rows) {
+        width = std::max(width, left.size());
+    }
+    width = std::min<size_t>(width, 24);
+    for (const auto& [left, text] : rows) {
+        out += "\n  " + left;
+        if (!text.empty()) {
+            out += std::string(left.size() < width ? width - left.size() : 0, ' ') + "  " + text;
+        }
+    }
+}
+
+// The opening words of a command's help text, as its one-line explanation: up to the first colon,
+// bracket or sentence end ("Staircases - menu-driven storey moves (sturdy-bassoon#147): ...").
+std::string Summary(const std::string& description) {
+    size_t end = description.size();
+    for (const char* stop : { ": ", " (", ". " }) {
+        end = std::min(end, description.find(stop));
+    }
+    std::string summary = description.substr(0, end);
+    if (!summary.empty() && summary.back() == '.') {
+        summary.pop_back();
+    }
+    return summary.size() > 60 ? summary.substr(0, 57) + "..." : summary;
+}
+
+bool BuildTreeHint(const std::string& input, const std::vector<std::string>& words, const HintNode& root,
+                   std::string* hint);
+
+// The command name itself is still being typed: the commands it could become, vanilla ones included.
+// Down to one with a tree, that command's options instead, so the hint looks the same before the
+// name is finished as after.
+bool CommandList(const std::string& partial, std::string* hint) {
+    std::vector<std::pair<std::string, std::string>> rows;
+    for (const auto& [name, entry] : Ship::Context::GetRawInstance()->GetConsole()->GetCommands()) {
+        if (name.compare(0, partial.size(), partial) == 0) {
+            rows.emplace_back(name, Summary(entry.Description));
+        }
+    }
+    if (rows.empty()) {
+        return false;
+    }
+    if (rows.size() == 1) {
+        auto tree = HintTrees().find(rows[0].first);
+        // One vanilla command left: its own usage line.
+        if (tree == HintTrees().end()) {
+            return false;
+        }
+        return BuildTreeHint(rows[0].first, { rows[0].first }, tree->second, hint);
+    }
+    constexpr size_t kMaxRows = 15;
+    const size_t more = rows.size() > kMaxRows ? rows.size() - kMaxRows : 0;
+    rows.resize(rows.size() - more);
+    std::string out = "commands starting with " + partial;
+    AppendRows(out, rows);
+    if (more > 0) {
+        out += "\n  ... and " + std::to_string(more) + " more";
+    }
+    *hint = out;
+    return true;
+}
+
 } // namespace
 
 Hints::Hints(std::string command, const char* spec) {
@@ -209,15 +275,24 @@ bool BuildHint(const std::string& input, std::string* hint) {
         return false;
     }
     auto tree = HintTrees().find(words[0]);
-    if (tree == HintTrees().end()) {
-        return false;
+    if (tree != HintTrees().end()) {
+        return BuildTreeHint(input, words, tree->second, hint);
     }
+    if (words.size() == 1 && input.back() != ' ') {
+        return CommandList(words[0], hint);
+    }
+    return false;
+}
 
+namespace {
+
+bool BuildTreeHint(const std::string& input, const std::vector<std::string>& words, const HintNode& root,
+                   std::string* hint) {
     // The last word is still being typed until a space follows it: it narrows the options rather
     // than choosing one.
     const bool typing = input.back() != ' ';
     const size_t chosen = std::max<size_t>(1, typing ? words.size() - 1 : words.size());
-    const HintNode* node = &tree->second;
+    const HintNode* node = &root;
     std::string path = words[0];
     size_t i = 1;
     for (; i < chosen; i++) {
@@ -263,24 +338,18 @@ bool BuildHint(const std::string& input, std::string* hint) {
     if (!node->args.empty()) {
         out += " " + node->args;
     }
-    if (node != &tree->second && !node->text.empty()) {
+    if (node != &root && !node->text.empty()) {
         out += " - " + node->text;
     }
-    // Explanations line up in a column, unless one word is long enough to push it too far out.
-    size_t width = 0;
+    std::vector<std::pair<std::string, std::string>> rows;
     for (const HintNode* option : shown) {
-        width = std::max(width, Left(*option).size());
+        rows.emplace_back(Left(*option), option->text);
     }
-    width = std::min<size_t>(width, 24);
-    for (const HintNode* option : shown) {
-        std::string left = Left(*option);
-        out += "\n  " + left;
-        if (!option->text.empty()) {
-            out += std::string(left.size() < width ? width - left.size() : 0, ' ') + "  " + option->text;
-        }
-    }
+    AppendRows(out, rows);
     *hint = out;
     return true;
 }
+
+} // namespace
 
 } // namespace ConsoleSink

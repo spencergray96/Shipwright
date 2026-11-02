@@ -139,8 +139,11 @@ class Hints {
     Hints& operator=(const Hints&) = delete;
 };
 
-// Lays out the hint for `input`, the console's input text. False when its first word is not a
-// command with a Hints tree, which leaves the console's own usage line in place.
+// Lays out the hint for `input`, the console's input text. While the command name itself is being
+// typed, that is the commands it could still become (vanilla ones included), one per line with the
+// opening words of its help text, or once only one with a tree is left, that one's options. False
+// leaves the console's own usage line in place: the first word is a finished command without a
+// tree, or the only command it could become has none.
 bool BuildHint(const std::string& input, std::string* hint);
 
 } // namespace ConsoleSink
