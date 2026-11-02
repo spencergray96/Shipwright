@@ -430,15 +430,25 @@ const char* kReadme =
     "square in its middle, then scaled to 1024 x 1024. A file changed while the game runs is read again at the next\n"
     "door, or with `boat sails reload`.\n";
 
+// Writes the file unless it already holds exactly these bytes: a readme or template from an older build is replaced.
+void WriteIfDifferent(const fs::path& out, const std::vector<uint8_t>& bytes) {
+    std::error_code ec;
+    std::vector<uint8_t> was;
+    std::string why;
+    if (!fs::exists(out, ec) || !ReadFile(out, was, why) || was != bytes) {
+        if (!WriteFile(out, bytes)) {
+            SPDLOG_WARN("[rs_boat] could not write {}", Text(out));
+        }
+    }
+}
+
 // The folder, its readme and the templates, written when missing or different. Quiet: a folder the game cannot
 // write (a read-only install) only means no templates.
 void PrepareFolder() {
     std::error_code ec;
     fs::create_directories(PathOf(RsBoatSail_TemplateFolder()), ec);
-    const fs::path readme = PathOf(RsBoatSail_Folder()) / "readme.txt";
-    if (!fs::exists(readme, ec)) {
-        WriteFile(readme, std::vector<uint8_t>(kReadme, kReadme + std::strlen(kReadme)));
-    }
+    WriteIfDifferent(PathOf(RsBoatSail_Folder()) / "readme.txt",
+                     std::vector<uint8_t>(kReadme, kReadme + std::strlen(kReadme)));
     auto archives = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
     for (int32_t sail = 0; sail < RS_BOAT_SAIL_COUNT; sail++) {
         char inArchive[256];
@@ -453,14 +463,8 @@ void PrepareFolder() {
             continue;
         }
         const std::vector<uint8_t> bytes(file->Buffer->begin() + file->BufferOffset, file->Buffer->end());
-        const fs::path out = PathOf(RsBoatSail_TemplateFolder()) / (std::string(kSails[sail].name) + "-template.png");
-        std::vector<uint8_t> was;
-        std::string why;
-        if (!fs::exists(out, ec) || !ReadFile(out, was, why) || was != bytes) {
-            if (!WriteFile(out, bytes)) {
-                SPDLOG_WARN("[rs_boat] could not write {}", Text(out));
-            }
-        }
+        const std::string name = std::string(kSails[sail].name) + "-template.png";
+        WriteIfDifferent(PathOf(RsBoatSail_TemplateFolder()) / name, bytes);
     }
 }
 
