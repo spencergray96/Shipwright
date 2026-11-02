@@ -2939,16 +2939,32 @@ void Message_StartTextbox(PlayState* play, u16 textId, Actor* actor) {
 // the end icon, the four choice rows - moves by the same delta, so the per-type offsets the start
 // block chose from its tables are kept rather than recomputed here.
 //
-// Strictly a no-op for every vanilla box: a vanilla continue does not change the height, so the
-// re-clamped target equals the current one and the delta is zero. And it only ever touches a box
+// A no-op for every vanilla continue: it does not change the height, so the re-clamped target
+// equals the current one and the delta is zero. And it only ever touches a box
 // the start block placed: if anything else has moved R_TEXTBOX_Y_TARGET since (sPlacedYTarget no
 // longer matches), it leaves the box alone.
 static s16 sTextboxBaseYTarget = 0;
 static s16 sPlacedYTarget = -1;
 
+// #region SOH [sturdy-bassoon#290] A GAP above the bottom letterbox bar, not just "not under it".
+//
+// The clamp used to stop a box's bottom AT the bar (y 208), so the 76px four-way box sat flush on
+// it, and the owner saw the box collide with the bar while talking. Vanilla's own lower box clears it
+// by 2 (142 + 64 = 206). The owner chose a 6-unit gap for every box, vanilla's lower box included,
+// so a conversation's boxes all stand at the same height off the bar: vanilla's lower box rises 4,
+// the four-way box 6.
+//
+// THE OCARINA BOX IS EXEMPT and keeps vanilla's placement: its staff's notes are drawn at fixed
+// screen heights (R_OCARINA_NOTES_YPOS, z_construct.c), not relative to the box, so lifting the box
+// would slide it off its own notes. Set where the start block places a box, from that box's type,
+// and kept for a continue of it.
+#define MESSAGE_LETTERBOX_GAP 6
+static s16 sTextboxLetterboxGap = MESSAGE_LETTERBOX_GAP;
+// #endregion
+
 static s16 Message_ClampTextboxY(s16 y) {
-    if (y + R_TEXTBOX_HEIGHT_TARGET > SCREEN_HEIGHT - 32) {
-        y = (SCREEN_HEIGHT - 32) - R_TEXTBOX_HEIGHT_TARGET;
+    if (y + R_TEXTBOX_HEIGHT_TARGET > SCREEN_HEIGHT - 32 - sTextboxLetterboxGap) {
+        y = (SCREEN_HEIGHT - 32 - sTextboxLetterboxGap) - R_TEXTBOX_HEIGHT_TARGET;
     }
     if (y < 32) {
         y = 32;
@@ -4639,14 +4655,16 @@ void Message_Update(PlayState* play) {
                 // is drawn UNDER the bar, so the last option row is simply not there. Screenshot
                 // only; every marker still says the box rendered.
                 //
-                // This is a strict no-op for every vanilla box (206 <= 208, and the upper position
-                // 38 >= 32), so it changes nothing that exists today. It has to run BEFORE the end
-                // icon and the choice rows below, which are all offsets from Y_TARGET.
+                // It has to run BEFORE the end icon and the choice rows below, which are all
+                // offsets from Y_TARGET. Since #290 it also keeps a 6-unit gap above the bar, which
+                // lifts vanilla's lower box by 4 (MESSAGE_LETTERBOX_GAP says why, and why the
+                // ocarina box is exempt); the upper position (38 >= 32) is still untouched.
                 //
                 // SOH [sturdy-bassoon#96] The clamp is shared with Message_ContinueTextbox, which
                 // re-applies it when a continued box changes height; the unclamped base and the
                 // placed target are recorded here for it to start from.
                 sTextboxBaseYTarget = R_TEXTBOX_Y_TARGET;
+                sTextboxLetterboxGap = msgCtx->textBoxType == TEXTBOX_TYPE_OCARINA ? 0 : MESSAGE_LETTERBOX_GAP;
                 R_TEXTBOX_Y_TARGET = Message_ClampTextboxY(R_TEXTBOX_Y_TARGET);
                 sPlacedYTarget = R_TEXTBOX_Y_TARGET;
                 // #endregion
