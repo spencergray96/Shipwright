@@ -110,11 +110,13 @@ int32_t List(std::vector<std::string>& lines) {
         const RsBoat* boat = boats[idx];
         const Actor* a = &boat->dyna.actor;
         Vec3f helm;
+        char facilities[96];
         RsBoat_HelmPos(boat, &helm);
+        RsBoat_FacilityNames(boat->kind, facilities, sizeof(facilities));
         Addf(lines,
              "boat idx=%d kind=%s x=%d y=%d z=%d yaw=%d speed=%d top=%d throttle=%d tiller=%d rudder=%d helm=%d on_water=%d "
              "surface=%d blocked=%s blocks=%d touch=%s touches=%d lift=%d floor_low=%d link_on=%d helm_dist=%d "
-             "cam=%d map_arrow=%s wake_rings=%d wake_held=%d",
+             "cam=%d map_arrow=%s wake_rings=%d wake_held=%d facilities=%s facility_polys=%d",
              (int)idx, RsBoat_KindName(boat->kind), (int)lroundf(a->world.pos.x), (int)lroundf(a->world.pos.y),
              (int)lroundf(a->world.pos.z), (int)(u16)a->shape.rot.y, (int)lroundf(boat->speed * 100.0f),
              (int)lroundf(RsBoat_TopSpeed(boat) * 100.0f),
@@ -125,7 +127,7 @@ int32_t List(std::vector<std::string>& lines) {
              (int)lroundf(boat->floorLow * 100.0f), RsBoat_LinkOnDeck(boat, player) ? 1 : 0,
              (int)lroundf(Math_Vec3f_DistXZ(&helm, (Vec3f*)&player->actor.world.pos)),
              boat->cam.subCamId != SUBCAM_NONE ? 1 : 0, RsVehicleMinimap_ArrowName(RsVehicleMinimap_Arrow(a)),
-             boat->wakeRings, boat->wakeHeld);
+             boat->wakeRings, boat->wakeHeld, facilities, RsBoat_FacilityPolyCount(boat->kind));
     }
     Addf(lines,
          "op=list result=ok count=%d link_x=%d link_y=%d link_z=%d link_yaw=%d link_floor_bg=%d "

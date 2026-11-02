@@ -31,10 +31,12 @@ namespace {
 // By list path, once each: a null entry is a path already looked for and not found.
 std::map<std::string, std::shared_ptr<Fast::DisplayList>> sModels;
 
-std::shared_ptr<Fast::DisplayList> Load(const char* path) {
+std::shared_ptr<Fast::DisplayList> Load(const char* path, bool quiet = false) {
     auto resources = Ship::Context::GetRawInstance()->GetResourceManager();
     if (!resources->GetArchiveManager()->HasFile(path)) {
-        SPDLOG_INFO("[rs_boat] {} is in no mounted archive: that boat draws its placeholder box", path);
+        if (!quiet) {
+            SPDLOG_INFO("[rs_boat] {} is in no mounted archive: that boat draws its placeholder box", path);
+        }
         return nullptr;
     }
     auto list = std::dynamic_pointer_cast<Fast::DisplayList>(resources->LoadResource(path, true));
@@ -92,7 +94,8 @@ std::unique_ptr<RsBoatRecolour> ReadRecolour(s32 kind, const std::string& path) 
             }
             checked[part] = true;
             int32_t loc;
-            for (int32_t tier = 0; w >> loc; tier++) {
+            // A facility's first tier is 1: its 0 is empty (#288).
+            for (int32_t tier = RsBoatFit_SlotIsCore(slot) ? 0 : 1; w >> loc; tier++) {
                 const RsBoatTier* row = RsBoatFit_Tier(kind, slot, tier);
                 if (row == nullptr || row->loc != loc) {
                     SPDLOG_WARN("[rs_boat] {}: {} tier {} draws loc {}, and the catalogue says {}", path, part, tier, loc,
@@ -139,6 +142,15 @@ extern "C" Gfx* RsBoat_ModelList(const char* listPath) {
     auto found = sModels.find(listPath);
     if (found == sModels.end()) {
         found = sModels.emplace(listPath, Load(listPath)).first;
+    }
+    return found->second != nullptr ? (Gfx*)found->second->Instructions.data() : nullptr;
+}
+
+extern "C" Gfx* RsBoat_TranslucentList(const char* listPath) {
+    const std::string path = std::string(listPath) + ".xlu";
+    auto found = sModels.find(path);
+    if (found == sModels.end()) {
+        found = sModels.emplace(path, Load(path.c_str(), true)).first;
     }
     return found->second != nullptr ? (Gfx*)found->second->Instructions.data() : nullptr;
 }

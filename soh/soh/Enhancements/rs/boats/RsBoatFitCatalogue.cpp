@@ -56,6 +56,9 @@ const bool kKindSlots[RS_BOAT_KIND_COUNT][RS_BOAT_SLOT_COUNT] = {
 // - sails are RS's still rigs (the mast and plain cloth in one model, 29480 on), not Sailing's skeletal facility locs
 //   (59537 on), which no stage reads; the cloth's fabric follows the tier until a sail pattern overrides it.
 // - the raft's hull tiers 3-6 are another RS mesh; the raft draws its own in their colours (the owner, #283).
+// - a facility's tiers (#288) are looks alone too, past bronze reached only by `boat fit`. Each draws on a list of its
+//   own (RsBoat.c's sRsBoatFacilities); the hooks' and the cannon's tiers are one mesh recoloured, and the gale
+//   catcher and the dragon cannon, meshes of their own, are lists of their own.
 // The wiki's sloop bronze keel is 59517, which is the iron skiff keel; 59523 is the cache's.
 const RsBoatTier kTiers[] = {
     // kind, slot, tier, name, loc, topSpeed, accel, hitpoints, waters
@@ -81,6 +84,12 @@ const RsBoatTier kTiers[] = {
     { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 5, "ironwood", 29478, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 6, "rosewood", 29479, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SALVAGING_HOOK, 1, "bronze", 60483, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SALVAGING_HOOK, 2, "iron", 60484, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SALVAGING_HOOK, 3, "steel", 60485, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SALVAGING_HOOK, 4, "mithril", 60486, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SALVAGING_HOOK, 5, "adamant", 60487, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SALVAGING_HOOK, 6, "rune", 60488, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SALVAGING_HOOK, 7, "dragon", 60489, 0.0f, 0.0f, 0, 0 },
 
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 0, "wooden", 59501, 0.0f, 0.0f, 0, 0 },
     // The speed upgrade the owner tuned on #262 (2026-10-26): 14 to 18. Turning rises with it (RsBoat_TurnRate).
@@ -114,7 +123,15 @@ const RsBoatTier kTiers[] = {
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_KEEL, 5, "rune", 59521, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_KEEL, 6, "dragon", 59522, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SALVAGING_HOOK, 1, "bronze", 60490, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SALVAGING_HOOK, 2, "iron", 60491, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SALVAGING_HOOK, 3, "steel", 60492, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SALVAGING_HOOK, 4, "mithril", 60493, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SALVAGING_HOOK, 5, "adamant", 60494, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SALVAGING_HOOK, 6, "rune", 60495, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SALVAGING_HOOK, 7, "dragon", 60496, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_WIND_CATCHER, 1, "wind_catcher", 59683, 0.0f, 0.0f, 0, 0 },
+    // RS's gale catcher, a mesh of its own: the wind catcher's upgrade on the one hotspot (the owner, #288)
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_WIND_CATCHER, 2, "gale_catcher", 59686, 0.0f, 0.0f, 0, 0 },
 
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 0, "wooden", 59508, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 1, "oak", 59509, 14.0f, 0.0f, 0, 0 }, // 12 to 14
@@ -145,8 +162,23 @@ const RsBoatTier kTiers[] = {
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_KEEL, 5, "rune", 59528, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_KEEL, 6, "dragon", 59529, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SALVAGING_HOOK, 1, "bronze", 60497, 0.0f, 0.0f, 0, 0 },
+    // the sloop's starboard hooks: RS draws its port one, 60498 on, as this mesh mirrored
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SALVAGING_HOOK, 2, "iron", 60499, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SALVAGING_HOOK, 3, "steel", 60501, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SALVAGING_HOOK, 4, "mithril", 60503, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SALVAGING_HOOK, 5, "adamant", 60505, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SALVAGING_HOOK, 6, "rune", 60507, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SALVAGING_HOOK, 7, "dragon", 60509, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_WIND_CATCHER, 1, "wind_catcher", 59683, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_WIND_CATCHER, 2, "gale_catcher", 59686, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_CANNON, 1, "bronze", 59446, 0.0f, 0.0f, 0, 0 },
+    // the dragon cannon is a mesh of its own (the owner, #288); the others are the bronze one recoloured
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_CANNON, 2, "iron", 59447, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_CANNON, 3, "steel", 59448, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_CANNON, 4, "mithril", 59449, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_CANNON, 5, "adamant", 59450, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_CANNON, 6, "rune", 59451, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_CANNON, 7, "dragon", 59452, 0.0f, 0.0f, 0, 0 },
 };
 
 constexpr int kTierCount = static_cast<int>(sizeof(kTiers) / sizeof(kTiers[0]));

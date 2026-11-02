@@ -1,0 +1,20 @@
+{
+ "format": 2,
+ "scene": "rs_boat",
+ "list": "objects/rs_props/rs_boat_sloop_catcher/props",
+ "kinds": {
+  "wind-catcher-59683-no-mote": "rs_59683_no_mote"
+ },
+ "props": [
+  {
+   "id": "catcher",
+   "kind": "wind-catcher-59683-no-mote",
+   "pos": [
+    40,
+    0,
+    57
+   ],
+   "rot": 0
+  }
+ ]
+}
