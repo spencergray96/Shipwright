@@ -16,6 +16,27 @@
  * all. More to the point, the global quest and world-flag stores exist precisely so an NPC never
  * has to ask which scene it is standing in (D21/D22): one character in two scenes is ONE
  * character, and branching on the scene is how vanilla ends up with two.
+ *
+ * A CONVERSATION, AS STATES (`actionFunc`):
+ *
+ *     Wait --talk accepted--> Talk --the way out (RsNpc_Leave)--> Wait
+ *                              |  ^
+ *            a gift or a sale  |  |  re-opened with no A press, on the option's `next`
+ *            was promised      v  |
+ *                             Give --> GiveDone --> Resume
+ *
+ *   Wait    resolves the entry rule every frame and offers talk. On acceptance the conversation begins:
+ *           the notice queue is emptied and the entry screen's speaker gets the floor (RsSpeaker).
+ *   Talk    knows which screen is open ONLY from the open box's text id - the actor stores no position.
+ *           On a choice it maps the cursor (plus the scroll offset) back to the declared option,
+ *           remembers the pick for choice memory, and runs ACTION -> REPLY -> NEXT. On a finished box
+ *           it follows a reply's or a statement's `next`, or takes the way out.
+ *   Leave   the one way out: each queued journal notice as a box of its own (dismissing one comes back
+ *           here), then the floor is given back, then a promised item (Give) or the close (RsNpc_End).
+ *   Give, GiveDone, Resume   GIVE_ITEM and BUY_ITEM's hand-over, after the box has closed (below).
+ *
+ * The plain-English walkthrough of all of this, with the text hook's half, is docs/reference/
+ * QUEST_SYSTEM.md "A conversation, start to finish" in sturdy-bassoon.
  */
 
 #include <stdio.h> // snprintf, for the agent-loop markers

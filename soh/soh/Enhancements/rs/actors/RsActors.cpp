@@ -385,7 +385,7 @@ CustomMessage BuildPlainMessage(const char* text) {
     return msg;
 }
 
-// Renders one SCREEN - a body plus up to four options - into the open textbox. Shared by the
+// Renders one SCREEN - a body plus up to sixteen options, four of them in the window - into the open textbox. Shared by the
 // quest-giver's rules and nodes and by a staircase's menu (#147), which is the point of a staircase
 // menu being an RsDialogueRule: one renderer, one set of layout rules, one box-geometry switch.
 void LoadScreen(const RsDialogueRule& screen, bool* loadFromMessageTable) {
