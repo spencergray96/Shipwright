@@ -82,6 +82,9 @@ void QueueClick(float x, float y, uint32_t viewport);
 // Queue a press and release of one ImGui key, by ImGui's own name for it ("Escape", "Enter", "Tab",
 // "F1"). Returns false for a name ImGui does not know. Writes `imgui op=delivered what=key` after.
 bool QueueKey(const std::string& name);
+// Queue typed characters, delivered in one frame to whichever text input has the keyboard. Writes
+// `imgui op=delivered what=text` after.
+void QueueText(const std::string& text);
 // Injection steps still waiting for a frame.
 size_t Pending();
 

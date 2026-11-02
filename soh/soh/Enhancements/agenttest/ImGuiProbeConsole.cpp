@@ -171,6 +171,24 @@ int32_t Key(const std::vector<std::string>& args, std::vector<std::string>& line
     return 0;
 }
 
+int32_t Type(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() < 2) {
+        lines.push_back("op=type result=error error=bad_argument");
+        return 1;
+    }
+    // The console tokenizer splits on " ", so the text arrives as several words.
+    std::string text;
+    for (size_t i = 1; i < args.size(); i++) {
+        if (i > 1) {
+            text += " ";
+        }
+        text += args[i];
+    }
+    ImGuiProbe::QueueText(text);
+    Addf(lines, "op=type result=ok chars=%zu queued=%zu", text.size(), ImGuiProbe::Pending());
+    return 0;
+}
+
 } // namespace
 
 int32_t ImGuiProbeConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines) {
@@ -183,7 +201,7 @@ int32_t ImGuiProbeConsole_Run(const std::vector<std::string>& args, std::vector<
         return Dump(args, lines);
     }
     // Without the hook nothing drains the queue, so an injection would report ok and never arrive.
-    if ((sub == "click" || sub == "clickat" || sub == "key") && !ImGuiProbe::IsArmed()) {
+    if ((sub == "click" || sub == "clickat" || sub == "key" || sub == "type") && !ImGuiProbe::IsArmed()) {
         Addf(lines, "op=%s result=error error=not_armed", sub.c_str());
         return 1;
     }
@@ -196,7 +214,10 @@ int32_t ImGuiProbeConsole_Run(const std::vector<std::string>& args, std::vector<
     if (sub == "key") {
         return Key(args, lines);
     }
-    lines.push_back("op=unknown result=error error=unknown_subcommand usage=status|dump|click|clickat|key");
+    if (sub == "type") {
+        return Type(args, lines);
+    }
+    lines.push_back("op=unknown result=error error=unknown_subcommand usage=status|dump|click|clickat|key|type");
     return 1;
 }
 
@@ -205,9 +226,11 @@ namespace {
 const ConsoleSink::Command imguiCommand(
     "imgui", ImGuiProbeConsole_Run,
     "Drive the ImGui menu without a mouse (sturdy-bassoon#163): status | dump [kind] | click [kind:]<label> | "
-    "clickat <x> <y> | key <name>. dump lists what the menu drew last frame, by label, with each widget's value; "
-    "click operates one by label, so a run never writes coordinates. `key Escape` opens the menu. The first call "
-    "arms the probe, which records nothing before it.",
-    { { "status|dump|click|clickat|key", Ship::ArgumentType::TEXT }, { "argument", Ship::ArgumentType::TEXT, true } });
+    "clickat <x> <y> | key <name> | type <text>. dump lists what the menu drew last frame, by label, with each "
+    "widget's value; click operates one by label, so a run never writes coordinates. `key Escape` opens the menu; "
+    "type feeds characters to the focused text input. The first call arms the probe, which records nothing before "
+    "it.",
+    { { "status|dump|click|clickat|key|type", Ship::ArgumentType::TEXT },
+      { "argument", Ship::ArgumentType::TEXT, true } });
 
 } // namespace

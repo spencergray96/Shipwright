@@ -32,10 +32,14 @@
 //   key <name>           queue a press and release of an ImGui key by ImGui's name for it (Escape,
 //                        Enter, Tab, F1). `key Escape` is how the Esc menu opens: Gui::DrawMenu reads
 //                        it as an ImGui key, so the synthetic key walks the same path a real one does
+//   type <text>          queue the rest of the line as typed characters, in one frame, into whichever
+//                        text input has the keyboard (the dev console's, sturdy-bassoon#292).
+//                        op=type result=ok chars=<n> queued=<n>, then `op=delivered what=text`
 //
 // Refusals, each rc=1, none echoing the typed text: click `error=not_found|ambiguous matches=<n>|
 // disabled|clipped|not_clickable|no_label`; clickat `error=bad_argument`; key `error=bad_argument|
-// unknown_key`; dump `error=unknown_kind`; click/clickat/key `error=not_armed` when there was no ImGui
+// unknown_key`; type `error=bad_argument`; dump `error=unknown_kind`; click/clickat/key/type
+// `error=not_armed` when there was no ImGui
 // context to hook (nothing would ever deliver them); any other subcommand `error=unknown_subcommand`.
 // rc=0 is success or a read.
 int32_t ImGuiProbeConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines);
