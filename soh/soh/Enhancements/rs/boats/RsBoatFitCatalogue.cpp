@@ -47,31 +47,103 @@ const bool kKindSlots[RS_BOAT_KIND_COUNT][RS_BOAT_SLOT_COUNT] = {
 };
 
 // Every tier. A core part's tier 0 is its kind's free default and has a row; a facility's 0 is empty and has none.
-// Stats at 0 leave the boat's own standing (RsBoatTier). The locs are the wiki's, in its tier order, and unchecked
-// against the cache: the boat draws its kind's one model (RsBoat.c's sRsBoatKinds: skiff 59503, sloop 59508, raft
-// 59496) whatever is fitted, until a tier draws its own (a later issue). The wiki's sloop bronze keel is 59517,
-// which is also its iron skiff keel; 59523 is the sequence's.
+// Stats at 0 leave the boat's own standing (RsBoatTier): only the hulls from oak up set one so far, oak's tuned speed,
+// and the other core tiers are looks alone (the owner, #283), reached by `boat fit` until upgrades build them. A core tier's loc is the RS loc the
+// boat draws it as, checked against the cache (build 240, #283): RS's seven of each part are one mesh recoloured, so
+// the boat draws its kind's one model in the fitted tier's colours, which generate_props reads from these locs (the
+// `tiers` in each rs_boat_<kind>_props.json, which must list the same: RsBoatModel.cpp logs a difference).
+// - a helm's loc is RS's idle-or-in-use parent; its colours are its first state's. The raft's helm is its steering oar.
+// - sails are RS's still rigs (the mast and plain cloth in one model, 29480 on), not Sailing's skeletal facility locs
+//   (59537 on), which no stage reads; the cloth's fabric follows the tier until a sail pattern overrides it.
+// - the raft's hull tiers 3-6 are another RS mesh; the raft draws its own in their colours (the owner, #283).
+// The wiki's sloop bronze keel is 59517, which is the iron skiff keel; 59523 is the cache's.
 const RsBoatTier kTiers[] = {
     // kind, slot, tier, name, loc, topSpeed, accel, hitpoints, waters
     { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HULL, 0, "wooden", 59494, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HELM, 0, "bronze", 59554, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 0, "wooden", 59530, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HULL, 1, "oak", 59495, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HULL, 2, "teak", 59496, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HULL, 3, "mahogany", 59497, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HULL, 4, "camphor", 59498, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HULL, 5, "ironwood", 59499, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HULL, 6, "rosewood", 59500, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HELM, 0, "bronze", 60551, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HELM, 1, "iron", 60552, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HELM, 2, "steel", 60553, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HELM, 3, "mithril", 60554, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HELM, 4, "adamant", 60555, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HELM, 5, "rune", 60556, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HELM, 6, "dragon", 60557, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 0, "wooden", 29473, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 1, "oak", 29474, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 2, "teak", 29475, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 3, "mahogany", 29476, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 4, "camphor", 29477, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 5, "ironwood", 29478, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 6, "rosewood", 29479, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SALVAGING_HOOK, 1, "bronze", 60483, 0.0f, 0.0f, 0, 0 },
 
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 0, "wooden", 59501, 0.0f, 0.0f, 0, 0 },
     // The speed upgrade the owner tuned on #262 (2026-10-26): 14 to 18. Turning rises with it (RsBoat_TurnRate).
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 1, "oak", 59502, 18.0f, 0.0f, 0, 0 },
+    // Past oak a hull keeps oak's speed until its tier gets stats of its own (the owner, 2026-10-31): a stat at 0
+    // would be the boat's own, slower than oak. The same on the sloop.
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 2, "teak", 59503, 18.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 3, "mahogany", 59504, 18.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 4, "camphor", 59505, 18.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 5, "ironwood", 59506, 18.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 6, "rosewood", 59507, 18.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 0, "bronze", 59576, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SAILS, 0, "wooden", 59537, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 1, "iron", 59579, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 2, "steel", 59582, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 3, "mithril", 59585, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 4, "adamant", 59588, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 5, "rune", 59591, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 6, "dragon", 59594, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SAILS, 0, "wooden", 29480, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SAILS, 1, "oak", 29481, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SAILS, 2, "teak", 29482, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SAILS, 3, "mahogany", 29483, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SAILS, 4, "camphor", 29484, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SAILS, 5, "ironwood", 29485, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SAILS, 6, "rosewood", 29496, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_KEEL, 0, "bronze", 59516, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_KEEL, 1, "iron", 59517, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_KEEL, 2, "steel", 59518, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_KEEL, 3, "mithril", 59519, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_KEEL, 4, "adamant", 59520, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_KEEL, 5, "rune", 59521, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_KEEL, 6, "dragon", 59522, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SALVAGING_HOOK, 1, "bronze", 60490, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_WIND_CATCHER, 1, "wind_catcher", 59683, 0.0f, 0.0f, 0, 0 },
 
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 0, "wooden", 59508, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 1, "oak", 59509, 14.0f, 0.0f, 0, 0 }, // 12 to 14
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 2, "teak", 59510, 14.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 3, "mahogany", 59511, 14.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 4, "camphor", 59512, 14.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 5, "ironwood", 59513, 14.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 6, "rosewood", 59514, 14.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 0, "bronze", 59598, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SAILS, 0, "wooden", 59544, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 1, "iron", 59601, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 2, "steel", 59604, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 3, "mithril", 59607, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 4, "adamant", 59610, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 5, "rune", 59613, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 6, "dragon", 59616, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SAILS, 0, "wooden", 29498, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SAILS, 1, "oak", 29499, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SAILS, 2, "teak", 29500, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SAILS, 3, "mahogany", 29501, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SAILS, 4, "camphor", 29502, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SAILS, 5, "ironwood", 29503, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SAILS, 6, "rosewood", 29504, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_KEEL, 0, "bronze", 59523, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_KEEL, 1, "iron", 59524, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_KEEL, 2, "steel", 59525, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_KEEL, 3, "mithril", 59526, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_KEEL, 4, "adamant", 59527, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_KEEL, 5, "rune", 59528, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_KEEL, 6, "dragon", 59529, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SALVAGING_HOOK, 1, "bronze", 60497, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_WIND_CATCHER, 1, "wind_catcher", 59683, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_CANNON, 1, "bronze", 59446, 0.0f, 0.0f, 0, 0 },
@@ -80,32 +152,44 @@ const RsBoatTier kTiers[] = {
 constexpr int kTierCount = static_cast<int>(sizeof(kTiers) / sizeof(kTiers[0]));
 
 // A look's options, unordered: index 0 is the default. Each may carry requirements (a race's sail, later); none do.
+// `recolours` 0 draws the model's own colour; 1 draws `prim` over the material the boat's list hands to the look
+// (RsBoatFit_LookColour).
 struct LookOption {
     const char* name;
     int32_t reqCount;
     QuestPredicate reqs[2];
+    int32_t recolours;
+    uint8_t prim[3];
 };
 
 struct LookInfo {
     const char* name;
     int32_t optionCount;
-    LookOption options[8];
+    LookOption options[9];
 };
 
 // RS's sail patterns (the wiki's Sail customisation): plain is the default, the seven colours need 41 Sailing and
-// 27 Construction there. Free and ungated here. Nothing draws them yet: the sail is welded into each kind's one
-// display list, and its sway finds the cloth by colour (#262's notes; a later issue).
+// 27 Construction there. Free and ungated here. In the cache (build 240) each kind's ten "Sails" locs are one cloth:
+// three plain fabrics, then one model whose cloth colour, HSL16 4510, the other seven recolour (raft 29509-29515,
+// skiff 29519-29525, sloop 29529-29535, in the order black, yellow, purple, green, blue, pink, red). So a pattern is
+// a prim colour over the cloth our still sail already draws: RS's HSL16 (in the comment) through the pipeline's own
+// conversion, rs_palette.py's rs_prim, as every imported colour is. Plain keeps the archive's 226, 226, 222. The
+// pennant stays red, as in RS. sturdy-bassoon#283.
+// Each of RS's seven is its dyed cape's main colour (the cape's 7700 recolour: red cape 1007, black 1019, blue 1021,
+// yellow 1023, green 1027, purple 1029, pink 6959). RS has a sail for every dye but orange; ours is the orange cape's
+// (1031), the owner's addition.
 const LookInfo kLooks[RS_BOAT_LOOK_COUNT] = {
     { "sail_pattern",
-      8,
-      { { "plain", 0, {} },
-        { "black", 0, {} },
-        { "blue", 0, {} },
-        { "green", 0, {} },
-        { "pink", 0, {} },
-        { "purple", 0, {} },
-        { "red", 0, {} },
-        { "yellow", 0, {} } } },
+      9,
+      { { "plain", 0, {}, 0, { 0, 0, 0 } },
+        { "black", 0, {}, 1, { 39, 35, 35 } },     // 12
+        { "blue", 0, {}, 1, { 47, 48, 100 } },     // -22116
+        { "green", 0, {}, 1, { 35, 101, 37 } },    // 22042
+        { "orange", 0, {}, 1, { 197, 132, 50 } },  // 5815, not RS's: the orange cape's
+        { "pink", 0, {}, 1, { 196, 147, 138 } },   // 1356
+        { "purple", 0, {}, 1, { 109, 72, 122 } },  // -14041
+        { "red", 0, {}, 1, { 135, 31, 7 } },       // 1950
+        { "yellow", 0, {}, 1, { 249, 246, 15 } } } }, // 11200
 };
 
 // What can be built. An upgrade's fits on a boat imply owning it (RsBoatFit_Check), so they do not list it. The
@@ -431,6 +515,14 @@ extern "C" int32_t RsBoatFit_LookOptionAllowed(int32_t look, int32_t option) {
             return 0;
         }
     }
+    return 1;
+}
+
+extern "C" int32_t RsBoatFit_LookColour(int32_t look, int32_t option, uint8_t rgb[3]) {
+    if (option < 0 || option >= RsBoatFit_LookOptionCount(look) || !kLooks[look].options[option].recolours) {
+        return 0;
+    }
+    std::memcpy(rgb, kLooks[look].options[option].prim, 3);
     return 1;
 }
 
