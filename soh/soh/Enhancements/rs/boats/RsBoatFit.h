@@ -11,7 +11,8 @@
 //   - a LOOK (the sail pattern): one of an unordered set of options, swapped freely back and forth, free. The sail
 //     pattern recolours the sail's cloth as the boat draws (RsBoatFit_LookColour, sturdy-bassoon#283); the sail image
 //     draws the player's own picture over that colour (RsBoatSail.h, sturdy-bassoon#287). The sloop's jib has a
-//     pattern and an image of its own, which `match` the sail's by default.
+//     pattern and an image of its own, which `match` the sail's by default. A pattern's `custom` is any colour the
+//     player picks (RsBoatFit_LookRgb), kept in the save beside the choice.
 // Core parts and hotspots share one slot list (RsBoatSlot) and one rule: a slot's tier only ever goes UP. A look is
 // not a tier, so it is never one-way.
 //
@@ -30,8 +31,8 @@
 // unowned kind's fit-out is its defaults in play, since nothing can be built onto a boat the player does not own
 // (the console's `own` and `fit` test aids can leave it otherwise, and the boat then wears what they set).
 //
-// Console: `boat own|fit|build|grant|look|fitout|upgrades` (RsBoatFitConsole.cpp). Markers: `rs_boat event=build|
-// grant|look ...` (agent mode).
+// Console: `boat own|fit|build|grant|look|colour|fitout|upgrades` (RsBoatFitConsole.cpp). Markers: `rs_boat
+// event=build|grant|look ...` (agent mode).
 
 #include <stddef.h>
 #include <stdint.h>
@@ -66,19 +67,25 @@ typedef enum RsBoatSlot {
 // Every look a boat may have, and RS's options for each. Saved by name, like the slots; a kind has only some
 // (RsBoatFit_KindHasLook), and the save keeps only those.
 typedef enum RsBoatLook {
-    RS_BOAT_LOOK_SAIL_PATTERN, // RS's sail colours; plain is the default
+    RS_BOAT_LOOK_SAIL_PATTERN, // RS's sail colours or the player's own; plain is the default
     RS_BOAT_LOOK_SAIL_IMAGE,   // none, or custom: the player's picture over the pattern (#287)
-    RS_BOAT_LOOK_JIB_PATTERN,  // the sloop's jib: match (the sail's), plain or a colour (#287)
+    RS_BOAT_LOOK_JIB_PATTERN,  // the sloop's jib: match (the sail's), plain, a colour or its own (#287)
     RS_BOAT_LOOK_JIB_IMAGE,    // the jib's picture: match (the sail's), none or custom (#287)
     RS_BOAT_LOOK_COUNT,
 } RsBoatLook;
 
 // What an option is, besides its name (#287).
 typedef enum RsBoatLookKind {
-    RS_BOAT_LOOK_OPTION_COLOUR, // plain (the model's own colour) or a colour; none, for an image look
-    RS_BOAT_LOOK_OPTION_MATCH,  // whatever the look it follows draws (RsBoatFit_LookFollows)
-    RS_BOAT_LOOK_OPTION_CUSTOM, // the player's picture, offered only while its file is accepted (RsBoatSail_Accepted)
+    RS_BOAT_LOOK_OPTION_COLOUR,     // plain (the model's own colour) or a colour; none, for an image look
+    RS_BOAT_LOOK_OPTION_MATCH,      // whatever the look it follows draws (RsBoatFit_LookFollows)
+    RS_BOAT_LOOK_OPTION_CUSTOM,     // the player's picture, offered only while its file is accepted
+                                    // (RsBoatSail_Accepted)
+    RS_BOAT_LOOK_OPTION_OWN_COLOUR, // a pattern's `custom`: the colour the player picked (RsBoatFit_LookRgb)
 } RsBoatLookKind;
+
+// The colour a sail's cloth draws as `plain`: the archive's own (RsBoatFitCatalogue.cpp's RS sail patterns). A
+// colour initializer, `const uint8_t c[3] = RS_BOAT_LOOK_PLAIN_RGB;`.
+#define RS_BOAT_LOOK_PLAIN_RGB { 226, 226, 222 }
 
 // What each tier does, on one kind. A stat at 0 is one this tier leaves alone: the boat's own (RsBoat.c's
 // sRsBoatKinds, or a `boat tune` knob) stands.
@@ -206,11 +213,14 @@ int32_t RsBoatFit_LookImage(int32_t patternLook);
 int32_t RsBoatFit_LookOptionCount(int32_t look);
 const char* RsBoatFit_LookOptionName(int32_t look, int32_t option); // "plain", "red"; "?" out of range
 int32_t RsBoatFit_LookOptionByName(int32_t look, const char* name);
+// The look's `custom` colour option, or -1: only a pattern look has one.
+int32_t RsBoatFit_LookOwnColourOption(int32_t look);
 // 1 when every requirement the option carries holds (none do yet).
 int32_t RsBoatFit_LookOptionAllowed(int32_t look, int32_t option);
-// 1 and the option's prim colour in rgb when it recolours (a sail pattern's colour); 0 when it draws the model's
-// own colour (plain) or is out of range. RsBoat_Draw puts it in the segment the boat's list calls after the cloth.
-int32_t RsBoatFit_LookColour(int32_t look, int32_t option, uint8_t rgb[3]);
+// 1 and the option's prim colour in rgb when it recolours (a sail pattern's colour, or the kind's own colour for that
+// look when the option is `custom`); 0 when it draws the model's own colour (plain) or is out of range. RsBoat_Draw
+// puts it in the segment the boat's list calls after the cloth.
+int32_t RsBoatFit_LookColour(int32_t kind, int32_t look, int32_t option, uint8_t rgb[3]);
 
 const RsBoatUpgrade* RsBoatFit_Upgrade(int32_t id); // NULL out of range
 int32_t RsBoatFit_UpgradeByName(const char* name);  // -1 for none
@@ -230,6 +240,12 @@ int32_t RsBoatFit_LookOf(int32_t kind, int32_t look);
 // The option the look draws with now, a `match` followed to the look it names; `*drawnAs` (may be NULL) gets that
 // look. What the boat draws and the window shows.
 int32_t RsBoatFit_LookDrawn(int32_t kind, int32_t look, int32_t* drawnAs);
+// The kind's own colour for a pattern look, what its `custom` draws: the one the player picked, else the colour the
+// look drew when `custom` was first chosen (switching to it changes nothing on the sail), else plain's.
+void RsBoatFit_LookRgb(int32_t kind, int32_t look, uint8_t rgb[3]);
+// 1 and the colour in rgb for six hex digits, a leading '#' allowed ("c48a32", "#C48A32"), as the save writes it and
+// the console takes it; 0 otherwise, rgb untouched.
+int32_t RsBoatFit_ParseRgb(const char* text, uint8_t rgb[3]);
 // The kind's stats from its fit-out (see RsBoatFitStats). RsBoat.c reads it every tick.
 void RsBoatFit_Stats(int32_t kind, RsBoatFitStats* out);
 
@@ -257,6 +273,10 @@ int32_t RsBoatFit_Grant(int32_t id);
 // Swaps a look, free, either way. Refuses an unowned boat, a look the kind does not have, and a custom option whose
 // picture is not accepted (RS_BOAT_FIT_NO_IMAGE).
 int32_t RsBoatFit_SetLook(int32_t kind, int32_t look, int32_t option);
+// Sets the kind's own colour for a pattern look (RsBoatFit_LookRgb), free; the look's option is left as it is. The
+// Boat Sails window's picker calls it as the player drags, so it writes no marker. Refuses an unowned boat
+// (RS_BOAT_FIT_NOT_OWNED), and a look the kind does not have or with no `custom` colour (RS_BOAT_FIT_UNKNOWN).
+int32_t RsBoatFit_SetLookRgb(int32_t kind, int32_t look, const uint8_t rgb[3]);
 
 // --- quest predicates (QuestPredicate.h's BoatOwned and BoatTierAtLeast) --------------------------
 

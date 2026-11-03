@@ -977,6 +977,7 @@ upgrades                          what can be built, and why not
 build <upgrade>                   build one: flag, parts and rupees
 grant <upgrade>                   build one free
 look <kind> [<look> [<option>]]   read or swap a look, such as a sail pattern
+colour <kind> <look> [<rrggbb>]   read or set a sail's custom colour
 own <kind> <0|1>                  set ownership outright, no rules
 fit <kind> <slot> <tier>          set a part's tier outright, no rules
 sails                             sail pattern files

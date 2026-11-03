@@ -3081,7 +3081,7 @@ static Gfx* RsBoat_RecolourList(GraphicsContext* gfxCtx, s32 kind, const RsBoatR
         u8 rgb[3];
         s32 drawnAs = slot->look;
         const s32 option = slot->look >= 0 ? RsBoatFit_LookDrawn(kind, slot->look, &drawnAs) : 0;
-        s32 coloured = slot->look >= 0 && RsBoatFit_LookColour(drawnAs, option, rgb);
+        s32 coloured = slot->look >= 0 && RsBoatFit_LookColour(kind, drawnAs, option, rgb);
         // The picture its cloth's texture coordinates are for (#287), or none: RsBoatSail_DrawnPixels.
         const u8* picture = slot->image >= 0 ? RsBoatSail_DrawnPixels(slot->image) : NULL;
 

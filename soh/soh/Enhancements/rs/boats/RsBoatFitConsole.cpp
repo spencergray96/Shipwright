@@ -1,6 +1,7 @@
 #include "RsBoatFitConsole.h"
 
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 
 #include <libultraship/bridge/consolevariablebridge.h>
@@ -54,8 +55,15 @@ void FitoutLine(int32_t kind, std::vector<std::string>& lines) {
         if (!RsBoatFit_KindHasLook(kind, look)) {
             continue;
         }
-        line += std::string(" ") + RsBoatFit_LookName(look) + "=" +
-                RsBoatFit_LookOptionName(look, RsBoatFit_LookOf(kind, look));
+        const int32_t option = RsBoatFit_LookOf(kind, look);
+        line += std::string(" ") + RsBoatFit_LookName(look) + "=" + RsBoatFit_LookOptionName(look, option);
+        if (RsBoatFit_LookOptionKind(look, option) == RS_BOAT_LOOK_OPTION_OWN_COLOUR) {
+            uint8_t rgb[3];
+            char hex[8];
+            RsBoatFit_LookRgb(kind, look, rgb);
+            std::snprintf(hex, sizeof(hex), "%02x%02x%02x", rgb[0], rgb[1], rgb[2]);
+            line += std::string(" ") + RsBoatFit_LookName(look) + "_rgb=" + hex;
+        }
     }
     RsBoatFitStats stats;
     RsBoatFit_Stats(kind, &stats);
@@ -171,6 +179,36 @@ int32_t Look(const std::vector<std::string>& args, std::vector<std::string>& lin
     }
     Addf(lines, "op=look result=ok kind=%s %s=%s options=%s", args[1].c_str(), RsBoatFit_LookName(look),
          RsBoatFit_LookOptionName(look, RsBoatFit_LookOf(kind, look)), options.c_str());
+    return 0;
+}
+
+int32_t Colour(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() < 3 || args.size() > 4) {
+        return Usage(lines);
+    }
+    const int32_t kind = RsBoat_KindByName(args[1].c_str());
+    const int32_t look = RsBoatFit_LookByName(args[2].c_str());
+    const int32_t own = RsBoatFit_LookOwnColourOption(look);
+    if (kind < 0 || !RsBoatFit_KindHasLook(kind, look) || own < 0) {
+        return BadValue(lines, "colour");
+    }
+    uint8_t rgb[3];
+    if (args.size() == 4) {
+        if (!RsBoatFit_ParseRgb(args[3].c_str(), rgb)) {
+            return BadValue(lines, "colour");
+        }
+        int32_t result = RsBoatFit_SetLookRgb(kind, look, rgb);
+        if (result == RS_BOAT_FIT_OK) {
+            result = RsBoatFit_SetLook(kind, look, own);
+        }
+        if (result != RS_BOAT_FIT_OK) {
+            Addf(lines, "op=colour result=error error=%s kind=%s", RsBoatFit_ResultName(result), args[1].c_str());
+            return 1;
+        }
+    }
+    RsBoatFit_LookRgb(kind, look, rgb);
+    Addf(lines, "op=colour result=ok kind=%s %s=%s rgb=%02x%02x%02x", args[1].c_str(), RsBoatFit_LookName(look),
+         RsBoatFit_LookOptionName(look, RsBoatFit_LookOf(kind, look)), rgb[0], rgb[1], rgb[2]);
     return 0;
 }
 
@@ -290,6 +328,9 @@ int32_t RsBoatFitConsole_Run(const std::vector<std::string>& args, std::vector<s
     }
     if (sub == "look") {
         return Look(args, lines);
+    }
+    if (sub == "colour") {
+        return Colour(args, lines);
     }
     if (sub == "own") {
         return Own(args, lines);
