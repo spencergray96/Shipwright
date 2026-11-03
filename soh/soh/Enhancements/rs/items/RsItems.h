@@ -156,6 +156,16 @@ const char* RsKeyItems_IconPath(int32_t key, int32_t ground);
 int32_t RsItems_IconFound(int32_t item, int32_t ground);
 int32_t RsKeyItems_IconFound(int32_t key, int32_t ground);
 
+// The key item's RuneScape 3D model, held up in its get-item ceremony (sturdy-bassoon#286): the display list
+// "objects/rs_props/rs_item_<token>/props" of `mods/rs-props-rs_item_<token>.o2r`, which the build packages from
+// soh/soh/custom/rs_items/rs_item_<token>_props.json with sturdy-bassoon's prop generator. The model is the item's
+// inventory model, turned as its icon views it and centred on its middle (tools/props, the `item` source). A Gfx*,
+// as void* so this header needs no gbi.h; NULL when no mounted archive has it, and the ceremony draws the icon.
+// Loaded on first ask and held. The extent is its largest span on any axis, in model units, read from its own
+// vertices (0 with no model), so the ceremony can size every model alike.
+void* RsKeyItems_ModelList(int32_t key);
+float RsKeyItems_ModelExtent(int32_t key);
+
 // --- the store (RsItems.cpp) ------------------------------------------------------------------------------
 
 int32_t RsItems_Count(int32_t item); // 0 for an unknown item

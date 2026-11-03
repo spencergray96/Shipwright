@@ -86,7 +86,9 @@ void PlayCeremonies() {
     if ((player->stateFlags1 & PLAYER_STATE1_GETTING_ITEM) != 0) {
         if (player->getItemEntry.textId == RS_TEXT_KEY_ITEM_ID(key)) {
             char line[96];
-            std::snprintf(line, sizeof(line), "rs_items event=ceremony item=%s", RsKeyItems_Def(key)->token);
+            // `held`: what the ceremony holds up, its RS model or (no archive in mods/) its icon (#286).
+            std::snprintf(line, sizeof(line), "rs_items event=ceremony item=%s held=%s", RsKeyItems_Def(key)->token,
+                          RsKeyItems_ModelList(key) != nullptr ? "model" : "icon");
             RsAgent_Marker(line);
             PopCeremony();
         }

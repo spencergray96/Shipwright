@@ -31,6 +31,10 @@ extern const char* _gAmmoDigit0Tex[]; // z_parameter.c: the C buttons' ammo digi
 #define RS_PICKUP_FLOOR_SCALE 0.47f
 #define RS_PICKUP_FLOAT_SCALE 0.56f
 #define RS_PICKUP_HELD_SCALE 1.2f // Player_DrawGetItemImpl has already scaled by 0.2
+// A key item's RS model held up (sturdy-bassoon#286) is scaled so its largest span is this many model units, under
+// Player's 0.2: every key item is held at one size, as vanilla's get-item models are, whatever size RS made it (a
+// hammer is a third of a schematic). About the icon's width at RS_PICKUP_HELD_SCALE, which read right in Link's hands.
+#define RS_PICKUP_HELD_MODEL_SIZE 50.0f
 #define RS_ICON_W 36
 #define RS_ICON_H 32
 // A float's life: vanilla's collected drop bounces for about this long.
@@ -418,12 +422,30 @@ void RsItemPickup_Draw(Actor* thisx, PlayState* play) {
     RsItemPickup_DrawIcon(play, this->key, this->item, shown, onFloor);
 }
 
-// Link holding a key item up. Player_DrawGetItemImpl has the matrix at the held position, spinning and scaled by 0.2;
-// this one quad does not face the camera by itself (gItemDropDL does, which is why RsQuestItem_DrawHeld replaces the
-// rotation with identity), so it takes the billboard. The text id in Player's copy of the entry says which key item.
+// Link holding a key item up. Player_DrawGetItemImpl has the matrix at the held position, spinning and scaled by 0.2.
+// The text id in Player's copy of the entry says which key item.
+//
+// Its RS model, when mods/ has it (RsKeyItems_ModelList): the item's inventory model, turned as its icon views it and
+// centred, so under Player's matrix it spins about its own middle as vanilla's get-item models do. Its list carries its
+// own materials, lit by the lights Player bound, so the setup is only the one every get-item draw starts from.
+//
+// Without one, the icon: one quad that does not face the camera by itself (gItemDropDL does, which is why
+// RsQuestItem_DrawHeld replaces the rotation with identity), so it takes the billboard, and the spin goes.
 static void RsItemPickup_DrawHeld(PlayState* play, GetItemEntry* entry) {
     const s32 key = RS_TEXT_IS_KEY_ITEM(entry->textId) ? RS_TEXT_KEY_ITEM_GET(entry->textId) : -1;
+    Gfx* model = (Gfx*)RsKeyItems_ModelList(key);
 
+    if (model != NULL) {
+        const f32 scale = RS_PICKUP_HELD_MODEL_SIZE / RsKeyItems_ModelExtent(key);
+
+        OPEN_DISPS(play->state.gfxCtx);
+        Gfx_SetupDL_25Opa(play->state.gfxCtx);
+        Matrix_Scale(scale, scale, scale, MTXMODE_APPLY);
+        gSPMatrix(POLY_OPA_DISP++, RS_PICKUP_MTX(play), G_MTX_MODELVIEW | G_MTX_LOAD);
+        gSPDisplayList(POLY_OPA_DISP++, model);
+        CLOSE_DISPS(play->state.gfxCtx);
+        return;
+    }
     Matrix_ReplaceRotation(&play->billboardMtxF);
     Matrix_Scale(RS_PICKUP_HELD_SCALE, RS_PICKUP_HELD_SCALE, RS_PICKUP_HELD_SCALE, MTXMODE_APPLY);
     RsItemPickup_DrawIcon(play, 1, key, 1, 0);

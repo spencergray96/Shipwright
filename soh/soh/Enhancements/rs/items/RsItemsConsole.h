@@ -14,8 +14,9 @@
 // `args[0]` is the subcommand:
 //   list | (none)           every counted item, then every key item, a line each:
 //                             item token=plank count=12 cap=999 icon=1 ground_icon=1
-//                             key token=hammer held=1 category=tools flag=12 icon=0 ground_icon=0
-//                           (icon=/ground_icon=: whether mods/rs-items.o2r held that icon at boot)
+//                             key token=hammer held=1 category=tools flag=12 icon=0 ground_icon=0 model=1
+//                           (icon=/ground_icon=: whether mods/rs-items.o2r held that icon at boot; model=: whether
+//                           mods/ holds the key item's 3D model, rs-props-rs_item_<token>.o2r, #286)
 //                           then `op=list result=ok items=<n> keys=<n> ceremonies=<queued>`
 //   give <item> [n]         a counted item: n more (default 1), the icon over Link's head - refused past the cap,
 //                           `error=full`, nothing added (the console's check; the world fills to the cap instead).

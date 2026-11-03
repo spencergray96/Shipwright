@@ -2,12 +2,19 @@
 
 #include "RsItems.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cstdio>
 #include <cstring>
+#include <memory>
+#include <string>
+#include <fast/resource/type/DisplayList.h>
 #include <spdlog/spdlog.h>
 #include <ship/Context.h>
+#include <ship/resource/File.h>
 #include <ship/resource/ResourceManager.h>
+#include <ship/resource/archive/ArchiveManager.h>
+#include <tinyxml2.h>
 
 #include "align_asset_macro.h"
 #include "soh/Enhancements/rs/quest/WorldFlagIds.h"
@@ -189,4 +196,89 @@ extern "C" int32_t RsItems_IconFound(int32_t item, int32_t ground) {
 
 extern "C" int32_t RsKeyItems_IconFound(int32_t key, int32_t ground) {
     return key >= 0 && key < RS_KEY_ITEM_COUNT && sKeyFound[ground ? 1 : 0][key] ? 1 : 0;
+}
+
+// --- the key items' models -----------------------------------------------------------------------------------
+//
+// Held, not re-resolved, as RsBoatModel.cpp holds a boat's list: the list's address is its resource's instruction
+// vector, stable only while the resource lives. Its extent comes from the archive's own vertex files (the generator
+// writes one a material, under copies/<copy>/), so no size measured off an RS model is committed here.
+namespace {
+
+struct KeyModel {
+    bool tried = false;
+    std::shared_ptr<Fast::DisplayList> list;
+    float extent = 0.0f;
+};
+KeyModel sKeyModels[RS_KEY_ITEM_COUNT];
+
+KeyModel& KeyModelOf(int32_t key) {
+    KeyModel& m = sKeyModels[key];
+    if (m.tried) {
+        return m;
+    }
+    m.tried = true;
+    const std::string root = std::string("objects/rs_props/rs_item_") + kKeys[key].token + "/";
+    auto resources = Ship::Context::GetRawInstance()->GetResourceManager();
+    auto archives = resources->GetArchiveManager();
+    if (!archives->HasFile(root + "props")) {
+        SPDLOG_INFO("RsItems: {}props is in no mounted archive: the {} ceremony holds up its icon", root,
+                    kKeys[key].token);
+        return m;
+    }
+    auto list = std::dynamic_pointer_cast<Fast::DisplayList>(resources->LoadResource(root + "props", true));
+    if (list == nullptr || list->Instructions.empty()) {
+        SPDLOG_WARN("RsItems: {}props is not a display list: the {} ceremony holds up its icon", root,
+                    kKeys[key].token);
+        return m;
+    }
+    float lo[3] = { 1e9f, 1e9f, 1e9f };
+    float hi[3] = { -1e9f, -1e9f, -1e9f };
+    size_t vertices = 0;
+    // The listing held in a local: a range-for over `*archives->ListFiles(...)` iterates a vector whose shared_ptr
+    // dies before the loop starts (the first build found no vertices that way). Read as the files' own XML, as
+    // RsVehicleDeck.cpp reads a boat's.
+    auto files = archives->ListFiles(root + "copies/*/vtx_*");
+    for (const auto& path : *files) {
+        auto file = archives->LoadFile(path);
+        tinyxml2::XMLDocument doc;
+        if (file == nullptr || file->Buffer == nullptr || file->Buffer->size() <= file->BufferOffset ||
+            doc.Parse(file->Buffer->data() + file->BufferOffset, file->Buffer->size() - file->BufferOffset) !=
+                tinyxml2::XML_SUCCESS ||
+            doc.FirstChildElement() == nullptr) {
+            continue;
+        }
+        for (auto* v = doc.FirstChildElement()->FirstChildElement("Vtx"); v != nullptr;
+             v = v->NextSiblingElement("Vtx"), vertices++) {
+            const float p[3] = { (float)v->IntAttribute("X"), (float)v->IntAttribute("Y"), (float)v->IntAttribute("Z") };
+            for (int axis = 0; axis < 3; axis++) {
+                lo[axis] = std::min(lo[axis], p[axis]);
+                hi[axis] = std::max(hi[axis], p[axis]);
+            }
+        }
+    }
+    if (vertices == 0) {
+        SPDLOG_WARN("RsItems: {}props has no vertices under copies/: the {} ceremony holds up its icon", root,
+                    kKeys[key].token);
+        return m;
+    }
+    m.extent = std::max({ hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2] });
+    m.list = list;
+    SPDLOG_INFO("RsItems: the {} ceremony holds up its model, {}props: {} vertices, {} units at its largest",
+                kKeys[key].token, root, vertices, m.extent);
+    return m;
+}
+
+} // namespace
+
+extern "C" void* RsKeyItems_ModelList(int32_t key) {
+    if (key < 0 || key >= RS_KEY_ITEM_COUNT) {
+        return nullptr;
+    }
+    KeyModel& m = KeyModelOf(key);
+    return m.list != nullptr ? (void*)m.list->Instructions.data() : nullptr;
+}
+
+extern "C" float RsKeyItems_ModelExtent(int32_t key) {
+    return key >= 0 && key < RS_KEY_ITEM_COUNT && KeyModelOf(key).list != nullptr ? KeyModelOf(key).extent : 0.0f;
 }

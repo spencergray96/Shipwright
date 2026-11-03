@@ -76,9 +76,9 @@ int32_t List(std::vector<std::string>& lines) {
     }
     for (int32_t i = 0; i < RS_KEY_ITEM_COUNT; i++) {
         const RsKeyItemDef* d = RsKeyItems_Def(i);
-        Addf(lines, "key token=%s held=%d category=%s flag=%d icon=%d ground_icon=%d", d->token,
+        Addf(lines, "key token=%s held=%d category=%s flag=%d icon=%d ground_icon=%d model=%d", d->token,
              (int)RsKeyItems_Held(i), RsKeyItems_CategoryName(d->category), (int)d->worldFlag,
-             (int)RsKeyItems_IconFound(i, 0), (int)RsKeyItems_IconFound(i, 1));
+             (int)RsKeyItems_IconFound(i, 0), (int)RsKeyItems_IconFound(i, 1), RsKeyItems_ModelList(i) != nullptr ? 1 : 0);
     }
     Addf(lines, "op=list result=ok items=%d keys=%d ceremonies=%d", (int)RS_ITEM_COUNT, (int)RS_KEY_ITEM_COUNT,
          (int)RsKeyItems_CeremoniesQueued());

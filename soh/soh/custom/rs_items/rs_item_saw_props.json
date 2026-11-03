@@ -1,0 +1,20 @@
+{
+ "format": 2,
+ "scene": "rs_item",
+ "list": "objects/rs_props/rs_item_saw/props",
+ "kinds": {
+  "item-saw": "rs_item_saw"
+ },
+ "props": [
+  {
+   "id": "saw",
+   "kind": "item-saw",
+   "pos": [
+    0,
+    0,
+    0
+   ],
+   "rot": 0
+  }
+ ]
+}
