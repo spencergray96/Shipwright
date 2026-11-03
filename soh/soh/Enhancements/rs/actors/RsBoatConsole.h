@@ -145,10 +145,25 @@
 //                   `t=<frame> x= y= z= deck= under= str= speed= tris= climb=<0|1> glide=<0|1>`, a row each tick it
 //                   drew (tris), was held back (tris=-1) or was not drawn with him aboard the tick before (tris=-2:
 //                   deck= is then his floor's bgId, under= his bgCheckFlags, str= the mode)
-//   clear           kills every boat. `op=clear result=ok killed=<n>`
+//   clear           kills every boat. `op=clear result=ok killed=<n>`. The player's own come back when their scene
+//                   next loads: the save still has them out (boats/RsBoatDock.h)
 //
 //   fitout | upgrades | build | grant | look | own | fit
 //                   the save's boats (#263): boats/RsBoatFitConsole.h has them
+//
+//   where           where each of the player's boats is (#282), one line a kind, then a summary:
+//                   `boat_where kind= owned=0|1 state=stowed|docked|abandoned|? out=0|1 scene=<SCENE_*|-> in_scene=0|1
+//                   spawned=0|1 x= z= yaw= dock=<idx|-1> dist=<to Link, -1 when not in this scene> stranded=0|1
+//                   refused=0|1 fee=<rupees>`, then `op=where result=ok scene= docks=<n> boats=<live boats>
+//                   dyna_polys=<used>/<pool> dyna_vtx=<used>/<pool> rupees=`. Works with no scene (the store only)
+//   docks           the piers in this scene, earliest-spawned first: `dock idx= interaction= x= y= z= facing=
+//                   radius= skiff_mooring_x= skiff_mooring_z= mooring_yaw= moored=<kind|none>`, then `op=docks
+//                   result=ok count=`
+//   stow <kind>|all a test aid, no rules: the kind back to stowed wherever it is. `op=stow result=ok stowed=<n>`
+//   takeout|putaway|fetch <kind> [<dock>]
+//                   what a pier does, at the dock index given, else the pier Link is talking to, else dock 0:
+//                   `op=<verb> result=ok|refused kind= state= reason=<RsBoatDock_ResultName>`. Each also writes
+//                   the `rs_boat event=<verb> kind= result= dock= fee= rupees= state= x= z= yaw=` marker
 //
 // Refusals, each with rc 1:
 //   op=boat result=error error=no_scene      no play state (title screen, file select); lakehylia, cam,
@@ -168,7 +183,17 @@
 //                                            board, helm or contact named a boat that is not there
 //   op=spawn result=error error=no_water x= z=
 //                                            no waterbox at that point
+//   op=spawn result=error error=dyna_pool x= z=
+//                                            the scene's DynaPoly pools cannot take another boat of the kind
+//   op=spawn result=error error=spawn_failed x= z=
+//                                            Actor_Spawn refused (no room in the actor heap)
 //   op=helm result=error error=not_aboard    helm on with Link not standing on that boat's deck
+//   op=<verb> result=error error=bad_kind kinds=skiff,sloop,raft[,all]
+//                                            stow, takeout, putaway or fetch named no kind (stow also takes all)
+//   op=<verb> result=error error=no_dock idx=<i> docks=<n>
+//                                            takeout, putaway or fetch named a dock this scene does not have (or
+//                                            none, and the scene has no dock and Link is talking to no pier)
+//   op=<verb> result=refused ... reason=<why> a pier's refusal (above): changes nothing
 //   op=water result=error error=too_many have=<n> max=<n>
 //                                            the scene already has as many waterboxes as the copy holds
 //   op=usage result=error usage="..."        an unknown subcommand or a wrong number of words

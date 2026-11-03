@@ -238,7 +238,10 @@ static void RsInteraction_Talk(RsInteraction* this, PlayState* play) {
                  this->interactionId, (int)slot, (int)choice, (int)declared, RsNpc_ActionName(option->kind),
                  option->a, Quest_ResultName(result), (int)option->next, (int)scroll);
         RsAgent_Marker(line);
-        if (option->reply != NULL) {
+        // A refused action says no reply: the reply is written for the action having happened ("She'll
+        // be at the end of the pier."), and the refusal's own words are the action's toast
+        // (sturdy-bassoon#282). Characters (RsNpc.c) still say theirs; their refusals are gated away.
+        if (option->reply != NULL && result == QUEST_OK) {
             // The reply's id names this screen and this option, so the hook composes it from the
             // definition; DONE on that id then follows the option's `next`.
             Message_ContinueTextbox(play, RS_TEXT_INTERACTION_REPLY_ID(slot, declared));

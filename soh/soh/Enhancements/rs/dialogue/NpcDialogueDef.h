@@ -67,6 +67,13 @@ typedef enum RsDialogueActionKind {
     RS_DLG_ACTION_BOAT_SAIL = 7,      // a = RS_DLG_SAIL(sail, op) -> RsBoatSail_DialogueAction (sturdy-bassoon#287):
                                       // the sailmaker arms a sail for a dropped picture, opens the file dialog,
                                       // or puts the sail back to its colour
+    // a = RS_DLG_DOCK(op, kind) -> RsBoatDock_Run at the pier Link is talking to (sturdy-bassoon#282): take a boat
+    // out to this pier's mooring, put away the one moored here, or fetch an abandoned one for its fee. A refusal
+    // (the mooring is blocked, the pools are full, Link is short of the fee) changes nothing, charges nothing, says
+    // why in a toast and is QUEST_ERR_PREREQ_UNMET (QUEST_ERR_CANNOT_AFFORD for the fee). On an interaction (a pier)
+    // a refused action says no reply (RsInteraction.c), so word the reply for it having happened; a character would
+    // still say it. Gate each option on BoatStateIs, and a fetch on RupeesAtLeast(its fee).
+    RS_DLG_ACTION_BOAT_DOCK = 8,
     RS_DLG_ACTION_KIND_COUNT,
 } RsDialogueActionKind;
 
@@ -87,6 +94,11 @@ typedef enum RsDialogueActionKind {
 #define RS_DLG_SAIL(sail, op) ((sail) | ((op) << 4))
 #define RS_DLG_SAIL_SAIL(a) ((a) & 0xF)
 #define RS_DLG_SAIL_OP(a) (((a) >> 4) & 0xF)
+
+// RS_DLG_ACTION_BOAT_DOCK's operand: an RsBoatDockOp and an RsBoatKindId (boats/RsBoatDock.h), four bits each.
+#define RS_DLG_DOCK(op, kind) ((op) | ((kind) << 4))
+#define RS_DLG_DOCK_OP(a) ((a) & 0xF)
+#define RS_DLG_DOCK_KIND(a) (((a) >> 4) & 0xF)
 
 typedef struct RsDialogueOption {
     const char* label;         // the choice line; never NULL

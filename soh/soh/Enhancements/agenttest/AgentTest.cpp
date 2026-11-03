@@ -641,11 +641,14 @@
  *                                          RsAnimPropConsole.h documents every line
  *   agenttest boat list|spawn [<x> <z> [<yaw>]]|probe <x> <z>|water <x0> <z0> <x1> <z1> <y>|water clear|board [<idx>]|helm on|off [<idx>]|drive <t> <turn> <ticks>|
  *                  lakehylia [on|off]|lakelevel [full|drained]|cam [..]|hud [on|off]|clear|
- *                  fitout [..]|upgrades|build <u>|grant <u>|look <kind> [..]|own <kind> 0|1|fit <kind> <slot> <tier>
+ *                  fitout [..]|upgrades|build <u>|grant <u>|look <kind> [..]|own <kind> 0|1|fit <kind> <slot> <tier>|
+ *                  where|docks|stow <kind>|all|takeout|putaway|fetch <kind> [<dock>]
  *                                          the sailing prototype's boats (sturdy-bassoon#256): where each is,
  *                                          its speed, helm and why it last stopped; put one down, stand Link
  *                                          at its tiller, take the helm, steer it without the pad. Since #263
  *                                          the save's boats: owned, fitted, built (boats/RsBoatFitConsole.h).
+ *                                          Since #282 where they are and the piers' operations
+ *                                          (boats/RsBoatDock.h).
  *                                          RsBoatConsole.h documents every line
  *   agenttest balloon list|spawn [<x> <z> [<yaw> [<height>]]]|board [<idx>]|controls on|off [<idx>]|
  *                  drive <t> <turn> <lift> <ticks>|tune [..]|cam [..]|abandon [sink|hang|home]|field [on|off]|clear

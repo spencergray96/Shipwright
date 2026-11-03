@@ -11,6 +11,7 @@
 #include "RsBoat.h"
 #include "RsBoatHud.h"
 #include "RsVehicleMinimap.h"
+#include "soh/Enhancements/rs/boats/RsBoatDock.h"
 #include "soh/Enhancements/rs/boats/RsBoatFitConsole.h"
 #include "soh/Enhancements/console/ConsoleSink.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
@@ -41,7 +42,7 @@ using ConsoleSink::Addf;
     "climb [hop|hands] | kind [skiff|sloop|raft] | tune [default] | tune <knob> <value> | wake [default|reset] | "  \
     "wake slots [<n>|default] | "                                                                                   \
     "wake <knob> <value> | contact [<idx>] | still [on|off] | shadow [feet|circle|draped|default|reset] | "      \
-    "shadow size <n> | shadow anchor [auto|hull|link] | shadow trace | clear | " RS_BOAT_FIT_GRAMMAR
+    "shadow size <n> | shadow anchor [auto|hull|link] | shadow trace | clear | " RS_BOAT_FIT_GRAMMAR " | "             RS_BOAT_DOCK_GRAMMAR
 
 const char* kUsage = "op=usage result=error usage=\"boat " RS_BOAT_GRAMMAR "\"";
 
@@ -86,16 +87,29 @@ s32 CurrentKind() {
     return CLAMP(CVarGetInteger(CVAR_RS_BOAT_KIND, RS_BOAT_KIND_SKIFF), 0, RS_BOAT_KIND_COUNT - 1);
 }
 
-// Spawns one at (x, z) on the water's surface there, room -1 so a room change in a multi-room scene keeps it.
-RsBoat* SpawnAt(float x, float z, int16_t yaw) {
+// Spawns one at (x, z) on the water's surface there, room -1 so a room change in a multi-room scene keeps it. On
+// nullptr, `why` (when given) names the first check that failed: no_water, dyna_pool or spawn_failed.
+RsBoat* SpawnAt(float x, float z, int16_t yaw, const char** why = nullptr) {
     float y = GET_PLAYER(gPlayState)->actor.world.pos.y;
     if (!RsBoat_SurfaceAt(gPlayState, x, z, &y, nullptr)) {
+        if (why != nullptr) {
+            *why = "no_water";
+        }
         return nullptr;
     }
-    // The params are the kind.
+    // Two sloops overflowed the old pools (ENGINE_BUDGETS.md): a spawn they cannot take is refused, never asserted.
+    if (!RsBoatDock_SpawnFits(CurrentKind())) {
+        if (why != nullptr) {
+            *why = "dyna_pool";
+        }
+        return nullptr;
+    }
+    // The params are the kind: a fixture, not the player's own boat (RS_BOAT_PARAM_OWNED).
     Actor* a = Actor_Spawn(&gPlayState->actorCtx, gPlayState, ACTOR_RS_BOAT, x, y, z, 0, yaw, 0, (s16)CurrentKind());
     if (a != nullptr) {
         a->room = -1;
+    } else if (why != nullptr) {
+        *why = "spawn_failed";
     }
     return reinterpret_cast<RsBoat*>(a);
 }
@@ -113,7 +127,7 @@ int32_t List(std::vector<std::string>& lines) {
         Addf(lines,
              "boat idx=%d kind=%s x=%d y=%d z=%d yaw=%d speed=%d top=%d throttle=%d tiller=%d rudder=%d helm=%d on_water=%d "
              "surface=%d blocked=%s blocks=%d touch=%s touches=%d lift=%d floor_low=%d link_on=%d helm_dist=%d "
-             "cam=%d map_arrow=%s wake_rings=%d wake_held=%d facilities=%s facility_polys=%d",
+             "cam=%d map_arrow=%s wake_rings=%d wake_held=%d facilities=%s facility_polys=%d owned=%d",
              (int)idx, RsBoat_KindName(boat->kind), (int)lroundf(a->world.pos.x), (int)lroundf(a->world.pos.y),
              (int)lroundf(a->world.pos.z), (int)(u16)a->shape.rot.y, (int)lroundf(boat->speed * 100.0f),
              (int)lroundf(RsBoat_TopSpeed(boat) * 100.0f),
@@ -124,7 +138,7 @@ int32_t List(std::vector<std::string>& lines) {
              (int)lroundf(boat->floorLow * 100.0f), RsBoat_LinkOnDeck(boat, player) ? 1 : 0,
              (int)lroundf(Math_Vec3f_DistXZ(&helm, (Vec3f*)&player->actor.world.pos)),
              boat->cam.subCamId != SUBCAM_NONE ? 1 : 0, RsVehicleMinimap_ArrowName(RsVehicleMinimap_Arrow(a)),
-             boat->wakeRings, boat->wakeHeld, facilities, RsBoat_FacilityPolyCount(boat->kind));
+             boat->wakeRings, boat->wakeHeld, facilities, RsBoat_FacilityPolyCount(boat->kind), boat->owned);
     }
     Addf(lines,
          "op=list result=ok count=%d link_x=%d link_y=%d link_z=%d link_yaw=%d link_floor_bg=%d "
@@ -163,9 +177,10 @@ int32_t Spawn(const std::vector<std::string>& args, std::vector<std::string>& li
         lines.push_back(kUsage);
         return 1;
     }
-    RsBoat* boat = SpawnAt(x, z, yaw);
+    const char* why = "spawn_failed";
+    RsBoat* boat = SpawnAt(x, z, yaw, &why);
     if (boat == nullptr) {
-        Addf(lines, "op=spawn result=error error=no_water x=%d z=%d", (int)lroundf(x), (int)lroundf(z));
+        Addf(lines, "op=spawn result=error error=%s x=%d z=%d", why, (int)lroundf(x), (int)lroundf(z));
         return 1;
     }
     const Actor* a = &boat->dyna.actor;
@@ -595,8 +610,11 @@ int32_t Kind(const std::vector<std::string>& args, std::vector<std::string>& lin
         CVarSave();
         if (gPlayState != nullptr && gPlayState->sceneNum == SCENE_LAKE_HYLIA &&
             CVarGetInteger(CVAR_RS_BOAT_LAKE_HYLIA, 1) != 0) {
+            // The fixtures only: the player's own boats are the docks' (RsBoatDock.h), whatever `kind` says.
             for (RsBoat* boat : Boats()) {
-                Actor_Kill(&boat->dyna.actor);
+                if (!boat->owned) {
+                    Actor_Kill(&boat->dyna.actor);
+                }
             }
             respawned = SpawnAt(kLakeHyliaX, kLakeHyliaZ, kLakeHyliaYaw) != nullptr ? 1 : 0;
         }
@@ -760,6 +778,11 @@ int32_t RsBoatConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (fitRc >= 0) {
         return fitRc;
     }
+    // The docks' (#282): `where` reads the save, so it works from the title screen too; the rest need a scene.
+    const int32_t dockRc = RsBoatDock_ConsoleRun(args, lines);
+    if (dockRc >= 0) {
+        return dockRc;
+    }
     if (sub == "lakehylia") {
         return LakeHylia(args, lines);
     }
@@ -878,9 +901,12 @@ const ConsoleSink::Command rsBoatCommand(
     "flag, parts, facilities and looks (fitout hud switches their readout under the steering label; fitout reset "
     "empties them, as a new save), upgrades lists "
     "what can be built and why not, build builds one (its unlock flag, requirements and rupees), grant builds one "
-    "free, look swaps a sail pattern; own and fit set ownership or a tier outright (test aids, no rules).",
+    "free, look swaps a sail pattern; own and fit set ownership or a tier outright (test aids, no rules); "
+    "where and docks read where the player's boats are and the piers in this scene (#282): stowed, docked or "
+    "abandoned; takeout, putaway and fetch do what a pier does (at the dock given, else the pier Link is talking "
+    "to, else dock 0), fetch charging the fee; stow puts a kind back to stowed wherever it is (a test aid, no rules).",
     { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|kind|tune|wake|contact|still|shadow|"
-        "clear|fitout|upgrades|build|grant|look|own|fit",
+        "clear|fitout|upgrades|build|grant|look|own|fit|where|docks|stow|takeout|putaway|fetch",
         Ship::ArgumentType::TEXT },
       { "arg1", Ship::ArgumentType::TEXT, true },
       { "arg2", Ship::ArgumentType::TEXT, true },
@@ -988,6 +1014,16 @@ sails                             sail pattern files
   window                          the Boat Sails window
     on                            show it
     off                           hide it
+where                             where each of your boats is
+docks                             the piers in this scene
+stow                              put a boat back to stowed, no rules
+  skiff                           the skiff
+  sloop                           the sloop
+  raft                            the raft
+  all                             every boat
+takeout <kind> [<dock>]           a boat out to a pier, free
+putaway <kind> [<dock>]           the boat moored at a pier, stowed
+fetch <kind> [<dock>]             an abandoned boat to a pier, for its fee
 )");
 
 } // namespace
