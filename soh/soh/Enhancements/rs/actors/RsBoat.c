@@ -2687,9 +2687,10 @@ void RsBoat_Init(Actor* thisx, PlayState* play) {
 void RsBoat_Destroy(Actor* thisx, PlayState* play) {
     RsBoat* this = (RsBoat*)thisx;
 
+    // Removed with Link at the helm (put away, a scene change, gone under): every let-go is RsBoat_LetGo. No refuge on a
+    // boat that is going.
     if (this->helm) {
-        RsSteer_LetGo(GET_PLAYER(play));
-        RsSteerCam_Stop(&this->cam, play);
+        RsBoat_LetGo(this, play, 0);
     }
     DynaPoly_DeleteBgActor(play, &play->colCtx.dyna, this->dyna.bgId);
 }
