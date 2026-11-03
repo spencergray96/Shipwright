@@ -54,4 +54,5 @@
 #include "../terrain_f2p_fog/CustomTerrainF2pFogScene.h" // terrain-bake terrain_f2p_fog
 #include "../kind_bench/CustomKindBenchScene.h" // project be4c0217-0000-4000-8000-00000000be4c name kind_bench
 #include "../sounds_276/CustomSounds276Scene.h" // project 52760276-0276-4000-8000-000000000276 name sounds_276
+#include "../boat_docks_282/CustomBoatDocks282Scene.h" // project 8a0dd776-0163-40b3-b9fe-a6176850128e name boat_docks_282
 // END GRID TOOL EXPORTS

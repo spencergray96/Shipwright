@@ -469,8 +469,18 @@ void LoadInteractionText(uint16_t id, bool* loadFromMessageTable) {
         const int32_t option = RS_TEXT_INTERACTION_GET_OPTION(id);
         index = slot * RS_DIALOGUE_MAX_OPTIONS + option;
         const RsDialogueRule* on = RsInteraction_SlotScreen(def, slot);
-        if (on != nullptr && option < on->optionCount && on->options[option].reply != nullptr) {
+        // An action's own words (Interaction.h, #282): in place of the option's reply, or after it.
+        int32_t instead = 0;
+        const char* words = RsInteraction_ActionWords(&instead);
+        if (words != nullptr && instead) {
+            reply = words;
+            haveReply = true;
+        } else if (on != nullptr && option < on->optionCount && on->options[option].reply != nullptr) {
             reply = RsNpc_ComposeOptionReply(on->options[option]);
+            if (words != nullptr) {
+                reply += " ";
+                reply += words;
+            }
             haveReply = true;
         }
     }

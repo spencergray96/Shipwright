@@ -167,6 +167,7 @@ static bool CheckPredicate(char* buf, size_t len, const char* what, int32_t inde
             break;
         case QUEST_PRED_BOAT_OWNED:
         case QUEST_PRED_BOAT_TIER_AT_LEAST:
+        case QUEST_PRED_BOAT_STATE_IS:
             if (!RsBoatFit_PredicateOperandsValid(p.kind, p.a, p.b)) {
                 return Problem(buf, len, "%s[%d]: boat predicate operands %d, %d out of range", what, index, p.a, p.b);
             }

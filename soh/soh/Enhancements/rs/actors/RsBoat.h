@@ -235,9 +235,16 @@ typedef enum RsBoatBlock {
                             // an overhang): driving on would scrape him off
 } RsBoatBlock;
 
+// The actor's params: the kind in the low byte, and RS_BOAT_PARAM_OWNED on the player's own boat, which the docks
+// spawn and track (boats/RsBoatDock.h, sturdy-bassoon#282). A boat without it is a fixture: Lake Hylia's, `boat
+// spawn`'s, a trial's. Nothing about a fixture is saved.
+#define RS_BOAT_PARAM_OWNED 0x100
+#define RS_BOAT_PARAMS(kind, owned) ((s16)((kind) | ((owned) ? RS_BOAT_PARAM_OWNED : 0)))
+
 typedef struct RsBoat {
     DynaPolyActor dyna;
     s32 kind;        // RsBoatKindId, from the params
+    s32 owned;       // 1 for the player's own boat (RS_BOAT_PARAM_OWNED), 0 for a fixture
     s32 helm;        // 1 while Link holds the helm
     f32 speed;       // signed, units per tick along the hull's heading
     f32 tiller;      // -1..1, eased toward the stick
@@ -300,6 +307,13 @@ const char* RsBoat_KindListPath(s32 kind);
 
 // The kind's collision triangles, for the console and the DynaPoly budget.
 s32 RsBoat_KindPolyCount(s32 kind);
+// The most collision a boat of the kind can register: its hull's triangles and corners plus room for every facility box
+// it could be fitted with. Builds the hull if no boat of the kind has yet, so a spawn can be checked against the
+// DynaPoly pools before it is made (RsBoatDock.cpp). 0 for no such kind.
+void RsBoat_KindCollisionMax(s32 kind, s32* polys, s32* vtx);
+// The kind's half beam (its widest station's outer half width) and half length, units: where a mooring puts it.
+f32 RsBoat_KindHalfBeam(s32 kind);
+f32 RsBoat_KindHalfLength(s32 kind);
 // Of those, its fitted facilities' boxes' (#288): 10 a box, 0 with none fitted that is solid.
 s32 RsBoat_FacilityPolyCount(s32 kind);
 // The kind's facilities drawn now (#288), for `boat list`: each list's name less its "rs_boat_" ("sloop_cannon"),

@@ -187,4 +187,5 @@
 /* 0xAA */ DEFINE_SCENE(terrain_f2p_fog_scene, none, SCENE_TERRAIN_F2P_FOG, SDC_DEFAULT, 0, 0) // terrain-bake terrain_f2p_fog
 /* 0xAB */ DEFINE_SCENE(kind_bench_scene, none, SCENE_KIND_BENCH, SDC_DEFAULT, 0, 0) // project be4c0217-0000-4000-8000-00000000be4c name kind_bench
 /* 0xAC */ DEFINE_SCENE(sounds_276_scene, none, SCENE_SOUNDS_276, SDC_DEFAULT, 0, 0) // project 52760276-0276-4000-8000-000000000276 name sounds_276
+/* 0xAD */ DEFINE_SCENE(boat_docks_282_scene, none, SCENE_BOAT_DOCKS_282, SDC_DEFAULT, 0, 0) // project 8a0dd776-0163-40b3-b9fe-a6176850128e name boat_docks_282
 // END GRID TOOL EXPORTS

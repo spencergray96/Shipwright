@@ -409,7 +409,8 @@ bool Problem(const char* what, int32_t index) {
 // A requirement's operands in range: the boat words through the check quest registration uses, the others by
 // kind only (a quest id or a flag past its store is the quest system's own refusal, reported at its registration).
 bool RequirementValid(const QuestPredicate& p) {
-    if (p.kind == QUEST_PRED_BOAT_OWNED || p.kind == QUEST_PRED_BOAT_TIER_AT_LEAST) {
+    if (p.kind == QUEST_PRED_BOAT_OWNED || p.kind == QUEST_PRED_BOAT_TIER_AT_LEAST ||
+        p.kind == QUEST_PRED_BOAT_STATE_IS) {
         return RsBoatFit_PredicateOperandsValid(p.kind, p.a, p.b) != 0;
     }
     if (p.kind == QUEST_PRED_ITEM_COUNT_AT_LEAST) {

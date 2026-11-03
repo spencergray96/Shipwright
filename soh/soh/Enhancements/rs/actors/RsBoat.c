@@ -383,6 +383,9 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
 #define RS_BOAT_FACILITY_BOXES 2
 // Boxes one kind can carry at once: the sloop's two cannons and its catcher. A fit past it leaves the rest out.
 #define RS_BOAT_MAX_FACILITY_BOXES 3
+// What one facility box adds to the hull's collision: its corners, and two triangles a face but the bottom.
+#define RS_BOAT_FACILITY_BOX_VTX 8
+#define RS_BOAT_FACILITY_BOX_POLYS 10
 typedef struct RsBoatFacility {
     s32 slot;         // RsBoatSlot
     s32 fromTier;
@@ -539,8 +542,8 @@ s32 RsBoat_KindByName(const char* name) {
 // of its aft face; then a skinned stretch's skin and trim corners, eleven at each of its two stations. A skinned side
 // is 26 triangles where the plain rail is 6. Then a post's eight corners, its four sides and top, and as many again
 // for each fitted facility's box (#288).
-#define RS_BOAT_MAX_VTX     (RS_BOAT_MAX_STATIONS * 8 + RS_BOAT_FOREDECK_ROWS * RS_BOAT_FOREDECK_COLS + RS_BOAT_FOREDECK_COLS + 4 + RS_BOAT_MAX_SKINNED * 22 + 8 + RS_BOAT_MAX_FACILITY_BOXES * 8)
-#define RS_BOAT_MAX_POLYS                             ((RS_BOAT_MAX_STATIONS - 1) * 14 + 12 +            (RS_BOAT_FOREDECK_ROWS - 1) * (RS_BOAT_FOREDECK_COLS - 1) * 2 + (RS_BOAT_FOREDECK_COLS + 1) * 2 + RS_BOAT_MAX_SKINNED * 20 + 10 + RS_BOAT_MAX_FACILITY_BOXES * 10)
+#define RS_BOAT_MAX_VTX     (RS_BOAT_MAX_STATIONS * 8 + RS_BOAT_FOREDECK_ROWS * RS_BOAT_FOREDECK_COLS + RS_BOAT_FOREDECK_COLS + 4 + RS_BOAT_MAX_SKINNED * 22 + 8 + RS_BOAT_MAX_FACILITY_BOXES * RS_BOAT_FACILITY_BOX_VTX)
+#define RS_BOAT_MAX_POLYS                             ((RS_BOAT_MAX_STATIONS - 1) * 14 + 12 +            (RS_BOAT_FOREDECK_ROWS - 1) * (RS_BOAT_FOREDECK_COLS - 1) * 2 + (RS_BOAT_FOREDECK_COLS + 1) * 2 + RS_BOAT_MAX_SKINNED * 20 + 10 + RS_BOAT_MAX_FACILITY_BOXES * RS_BOAT_FACILITY_BOX_POLYS)
 // The shore probes: the floor's edge and the gunwale's edge at every station, both sides, and the stern's middle.
 #define RS_BOAT_MAX_POINTS (RS_BOAT_MAX_STATIONS * 2 + 1)
 #define RS_BOAT_BOX_VTX 24
@@ -626,6 +629,44 @@ static CamData sHullCamData[1] = { { CAM_SET_NONE, 0, NULL } };
 
 s32 RsBoat_KindPolyCount(s32 kind) {
     return (kind >= 0 && kind < RS_BOAT_KIND_COUNT && sHulls[kind].built) ? sHulls[kind].numPolys : 0;
+}
+
+static void RsBoat_BuildHull(s32 kindId);
+
+void RsBoat_KindCollisionMax(s32 kind, s32* polys, s32* vtx) {
+    *polys = 0;
+    *vtx = 0;
+    if (kind < 0 || kind >= RS_BOAT_KIND_COUNT) {
+        return;
+    }
+    if (!sHulls[kind].built) {
+        RsBoat_BuildHull(kind);
+    }
+    *polys = sHulls[kind].hullPolys + RS_BOAT_MAX_FACILITY_BOXES * RS_BOAT_FACILITY_BOX_POLYS;
+    *vtx = sHulls[kind].hullVtx + RS_BOAT_MAX_FACILITY_BOXES * RS_BOAT_FACILITY_BOX_VTX;
+}
+
+f32 RsBoat_KindHalfBeam(s32 kind) {
+    f32 hw = 0.0f;
+    s32 i;
+
+    if (kind < 0 || kind >= RS_BOAT_KIND_COUNT) {
+        return 0.0f;
+    }
+    for (i = 0; i < RsBoat_NumStations(&sRsBoatKinds[kind]); i++) {
+        hw = MAX(hw, sRsBoatKinds[kind].stations[i].outerHw);
+    }
+    return hw;
+}
+
+f32 RsBoat_KindHalfLength(s32 kind) {
+    s32 n;
+
+    if (kind < 0 || kind >= RS_BOAT_KIND_COUNT) {
+        return 0.0f;
+    }
+    n = RsBoat_NumStations(&sRsBoatKinds[kind]);
+    return n > 0 ? (sRsBoatKinds[kind].stations[n - 1].z - sRsBoatKinds[kind].stations[0].z) * 0.5f : 0.0f;
 }
 
 s32 RsBoat_FacilityPolyCount(s32 kind) {
@@ -1029,7 +1070,7 @@ static s32 RsBoat_FitFacilityBoxes(s32 kindId) {
         for (b = 0; (shown & (1 << i)) && b < RS_BOAT_FACILITY_BOXES; b++) {
             const RsBoatPost* box = &sRsBoatFacilities[kindId][i].boxes[b];
 
-            if (box->top > 0.0f && hull->numVtx + 8 <= RS_BOAT_MAX_VTX && hull->numPolys + 10 <= RS_BOAT_MAX_POLYS) {
+            if (box->top > 0.0f && hull->numVtx + RS_BOAT_FACILITY_BOX_VTX <= RS_BOAT_MAX_VTX && hull->numPolys + RS_BOAT_FACILITY_BOX_POLYS <= RS_BOAT_MAX_POLYS) {
                 first = hull->numPolys;
                 RsBoat_BuildPost(hull, kind, box);
                 RsBoat_FlagLineTests(hull, first, RS_BOAT_POLY_SHOTS_PASS);
@@ -1275,11 +1316,11 @@ static void RsBoat_BuildBox(Vtx* out, s16 x0, s16 y0, s16 z0, s16 x1, s16 y1, s1
 static void RsBoat_Mark(RsBoat* this, const char* event) {
     char line[200];
 
-    snprintf(line, sizeof(line), "rs_boat event=%s x=%d y=%d z=%d yaw=%d speed=%d helm=%d blocked=%s surface=%d",
+    snprintf(line, sizeof(line), "rs_boat event=%s x=%d y=%d z=%d yaw=%d speed=%d helm=%d blocked=%s surface=%d kind=%s owned=%d",
              event, (int)lroundf(this->dyna.actor.world.pos.x), (int)lroundf(this->dyna.actor.world.pos.y),
              (int)lroundf(this->dyna.actor.world.pos.z), (int)(u16)this->dyna.actor.shape.rot.y,
              (int)lroundf(this->speed * 100.0f), this->helm, RsBoat_BlockName(this->blocked),
-             (int)lroundf(this->surfaceY));
+             (int)lroundf(this->surfaceY), RsBoat_KindName(this->kind), this->owned);
     RsAgent_Marker(line);
 }
 
@@ -2454,7 +2495,8 @@ static f32 RsBoat_FloorLow(const RsBoat* this, f32 bob) {
 void RsBoat_Init(Actor* thisx, PlayState* play) {
     RsBoat* this = (RsBoat*)thisx;
 
-    this->kind = CLAMP(thisx->params, 0, RS_BOAT_KIND_COUNT - 1);
+    this->kind = CLAMP(thisx->params & 0xFF, 0, RS_BOAT_KIND_COUNT - 1);
+    this->owned = (thisx->params & RS_BOAT_PARAM_OWNED) != 0;
     if (!sHulls[this->kind].built) {
         RsBoat_BuildHull(this->kind);
     }

@@ -6,9 +6,9 @@
 #include "QuestIds.h"
 #include "QuestStore.h"
 
-// The predicate vocabulary (sturdy-bassoon#58 decisions D10/D11). Eleven words - five at P0, one
-// added in P2, one in P3, two for boat upgrades (#263), one for prices (#281) and one for the
-// inventory (#286), each on the bar described below:
+// The predicate vocabulary (sturdy-bassoon#58 decisions D10/D11). Twelve words - five at P0, one
+// added in P2, one in P3, two for boat upgrades (#263), one for prices (#281), one for the docks
+// (#282) and one for the inventory (#286), each on the bar described below:
 //
 //     Always            true
 //     QuestStatusIs     QuestStore_GetStatus(a) == b
@@ -19,6 +19,7 @@
 //     BoatOwned         the player owns boat kind a (sturdy-bassoon#263)
 //     BoatTierAtLeast   a boat kind's slot (a) is fitted at tier b or higher (#263)
 //     RupeesAtLeast     Link holds at least a rupees, counting a change still being counted (#281)
+//     BoatStateIs       the player's boat of kind a is in dock state b (#282)
 //     ItemCountAtLeast  Link carries at least b of counted item a (#286; a key item is WorldFlagSet)
 //     Not               negates any of the above
 //
@@ -74,7 +75,9 @@ typedef enum QuestPredicateKind {
                                     // dialogue option that charges (RS_DLG_ACTION_CHARGE_RUPEES) sits behind.
                                     // Reads Quest_RupeesAfterPending, so a charge still being counted down
                                     // already counts. Same append rule.
-    // 9 is sturdy-bassoon#282's BoatStateIs, on its own branch until it merges.
+    QUEST_PRED_BOAT_STATE_IS = 9, // a = RsBoatKindId, b = RsBoatDockState (sturdy-bassoon#282, boats/RsBoatDock.h): where
+                                  // the player's boat of that kind is - stowed, docked, abandoned, or moored at the pier
+                                  // Link is talking to. False for a boat the player does not own. Same append rule.
     QUEST_PRED_ITEM_COUNT_AT_LEAST = 10, // a = RsItemId, b = count [0, RS_ITEM_COUNT_MAX] (sturdy-bassoon#286,
                                          // items/RsItems.h): "brought me ten planks", and the gate on an option
                                          // that takes or sells them. Same append rule.
@@ -107,6 +110,7 @@ typedef struct QuestPredicate {
 // BoatTierAtLeast packs kind and slot as RS_BOAT_FIT_KEY does (boats/RsBoatFit.cpp asserts the three forms agree).
 #define QP_BOAT_TIER_AT_LEAST(kind, slot, tier) { QUEST_PRED_BOAT_TIER_AT_LEAST, (kind) * 256 + (slot), (tier), 0 }
 #define QP_RUPEES_AT_LEAST(amount) { QUEST_PRED_RUPEES_AT_LEAST, (amount), 0, 0 }
+#define QP_BOAT_STATE_IS(kind, state) { QUEST_PRED_BOAT_STATE_IS, (kind), (state), 0 }
 #define QP_ITEM_COUNT_AT_LEAST(item, count) { QUEST_PRED_ITEM_COUNT_AT_LEAST, (item), (count), 0 }
 #define QP_NOT_ALWAYS() { QUEST_PRED_ALWAYS, 0, 0, 1 }
 #define QP_NOT_QUEST_STATUS_IS(questId, status) { QUEST_PRED_QUEST_STATUS_IS, (questId), (status), 1 }
@@ -115,6 +119,8 @@ typedef struct QuestPredicate {
 #define QP_NOT_ALL_STEPS_SET(questId) { QUEST_PRED_ALL_STEPS_SET, (questId), 0, 1 }
 #define QP_NOT_QUEST_PREREQS_MET(questId) { QUEST_PRED_QUEST_PREREQS_MET, (questId), 0, 1 }
 #define QP_NOT_RUPEES_AT_LEAST(amount) { QUEST_PRED_RUPEES_AT_LEAST, (amount), 0, 1 }
+#define QP_NOT_BOAT_OWNED(kind) { QUEST_PRED_BOAT_OWNED, (kind), 0, 1 }
+#define QP_NOT_BOAT_STATE_IS(kind, state) { QUEST_PRED_BOAT_STATE_IS, (kind), (state), 1 }
 #define QP_NOT_ITEM_COUNT_AT_LEAST(item, count) { QUEST_PRED_ITEM_COUNT_AT_LEAST, (item), (count), 1 }
 
 #ifdef __cplusplus
@@ -170,6 +176,9 @@ constexpr QuestPredicate BoatTierAtLeast(int32_t kind, int32_t slot, int32_t tie
 }
 constexpr QuestPredicate RupeesAtLeast(int32_t amount) {
     return { QUEST_PRED_RUPEES_AT_LEAST, amount, 0, 0 };
+}
+constexpr QuestPredicate BoatStateIs(int32_t kind, int32_t state) {
+    return { QUEST_PRED_BOAT_STATE_IS, kind, state, 0 };
 }
 constexpr QuestPredicate ItemCountAtLeast(int32_t item, int32_t count) {
     return { QUEST_PRED_ITEM_COUNT_AT_LEAST, item, count, 0 };

@@ -16,6 +16,8 @@
 // a production interaction may set only production flags. Remembered state is a permanent world
 // flag set by a choice (WorldFlagIds.h), the first pass's only kind.
 #include "Interaction.h"
+#include "soh/Enhancements/rs/actors/RsBoat.h"
+#include "soh/Enhancements/rs/boats/RsBoatDock.h"
 #include "soh/Enhancements/rs/dialogue/NpcDialogueDef.h"
 #include "soh/Enhancements/rs/quest/QuestIds.h"
 #include "soh/Enhancements/rs/quest/QuestPredicate.h"
@@ -23,6 +25,86 @@
 #include "soh/ShipInit.hpp"
 
 namespace {
+
+// --- I-0001, pier: boat dock (sturdy-bassoon#282) ------------------------------------------------------
+//
+// Every pier placed in the grid tool with this interaction is a dock (boats/RsBoatDock.cpp has its radius). The menu
+// has three rows a kind, of which the gates show at most one: take it out (stowed, or docked at any pier: free), put
+// it away (docked at this pier), or fetch it (abandoned: its fee, RsBoatDock.h). A kind the player does not own shows
+// none. The fetch row shows whether or not Link can pay, with its fee in the label: hidden, a player who first came
+// with no money would not learn it exists (the owner, 2026-11-02). Short of the fee, the pier says so (RsBoatDock's
+// words). The two ungated rows keep the choice a choice. Placeholder prose: the owner tidies it, as the sailmaker's.
+
+#define PIER_STR_(x) #x
+#define PIER_STR(x) PIER_STR_(x)
+
+#define PIER_TAKE_WHEN(kind)                                                                                         \
+    { QP_BOAT_OWNED(kind), QP_NOT_BOAT_STATE_IS(kind, RS_BOAT_DOCK_HERE),                                            \
+      QP_NOT_BOAT_STATE_IS(kind, RS_BOAT_DOCK_ABANDONED) }
+const QuestPredicate sPierTakeRaft[] = PIER_TAKE_WHEN(RS_BOAT_KIND_RAFT);
+const QuestPredicate sPierTakeSkiff[] = PIER_TAKE_WHEN(RS_BOAT_KIND_SKIFF);
+const QuestPredicate sPierTakeSloop[] = PIER_TAKE_WHEN(RS_BOAT_KIND_SLOOP);
+#undef PIER_TAKE_WHEN
+const QuestPredicate sPierPutRaft[] = { QP_BOAT_STATE_IS(RS_BOAT_KIND_RAFT, RS_BOAT_DOCK_HERE) };
+const QuestPredicate sPierPutSkiff[] = { QP_BOAT_STATE_IS(RS_BOAT_KIND_SKIFF, RS_BOAT_DOCK_HERE) };
+const QuestPredicate sPierPutSloop[] = { QP_BOAT_STATE_IS(RS_BOAT_KIND_SLOOP, RS_BOAT_DOCK_HERE) };
+const QuestPredicate sPierFetchRaft[] = { QP_BOAT_STATE_IS(RS_BOAT_KIND_RAFT, RS_BOAT_DOCK_ABANDONED) };
+const QuestPredicate sPierFetchSkiff[] = { QP_BOAT_STATE_IS(RS_BOAT_KIND_SKIFF, RS_BOAT_DOCK_ABANDONED) };
+const QuestPredicate sPierFetchSloop[] = { QP_BOAT_STATE_IS(RS_BOAT_KIND_SLOOP, RS_BOAT_DOCK_ABANDONED) };
+
+const char* const kPierTaken = "She'll be at the end of the pier.";
+const char* const kPierStowed = "I'll see her stowed.";
+const char* const kPierFetched = "I'll have her brought round.";
+const char* const kPierHow =
+    "Any boat of yours that is put away, or tied up at any pier, I bring here free. One left anywhere else I fetch "
+    "for a fee.";
+
+enum { PIER_NODE_MENU, PIER_NODE_COUNT };
+
+const RsDialogueOption sPierMenuOptions[] = {
+    { "Take the raft out", RS_DLG_ACTION_BOAT_DOCK, RS_DLG_DOCK(RS_BOAT_DOCK_OP_TAKE_OUT, RS_BOAT_KIND_RAFT), kPierTaken,
+      RS_DLG_NO_NEXT, sPierTakeRaft, 3 },
+    { "Put the raft away", RS_DLG_ACTION_BOAT_DOCK, RS_DLG_DOCK(RS_BOAT_DOCK_OP_PUT_AWAY, RS_BOAT_KIND_RAFT), kPierStowed,
+      RS_DLG_NO_NEXT, sPierPutRaft, 1 },
+    { "Fetch the raft: " PIER_STR(RS_BOAT_DOCK_FEE_RAFT) " rupees", RS_DLG_ACTION_BOAT_DOCK,
+      RS_DLG_DOCK(RS_BOAT_DOCK_OP_FETCH, RS_BOAT_KIND_RAFT), kPierFetched, RS_DLG_NO_NEXT, sPierFetchRaft, 1 },
+    { "Take the skiff out", RS_DLG_ACTION_BOAT_DOCK, RS_DLG_DOCK(RS_BOAT_DOCK_OP_TAKE_OUT, RS_BOAT_KIND_SKIFF),
+      kPierTaken, RS_DLG_NO_NEXT, sPierTakeSkiff, 3 },
+    { "Put the skiff away", RS_DLG_ACTION_BOAT_DOCK, RS_DLG_DOCK(RS_BOAT_DOCK_OP_PUT_AWAY, RS_BOAT_KIND_SKIFF),
+      kPierStowed, RS_DLG_NO_NEXT, sPierPutSkiff, 1 },
+    { "Fetch the skiff: " PIER_STR(RS_BOAT_DOCK_FEE_SKIFF) " rupees", RS_DLG_ACTION_BOAT_DOCK,
+      RS_DLG_DOCK(RS_BOAT_DOCK_OP_FETCH, RS_BOAT_KIND_SKIFF), kPierFetched, RS_DLG_NO_NEXT, sPierFetchSkiff, 1 },
+    { "Take the sloop out", RS_DLG_ACTION_BOAT_DOCK, RS_DLG_DOCK(RS_BOAT_DOCK_OP_TAKE_OUT, RS_BOAT_KIND_SLOOP),
+      kPierTaken, RS_DLG_NO_NEXT, sPierTakeSloop, 3 },
+    { "Put the sloop away", RS_DLG_ACTION_BOAT_DOCK, RS_DLG_DOCK(RS_BOAT_DOCK_OP_PUT_AWAY, RS_BOAT_KIND_SLOOP),
+      kPierStowed, RS_DLG_NO_NEXT, sPierPutSloop, 1 },
+    { "Fetch the sloop: " PIER_STR(RS_BOAT_DOCK_FEE_SLOOP) " rupees", RS_DLG_ACTION_BOAT_DOCK,
+      RS_DLG_DOCK(RS_BOAT_DOCK_OP_FETCH, RS_BOAT_KIND_SLOOP), kPierFetched, RS_DLG_NO_NEXT, sPierFetchSloop, 1 },
+    { "How does this work?", RS_DLG_ACTION_NONE, 0, kPierHow, PIER_NODE_MENU },
+    { "Never mind", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+
+#undef PIER_STR
+#undef PIER_STR_
+
+const RsDialogueNode sPierNodes[PIER_NODE_COUNT] = {
+    { nullptr, 0, "Which boat?", sPierMenuOptions, (int32_t)(sizeof(sPierMenuOptions) / sizeof(sPierMenuOptions[0])),
+      RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+
+const QuestPredicate sPierNoBoat[] = {
+    QP_NOT_BOAT_OWNED(RS_BOAT_KIND_RAFT),
+    QP_NOT_BOAT_OWNED(RS_BOAT_KIND_SKIFF),
+    QP_NOT_BOAT_OWNED(RS_BOAT_KIND_SLOOP),
+};
+const RsDialogueRule sPierRules[] = {
+    { sPierNoBoat, 3, "You've no boat to keep here.", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    { nullptr, 0, "Boats in and out.", nullptr, 0, RS_DLG_NO_MISSING, PIER_NODE_MENU },
+};
+
+const RsInteractionDef sPier = {
+    RS_INTERACTION(1), QUEST_TIER_PROD, "pier", "Pier: boat dock", sPierRules, 2, sPierNodes, PIER_NODE_COUNT,
+};
 
 // --- I-32512, debug crate (a test fixture) -------------------------------------------------------
 //
@@ -50,6 +132,7 @@ const RsInteractionDef sDebugCrate = {
 
 void RegisterInteractionTable() {
     RsInteraction_Register(&sDebugCrate);
+    RsInteraction_Register(&sPier);
 }
 
 RegisterShipInitFunc interactionTableInitFunc(RegisterInteractionTable);
