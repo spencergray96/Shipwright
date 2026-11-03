@@ -459,6 +459,13 @@ int32_t PlaceAtPier(int32_t kind, const std::vector<Dock>& docks, int32_t dock, 
         sMadeRoom.push_back(boat->kind);
         Stow(boat->kind);
     }
+    // Smallest first, whatever order the actor list gave them: what the pier says reads "your raft and skiff" every
+    // time (the owner, 2026-11-02).
+    static constexpr int32_t kSizeOrder[] = { RS_BOAT_KIND_RAFT, RS_BOAT_KIND_SKIFF, RS_BOAT_KIND_SLOOP };
+    const auto rank = [](int32_t k) {
+        return std::find(std::begin(kSizeOrder), std::end(kSizeOrder), k) - std::begin(kSizeOrder);
+    };
+    std::sort(sMadeRoom.begin(), sMadeRoom.end(), [&](int32_t a, int32_t b) { return rank(a) < rank(b); });
     if (own != nullptr) {
         Actor_Kill(&own->dyna.actor);
     }
