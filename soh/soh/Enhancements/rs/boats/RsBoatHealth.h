@@ -7,8 +7,8 @@
 //
 // HP. A boat's most HP is its fit-out's (RsBoatFit_Stats): its hull's plus its keel's, RS's numbers as they are (a
 // starting skiff 30 + 50 = 80, a raft 20). It never comes back on its own. What is kept is the DAMAGE, what the boat
-// is missing from its most, so a better hull or keel raises the most and the HP alike: what was missing stays missing,
-// and an upgrade never mends (the owner, #284).
+// is missing from its most, so a tier set with no rules (`boat fit`) raises the most and the HP alike, and a wreck
+// stays a wreck through anything but a pier's mending.
 //   - The player's own boat's damage is saved, per kind, in `rsBoats` (`damage`, and `wrecked` once it capsized): a
 //     boat left damaged is damaged next time, wherever it is.
 //   - A fixture's (Lake Hylia's, `boat spawn`'s, a trial's) is its actor's, none at every spawn, never saved.
@@ -31,7 +31,9 @@
 //     collects it by sailing over it (the hull's outline, RsBoat_HullContains), only with Link aboard; Link swimming
 //     into it does nothing. Collected even at full HP, as vanilla's hearts are. Placed per scene in code (kBoatHearts,
 //     in world units), each back on every load of its scene; `boat heart here` puts one down for a test.
-// Building a better hull or keel raises the most, not the HP (the owner, #284).
+//   - an UPGRADE: building one onto the boat mends it to full, as RS's hull and keel upgrades do (the owner, #284:
+//     every upgrade). A wrecked boat, or one left out at sea, cannot be upgraded until it is mended or brought in
+//     (RsBoatFit_Check's WRECKED and ABANDONED). A quest's grant is never refused, and mends all but a wreck.
 //
 // Console: `boat hp|damage|capsize|heart ...` (RsBoatHealth_ConsoleRun), and `boat repair` with the pier's verbs.
 // Markers (agent mode): `rs_boat event=hit|hit_ignored|capsize|sunk|heal|hp_set|heart ...`.
@@ -57,6 +59,7 @@ typedef enum RsBoatHealSource {
     RS_BOAT_HEAL_CONSOLE, // `boat hp`
     RS_BOAT_HEAL_HEART,   // a boat heart
     RS_BOAT_HEAL_PIER,    // a pier's repair
+    RS_BOAT_HEAL_UPGRADE, // an upgrade built or granted onto it (RsBoatFit.h)
     RS_BOAT_HEAL_SOURCE_COUNT,
 } RsBoatHealSource;
 

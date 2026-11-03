@@ -49,9 +49,9 @@ void Mark(const char* fmt, ...) {
 
 // --- the store ------------------------------------------------------------------------------------
 //
-// Each owned kind's damage - what it is missing from its most - and whether it is wrecked, rather than its HP: a better
-// hull or keel adds to the most and the HP alike, and what was missing stays missing (the owner, #284: an upgrade does
-// not mend). Wrecked is kept apart so a better tier cannot float a sunk boat. A project-owned global, as the fit-out's.
+// Each owned kind's damage - what it is missing from its most - and whether it is wrecked, rather than its HP: a tier
+// that raises the most raises the HP with it, and a build then mends the rest (RsBoatFit_Build). Wrecked is kept apart
+// so a better tier cannot float a sunk boat. A project-owned global, as the fit-out's.
 struct Hull {
     int32_t damage;
     bool wrecked;
@@ -278,7 +278,7 @@ extern "C" int32_t RsBoatHealth_HitSourceByName(const char* name) {
 }
 
 extern "C" const char* RsBoatHealth_HealSourceName(int32_t source) {
-    static const char* const kNames[RS_BOAT_HEAL_SOURCE_COUNT] = { "console", "heart", "pier" };
+    static const char* const kNames[RS_BOAT_HEAL_SOURCE_COUNT] = { "console", "heart", "pier", "upgrade" };
     return source >= 0 && source < RS_BOAT_HEAL_SOURCE_COUNT ? kNames[source] : "?";
 }
 

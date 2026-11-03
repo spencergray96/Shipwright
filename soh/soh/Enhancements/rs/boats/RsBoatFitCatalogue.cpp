@@ -382,7 +382,7 @@ const RsBoatUpgrade kUpgrades[RS_BOAT_UPGRADE_COUNT] = {
 };
 
 const char* const kResultNames[] = {
-    "ok", "unknown", "already", "locked", "not_owned", "requirement", "cant_afford", "no_image",
+    "ok", "unknown", "already", "locked", "not_owned", "wrecked", "abandoned", "requirement", "cant_afford", "no_image",
 };
 static_assert(sizeof(kResultNames) / sizeof(kResultNames[0]) == RS_BOAT_FIT_RESULT_COUNT,
               "kResultNames names every RsBoatFitResult");

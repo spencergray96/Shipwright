@@ -182,6 +182,8 @@ typedef enum RsBoatFitResult {
     RS_BOAT_FIT_ALREADY,       // every fit already holds: nothing to build
     RS_BOAT_FIT_LOCKED,        // its unlock flag is not set
     RS_BOAT_FIT_NOT_OWNED,     // a fit is on a boat the player does not own
+    RS_BOAT_FIT_WRECKED,       // a fit is on a boat that capsized and is not mended (#284; `*failIndex` is its kind)
+    RS_BOAT_FIT_ABANDONED,     // a fit is on a boat left out at sea, outside every dock (#284; `*failIndex` is its kind)
     RS_BOAT_FIT_REQUIREMENT,   // a requirement does not hold (`*failIndex` names it)
     RS_BOAT_FIT_CANT_AFFORD,   // a cost is more than the player has (`*failIndex` names it)
     RS_BOAT_FIT_NO_IMAGE,      // a look's custom option with no accepted picture for that sail (#287)
@@ -269,10 +271,17 @@ void RsBoatFit_Reset(void);
 // the order the enum lists them. `failIndex` (may be NULL) gets the requirement's or the cost's index.
 int32_t RsBoatFit_Check(int32_t id, int32_t* failIndex);
 // Builds it: checks as above, then pays its costs and applies its fits. A dialogue option or the console calls it.
+// A boat it fits a part onto is refused while wrecked or abandoned (#284: mended at a pier first, or brought in), and
+// mended to full when the build goes through, as RS's hull and keel upgrades heal (the owner: every upgrade).
 int32_t RsBoatFit_Build(int32_t id, int32_t* failIndex);
 // Applies its fits free, ignoring the unlock, the requirements and the costs: a quest's gift. Still refuses a fit
-// onto a boat the player does not own, so a reward list grants the boat before its parts.
+// onto a boat the player does not own, so a reward list grants the boat before its parts. Never refused for a wreck or
+// an abandoned boat - a refused reward is lost - but mends only a boat that is not wrecked.
 int32_t RsBoatFit_Grant(int32_t id);
+// What a shipwright says about a result of RsBoatFit_Check or _Build for the upgrade, placeholder prose for the dialogue
+// that will build them (none does yet; the console prints it as `says=`). `failIndex` is the one the check gave: the
+// boat's kind for WRECKED and ABANDONED, the cost's index for CANT_AFFORD. Empty for OK.
+void RsBoatFit_ResultSays(int32_t id, int32_t result, int32_t failIndex, char* buf, size_t len);
 // Swaps a look, free, either way. Refuses an unowned boat, a look the kind does not have, and a custom option whose
 // picture is not accepted (RS_BOAT_FIT_NO_IMAGE).
 int32_t RsBoatFit_SetLook(int32_t kind, int32_t look, int32_t option);

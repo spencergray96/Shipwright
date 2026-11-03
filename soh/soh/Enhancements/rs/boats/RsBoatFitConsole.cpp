@@ -142,8 +142,11 @@ int32_t BuildOrGrant(const std::vector<std::string>& args, std::vector<std::stri
     int32_t failIndex = -1;
     const int32_t result = build ? RsBoatFit_Build(id, &failIndex) : RsBoatFit_Grant(id);
     if (result != RS_BOAT_FIT_OK) {
-        Addf(lines, "op=%s result=error error=%s upgrade=%s fail_index=%d", op, RsBoatFit_ResultName(result),
-             args[1].c_str(), (int)failIndex);
+        // What a shipwright would say (RsBoatFit_ResultSays), for the dialogue that will build these.
+        char says[160];
+        RsBoatFit_ResultSays(id, result, failIndex, says, sizeof(says));
+        Addf(lines, "op=%s result=error error=%s upgrade=%s fail_index=%d says=\"%s\"", op, RsBoatFit_ResultName(result),
+             args[1].c_str(), (int)failIndex, says);
         return 1;
     }
     Addf(lines, "op=%s result=ok upgrade=%s rupees=%d", op, args[1].c_str(), (int)RsBoatFit_RupeesAfterPending());
