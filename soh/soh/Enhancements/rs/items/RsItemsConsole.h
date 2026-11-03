@@ -18,8 +18,9 @@
 //                           (icon=/ground_icon=: whether mods/rs-items.o2r held that icon at boot)
 //                           then `op=list result=ok items=<n> keys=<n> ceremonies=<queued>`
 //   give <item> [n]         a counted item: n more (default 1), the icon over Link's head - refused past the cap,
-//                           `error=full`, nothing added. A key item: its flag set and its ceremony queued
-//                           (`error=held` if already held). `op=give result=ok item=plank count=5 total=17`
+//                           `error=full`, nothing added (the console's check; the world fills to the cap instead).
+//                           A key item: its flag set and its ceremony queued (`error=held` if already held).
+//                           `op=give result=ok item=plank count=5 total=17`
 //   take <item> [n]         a counted item: n fewer, refused `error=short` when Link has fewer. A key item: its
 //                           flag cleared - a test aid, a key item is never lost in play
 //   set <item> <n>          a counted item's count outright, 0..its cap, no rules
@@ -31,6 +32,8 @@
 //                           flag, a placement flag (2048-3839, or 3968-4095 for a test); or the key item.
 //                           `op=spawn result=ok item=plank count=5 once_flag=-1`
 //   hud [on|off]            the on-screen readout of every count and key item (CVAR_RS_ITEMS_HUD, off by default)
+//   groundcount [on|off]    whether a counted pickup lying in the world shows its count (CVAR_RS_ITEMS_GROUND_COUNT,
+//                           on by default); the float over Link's head always does. `op=groundcount groundcount=1`
 //
 // Errors are `op=<sub> result=error error=<kind>`: unknown_item, bad_value, full, short, held, no_play (a
 // subcommand that needs a scene, run from the title screen), spawn_failed (the actor table refused it), usage.

@@ -159,9 +159,6 @@ RegisterShipInitFunc rsItemsInitFunc(RegisterRsItems);
 RS_STATIC_ASSERT(RS_TEXT_IS_KEY_ITEM(RS_TEXT_KEY_ITEM_ID(RS_KEY_ITEM_ID_MAX - 1)) &&
                      !RS_TEXT_IS_KEY_ITEM(RS_TEXT_KEY_ITEM_ID(RS_KEY_ITEM_ID_MAX)),
                  "the key-item text band holds exactly RS_KEY_ITEM_ID_MAX ids");
-RS_STATIC_ASSERT(RS_TEXT_IS_ITEM_FULL(RS_TEXT_ITEM_FULL_ID(RS_ITEM_ID_MAX - 1)) &&
-                     !RS_TEXT_IS_ITEM_FULL(RS_TEXT_ITEM_FULL_ID(RS_ITEM_ID_MAX)),
-                 "the item-full text band holds exactly RS_ITEM_ID_MAX ids");
 RS_STATIC_ASSERT(RS_PICKUP_PARAMS_ITEM_MASK + 1 == RS_ITEM_ID_MAX && RS_ITEM_ID_MAX == RS_KEY_ITEM_ID_MAX,
                  "a pickup's params item field holds every counted and key item id");
 
@@ -205,11 +202,9 @@ extern "C" int32_t RsItems_GainClamped(int32_t item, int32_t count, int32_t show
         SPDLOG_WARN("RsItems: {} more {} would pass the cap {}; {} lost", count, def->plural, def->cap,
                     count - added);
     }
-    if (added > 0) {
-        sCounts[item] += added;
-        if (show) {
-            RsItems_ShowGain(item, added);
-        }
+    sCounts[item] += added > 0 ? added : 0;
+    if (show) {
+        RsItems_ShowGain(item, count);
     }
     Mark("gain", def->token, added, sCounts[item], added == count ? RS_ITEMS_OK : RS_ITEMS_FULL, source);
     return added;

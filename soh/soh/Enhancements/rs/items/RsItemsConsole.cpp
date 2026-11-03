@@ -234,6 +234,17 @@ int32_t Spawn(const std::vector<std::string>& args, std::vector<std::string>& li
     return 0;
 }
 
+int32_t GroundCount(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() == 2 && (args[1] == "on" || args[1] == "off")) {
+        CVarSetInteger(CVAR_RS_ITEMS_GROUND_COUNT, args[1] == "on" ? 1 : 0);
+        CVarSave();
+    } else if (args.size() != 1) {
+        return Error(lines, "groundcount", "usage");
+    }
+    Addf(lines, "op=groundcount result=ok groundcount=%d", CVarGetInteger(CVAR_RS_ITEMS_GROUND_COUNT, 1) ? 1 : 0);
+    return 0;
+}
+
 int32_t Hud(const std::vector<std::string>& args, std::vector<std::string>& lines) {
     if (args.size() == 2 && (args[1] == "on" || args[1] == "off")) {
         CVarSetInteger(CVAR_RS_ITEMS_HUD, args[1] == "on" ? 1 : 0);
@@ -353,8 +364,12 @@ int32_t RsItemsConsole_Run(const std::vector<std::string>& args, std::vector<std
     if (sub == "hud") {
         return Hud(args, lines);
     }
+    if (sub == "groundcount") {
+        return GroundCount(args, lines);
+    }
     lines.push_back("op=usage result=error usage=\"items list | give <item> [n] | take <item> [n] | set <item> <n> | "
-                    "reset | float <item> [n] | spawn <item> [n] [once <flag>] | hud [on|off]\"");
+                    "reset | float <item> [n] | spawn <item> [n] [once <flag>] | hud [on|off] | "
+                    "groundcount [on|off]\"");
     return 1;
 }
 
@@ -367,10 +382,10 @@ namespace {
 const ConsoleSink::Command itemsCommand(
     "items", RsItemsConsole_Run,
     "The inventory (sturdy-bassoon#286): list | give <item> [n] | take <item> [n] | set <item> <n> | reset | "
-    "float <item> [n] | spawn <item> [n] [once <flag>] | hud [on|off]. Counted items (planks, logs, nails) are a "
-    "count per save; key items (hammer, saw, schematic) are world flags with a get-item ceremony. `items list` names "
-    "every token.",
-    { { "list|give|take|set|reset|float|spawn|hud", Ship::ArgumentType::TEXT },
+    "float <item> [n] | spawn <item> [n] [once <flag>] | hud [on|off] | groundcount [on|off]. Counted items "
+    "(planks, logs, nails) are a count per save; key items (hammer, saw, schematic) are world flags with a get-item "
+    "ceremony. `items list` names every token.",
+    { { "list|give|take|set|reset|float|spawn|hud|groundcount", Ship::ArgumentType::TEXT },
       { "item", Ship::ArgumentType::TEXT, true },
       { "count", Ship::ArgumentType::TEXT, true } });
 
@@ -390,6 +405,9 @@ spawn                       a pickup in front of Link
 hud                         the on-screen readout of every item
   on                        show the readout
   off                       hide the readout
+groundcount                 the count on items lying in the world
+  on                        show it, as the float over Link does
+  off                       hide it until Link picks the item up
 )");
 
 } // namespace

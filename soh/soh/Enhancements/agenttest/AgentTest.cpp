@@ -334,7 +334,7 @@
  *                                        a key item granted, a key item's get-item ceremony played. Gameplay
  *                                        markers, from any source (console, reward, dialogue, pickup, boat)
  *   rs_pickup event=<collect|float> item= key= count= once_flag= result=   (suppressed: item=<index> key= flag=)
- *                                        the inventory's actor: a pickup collected (or refused, result=full),
+ *                                        the inventory's actor: a pickup collected (result=full: some lost to the cap),
  *                                        a float over Link's head, a held key item or taken once-only pickup
  *                                        not built at scene load
  *   rs_items <line>                      one line of RsItemsConsole_Run output per marker, from
@@ -664,7 +664,7 @@
  *                                          stand Link at its controls, fly it without the pad.
  *                                          RsBalloonConsole.h documents every line
  *   agenttest items list|give <item> [n]|take <item> [n]|set <item> <n>|reset|float <item> [n]|
- *                  spawn <item> [n] [once <flag>]|hud [on|off]
+ *                  spawn <item> [n] [once <flag>]|hud [on|off]|groundcount [on|off]
  *                                          the inventory (sturdy-bassoon#286): every counted item's count and
  *                                          key item's flag; give, take and set them; a pickup or the float over
  *                                          Link's head on demand. RsItemsConsole.h documents every line
@@ -3327,7 +3327,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "balloon list|spawn [<x> <z> [<yaw> [<height>]]]|board [<idx>]|controls on|off [<idx>]|"
               "drive <t> <turn> <lift> <ticks>|tune [..]|cam [..]|abandon [..]|field [on|off]|clear | "
               "items list|give <item> [n]|take <item> [n]|set <item> <n>|reset|float <item> [n]|"
-              "spawn <item> [n] [once <flag>]|hud [on|off] | "
+              "spawn <item> [n] [once <flag>]|hud [on|off]|groundcount [on|off] | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
               "rsambience [status]|on|off|max [<n>|default]|radius|gain <emitter|all> [<v>|default] | "
               "animprop status|list|pose <k|rest|clock>|reset|pick <tick|frame|default>|trace [<idx> <frames>]|"
@@ -3514,7 +3514,7 @@ void RegisterAgentTest() {
               "balloon list|spawn [<x> <z> [<yaw> [<height>]]]|board [<idx>]|controls on|off [<idx>]|"
               "drive <t> <turn> <lift> <ticks>|tune [..]|cam [..]|abandon [..]|field [on|off]|clear | "
               "items list|give <item> [n]|take <item> [n]|set <item> <n>|reset|float <item> [n]|"
-              "spawn <item> [n] [once <flag>]|hud [on|off] | "
+              "spawn <item> [n] [once <flag>]|hud [on|off]|groundcount [on|off] | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
               "rsambience [status]|on|off|max [<n>|default]|radius|gain <emitter|all> [<v>|default] | "
               "animprop status|list|pose <k|rest|clock>|reset|pick <tick|frame|default>|trace [<idx> <frames>]|"

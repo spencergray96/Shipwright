@@ -16,7 +16,7 @@
 namespace {
 
 // COUNTED ITEMS. The caps are the owner's starting number (999, 2026-11-02), one per row so an item can differ.
-// RS's own names; `plural` is how a sentence names several ("You can't carry any more oak planks.").
+// RS's own names; `plural` is how a sentence names several (a log line: "5 more oak planks would pass the cap").
 const RsItemDef kItems[RS_ITEM_COUNT] = {
     { RS_ITEM_LOGS, "logs", "Logs", "logs", 999 },
     { RS_ITEM_OAK_LOGS, "oak_logs", "Oak logs", "oak logs", 999 },

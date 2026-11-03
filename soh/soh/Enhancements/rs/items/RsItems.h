@@ -20,7 +20,10 @@
 //   the row is presentation.
 //
 // What the player sees: a counted gain bounces the item's icon over Link's head with its count beside it, the way
-// vanilla's drops do (RsItemPickup.c's float); a key item plays vanilla's get-item ceremony. Both are presentation
+// vanilla's drops do (RsItemPickup.c's float); a key item plays vanilla's get-item ceremony. AT THE CAP NOTHING IS
+// REFUSED OR SAID (the owner, 2026-11-02, as vanilla takes a drop into a full quiver): a pickup, a gift and a reward
+// fill to the cap, lose the rest, and still float and sound. Only a PURCHASE refuses, so nothing is paid for that
+// cannot be carried. Both are presentation
 // only - the count or the flag is written first, and a ceremony lost to a scene change loses nothing.
 //
 // Icons are RuneScape's own inventory sprites, rendered from the cache by tools/items/ in sturdy-bassoon
@@ -125,6 +128,9 @@ typedef enum RsItemsSource {
 
 // The readout beside the boat's (`items hud`): every counted item and every key item, at the right of the screen.
 #define CVAR_RS_ITEMS_HUD CVAR_ENHANCEMENT("RsItemsHud")
+// Whether a counted pickup lying in the world shows its count (`items groundcount`, on by default). The float over
+// Link's head always does. The owner's switch while he decides which reads better (2026-11-02).
+#define CVAR_RS_ITEMS_GROUND_COUNT CVAR_ENHANCEMENT("RsItemsGroundCount")
 
 #ifdef __cplusplus
 extern "C" {
@@ -157,8 +163,10 @@ int32_t RsItems_Count(int32_t item); // 0 for an unknown item
 int32_t RsItems_CheckGain(int32_t item, int32_t count);
 // Adds `count` if it all fits, else nothing (RsItems_CheckGain's answer). `show` bounces the icon over Link's head.
 int32_t RsItems_Gain(int32_t item, int32_t count, int32_t show, int32_t source);
-// A gain that cannot be refused - a quest reward, already paid for by completing the quest: adds what fits and
-// logs the rest as lost. Returns how many were added.
+// The gain the world uses - a pickup, a gift, a reward: adds what fits under the cap and logs the rest as lost,
+// never refusing. `show` floats the whole `count` over Link's head, even when none of it fitted, as vanilla shows a
+// drop taken into a full quiver. Returns how many were added. RsItems_Gain, which refuses, is the console's and a
+// purchase's.
 int32_t RsItems_GainClamped(int32_t item, int32_t count, int32_t show, int32_t source);
 // Does the player hold `count`? RS_ITEMS_OK, or UNKNOWN / BAD_AMOUNT / SHORT. Writes nothing.
 int32_t RsItems_CheckTake(int32_t item, int32_t count);

@@ -8,10 +8,10 @@
 // The inventory's actor (sturdy-bassoon#286, items/RsItems.h): one actor, three uses, all drawing an item's icon
 // as a sprite that faces the camera.
 //
-//   A COUNTED PICKUP - planks lying on the floor. Walked into, it adds its count (RsItems_Gain) and goes, and the
-//   icon bounces over Link's head. When the count would pass the item's cap it stays, and says so once ("You can't
-//   carry any more planks.") until Link steps away. It comes back on every load of the scene unless the placement
-//   names a ONCE-ONLY world flag, set on collection; a set flag keeps it from being built at all.
+//   A COUNTED PICKUP - planks lying on the floor. Walked into, it adds its count (RsItems_GainClamped) and goes, and
+//   the icon bounces over Link's head. Past the item's cap the rest is lost, with no word said, as vanilla takes a
+//   drop into a full quiver. It comes back on every load of the scene unless the placement names a ONCE-ONLY world
+//   flag, set on collection; a set flag keeps it from being built at all.
 //
 //   A KEY-ITEM PICKUP - the hammer on a bench. Collected with vanilla's get-item ceremony (RsQuestItem's get-item
 //   style, the same shape), which sets the key item's flag when Link has it. A held key item is never built.
@@ -52,7 +52,6 @@ typedef struct RsItemPickup {
     /* */ int32_t onceFlag; // a counted pickup's once-only world flag, or -1
     /* */ int32_t valid;    // 0 when params name nothing this build has
     /* */ int32_t timer;    // a float's ticks left
-    /* */ int32_t refused;  // 1 after a FULL refusal said so, until Link steps away
 } RsItemPickup;
 
 #ifdef __cplusplus

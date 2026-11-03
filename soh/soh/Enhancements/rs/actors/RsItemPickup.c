@@ -20,8 +20,6 @@ extern const char* _gAmmoDigit0Tex[]; // z_parameter.c: the C buttons' ammo digi
 // The quest item's numbers, for its reason: the agent loop arrives by teleport (RsQuestItem.c).
 #define RS_PICKUP_COLLECT_RANGE 55.0f
 #define RS_PICKUP_COLLECT_HEIGHT 60.0f
-// How far Link must step back before a refused pickup says so again.
-#define RS_PICKUP_REFUSE_RESET 90.0f
 
 // The get-item id the key-item entry carries: the quest item's, for the quest item's reasons (RsQuestItem.c).
 #define RS_PICKUP_GET_ITEM_ID GI_TEXT_0
@@ -42,7 +40,6 @@ extern const char* _gAmmoDigit0Tex[]; // z_parameter.c: the C buttons' ammo digi
 
 static void RsItemPickup_Wait(RsItemPickup* this, PlayState* play);
 static void RsItemPickup_Float(RsItemPickup* this, PlayState* play);
-static void RsItemPickup_Refused(RsItemPickup* this, PlayState* play);
 static void RsItemPickup_DrawHeld(PlayState* play, GetItemEntry* entry);
 
 static ColliderCylinderInit sCylinderInit = {
@@ -125,7 +122,6 @@ void RsItemPickup_Init(Actor* thisx, PlayState* play) {
     this->key = (params & RS_PICKUP_PARAMS_KEY) != 0;
     this->count = thisx->home.rot.x > 0 ? thisx->home.rot.x : 1;
     this->onceFlag = (!this->key && thisx->home.rot.z > 0) ? thisx->home.rot.z - 1 : -1;
-    this->refused = 0;
     this->valid = 0;
 
     if ((params & RS_PICKUP_PARAMS_RSVD_MASK) != 0) {
@@ -147,8 +143,12 @@ void RsItemPickup_Init(Actor* thisx, PlayState* play) {
     thisx->shape.rot.x = thisx->shape.rot.y = thisx->shape.rot.z = 0;
 
     if (isFloat) {
-        // Nothing to collide with or settle: it sits over Link's head (RsItemPickup_Float).
+        // Nothing to collide with or settle: it sits over Link's head (RsItemPickup_Float). Lifted by half the icon
+        // and more, in model units, so its bottom edge clears his head through the bounce: centred on the bounce
+        // point it dipped behind his hair (the owner's first look). Vanilla lifts a drop the same way, by its
+        // shape.yOffset (430 at the arrows' 0.035, about 15 units).
         Actor_SetScale(thisx, RS_PICKUP_FLOAT_SCALE);
+        thisx->shape.yOffset = RS_ICON_H / 2 + 12;
         this->timer = RS_PICKUP_FLOAT_TICKS;
         this->actionFunc = RsItemPickup_Float;
         RsItemPickup_Mark(this, "float", "ok");
@@ -276,34 +276,17 @@ static void RsItemPickup_Wait(RsItemPickup* this, PlayState* play) {
         return;
     }
 
-    result = RsItems_Gain(this->item, this->count, 1, RS_ITEMS_SRC_PICKUP);
+    // Taken whatever Link carries, as vanilla takes a drop into a full quiver: what fits is added, the rest is lost,
+    // and the float and the sound are the same either way (the owner: a box here interrupted play). `result=full`
+    // on the marker says some was lost.
+    result = RsItems_GainClamped(this->item, this->count, 1, RS_ITEMS_SRC_PICKUP) == this->count ? RS_ITEMS_OK
+                                                                                                  : RS_ITEMS_FULL;
     RsItemPickup_Mark(this, "collect", RsItems_ResultName(result));
-    if (result == RS_ITEMS_FULL) {
-        // Stays where it is, and says why once: RS's "You don't have enough inventory space."
-        Message_StartTextbox(play, RS_TEXT_ITEM_FULL_ID(this->item), &this->actor);
-        this->refused = 1;
-        this->actionFunc = RsItemPickup_Refused;
-        return;
-    }
-    if (result != RS_ITEMS_OK) {
-        return;
-    }
     if (this->onceFlag >= 0) {
         Flags_SetWorldFlag(this->onceFlag);
     }
     Audio_PlayActorSound2(&this->actor, NA_SE_SY_GET_ITEM);
     Actor_Kill(&this->actor);
-}
-
-// Refused for want of room: wait for the box to close and Link to step away, then offer again.
-static void RsItemPickup_Refused(RsItemPickup* this, PlayState* play) {
-    if (Message_GetState(&play->msgCtx) != TEXT_STATE_NONE) {
-        return;
-    }
-    if (this->actor.xzDistToPlayer > RS_PICKUP_REFUSE_RESET) {
-        this->refused = 0;
-        this->actionFunc = RsItemPickup_Wait;
-    }
 }
 
 // Over Link's head, bouncing less and less, then gone: EnItem00's collected drop (func_8001E5C8) - its 40 units
@@ -428,10 +411,11 @@ void RsItemPickup_Draw(Actor* thisx, PlayState* play) {
         return;
     }
     Matrix_ReplaceRotation(&play->billboardMtxF);
-    // A floor pickup shows its count too: five planks lying there read as five. On the floor it is the ground icon
-    // (no shadow); over Link's head, gained, it is the inventory icon.
-    RsItemPickup_DrawIcon(play, this->key, this->item, this->key ? 1 : this->count,
-                          this->actionFunc != RsItemPickup_Float);
+    // On the floor it is the ground icon (no shadow), with its count unless `items groundcount off`; over Link's
+    // head, gained, it is the inventory icon, always with its count.
+    const s32 onFloor = this->actionFunc != RsItemPickup_Float;
+    const s32 shown = this->key || (onFloor && !CVarGetInteger(CVAR_RS_ITEMS_GROUND_COUNT, 1)) ? 1 : this->count;
+    RsItemPickup_DrawIcon(play, this->key, this->item, shown, onFloor);
 }
 
 // Link holding a key item up. Player_DrawGetItemImpl has the matrix at the held position, spinning and scaled by 0.2;

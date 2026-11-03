@@ -1552,20 +1552,22 @@ extern "C" int32_t RsNpc_RunAction(const RsDialogueOption* option) {
                        ? QUEST_OK
                        : QUEST_ERR_PREREQ_UNMET;
         case RS_DLG_ACTION_GIVE_ITEMS:
+            // A gift fills to the cap and never says no, as a pickup does (the owner, 2026-11-02).
+            RsItems_GainClamped(RS_ITEMS_GET_ITEM(option->a), RS_ITEMS_GET_COUNT(option->a), 1, RS_ITEMS_SRC_DIALOGUE);
+            return QUEST_OK;
         case RS_DLG_ACTION_BUY_ITEMS: {
-            // Both halves checked before either is written, as a quest-item sale is (RsNpc_SetGivenStep).
+            // Paid for, so all or nothing: both halves checked before either is written, as a quest-item sale is
+            // (RsNpc_SetGivenStep). Nothing is ever charged for that cannot be carried.
             const int32_t item = RS_ITEMS_GET_ITEM(option->a);
             const int32_t count = RS_ITEMS_GET_COUNT(option->a);
-            const int32_t price = option->kind == RS_DLG_ACTION_BUY_ITEMS ? RS_ITEMS_GET_PRICE(option->a) : 0;
+            const int32_t price = RS_ITEMS_GET_PRICE(option->a);
             if (RsItems_CheckGain(item, count) != RS_ITEMS_OK) {
                 return QUEST_ERR_CANNOT_CARRY;
             }
-            if (price > 0 && Quest_CheckChargeRupees(price) != QUEST_OK) {
+            if (Quest_CheckChargeRupees(price) != QUEST_OK) {
                 return QUEST_ERR_CANNOT_AFFORD;
             }
-            if (price > 0) {
-                Quest_ChargeRupees(price);
-            }
+            Quest_ChargeRupees(price);
             RsItems_Gain(item, count, 1, RS_ITEMS_SRC_DIALOGUE);
             return QUEST_OK;
         }

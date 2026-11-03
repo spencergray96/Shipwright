@@ -629,15 +629,12 @@ void RsText_OnOpenText(uint16_t* textId, bool* loadFromMessageTable) {
         return;
     }
 
-    // The inventory's lines (#286): a key item's get-item box, opened by Player from the entry after whatever offered
-    // it has gone (the quest item's reason for an id band), and a pickup's refusal for want of room.
-    if (RS_TEXT_IS_KEY_ITEM(id) || RS_TEXT_IS_ITEM_FULL(id)) {
+    // A key item's get-item box (#286), opened by Player from the entry after whatever offered it has gone (the quest
+    // item's reason for an id band).
+    if (RS_TEXT_IS_KEY_ITEM(id)) {
         std::string text = "<no such item>";
-        if (const RsKeyItemDef* key = RS_TEXT_IS_KEY_ITEM(id) ? RsKeyItems_Def(RS_TEXT_KEY_ITEM_GET(id)) : nullptr) {
+        if (const RsKeyItemDef* key = RsKeyItems_Def(RS_TEXT_KEY_ITEM_GET(id))) {
             text = key->pickupText != nullptr ? key->pickupText : std::string("You got a ") + key->name + "!";
-        } else if (const RsItemDef* item =
-                       RS_TEXT_IS_ITEM_FULL(id) ? RsItems_Def(RS_TEXT_ITEM_FULL_GET(id)) : nullptr) {
-            text = std::string("You can't carry any more&") + item->plural + ".";
         }
         CustomMessage msg = BuildPlainMessage(text.c_str());
         msg.LoadIntoFont();

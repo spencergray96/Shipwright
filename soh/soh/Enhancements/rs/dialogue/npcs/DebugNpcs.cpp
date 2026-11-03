@@ -528,21 +528,15 @@ const RsNpcDef sShop = {
 // never hidden for want of them: it is QUEST_SYSTEM.md's can't-afford pair, the action gated on having enough and a
 // same-labelled NONE twin gated on Not of it, whose reply says why - so exactly one shows, in the same place.
 //
-//   "Free planks"    GIVE_ITEMS 5 planks; within five of the cap its twin says Link cannot carry them.
+//   "Free planks"    GIVE_ITEMS 5 planks, ungated: a gift is never refused, it fills to the cap.
 //   "Nails (5)"      BUY_ITEMS 10 steel nails for 5 rupees; its twin says Link is short.
 //   "Hand 3 planks"  TAKE_ITEMS 3 planks; its twin says he has not three.
 //   "Sell 2 planks"  SELL_ITEMS 2 planks for 4 rupees; its twin says he has not two.
 //   "A trinket"      GIVE_KEY_ITEM the debug key item, gated on not holding it (state, not price: held, the row
 //                    would be meaningless); its ceremony plays once the conversation is over.
-//   "Every log"      GIVE_ITEMS 999 logs, ungated on purpose: the cap exactly, so with any log carried it is the
-//                    action's own refusal, cannot_carry, nothing added, and a reply worded to read either way.
+//   "Every log"      GIVE_ITEMS 999 logs, ungated: the cap exactly, so with any log carried it fills to the cap and
+//                    the rest is lost, with the float as ever.
 
-const QuestPredicate sTraderPlanksWhen[] = {
-    QP_NOT_ITEM_COUNT_AT_LEAST(RS_ITEM_PLANK, 995),
-};
-const QuestPredicate sTraderPlanksFullWhen[] = {
-    QP_ITEM_COUNT_AT_LEAST(RS_ITEM_PLANK, 995),
-};
 const QuestPredicate sTraderNailsWhen[] = {
     QP_RUPEES_AT_LEAST(5),
 };
@@ -567,9 +561,7 @@ const QuestPredicate sTraderTrinketWhen[] = {
 
 const RsDialogueOption sTraderOptions[] = {
     { "Free planks", RS_DLG_ACTION_GIVE_ITEMS, RS_ITEMS(RS_ITEM_PLANK, 5), "Five planks. Mind the splinters.",
-      RS_DLG_NO_NEXT, sTraderPlanksWhen, 1 },
-    { "Free planks", RS_DLG_ACTION_NONE, 0, "You can't carry any more planks.", RS_DLG_NO_NEXT, sTraderPlanksFullWhen,
-      1 },
+      RS_DLG_NO_NEXT },
     { "Nails (5)", RS_DLG_ACTION_BUY_ITEMS, RS_ITEMS_PRICED(RS_ITEM_STEEL_NAILS, 10, 5), "Ten nails, five rupees.",
       RS_DLG_NO_NEXT, sTraderNailsWhen, 1 },
     { "Nails (5)", RS_DLG_ACTION_NONE, 0, "Ten nails are five rupees,&and you are short.", RS_DLG_NO_NEXT,
@@ -584,14 +576,14 @@ const RsDialogueOption sTraderOptions[] = {
       sTraderSellShortWhen, 1 },
     { "A trinket", RS_DLG_ACTION_GIVE_KEY_ITEM, RS_KEY_ITEM_DEBUG, "Keep it safe.", RS_DLG_NO_NEXT,
       sTraderTrinketWhen, 1 },
-    { "Every log", RS_DLG_ACTION_GIVE_ITEMS, RS_ITEMS(RS_ITEM_LOGS, 999), "All of them, if you can carry them.",
+    { "Every log", RS_DLG_ACTION_GIVE_ITEMS, RS_ITEMS(RS_ITEM_LOGS, 999), "All of them, as many as you can carry.",
       RS_DLG_NO_NEXT },
     { "Goodbye", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };
 
 const RsDialogueRule sTraderRules[] = {
     // One line: a screen of more than four options scrolls, and its body has one row (#290).
-    { nullptr, 0, "Planks, nails or trinkets?", sTraderOptions, 11, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+    { nullptr, 0, "Planks, nails or trinkets?", sTraderOptions, 10, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
 };
 
 const RsNpcDef sTrader = {

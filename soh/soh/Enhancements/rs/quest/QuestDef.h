@@ -28,8 +28,8 @@ typedef enum QuestRewardKind {
     QUEST_REWARD_BOAT_UPGRADE = 2, // a = RsBoatUpgradeId -> RsBoatFit_Grant(a): builds it free (sturdy-bassoon#263).
                                    // A boat's own upgrade goes before its parts' in the list.
     QUEST_REWARD_ITEMS = 3,    // a = RS_ITEMS(item, count) -> RsItems_GainClamped (sturdy-bassoon#286): counted items,
-                               // their icon over Link's head. Cannot be refused, so past the cap the rest is lost
-                               // (logged): a reward is already earned when it dispatches.
+                               // their icon over Link's head. Past the cap the rest is lost (logged), as for a
+                               // pickup or a gift.
     QUEST_REWARD_KEY_ITEM = 4, // a = RsKeyItemId -> RsKeyItems_Grant with its get-item ceremony (#286). A debug quest
                                // grants only a debug-band key item, the world-flag reward's rule.
     QUEST_REWARD_KIND_COUNT,
