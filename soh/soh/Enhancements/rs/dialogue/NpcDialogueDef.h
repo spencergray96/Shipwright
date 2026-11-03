@@ -83,9 +83,10 @@ typedef enum RsDialogueActionKind {
     // reply shows, and an NPC and a prop may both offer them. A GIFT is never refused: past the cap it fills to it
     // and the rest is lost, as a pickup does. A PURCHASE is refused only when Link is already full (vanilla's shop);
     // short of that it fills to the cap at the full price. A take and a sale are all or nothing, refused with
-    // nothing moved.
-    // Never hide one because Link is short: give it the can't-afford pair (gated on ItemCountAtLeast or
-    // RupeesAtLeast, a same-labelled NONE twin gated on Not of it whose reply says why; QUEST_SYSTEM.md).
+    // nothing moved. A REFUSAL SAYS WHY by itself, with vanilla's error sound, in place of the reply ("You can't
+    // carry any more steel nails.", RsItems_SayRefusal), on a character and a prop alike - so leave the option
+    // ungated and word its reply for it having happened. A can't-afford twin (QUEST_SYSTEM.md) is still the way to a
+    // line of the character's own.
     RS_DLG_ACTION_GIVE_ITEMS = 9,    // a = RS_ITEMS(item, count): Link gets them, up to the cap
     RS_DLG_ACTION_BUY_ITEMS = 10,    // a = RS_ITEMS_PRICED(item, count, price): refused CANNOT_CARRY only when
                                      // already full, else filled to the cap at full price (or CANNOT_AFFORD)

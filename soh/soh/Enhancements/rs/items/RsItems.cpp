@@ -4,12 +4,15 @@
 #include "RsItems.h"
 
 #include <cstdio>
+#include <string>
 #include <spdlog/spdlog.h>
 
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/rs/actors/RsActors.h"
 #include "soh/Enhancements/rs/actors/RsItemPickup.h"
 #include "soh/Enhancements/rs/dialogue/NpcDialogueDef.h"
+#include "soh/Enhancements/rs/interactions/Interaction.h"
+#include "soh/Enhancements/rs/quest/Quest.h"
 #include "soh/Enhancements/rs/quest/WorldFlagIds.h"
 #include "soh/Enhancements/worldstate/WorldFlags.h"
 #include "soh/SaveManager.h"
@@ -336,6 +339,40 @@ extern "C" void RsItems_ShowGain(int32_t item, int32_t count) {
         return;
     }
     RsItemPickup_SpawnFloat(gPlayState, item, count);
+}
+
+extern "C" void RsItems_SayRefusal(int32_t result, int32_t item, int32_t count) {
+    const RsItemDef* def = RsItems_Def(item);
+    if (def == nullptr) {
+        return;
+    }
+    std::string words;
+    const char* reason = "?";
+    switch (result) {
+        case QUEST_ERR_CANNOT_CARRY:
+            words = std::string("You can't carry any more ") + def->plural + ".";
+            reason = "full";
+            break;
+        case QUEST_ERR_CANNOT_AFFORD:
+            words = "You don't have enough rupees.";
+            reason = "rupees";
+            break;
+        case QUEST_ERR_NOT_ENOUGH_ITEMS:
+            words = count == 1 ? std::string("You haven't got any ") + def->plural + "."
+                               : "You haven't got " + std::to_string(count) + " " + def->plural + ".";
+            reason = "short";
+            break;
+        default:
+            return;
+    }
+    if (gPlayState != nullptr) {
+        Sfx_PlaySfxCentered(NA_SE_SY_ERROR);
+    }
+    RsInteraction_ActionSays(words.c_str(), 1);
+    char line[192];
+    std::snprintf(line, sizeof(line), "rs_items event=refused item=%s reason=%s text=\"%s\"", def->token, reason,
+                  words.c_str());
+    RsAgent_Marker(line);
 }
 
 extern "C" void RsKeyItems_QueueCeremony(int32_t key) {

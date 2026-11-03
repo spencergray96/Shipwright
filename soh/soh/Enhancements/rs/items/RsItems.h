@@ -197,6 +197,14 @@ int32_t RsKeyItems_IsDebug(int32_t key);
 
 // --- presentation (RsItems.cpp) -----------------------------------------------------------------------------
 
+// A REFUSED DIALOGUE ACTION SAYS WHY (the owner, 2026-11-03, after vanilla's shop: EnOssan plays NA_SE_SY_ERROR and
+// opens a "can't buy" box). `result` is the QuestResult the items action returned - QUEST_ERR_CANNOT_CARRY,
+// QUEST_ERR_CANNOT_AFFORD or QUEST_ERR_NOT_ENOUGH_ITEMS; anything else does nothing. Plays the error sound and sets
+// the words through RsInteraction_ActionSays with `instead` 1, so a prop and a character both say them in place of
+// the option's reply, which is written for the action having happened: "You can't carry any more steel nails.",
+// "You don't have enough rupees.", "You haven't got 3 planks." Marked `rs_items event=refused reason= text=`.
+void RsItems_SayRefusal(int32_t result, int32_t item, int32_t count);
+
 // Bounces the item's icon and `count` over Link's head (an RsItemPickup float), changing nothing. What a gain with
 // `show` calls; the console's `items float` calls it alone. Does nothing without a PlayState.
 void RsItems_ShowGain(int32_t item, int32_t count);

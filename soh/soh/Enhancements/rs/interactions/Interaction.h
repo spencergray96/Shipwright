@@ -48,8 +48,9 @@ const RsDialogueRule* RsInteraction_SlotScreen(const RsInteractionDef* def, int3
 // happened; an action whose outcome needs words of its own (the pier: "Your skiff's already here.", "I've put your
 // raft away to make room.") sets them while it runs. `instead` 1: said in place of the reply (a refusal, which
 // otherwise says no reply); 0: said after it. The trigger clears them before each choice and when the check ends, so
-// they never outlive the option that set them. Only an interaction reads them; an action run from a character's
-// option sets them for nothing. The text is a reply's: no `% # " ^`, and `&` breaks the line.
+// they never outlive the option that set them. A character (RsNpc.c) reads them too since #286, in place of its
+// reply only: the inventory's refusals (RsItems_SayRefusal). The text is a reply's: no `% # " ^`, `&` breaks the
+// line.
 void RsInteraction_ActionSays(const char* text, int32_t instead);
 // The words set since the last clear, or NULL; `instead` (may be NULL) gets the flag they were set with.
 const char* RsInteraction_ActionWords(int32_t* instead);

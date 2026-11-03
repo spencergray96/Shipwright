@@ -50,6 +50,7 @@
 #include "objects/gameplay_keep/gameplay_keep.h"
 #include "soh/Enhancements/rs/dialogue/NpcDialogue.h"
 #include "soh/Enhancements/rs/dialogue/NpcDialogueDef.h"
+#include "soh/Enhancements/rs/interactions/Interaction.h"
 #include "soh/Enhancements/rs/quest/Quest.h"
 
 #define RS_NPC_FLAGS (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_FRIENDLY | ACTOR_FLAG_UPDATE_CULLING_DISABLED)
@@ -296,6 +297,7 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
     s32 choice;
     s32 declared;
     s32 result;
+    const char* reply = NULL; /* the option's reply, or a refusal's words in its place (#286) */
 
     // Anything that closes the box from outside the conversation - a scene transition, damage,
     // another actor opening a textbox - leaves no other way back. Without this the actor sits in
@@ -345,7 +347,18 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
         /* Remembered for a return to this screen (sturdy-bassoon#281), before anything moves on. */
         RsText_RememberChoice(declared);
         /* ACTION -> REPLY -> NEXT. The action fires wherever navigation goes afterwards. */
+        RsInteraction_ClearActionWords();
         result = RsNpc_RunAction(option);
+        reply = option->reply;
+        /* A refused items action says why in place of the reply (RsItems_SayRefusal, #286): the reply is written
+         * for it having happened. Everything else - the speaker, `next` - is the reply's. */
+        {
+            s32 instead = 0;
+            const char* says = RsInteraction_ActionWords(&instead);
+            if (says != NULL && instead) {
+                reply = says;
+            }
+        }
         /* A GIVE_ITEM or BUY_ITEM whose checks pass promises an item. The promise is all that is kept:
          * the step is set, and a sale's price taken, when Link takes the item after the box closes
          * (RsNpc_Give). */
@@ -367,8 +380,8 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
             /* The item comes before `next`: the reply, then the way out, which hands it over and only
              * then follows the edge (RsNpc_Resume). So the reply opens on the plain direct id, and
              * dismissing it leaves rather than navigating. */
-            if (option->reply != NULL) {
-                RsText_SetDirectCopy(option->reply);
+            if (reply != NULL) {
+                RsText_SetDirectCopy(reply);
                 Message_ContinueTextbox(play, RS_TEXT_DIRECT);
                 RsSpeaker_Hand(play, this->ruleIndex, RsNpc_ReplySpeaker(screen, option), "reply");
             } else {
@@ -376,11 +389,11 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
             }
             return;
         }
-        if (option->reply != NULL) {
+        if (reply != NULL) {
             /* SetDirectCopy, not SetDirect: a reply may carry a `{floor:N}` token
              * (sturdy-bassoon#94), and the moment it does, the string the box reads is COMPOSED
              * rather than the definition's own - so it needs storage that outlives this actor. */
-            RsText_SetDirectCopy(option->reply);
+            RsText_SetDirectCopy(reply);
             /* An option carrying BOTH a reply and a `next` opens the reply on an id that NAMES the
              * pending node, so the destination rides on the open box rather than in a field here
              * (NpcDialogueDef.h). A reply with nowhere to go afterwards keeps the plain id. */

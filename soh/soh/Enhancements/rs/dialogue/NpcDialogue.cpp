@@ -1581,10 +1581,13 @@ extern "C" int32_t RsNpc_RunAction(const RsDialogueOption* option) {
             const int32_t item = RS_ITEMS_GET_ITEM(option->a);
             const int32_t count = RS_ITEMS_GET_COUNT(option->a);
             const int32_t price = RS_ITEMS_GET_PRICE(option->a);
+            // A refusal says why, with vanilla's error sound (RsItems_SayRefusal), in place of the reply.
             if (RsItems_Count(item) >= RsItems_Def(item)->cap) {
+                RsItems_SayRefusal(QUEST_ERR_CANNOT_CARRY, item, count);
                 return QUEST_ERR_CANNOT_CARRY;
             }
             if (Quest_CheckChargeRupees(price) != QUEST_OK) {
+                RsItems_SayRefusal(QUEST_ERR_CANNOT_AFFORD, item, count);
                 return QUEST_ERR_CANNOT_AFFORD;
             }
             Quest_ChargeRupees(price);
@@ -1595,6 +1598,7 @@ extern "C" int32_t RsNpc_RunAction(const RsDialogueOption* option) {
         case RS_DLG_ACTION_SELL_ITEMS: {
             const int32_t item = RS_ITEMS_GET_ITEM(option->a);
             if (RsItems_Take(item, RS_ITEMS_GET_COUNT(option->a), RS_ITEMS_SRC_DIALOGUE) != RS_ITEMS_OK) {
+                RsItems_SayRefusal(QUEST_ERR_NOT_ENOUGH_ITEMS, item, RS_ITEMS_GET_COUNT(option->a));
                 return QUEST_ERR_NOT_ENOUGH_ITEMS;
             }
             if (option->kind == RS_DLG_ACTION_SELL_ITEMS) {
