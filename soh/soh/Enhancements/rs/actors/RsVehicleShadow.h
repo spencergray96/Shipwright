@@ -131,6 +131,9 @@ const RsVehicleDeck* RsVehicleDeck_FromArchive(const char* listPath, const char*
 // The deck made of `count` triangles (model space, each wound so its front faces out: normal = (b - a) x (c - a)),
 // built the first time `key` is asked for: a vehicle drawn from code, as the balloon's placeholder basket is.
 const RsVehicleDeck* RsVehicleDeck_FromTris(const char* key, const f32 (*tris)[3][3], s32 count);
+// How far the list's farthest drawn vertex is from its origin, every copy included (sails and helm too), read from the
+// archive the first time it is asked for and kept; 0 when the archive was not mounted then. A boat's draw cull (#293).
+f32 RsVehicleDeck_ArchiveReach(const char* listPath);
 
 // A vehicle Link's shadow is drawn on, as its own Draw hands it over (last, after the vehicle: its own render state).
 typedef struct RsVehicleShadowSource {

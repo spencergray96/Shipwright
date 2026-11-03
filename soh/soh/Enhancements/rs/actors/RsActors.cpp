@@ -916,7 +916,8 @@ void RegisterRsActors() {
             ACTOR_RS_BOAT,
             ACTORCAT_BG,
             // FRIENDLY: the tiller is targeted like a sign. ATTENTION_ENABLED is set by RsBoat_Update while
-            // the helm is free, not here.
+            // the helm is free, not here. DRAW_CULLING_DISABLED: the draw culls itself, against an exact frustum
+            // (#293, RsBoat_Draw), which the engine's 4:3 culling volume could not hold the boat's sphere in.
             (u32)(ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED | ACTOR_FLAG_FRIENDLY),
             OBJECT_GAMEPLAY_KEEP,
             sizeof(RsBoat),

@@ -22,8 +22,10 @@
 //                   throttle=<x100>
 //                   tiller=<x100> rudder=<x100> helm=0|1 on_water=0|1 surface=<y> blocked=<none|no_water|shallow|wall|headroom>
 //                   blocks=<n> touch=<same names> touches=<n> lift=<x100> floor_low=<x100> link_on=0|1
-//                   helm_dist=<n> cam=0|1 map_arrow=<drawn|controls|no_minimap> wake_rings=<n> wake_held=<n>` line per live
-//                   boat, then `op=list result=ok count=<n> link_x= link_y= link_z= link_yaw= link_floor_bg=<n>
+//                   helm_dist=<n> cam=0|1 map_arrow=<drawn|controls|no_minimap> wake_rings=<n> wake_held=<n>
+//                   facilities=<names, comma-separated|-> facility_polys=<n> owned=0|1 cull=0|1 drawn=0|1 reach=<n>`
+//                   line per live boat, then `op=list result=ok count=<n> link_x= link_y= link_z= link_yaw=
+//                   link_floor_bg=<n>
 //                   link_input_disabled=0|1 link_swimming=0|1 link_can_take_helm=0|1 tiller_in_reach=0|1
 //                   link_focus_boat=0|1 a_label_check=0|1 a_label=<DO_ACTION_*>
 //                   link_ledge=<climb type>/<delay ticks>/<ledge height> link_lin=<x100> drive_ticks=<n>
@@ -43,6 +45,10 @@
 //                   the helm); link_ledge: Player's ledgeClimbType, ledgeClimbDelayTimer and yDistToLedge (a
 //                   wall Link pushes into: what he would climb, how long he has pushed, how high its top is);
 //                   link_lin: his linearVelocity; hud: what the steering label drew on the last frame (RsBoatHud.h);
+//                   facilities: the fitted ones drawn (#288), facility_polys their collision; owned: the player's;
+//                   cull: the draw cull may leave it out (#293, RsBoat_CullApplies: 0 aboard, at the helm, with test
+//                   water up or `cull off`); drawn: it was drawn on the last frame (RsBoat_Drawn: 0 when the cull left
+//                   it out); reach: its cull radius (RsBoat_KindReach);
 //                   map_arrow: what the last minimap draw did with that boat's blue arrow (RsVehicleMinimap.h):
 //                   drawn, or left out because Link holds its helm, or no_minimap when none was drawn;
 //                   wake_rings: wake rings and splashes it has spawned (#268), wake_held: ones held back because the
@@ -130,6 +136,11 @@
 //                   shallow|wall|headroom> points= <reason>:<depth>@<push x>,<push z> ...`, one entry per probe in
 //                   trouble, depth in world units and the push a unit vector x100 on the world axes. Empty
 //                   `points=` is a hull that fits. The first thing to read when a boat stops where it should not
+//   still [on|off]  every boat level at its float height, no bob or rock (#262; a test aid, not saved).
+//                   `op=still result=ok still=on|off`
+//   cull [on|off]   the draw cull (#293): on, the default, a boat nobody is aboard draws only when some part of it
+//                   can be on screen; off, every boat draws every frame wherever it is, as before (an A/B for the
+//                   agent loop, not saved). `op=cull result=ok cull=on|off`; list's cull= and drawn= per boat
 //   shadow [feet|circle|draped|default|reset] | shadow size <5..100> | shadow anchor [auto|hull|link] | shadow trace
 //                   Link's shadow over a boat (#267, saved; RsVehicleShadowMode): his feet shadows, vanilla's flat circle,
 //                   or draped over the drawn deck (the default); its size in percent of his shadow scale (30). reset
@@ -153,8 +164,9 @@
 //
 //   where           where each of the player's boats is (#282), one line a kind, then a summary:
 //                   `boat_where kind= owned=0|1 state=stowed|docked|abandoned|? out=0|1 scene=<SCENE_*|-> in_scene=0|1
-//                   spawned=0|1 x= z= yaw= dock=<idx|-1> dist=<to Link, -1 when not in this scene> stranded=0|1
-//                   refused=0|1 fee=<rupees>`, then `op=where result=ok scene= docks=<n> boats=<live boats>
+//                   spawned=0|1 drawn=0|1 x= z= yaw= dock=<idx|-1> dist=<to Link, -1 when not in this scene>
+//                   stranded=0|1 refused=0|1 fee=<rupees>` (drawn: its boat was drawn on the last frame, 0 culled or
+//                   not spawned; #293), then `op=where result=ok scene= docks=<n> boats=<live boats>
 //                   dyna_polys=<used>/<pool> dyna_vtx=<used>/<pool> rupees=`. Works with no scene (the store only)
 //   docks           the piers in this scene, earliest-spawned first: `dock idx= interaction= x= y= z= facing=
 //                   radius= skiff_mooring_x= skiff_mooring_z= mooring_yaw= docked=<kinds, as raft+sloop|none>`, then `op=docks
@@ -172,7 +184,7 @@
 //
 // Refusals, each with rc 1:
 //   op=boat result=error error=no_scene      no play state (title screen, file select); lakehylia, cam,
-//                                            hud, kind, tune, wake, still and shadow still work
+//                                            hud, kind, tune, wake, still, cull and shadow still work
 //   op=cam result=error error=bad_value height=..  dist=.. ease=..
 //                                            a knob not named, or a value outside its range
 //   op=tune result=error error=bad_value fwd=<min>..<max> ...

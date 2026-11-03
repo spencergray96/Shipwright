@@ -333,6 +333,26 @@ extern "C" const RsVehicleDeck* RsVehicleDeck_FromArchive(const char* listPath, 
     return found->second != nullptr ? &found->second->deck : nullptr;
 }
 
+extern "C" f32 RsVehicleDeck_ArchiveReach(const char* listPath) {
+    // By list path, once each, like the decks: read the first time it is asked for, and kept, so an archive mounted
+    // after that is not seen (0 stays 0).
+    static std::map<std::string, f32> sReach;
+    auto found = sReach.find(listPath);
+    if (found == sReach.end()) {
+        double reach = 0.0;
+        auto archives = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
+        if (archives->HasFile(listPath)) {
+            for (const DeckTri& tri : ArchiveTris(listPath, nullptr)) {
+                for (const double* v : { tri.a, tri.b, tri.c }) {
+                    reach = std::max(reach, std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]));
+                }
+            }
+        }
+        found = sReach.emplace(listPath, (f32)reach).first;
+    }
+    return found->second;
+}
+
 extern "C" const RsVehicleDeck* RsVehicleDeck_FromTris(const char* key, const f32 (*tris)[3][3], s32 count) {
     auto found = sDecks.find(key);
     if (found == sDecks.end()) {

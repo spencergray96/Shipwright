@@ -640,7 +640,7 @@
  *                                          two picks' self-test and the recorder's planted refusal.
  *                                          RsAnimPropConsole.h documents every line
  *   agenttest boat list|spawn [<x> <z> [<yaw>]]|probe <x> <z>|water <x0> <z0> <x1> <z1> <y>|water clear|board [<idx>]|helm on|off [<idx>]|drive <t> <turn> <ticks>|
- *                  lakehylia [on|off]|lakelevel [full|drained]|cam [..]|hud [on|off]|clear|
+ *                  lakehylia [on|off]|lakelevel [full|drained]|cam [..]|hud [on|off]|cull [on|off]|clear|
  *                  fitout [..]|upgrades|build <u>|grant <u>|look <kind> [..]|own <kind> 0|1|fit <kind> <slot> <tier>|
  *                  where|docks|stow <kind>|all|place <kind> <x> <z> [<yaw>]|takeout|putaway|fetch <kind> [<dock>]
  *                                          the sailing prototype's boats (sturdy-bassoon#256): where each is,
@@ -3304,7 +3304,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "warps list|dump|where|status|badcheck | "
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
               "boat list|spawn [<x> <z> [<yaw>]]|probe <x> <z>|water <x0> <z0> <x1> <z1> <y>|water clear|board [<idx>]|helm on|off [<idx>]|drive <t> <turn> <ticks>|"
-              "lakehylia [on|off]|lakelevel [full|drained]|cam [..]|hud [on|off]|clear | "
+              "lakehylia [on|off]|lakelevel [full|drained]|cam [..]|hud [on|off]|cull [on|off]|clear | "
               "balloon list|spawn [<x> <z> [<yaw> [<height>]]]|board [<idx>]|controls on|off [<idx>]|"
               "drive <t> <turn> <lift> <ticks>|tune [..]|cam [..]|abandon [..]|field [on|off]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
@@ -3488,7 +3488,7 @@ void RegisterAgentTest() {
               "warps list|dump|where|status|badcheck | "
               "interaction status|list|describe <id>|badcheck|spawn <id> <n> [dist] [cols] [spacing]|clear | "
               "boat list|spawn [<x> <z> [<yaw>]]|probe <x> <z>|water <x0> <z0> <x1> <z1> <y>|water clear|board [<idx>]|helm on|off [<idx>]|drive <t> <turn> <ticks>|"
-              "lakehylia [on|off]|lakelevel [full|drained]|cam [..]|hud [on|off]|clear | "
+              "lakehylia [on|off]|lakelevel [full|drained]|cam [..]|hud [on|off]|cull [on|off]|clear | "
               "balloon list|spawn [<x> <z> [<yaw> [<height>]]]|board [<idx>]|controls on|off [<idx>]|"
               "drive <t> <turn> <lift> <ticks>|tune [..]|cam [..]|abandon [..]|field [on|off]|clear | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
