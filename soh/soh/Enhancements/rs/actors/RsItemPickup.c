@@ -289,7 +289,11 @@ static void RsItemPickup_Wait(RsItemPickup* this, PlayState* play) {
     if (this->onceFlag >= 0) {
         Flags_SetWorldFlag(this->onceFlag);
     }
-    Audio_PlayActorSound2(&this->actor, NA_SE_SY_GET_ITEM);
+    // Vanilla's collected drop exactly (EnItem00_Update): a SYSTEM sound at the default position, not an actor sound.
+    // An actor sound is placed at the pickup and tied to it, and this actor dies on this frame, so the first cut's
+    // NA_SE_SY_GET_ITEM came out quieter and clipped (the owner, 2026-11-03).
+    Audio_PlaySoundGeneral(NA_SE_SY_GET_ITEM, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
+                           &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
     Actor_Kill(&this->actor);
 }
 
