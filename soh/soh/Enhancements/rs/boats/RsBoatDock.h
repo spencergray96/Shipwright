@@ -21,10 +21,11 @@
 // count, so a boat beside it reads abandoned until its room loads (the docks' test map is one room).
 //
 // OVERLAPPING DOCKS are allowed and never refused. A boat inside several belongs to the one whose mooring is nearest,
-// the earliest-spawned pier on a tie. Taking a boat out stows the boats that belong to that pier, and any other of the
-// player's lying on the mooring (one that belongs to a neighbouring pier); only a boat that is not the player's blocks
-// it (`mooring_blocked`, nothing changes), so two hulls are never spawned inside each other. A boat already inside
-// this pier's ring is not taken out or fetched again: `already_here`, though it may belong to a neighbour.
+// the earliest-spawned pier on a tie. Taking a boat out stows any other of the player's boats lying on the mooring,
+// whichever pier it belongs to, and nothing else: one of theirs elsewhere in the pier's water stays where it is, so a
+// pier can have several docked. Only a boat that is not the player's blocks the mooring (`mooring_blocked`, nothing
+// changes), so two hulls are never spawned inside each other. A boat already inside this pier's ring is not taken out
+// or fetched again: `already_here`, though it may belong to a neighbour.
 //
 // SPAWNS ARE GUARDED against the DynaPoly pools: a boat whose most collision would not fit is not spawned, with a
 // `rs_boat event=refused reason=dyna_pool` marker, and stays where the save has it. Boats already up count at their

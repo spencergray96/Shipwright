@@ -157,7 +157,7 @@
 //                   refused=0|1 fee=<rupees>`, then `op=where result=ok scene= docks=<n> boats=<live boats>
 //                   dyna_polys=<used>/<pool> dyna_vtx=<used>/<pool> rupees=`. Works with no scene (the store only)
 //   docks           the piers in this scene, earliest-spawned first: `dock idx= interaction= x= y= z= facing=
-//                   radius= skiff_mooring_x= skiff_mooring_z= mooring_yaw= moored=<kind|none>`, then `op=docks
+//                   radius= skiff_mooring_x= skiff_mooring_z= mooring_yaw= docked=<kinds, as raft+sloop|none>`, then `op=docks
 //                   result=ok count=`
 //   stow <kind>|all a test aid, no rules: the kind back to stowed wherever it is. `op=stow result=ok stowed=<n>`
 //   takeout|putaway|fetch <kind> [<dock>]

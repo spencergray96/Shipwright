@@ -409,8 +409,9 @@ void MarkOp(int32_t op, int32_t kind, int32_t result, int32_t dock, int32_t fee)
     RsAgent_Marker(line);
 }
 
-// Takes the kind to the pier's mooring, stowing the boats that belong to this pier and any other of the player's on
-// the mooring: only a boat that is not the player's blocks it. Everything is checked before anything changes.
+// Takes the kind to the pier's mooring, stowing any other of the player's boats lying on it (the owner, 2026-11-02:
+// only what is physically in the way, wherever it belongs; one of theirs elsewhere in the pier's water stays). Only a
+// boat that is not the player's blocks it. Everything is checked before anything changes.
 int32_t PlaceAtPier(int32_t kind, const std::vector<Dock>& docks, int32_t dock, int32_t fee) {
     float mx;
     float mz;
@@ -422,16 +423,10 @@ int32_t PlaceAtPier(int32_t kind, const std::vector<Dock>& docks, int32_t dock, 
     }
 
     RsBoat* own = OwnedBoat(kind);
+    // What is on the mooring: within the two hulls' half lengths of it. The kind's own boat is moved, not in the way.
     std::vector<RsBoat*> stowing;
-    for (int32_t k = 0; k < RS_BOAT_KIND_COUNT; k++) {
-        if (k != kind && MooredDock(docks, k) == dock) {
-            stowing.push_back(OwnedBoat(k));
-        }
-    }
-    // Anything else on the mooring: within the two hulls' half lengths of it. One of the player's that belongs to a
-    // neighbouring pier (overlapping docks) is put away too, as the owner asked (2026-11-02); anything else blocks.
     for (RsBoat* other : LiveBoats()) {
-        if (other == own || std::find(stowing.begin(), stowing.end(), other) != stowing.end()) {
+        if (other == own) {
             continue;
         }
         const Actor* a = &other->dyna.actor;
@@ -791,11 +786,15 @@ int32_t DocksList(std::vector<std::string>& lines) {
     const std::vector<Dock> docks = Docks();
     for (int32_t i = 0; i < (int32_t)docks.size(); i++) {
         const Actor* pier = docks[i].pier;
-        std::string moored = "none";
+        // Every one of the player's boats docked here: one on the mooring, any others elsewhere in its water.
+        std::string docked;
         for (int32_t kind = 0; kind < RS_BOAT_KIND_COUNT; kind++) {
             if (MooredDock(docks, kind) == i) {
-                moored = RsBoat_KindName(kind);
+                docked += (docked.empty() ? "" : "+") + std::string(RsBoat_KindName(kind));
             }
+        }
+        if (docked.empty()) {
+            docked = "none";
         }
         float mx;
         float mz;
@@ -803,10 +802,10 @@ int32_t DocksList(std::vector<std::string>& lines) {
         Mooring(pier, docks[i].def, RS_BOAT_KIND_SKIFF, &mx, &mz, &myaw);
         Addf(lines,
              "dock idx=%d interaction=%d x=%d y=%d z=%d facing=%d radius=%d skiff_mooring_x=%d skiff_mooring_z=%d "
-             "mooring_yaw=%d moored=%s",
+             "mooring_yaw=%d docked=%s",
              (int)i, (int)docks[i].def->interaction, (int)lroundf(pier->world.pos.x), (int)lroundf(pier->world.pos.y),
              (int)lroundf(pier->world.pos.z), (int)(u16)pier->home.rot.y, (int)lroundf(docks[i].def->radius),
-             (int)lroundf(mx), (int)lroundf(mz), (int)(u16)myaw, moored.c_str());
+             (int)lroundf(mx), (int)lroundf(mz), (int)(u16)myaw, docked.c_str());
     }
     Addf(lines, "op=docks result=ok count=%d", (int)docks.size());
     return 0;
