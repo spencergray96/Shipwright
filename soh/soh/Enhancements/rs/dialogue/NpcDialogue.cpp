@@ -12,6 +12,7 @@
 #include "soh/Enhancements/rs/actors/RsActors.h" // RsText_ChoiceWouldPaginate - the renderer answers
 #include "soh/Enhancements/rs/boats/RsBoatFit.h"
 #include "soh/Enhancements/rs/boats/RsBoatSail.h"
+#include "soh/Enhancements/rs/items/RsItems.h"
 #include "soh/Enhancements/rs/prefs/FloorText.h"
 #include "soh/Enhancements/rs/quest/Quest.h"
 #include "soh/Enhancements/rs/quest/QuestDef.h"
@@ -167,6 +168,11 @@ bool CheckPredicate(char* buf, size_t len, const char* where, const QuestPredica
         case QUEST_PRED_RUPEES_AT_LEAST:
             if (p.a < 0 || p.a > QUEST_RUPEE_AMOUNT_MAX) {
                 return Problem(buf, len, "%s: RupeesAtLeast amount %d out of range", where, p.a);
+            }
+            break;
+        case QUEST_PRED_ITEM_COUNT_AT_LEAST:
+            if (!RsItems_PredicateOperandsValid(p.a, p.b)) {
+                return Problem(buf, len, "%s: ItemCountAtLeast item %d count %d out of range", where, p.a, p.b);
             }
             break;
         default:
@@ -568,6 +574,38 @@ bool CheckOption(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& re
             // Zero is refused: an option that charges nothing is a NONE that reports a price.
             if (option.a <= 0 || option.a > QUEST_RUPEE_AMOUNT_MAX) {
                 return Problem(buf, len, "%s[%d].opt[%d]: charge_rupees price %d is outside 1..32767", word,
+                               screenIndex, index, option.a);
+            }
+            break;
+        case RS_DLG_ACTION_GIVE_ITEMS:
+        case RS_DLG_ACTION_BUY_ITEMS:
+        case RS_DLG_ACTION_TAKE_ITEMS:
+        case RS_DLG_ACTION_SELL_ITEMS: {
+            const char* name = RsNpc_ActionName(option.kind);
+            if (!RsItems_PackedValid(option.a & 0xFFFF)) {
+                return Problem(buf, len, "%s[%d].opt[%d]: %s names no item, or a count outside 1..its cap", word,
+                               screenIndex, index, name);
+            }
+            const bool priced = option.kind == RS_DLG_ACTION_BUY_ITEMS || option.kind == RS_DLG_ACTION_SELL_ITEMS;
+            if (priced && RS_ITEMS_GET_PRICE(option.a) <= 0) {
+                return Problem(buf, len, "%s[%d].opt[%d]: %s price %d is outside 1..32767", word, screenIndex, index,
+                               name, RS_ITEMS_GET_PRICE(option.a));
+            }
+            // An unpriced one carries nothing above the count: a price there would read as a promise never kept.
+            if (!priced && (option.a >> 16) != 0) {
+                return Problem(buf, len, "%s[%d].opt[%d]: %s carries a price; use the buy or sell action", word,
+                               screenIndex, index, name);
+            }
+            break;
+        }
+        case RS_DLG_ACTION_GIVE_KEY_ITEM:
+            if (RsKeyItems_Def(option.a) == nullptr) {
+                return Problem(buf, len, "%s[%d].opt[%d]: key item %d does not exist", word, screenIndex, index,
+                               option.a);
+            }
+            // The world-flag rule: a key item is a flag, and a debug NPC must not set a production one.
+            if ((RsKeyItems_IsDebug(option.a) != 0) != (def->tier == QUEST_TIER_DEBUG)) {
+                return Problem(buf, len, "%s[%d].opt[%d]: key item %d is in the other tier's band", word,
                                screenIndex, index, option.a);
             }
             break;
@@ -1299,6 +1337,16 @@ extern "C" const char* RsNpc_ActionName(int32_t kind) {
             return "buy_item";
         case RS_DLG_ACTION_BOAT_SAIL:
             return "boat_sail";
+        case RS_DLG_ACTION_GIVE_ITEMS:
+            return "give_items";
+        case RS_DLG_ACTION_BUY_ITEMS:
+            return "buy_items";
+        case RS_DLG_ACTION_TAKE_ITEMS:
+            return "take_items";
+        case RS_DLG_ACTION_SELL_ITEMS:
+            return "sell_items";
+        case RS_DLG_ACTION_GIVE_KEY_ITEM:
+            return "give_key_item";
         default:
             return "?";
     }
@@ -1503,6 +1551,38 @@ extern "C" int32_t RsNpc_RunAction(const RsDialogueOption* option) {
             return RsBoatSail_DialogueAction(RS_DLG_SAIL_SAIL(option->a), RS_DLG_SAIL_OP(option->a))
                        ? QUEST_OK
                        : QUEST_ERR_PREREQ_UNMET;
+        case RS_DLG_ACTION_GIVE_ITEMS:
+        case RS_DLG_ACTION_BUY_ITEMS: {
+            // Both halves checked before either is written, as a quest-item sale is (RsNpc_SetGivenStep).
+            const int32_t item = RS_ITEMS_GET_ITEM(option->a);
+            const int32_t count = RS_ITEMS_GET_COUNT(option->a);
+            const int32_t price = option->kind == RS_DLG_ACTION_BUY_ITEMS ? RS_ITEMS_GET_PRICE(option->a) : 0;
+            if (RsItems_CheckGain(item, count) != RS_ITEMS_OK) {
+                return QUEST_ERR_CANNOT_CARRY;
+            }
+            if (price > 0 && Quest_CheckChargeRupees(price) != QUEST_OK) {
+                return QUEST_ERR_CANNOT_AFFORD;
+            }
+            if (price > 0) {
+                Quest_ChargeRupees(price);
+            }
+            RsItems_Gain(item, count, 1, RS_ITEMS_SRC_DIALOGUE);
+            return QUEST_OK;
+        }
+        case RS_DLG_ACTION_TAKE_ITEMS:
+        case RS_DLG_ACTION_SELL_ITEMS: {
+            const int32_t item = RS_ITEMS_GET_ITEM(option->a);
+            if (RsItems_Take(item, RS_ITEMS_GET_COUNT(option->a), RS_ITEMS_SRC_DIALOGUE) != RS_ITEMS_OK) {
+                return QUEST_ERR_NOT_ENOUGH_ITEMS;
+            }
+            if (option->kind == RS_DLG_ACTION_SELL_ITEMS) {
+                Quest_PayRupees(RS_ITEMS_GET_PRICE(option->a));
+            }
+            return QUEST_OK;
+        }
+        case RS_DLG_ACTION_GIVE_KEY_ITEM:
+            return RsKeyItems_Grant(option->a, 1, RS_ITEMS_SRC_DIALOGUE) == RS_ITEMS_OK ? QUEST_OK
+                                                                                         : QUEST_ERR_ALREADY_HELD;
         default:
             return QUEST_ERR_BAD_DEF;
     }

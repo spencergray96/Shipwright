@@ -10,6 +10,7 @@
 #include "QuestJournal.h"
 #include "WorldFlagIds.h"
 #include "soh/Enhancements/rs/boats/RsBoatFit.h"
+#include "soh/Enhancements/rs/items/RsItems.h"
 #include "soh/Enhancements/rs/prefs/FloorText.h"
 #include "soh/Enhancements/worldstate/WorldFlags.h"
 
@@ -173,6 +174,12 @@ static bool CheckPredicate(char* buf, size_t len, const char* what, int32_t inde
         case QUEST_PRED_RUPEES_AT_LEAST:
             if (p.a < 0 || p.a > QUEST_RUPEE_AMOUNT_MAX) {
                 return Problem(buf, len, "%s[%d]: RupeesAtLeast amount %d out of range", what, index, p.a);
+            }
+            break;
+        case QUEST_PRED_ITEM_COUNT_AT_LEAST:
+            if (!RsItems_PredicateOperandsValid(p.a, p.b)) {
+                return Problem(buf, len, "%s[%d]: ItemCountAtLeast item %d count %d out of range", what, index, p.a,
+                               p.b);
             }
             break;
         default:
@@ -351,6 +358,21 @@ static bool ValidateDef(const QuestDef* def, char* buf, size_t len) {
             case QUEST_REWARD_BOAT_UPGRADE:
                 if (RsBoatFit_Upgrade(r.a) == nullptr) {
                     return Problem(buf, len, "reward[%d]: boat upgrade %d does not exist", i, r.a);
+                }
+                break;
+            case QUEST_REWARD_ITEMS:
+                if (!RsItems_PackedValid(r.a)) {
+                    return Problem(buf, len, "reward[%d]: items %d name no item, or a count outside 1..its cap", i,
+                                   r.a);
+                }
+                break;
+            case QUEST_REWARD_KEY_ITEM:
+                if (RsKeyItems_Def(r.a) == nullptr) {
+                    return Problem(buf, len, "reward[%d]: key item %d does not exist", i, r.a);
+                }
+                // The world-flag reward's rule, for its reason: `quest debugwipe` clears only the debug band.
+                if ((RsKeyItems_IsDebug(r.a) != 0) != (def->tier == QUEST_TIER_DEBUG)) {
+                    return Problem(buf, len, "reward[%d]: key item %d is in the other tier's band", i, r.a);
                 }
                 break;
             default:
@@ -698,6 +720,20 @@ static void DispatchReward(const QuestDef* def, const QuestReward& reward, int32
             }
             break;
         }
+        case QUEST_REWARD_ITEMS: {
+            const int32_t item = RS_ITEMS_GET_ITEM(reward.a);
+            const int32_t added = RsItems_GainClamped(item, RS_ITEMS_GET_COUNT(reward.a), 1, RS_ITEMS_SRC_REWARD);
+            SPDLOG_INFO("Quest: {} ({}) reward[{}] {} x{} ({} added)", def->id, def->name, index,
+                        RsItems_Def(item)->token, RS_ITEMS_GET_COUNT(reward.a), added);
+            break;
+        }
+        case QUEST_REWARD_KEY_ITEM: {
+            // Already held is not a failure: a key item is never lost, and the reward's point is that Link has it.
+            const int32_t result = RsKeyItems_Grant(reward.a, 1, RS_ITEMS_SRC_REWARD);
+            SPDLOG_INFO("Quest: {} ({}) reward[{}] key item {} -> {}", def->id, def->name, index,
+                        RsKeyItems_Def(reward.a)->token, RsItems_ResultName(result));
+            break;
+        }
         default:
             // Unreachable after ValidateDef; kept loud rather than silently skipped.
             SPDLOG_ERROR("Quest: {} ({}) reward[{}] has unknown kind {}", def->id, def->name, index,
@@ -865,6 +901,12 @@ extern "C" const char* Quest_ResultName(int32_t result) {
             return "duplicate";
         case QUEST_ERR_CANNOT_AFFORD:
             return "cannot_afford";
+        case QUEST_ERR_CANNOT_CARRY:
+            return "cannot_carry";
+        case QUEST_ERR_NOT_ENOUGH_ITEMS:
+            return "not_enough_items";
+        case QUEST_ERR_ALREADY_HELD:
+            return "already_held";
         default:
             return "<bad result>";
     }
@@ -929,6 +971,14 @@ extern "C" int32_t Quest_ChargeRupees(int32_t amount) {
     return QUEST_OK;
 }
 
+extern "C" int32_t Quest_PayRupees(int32_t amount) {
+    if (amount <= 0 || amount > QUEST_RUPEE_AMOUNT_MAX) {
+        return QUEST_ERR_BAD_DEF;
+    }
+    Rupees_ChangeBy(static_cast<s16>(amount));
+    return QUEST_OK;
+}
+
 // The title as a player reads it in a textbox. Its markup spans are dropped rather than coloured: a
 // notice is a system line, and the journal is where emphasis lives. '&' and '^' are line and box
 // breaks in a textbox and plain text in the journal, so a title carrying one is read as a space here
@@ -967,6 +1017,10 @@ extern "C" const char* Quest_RewardKindName(int32_t kind) {
             return "rupees";
         case QUEST_REWARD_BOAT_UPGRADE:
             return "boat_upgrade";
+        case QUEST_REWARD_ITEMS:
+            return "items";
+        case QUEST_REWARD_KEY_ITEM:
+            return "key_item";
         default:
             return "<bad kind>";
     }

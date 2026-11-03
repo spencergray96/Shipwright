@@ -8,6 +8,7 @@
 #include "RsAnimProp.h"
 #include "RsBoat.h"
 #include "RsBalloon.h"
+#include "RsItemPickup.h"
 
 #include <array>
 #include <cstdio>
@@ -21,6 +22,7 @@
 #include "soh/Enhancements/rs/dialogue/NpcDialogueDef.h"
 #include "soh/Enhancements/rs/dialogue/NpcIds.h"
 #include "soh/Enhancements/rs/interactions/Interaction.h"
+#include "soh/Enhancements/rs/items/RsItems.h"
 #include "soh/Enhancements/rs/prefs/FloorText.h"
 #include "soh/Enhancements/rs/prefs/RsPrefs.h"
 #include "soh/Enhancements/rs/quest/Quest.h"
@@ -627,6 +629,22 @@ void RsText_OnOpenText(uint16_t* textId, bool* loadFromMessageTable) {
         return;
     }
 
+    // The inventory's lines (#286): a key item's get-item box, opened by Player from the entry after whatever offered
+    // it has gone (the quest item's reason for an id band), and a pickup's refusal for want of room.
+    if (RS_TEXT_IS_KEY_ITEM(id) || RS_TEXT_IS_ITEM_FULL(id)) {
+        std::string text = "<no such item>";
+        if (const RsKeyItemDef* key = RS_TEXT_IS_KEY_ITEM(id) ? RsKeyItems_Def(RS_TEXT_KEY_ITEM_GET(id)) : nullptr) {
+            text = key->pickupText != nullptr ? key->pickupText : std::string("You got a ") + key->name + "!";
+        } else if (const RsItemDef* item =
+                       RS_TEXT_IS_ITEM_FULL(id) ? RsItems_Def(RS_TEXT_ITEM_FULL_GET(id)) : nullptr) {
+            text = std::string("You can't carry any more&") + item->plural + ".";
+        }
+        CustomMessage msg = BuildPlainMessage(text.c_str());
+        msg.LoadIntoFont();
+        *loadFromMessageTable = false;
+        return;
+    }
+
     // A journal notice (#281): the id carries the quest and the kind, so the box is composed from the
     // definition with no slot and no speaker - either speaker opens the same id.
     if (RS_TEXT_IS_NOTICE(id)) {
@@ -936,6 +954,25 @@ void RegisterRsActors() {
         };
         ActorDB::Instance->AddEntry(balloon);
 
+        // The inventory's actor (sturdy-bassoon#286): a counted or key-item pickup, or the icon over Link's head
+        // when a count goes up (RsItemPickup.h). ACTORCAT_PROP, the quest item's, so it keeps updating under a
+        // textbox - a float spawned by a dialogue gain bounces while the reply shows.
+        ActorDBInit pickup = {
+            "Rs_ItemPickup",
+            "RS inventory item (counted or key; a pickup, or the float over Link's head)",
+            ACTOR_RS_ITEM_PICKUP,
+            ACTORCAT_PROP,
+            (u32)(ACTOR_FLAG_UPDATE_CULLING_DISABLED),
+            OBJECT_GAMEPLAY_KEEP,
+            sizeof(RsItemPickup),
+            (ActorFunc)RsItemPickup_Init,
+            (ActorFunc)RsItemPickup_Destroy,
+            (ActorFunc)RsItemPickup_Update,
+            (ActorFunc)RsItemPickup_Draw,
+            nullptr,
+        };
+        ActorDB::Instance->AddEntry(pickup);
+
         sAddedToActorDB = true;
     }
 
@@ -945,6 +982,7 @@ void RegisterRsActors() {
     COND_HOOK(OnOpenText, true, RsText_OnOpenText);
     COND_HOOK(OnPlayDrawBegin, true, RsText_ApplyScroll);
     COND_ID_HOOK(ShouldActorInit, ACTOR_RS_QUEST_ITEM, true, RsQuestItem_ShouldInit);
+    COND_ID_HOOK(ShouldActorInit, ACTOR_RS_ITEM_PICKUP, true, RsItemPickup_ShouldInit);
 }
 
 RegisterShipInitFunc rsActorsInitFunc(RegisterRsActors);

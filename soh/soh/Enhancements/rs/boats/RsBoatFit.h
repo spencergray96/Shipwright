@@ -141,11 +141,11 @@ typedef struct RsBoatUpgradeFit {
     int32_t tier; // the tier it fits (unused for RS_BOAT_FIT_OWN)
 } RsBoatUpgradeFit;
 
-// What an upgrade costs. Rupees only, until an inventory exists: counted items (planks, logs, nails, like bombs or
-// arrows) arrive as an appended kind whose `a` names the item. Key items are not costs - they are never spent -
-// but requirements (a world flag).
+// What an upgrade costs: rupees, or counted items (planks, logs, nails; sturdy-bassoon#286, items/RsItems.h). Key
+// items are not costs - they are never spent - but requirements (a world flag: WorldFlagSet).
 typedef enum RsBoatCostKind {
     RS_BOAT_COST_RUPEES, // amount = rupees; a unused
+    RS_BOAT_COST_ITEMS,  // a = RsItemId, amount = how many; taken from what Link carries
     RS_BOAT_COST_KIND_COUNT,
 } RsBoatCostKind;
 

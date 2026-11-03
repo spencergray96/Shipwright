@@ -11,6 +11,7 @@
 #include "soh/Enhancements/rs/actors/RsActorParams.h"
 #include "soh/Enhancements/rs/actors/RsActors.h" // CVAR_RS_SCROLL_ARROW_ANIM
 #include "soh/Enhancements/rs/actors/RsSpeaker.h"
+#include "soh/Enhancements/rs/items/RsItems.h"
 #include "soh/Enhancements/rs/quest/Quest.h"
 #include "soh/Enhancements/rs/quest/QuestDef.h"
 #include "soh/Enhancements/rs/quest/QuestPredicate.h"
@@ -94,6 +95,21 @@ std::string OptionLine(const char* prefix, int32_t screenIndex, int32_t optionIn
     }
     if (option.kind == RS_DLG_ACTION_BUY_ITEM) {
         line += " price=" + std::to_string(RsNpc_OptionPrice(&option));
+    }
+    // The inventory's actions (#286): what moves, and for a purchase or a sale its price, so the dump prints what
+    // the packed operand says.
+    if (option.kind == RS_DLG_ACTION_GIVE_ITEMS || option.kind == RS_DLG_ACTION_BUY_ITEMS ||
+        option.kind == RS_DLG_ACTION_TAKE_ITEMS || option.kind == RS_DLG_ACTION_SELL_ITEMS) {
+        const RsItemDef* def = RsItems_Def(RS_ITEMS_GET_ITEM(option.a));
+        line += std::string(" items=") + (def != nullptr ? def->token : "?") + "x" +
+                std::to_string(RS_ITEMS_GET_COUNT(option.a));
+        if (option.kind == RS_DLG_ACTION_BUY_ITEMS || option.kind == RS_DLG_ACTION_SELL_ITEMS) {
+            line += " price=" + std::to_string(RS_ITEMS_GET_PRICE(option.a));
+        }
+    }
+    if (option.kind == RS_DLG_ACTION_GIVE_KEY_ITEM) {
+        const RsKeyItemDef* def = RsKeyItems_Def(option.a);
+        line += std::string(" key_item=") + (def != nullptr ? def->token : "?");
     }
     line += " notice=" + std::to_string(option.notice);
     line += " reply_speaker=" + (option.replySpeaker == RS_DLG_SPEAKER_DEFAULT

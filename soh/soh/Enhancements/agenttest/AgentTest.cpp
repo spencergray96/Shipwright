@@ -329,6 +329,16 @@
  *   rs_balloon <line>                    one line of RsBalloonConsole_Run output per marker, from
  *                                        `agenttest balloon ...` - `balloon idx=...` or `op=...`, never
  *                                        `event=...`
+ *   rs_items event=<gain|take|key|ceremony> item= count= total= result= source=
+ *                                        the inventory (sturdy-bassoon#286): a counted item gained or taken,
+ *                                        a key item granted, a key item's get-item ceremony played. Gameplay
+ *                                        markers, from any source (console, reward, dialogue, pickup, boat)
+ *   rs_pickup event=<collect|float> item= key= count= once_flag= result=   (suppressed: item=<index> key= flag=)
+ *                                        the inventory's actor: a pickup collected (or refused, result=full),
+ *                                        a float over Link's head, a held key item or taken once-only pickup
+ *                                        not built at scene load
+ *   rs_items <line>                      one line of RsItemsConsole_Run output per marker, from
+ *                                        `agenttest items ...` - `item token=...`, `key token=...` or `op=...`
  *   rs_fire <line>                       one line of RsFireConsole_Run output per marker, from
  *                                        `agenttest rsfire ...` - `fire idx=...` or `op=...`, never
  *                                        `event=...`
@@ -653,6 +663,11 @@
  *                                          height, climb rate, speed and why it last stopped; put one down,
  *                                          stand Link at its controls, fly it without the pad.
  *                                          RsBalloonConsole.h documents every line
+ *   agenttest items list|give <item> [n]|take <item> [n]|set <item> <n>|reset|float <item> [n]|
+ *                  spawn <item> [n] [once <flag>]|hud [on|off]
+ *                                          the inventory (sturdy-bassoon#286): every counted item's count and
+ *                                          key item's flag; give, take and set them; a pickup or the float over
+ *                                          Link's head on demand. RsItemsConsole.h documents every line
  *   agenttest rsfire list|pool|distance [<n>|default]|glow [on|off|default]
  *                                          the RS torch fires (sturdy-bassoon#232): where each is, its size,
  *                                          lit and by what, its world flag, whether it holds a light node,
@@ -759,6 +774,7 @@
 #include "soh/Enhancements/rs/prefs/RegionConsole.h"
 #include "soh/Enhancements/rs/actors/RsBoatConsole.h"
 #include "soh/Enhancements/rs/actors/RsBalloonConsole.h"
+#include "soh/Enhancements/rs/items/RsItemsConsole.h"
 #include "soh/Enhancements/rs/actors/RsFireConsole.h"
 #include "soh/Enhancements/rs/ambience/RsAmbience.h"
 #include "soh/Enhancements/rs/actors/RsAnimPropConsole.h"
@@ -3191,6 +3207,12 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(RsBoatConsole_Run, sub, "rs_boat ", output, WriteMarker);
     }
+    // The inventory (sturdy-bassoon#286). Same prefix as its own event markers, the boats' arrangement:
+    // `rs_items item token=...` is an answer, `rs_items event=...` a gain or a take reporting.
+    if (args.size() >= 3 && args[1] == "items") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(RsItemsConsole_Run, sub, "rs_items ", output, WriteMarker);
+    }
     // The balloon prototype (sturdy-bassoon#274), the boats' arrangement: `rs_balloon balloon idx=...` is an
     // answer, `rs_balloon event=...` a balloon reporting.
     if (args.size() >= 3 && args[1] == "balloon") {
@@ -3304,6 +3326,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "lakehylia [on|off]|lakelevel [full|drained]|cam [..]|hud [on|off]|clear | "
               "balloon list|spawn [<x> <z> [<yaw> [<height>]]]|board [<idx>]|controls on|off [<idx>]|"
               "drive <t> <turn> <lift> <ticks>|tune [..]|cam [..]|abandon [..]|field [on|off]|clear | "
+              "items list|give <item> [n]|take <item> [n]|set <item> <n>|reset|float <item> [n]|"
+              "spawn <item> [n] [once <flag>]|hud [on|off] | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
               "rsambience [status]|on|off|max [<n>|default]|radius|gain <emitter|all> [<v>|default] | "
               "animprop status|list|pose <k|rest|clock>|reset|pick <tick|frame|default>|trace [<idx> <frames>]|"
@@ -3423,6 +3447,7 @@ warps =warps             the warps command's options
 interaction =interaction  the interaction command's options
 boat =boat               the boat command's options
 balloon =balloon         the balloon command's options
+items =items             the items command's options
 rsfire =rsfire           the rsfire command's options
 rsambience =rsambience   the rsambience command's options
 animprop =animprop       the animprop command's options
@@ -3488,6 +3513,8 @@ void RegisterAgentTest() {
               "lakehylia [on|off]|lakelevel [full|drained]|cam [..]|hud [on|off]|clear | "
               "balloon list|spawn [<x> <z> [<yaw> [<height>]]]|board [<idx>]|controls on|off [<idx>]|"
               "drive <t> <turn> <lift> <ticks>|tune [..]|cam [..]|abandon [..]|field [on|off]|clear | "
+              "items list|give <item> [n]|take <item> [n]|set <item> <n>|reset|float <item> [n]|"
+              "spawn <item> [n] [once <flag>]|hud [on|off] | "
               "rsfire list|pool|distance [<n>|default]|glow [on|off|default] | "
               "rsambience [status]|on|off|max [<n>|default]|radius|gain <emitter|all> [<v>|default] | "
               "animprop status|list|pose <k|rest|clock>|reset|pick <tick|frame|default>|trace [<idx> <frames>]|"
