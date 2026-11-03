@@ -71,13 +71,14 @@ typedef enum RsDialogueActionKind {
     // THE INVENTORY (sturdy-bassoon#286, items/RsItems.h). Counted items change hands AT THE PICK, unlike a quest
     // item's hand-over: there is nothing to accept, so the count moves, the icon bounces over Link's head while the
     // reply shows, and an NPC and a prop may both offer them. A GIFT is never refused: past the cap it fills to it
-    // and the rest is lost, as a pickup does. A purchase, a take and a sale are all or nothing, refused with nothing
-    // moved.
+    // and the rest is lost, as a pickup does. A PURCHASE is refused only when Link is already full (vanilla's shop);
+    // short of that it fills to the cap at the full price. A take and a sale are all or nothing, refused with
+    // nothing moved.
     // Never hide one because Link is short: give it the can't-afford pair (gated on ItemCountAtLeast or
     // RupeesAtLeast, a same-labelled NONE twin gated on Not of it whose reply says why; QUEST_SYSTEM.md).
     RS_DLG_ACTION_GIVE_ITEMS = 9,    // a = RS_ITEMS(item, count): Link gets them, up to the cap
-    RS_DLG_ACTION_BUY_ITEMS = 10,    // a = RS_ITEMS_PRICED(item, count, price): paid for, so refused CANNOT_CARRY
-                                     // when they would not all fit (or CANNOT_AFFORD)
+    RS_DLG_ACTION_BUY_ITEMS = 10,    // a = RS_ITEMS_PRICED(item, count, price): refused CANNOT_CARRY only when
+                                     // already full, else filled to the cap at full price (or CANNOT_AFFORD)
     RS_DLG_ACTION_TAKE_ITEMS = 11,   // a = RS_ITEMS(item, count): Link hands them over; QUEST_ERR_NOT_ENOUGH_ITEMS
     RS_DLG_ACTION_SELL_ITEMS = 12,   // a = RS_ITEMS_PRICED(item, count, price): the take, paid for in rupees (the
                                      // wallet's limit applies, as to any rupee gain)

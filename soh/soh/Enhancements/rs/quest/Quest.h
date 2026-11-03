@@ -38,8 +38,8 @@ typedef enum QuestResult {
     QUEST_ERR_CANNOT_AFFORD = 11,   // outcome: a dialogue charge (RS_DLG_ACTION_CHARGE_RUPEES) Link is short
                                     // of (sturdy-bassoon#281). No quest write returns it; it shares this
                                     // enum because a dialogue action's result is reported through it
-    QUEST_ERR_CANNOT_CARRY = 12,    // outcome: a dialogue PURCHASE of counted items past the item's cap (#286; a
-                                    // gift fills to the cap instead); the same sharing as CANNOT_AFFORD
+    QUEST_ERR_CANNOT_CARRY = 12,    // outcome: a dialogue PURCHASE of counted items Link already holds the cap of
+                                    // (#286; vanilla's shop); the same sharing as CANNOT_AFFORD
     QUEST_ERR_NOT_ENOUGH_ITEMS = 13, // outcome: a dialogue take or sale of counted items Link is short of (#286)
     QUEST_ERR_ALREADY_HELD = 14,     // outcome: a dialogue gift of a key item Link already holds (#286)
     QUEST_RESULT_COUNT,

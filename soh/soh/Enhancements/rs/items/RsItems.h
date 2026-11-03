@@ -22,9 +22,10 @@
 // What the player sees: a counted gain bounces the item's icon over Link's head with its count beside it, the way
 // vanilla's drops do (RsItemPickup.c's float); a key item plays vanilla's get-item ceremony. AT THE CAP NOTHING IS
 // REFUSED OR SAID (the owner, 2026-11-02, as vanilla takes a drop into a full quiver): a pickup, a gift and a reward
-// fill to the cap, lose the rest, and still float and sound. Only a PURCHASE refuses, so nothing is paid for that
-// cannot be carried. Both are presentation
-// only - the count or the flag is written first, and a ceremony lost to a scene change loses nothing.
+// fill to the cap, lose the rest, and still float and sound. A PURCHASE is refused only when Link is already full,
+// as vanilla's shop refuses arrows to a full quiver; short of that it fills to the cap at the full price. The float
+// and the ceremony are presentation only - the count or the flag is written first, and a ceremony lost to a scene
+// change loses nothing.
 //
 // Icons are RuneScape's own inventory sprites, rendered from the cache by tools/items/ in sturdy-bassoon
 // (docs/reference/RS_ITEM_ICONS.md) and packed into `mods/rs-items.o2r`, two an item, at 8x RS's 36 x 32, so
@@ -165,8 +166,7 @@ int32_t RsItems_CheckGain(int32_t item, int32_t count);
 int32_t RsItems_Gain(int32_t item, int32_t count, int32_t show, int32_t source);
 // The gain the world uses - a pickup, a gift, a reward: adds what fits under the cap and logs the rest as lost,
 // never refusing. `show` floats the whole `count` over Link's head, even when none of it fitted, as vanilla shows a
-// drop taken into a full quiver. Returns how many were added. RsItems_Gain, which refuses, is the console's and a
-// purchase's.
+// drop taken into a full quiver. Returns how many were added. RsItems_Gain, which refuses, is the console's.
 int32_t RsItems_GainClamped(int32_t item, int32_t count, int32_t show, int32_t source);
 // Does the player hold `count`? RS_ITEMS_OK, or UNKNOWN / BAD_AMOUNT / SHORT. Writes nothing.
 int32_t RsItems_CheckTake(int32_t item, int32_t count);

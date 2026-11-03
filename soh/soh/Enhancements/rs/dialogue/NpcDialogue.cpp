@@ -1556,19 +1556,20 @@ extern "C" int32_t RsNpc_RunAction(const RsDialogueOption* option) {
             RsItems_GainClamped(RS_ITEMS_GET_ITEM(option->a), RS_ITEMS_GET_COUNT(option->a), 1, RS_ITEMS_SRC_DIALOGUE);
             return QUEST_OK;
         case RS_DLG_ACTION_BUY_ITEMS: {
-            // Paid for, so all or nothing: both halves checked before either is written, as a quest-item sale is
-            // (RsNpc_SetGivenStep). Nothing is ever charged for that cannot be carried.
+            // Vanilla's shop rule (EnGirlA_CanBuy_Arrows): refused only when Link is already FULL. Short of that it
+            // sells at the full price and fills to the cap - 998 of 999 and a pack of 20 gets one, for the price of
+            // twenty, never pro-rated (the owner, 2026-11-03). Both checks before either write.
             const int32_t item = RS_ITEMS_GET_ITEM(option->a);
             const int32_t count = RS_ITEMS_GET_COUNT(option->a);
             const int32_t price = RS_ITEMS_GET_PRICE(option->a);
-            if (RsItems_CheckGain(item, count) != RS_ITEMS_OK) {
+            if (RsItems_Count(item) >= RsItems_Def(item)->cap) {
                 return QUEST_ERR_CANNOT_CARRY;
             }
             if (Quest_CheckChargeRupees(price) != QUEST_OK) {
                 return QUEST_ERR_CANNOT_AFFORD;
             }
             Quest_ChargeRupees(price);
-            RsItems_Gain(item, count, 1, RS_ITEMS_SRC_DIALOGUE);
+            RsItems_GainClamped(item, count, 1, RS_ITEMS_SRC_DIALOGUE);
             return QUEST_OK;
         }
         case RS_DLG_ACTION_TAKE_ITEMS:
