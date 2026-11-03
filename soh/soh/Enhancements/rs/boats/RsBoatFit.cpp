@@ -30,6 +30,8 @@ struct KindFit {
     bool owned;
     uint8_t tiers[RS_BOAT_SLOT_COUNT]; // 0 for a slot the kind does not have
     uint8_t looks[RS_BOAT_LOOK_COUNT];
+    uint8_t rgb[RS_BOAT_LOOK_COUNT][3]; // a pattern look's own colour, what its `custom` draws, once rgbSet
+    bool rgbSet[RS_BOAT_LOOK_COUNT];
 };
 
 KindFit sFit[RS_BOAT_KIND_COUNT] = {};
@@ -51,6 +53,23 @@ const RsBoatTier* StatsTier(int32_t kind, int32_t slot, int32_t tier) {
 
 void Emit(const std::string& line) {
     RsAgent_Marker(line.c_str());
+}
+
+// The only looks with a colour of their own to keep: those with a `custom` colour.
+bool LookHasOwnColour(int32_t look) {
+    return RsBoatFit_LookOwnColourOption(look) >= 0;
+}
+
+// The save's key for a look's own colour: "sail_pattern_rgb".
+std::string RgbKey(int32_t look) {
+    return std::string(RsBoatFit_LookName(look)) + "_rgb";
+}
+
+// "c48a32", as the save writes it.
+std::string RgbHex(const uint8_t rgb[3]) {
+    char hex[8];
+    std::snprintf(hex, sizeof(hex), "%02x%02x%02x", rgb[0], rgb[1], rgb[2]);
+    return hex;
 }
 
 // Each fit raises its slot to its tier (never lowers it) or owns its boat.
@@ -106,10 +125,13 @@ void MarkUpgrade(const char* event, const RsBoatUpgrade* u, int32_t result, int3
 //
 // JSON shape, version 1, one object per kind, every key by NAME:
 //   "rsBoats": { "skiff": { "owned": 1, "hull": 1, "helm": 0, "sails": 0, "keel": 0, "salvaging_hook": 1,
-//                           "wind_catcher": 0, "sail_pattern": "red" }, "sloop": { ... }, "raft": { ... } }
-// Only the slots and looks a kind has are written. Because everything is keyed by name, a new kind, slot or look is a
-// new key at version 1 and reads its default from an older file (#287's sail_image, jib_pattern and jib_image: none,
-// and the jib drawn as the sail); what needs version 2 is changing what a key MEANS.
+//                           "wind_catcher": 0, "sail_pattern": "custom", "sail_pattern_rgb": "c48a32" },
+//                "sloop": { ... }, "raft": { ... } }
+// Only the slots and looks a kind has are written, and a pattern's own colour (`<look>_rgb`, six hex digits) only
+// once it has one: a file without it draws `custom` as plain's colour (RsBoatFit_LookRgb). Because everything is
+// keyed by name, a new kind, slot or look is a new key at version 1 and reads its default from an older file (#287's
+// sail_image, jib_pattern and jib_image: none, and the jib drawn as the sail; a pattern's `custom` and its colour);
+// what needs version 2 is changing what a key MEANS.
 // Renaming a slot, look option or kind is a save break: its old key would be dropped.
 //
 // A save written before this landed has no section and reads as nothing owned, every default. An older build
@@ -136,6 +158,9 @@ void SaveRsBoats(SaveContext* saveContext, int sectionID, bool fullSave) {
                 }
                 SaveManager::Instance->SaveData(RsBoatFit_LookName(look),
                                                 std::string(RsBoatFit_LookOptionName(look, sFit[kind].looks[look])));
+                if (sFit[kind].rgbSet[look]) {
+                    SaveManager::Instance->SaveData(RgbKey(look), RgbHex(sFit[kind].rgb[look]));
+                }
             }
         });
     }
@@ -183,6 +208,16 @@ void LoadRsBoatsV1() {
                     option = 0;
                 }
                 sFit[kind].looks[look] = static_cast<uint8_t>(option);
+                if (!LookHasOwnColour(look)) {
+                    continue;
+                }
+                std::string hex;
+                SaveManager::Instance->LoadData(RgbKey(look), hex, std::string());
+                sFit[kind].rgbSet[look] = !hex.empty() && RsBoatFit_ParseRgb(hex.c_str(), sFit[kind].rgb[look]);
+                if (!hex.empty() && !sFit[kind].rgbSet[look]) {
+                    SPDLOG_ERROR("RsBoatFit: save file's {} {} '{}' is no colour; using plain's",
+                                 RsBoat_KindName(kind), RgbKey(look), hex);
+                }
             }
         });
     }
@@ -240,6 +275,28 @@ extern "C" int32_t RsBoatFit_LookDrawn(int32_t kind, int32_t look, int32_t* draw
     return option;
 }
 
+extern "C" int32_t RsBoatFit_ParseRgb(const char* text, uint8_t rgb[3]) {
+    std::string hex = text != nullptr ? text : "";
+    if (!hex.empty() && hex[0] == '#') {
+        hex = hex.substr(1);
+    }
+    if (hex.size() != 6 || hex.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos) {
+        return 0;
+    }
+    for (int k = 0; k < 3; k++) {
+        rgb[k] = static_cast<uint8_t>(std::stoi(hex.substr(k * 2, 2), nullptr, 16));
+    }
+    return 1;
+}
+
+extern "C" void RsBoatFit_LookRgb(int32_t kind, int32_t look, uint8_t rgb[3]) {
+    static const uint8_t kPlain[3] = RS_BOAT_LOOK_PLAIN_RGB;
+    const uint8_t* from = KindValid(kind) && look >= 0 && look < RS_BOAT_LOOK_COUNT && sFit[kind].rgbSet[look]
+                              ? sFit[kind].rgb[look]
+                              : kPlain;
+    rgb[0] = from[0], rgb[1] = from[1], rgb[2] = from[2];
+}
+
 extern "C" void RsBoatFit_Stats(int32_t kind, RsBoatFitStats* out) {
     *out = {};
     if (!KindValid(kind)) {
@@ -284,8 +341,13 @@ extern "C" void RsBoatFit_Summary(int32_t kind, char* buf, size_t len) {
         if (!RsBoatFit_KindHasLook(kind, look)) {
             continue;
         }
-        out += std::string("\n  ") + RsBoatFit_LookName(look) + " " +
-               RsBoatFit_LookOptionName(look, RsBoatFit_LookOf(kind, look));
+        const int32_t option = RsBoatFit_LookOf(kind, look);
+        out += std::string("\n  ") + RsBoatFit_LookName(look) + " " + RsBoatFit_LookOptionName(look, option);
+        if (RsBoatFit_LookOptionKind(look, option) == RS_BOAT_LOOK_OPTION_OWN_COLOUR) {
+            uint8_t rgb[3];
+            RsBoatFit_LookRgb(kind, look, rgb);
+            out += " " + RgbHex(rgb);
+        }
     }
     std::snprintf(buf, len, "%s", out.c_str());
 }
@@ -405,6 +467,16 @@ extern "C" int32_t RsBoatFit_SetLook(int32_t kind, int32_t look, int32_t option)
                !RsBoatSail_Accepted(RsBoatSail_Of(kind, look))) {
         result = RS_BOAT_FIT_NO_IMAGE;
     } else {
+        // `custom` chosen for the first time starts as the colour the sail shows now, so choosing it changes nothing
+        // until the player picks (a jib that matched the sail starts as the sail's colour).
+        if (RsBoatFit_LookOptionKind(look, option) == RS_BOAT_LOOK_OPTION_OWN_COLOUR && !sFit[kind].rgbSet[look]) {
+            int32_t drawnAs = look;
+            const int32_t was = RsBoatFit_LookDrawn(kind, look, &drawnAs);
+            if (!RsBoatFit_LookColour(kind, drawnAs, was, sFit[kind].rgb[look])) {
+                RsBoatFit_LookRgb(-1, look, sFit[kind].rgb[look]); // plain: the cloth's own colour
+            }
+            sFit[kind].rgbSet[look] = true;
+        }
         sFit[kind].looks[look] = static_cast<uint8_t>(option);
     }
     char line[160];
@@ -413,6 +485,18 @@ extern "C" int32_t RsBoatFit_SetLook(int32_t kind, int32_t look, int32_t option)
                   RsBoatFit_ResultName(result));
     Emit(line);
     return result;
+}
+
+extern "C" int32_t RsBoatFit_SetLookRgb(int32_t kind, int32_t look, const uint8_t rgb[3]) {
+    if (!RsBoatFit_KindHasLook(kind, look) || !LookHasOwnColour(look)) {
+        return RS_BOAT_FIT_UNKNOWN;
+    }
+    if (!sFit[kind].owned) {
+        return RS_BOAT_FIT_NOT_OWNED;
+    }
+    sFit[kind].rgb[look][0] = rgb[0], sFit[kind].rgb[look][1] = rgb[1], sFit[kind].rgb[look][2] = rgb[2];
+    sFit[kind].rgbSet[look] = true;
+    return RS_BOAT_FIT_OK;
 }
 
 extern "C" int32_t RsBoatFit_PredicateOperandsValid(int32_t predKind, int32_t a, int32_t b) {

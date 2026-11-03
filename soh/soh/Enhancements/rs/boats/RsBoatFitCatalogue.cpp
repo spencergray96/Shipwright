@@ -185,7 +185,8 @@ constexpr int kTierCount = static_cast<int>(sizeof(kTiers) / sizeof(kTiers[0]));
 
 // A look's options, unordered: index 0 is the default. Each may carry requirements (a race's sail, later); none do.
 // `recolours` 0 draws the model's own colour; 1 draws `prim` over the material the boat's list hands to the look
-// (RsBoatFit_LookColour). `kind` says what else it is (RsBoatLookKind, #287): a `match`, or the player's picture.
+// (RsBoatFit_LookColour). `kind` says what else it is (RsBoatLookKind, #287): a `match`, the player's picture, or the
+// player's own colour (whose `prim` is unused: the colour is the save's, RsBoatFit_LookRgb).
 struct LookOption {
     const char* name;
     int32_t reqCount;
@@ -200,7 +201,7 @@ struct LookOption {
 struct LookInfo {
     const char* name;
     int32_t optionCount;
-    LookOption options[10];
+    LookOption options[11];
     uint32_t kinds;
     int32_t follows;
     int32_t image;
@@ -223,6 +224,9 @@ constexpr uint32_t kSloopOnly = 1u << RS_BOAT_KIND_SLOOP;
 // The sail image (sturdy-bassoon#287) is the player's picture over the pattern: `custom` is offered only while that
 // sail's file is accepted (RsBoatSail.h). The sloop's jib has a pattern and an image of its own, each `match` by
 // default: drawn as the sail's, so a save from before the jib had them draws both sails alike, as it did.
+//
+// Each pattern ends with `custom`: any colour, picked in the Boat Sails window and kept in the save (RsBoatFit.cpp).
+// Like the presets it is a prim colour over the cloth, so a picked colour is shaded exactly as RS's are.
 #define RS_SAIL_COLOURS                                                                                              \
     { "black", 0, {}, 1, { 39, 35, 35 } },        /* 12 */                                                           \
         { "blue", 0, {}, 1, { 47, 48, 100 } },    /* -22116 */                                                       \
@@ -231,9 +235,10 @@ constexpr uint32_t kSloopOnly = 1u << RS_BOAT_KIND_SLOOP;
         { "pink", 0, {}, 1, { 196, 147, 138 } },  /* 1356 */                                                         \
         { "purple", 0, {}, 1, { 109, 72, 122 } }, /* -14041 */                                                       \
         { "red", 0, {}, 1, { 135, 31, 7 } },      /* 1950 */                                                         \
-        { "yellow", 0, {}, 1, { 249, 246, 15 } }  /* 11200 */
+        { "yellow", 0, {}, 1, { 249, 246, 15 } }, /* 11200 */                                                        \
+        { "custom", 0, {}, 1, { 0, 0, 0 }, RS_BOAT_LOOK_OPTION_OWN_COLOUR }
 const LookInfo kLooks[RS_BOAT_LOOK_COUNT] = {
-    { "sail_pattern", 9, { { "plain", 0, {}, 0, { 0, 0, 0 } }, RS_SAIL_COLOURS }, kEveryKind, -1,
+    { "sail_pattern", 10, { { "plain", 0, {}, 0, { 0, 0, 0 } }, RS_SAIL_COLOURS }, kEveryKind, -1,
       RS_BOAT_LOOK_SAIL_IMAGE },
     { "sail_image",
       2,
@@ -242,7 +247,7 @@ const LookInfo kLooks[RS_BOAT_LOOK_COUNT] = {
       -1,
       -1 },
     { "jib_pattern",
-      10,
+      11,
       { { "match", 0, {}, 0, { 0, 0, 0 }, RS_BOAT_LOOK_OPTION_MATCH }, { "plain", 0, {}, 0, { 0, 0, 0 } },
         RS_SAIL_COLOURS },
       kSloopOnly,
@@ -496,6 +501,9 @@ void CheckCatalogue() {
             if (info.options[o].kind == RS_BOAT_LOOK_OPTION_CUSTOM && info.options[o].recolours) {
                 Problem("look option (a custom picture that recolours)", look * 256 + o);
             }
+            if (info.options[o].kind == RS_BOAT_LOOK_OPTION_OWN_COLOUR && !info.options[o].recolours) {
+                Problem("look option (an own colour that does not recolour)", look * 256 + o);
+            }
         }
         if (info.optionCount < 1 || info.options[0].kind == RS_BOAT_LOOK_OPTION_CUSTOM) {
             Problem("look (its default is a picture that may not be there)", look);
@@ -602,6 +610,15 @@ extern "C" int32_t RsBoatFit_LookOptionByName(int32_t look, const char* name) {
     return -1;
 }
 
+extern "C" int32_t RsBoatFit_LookOwnColourOption(int32_t look) {
+    for (int32_t option = 0; option < RsBoatFit_LookOptionCount(look); option++) {
+        if (kLooks[look].options[option].kind == RS_BOAT_LOOK_OPTION_OWN_COLOUR) {
+            return option;
+        }
+    }
+    return -1;
+}
+
 // Here rather than in RsBoatFit.cpp so LookOption stays this file's.
 extern "C" int32_t RsBoatFit_LookOptionAllowed(int32_t look, int32_t option) {
     if (option < 0 || option >= RsBoatFit_LookOptionCount(look)) {
@@ -616,11 +633,15 @@ extern "C" int32_t RsBoatFit_LookOptionAllowed(int32_t look, int32_t option) {
     return 1;
 }
 
-extern "C" int32_t RsBoatFit_LookColour(int32_t look, int32_t option, uint8_t rgb[3]) {
+extern "C" int32_t RsBoatFit_LookColour(int32_t kind, int32_t look, int32_t option, uint8_t rgb[3]) {
     if (option < 0 || option >= RsBoatFit_LookOptionCount(look) || !kLooks[look].options[option].recolours) {
         return 0;
     }
-    std::memcpy(rgb, kLooks[look].options[option].prim, 3);
+    if (kLooks[look].options[option].kind == RS_BOAT_LOOK_OPTION_OWN_COLOUR) {
+        RsBoatFit_LookRgb(kind, look, rgb);
+    } else {
+        std::memcpy(rgb, kLooks[look].options[option].prim, 3);
+    }
     return 1;
 }
 

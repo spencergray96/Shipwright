@@ -4,6 +4,7 @@
 // sets is the save's looks (RsBoatFit_SetLook) and RsBoatSail.h's files, so the console and the sailmaker see the same
 // state.
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <memory>
@@ -34,8 +35,8 @@ namespace {
 
 const char* const kWindowName = "Boat Sails";
 const char* const kTitles[RS_BOAT_SAIL_COUNT] = { "Raft sail", "Skiff sail", "Sloop mainsail", "Sloop jib" };
-// The sail's own cloth colour, under a plain pattern: the archive's 226, 226, 222.
-const uint8_t kPlain[3] = { 226, 226, 222 };
+// The sail's own cloth colour, under a plain pattern.
+const uint8_t kPlain[3] = RS_BOAT_LOOK_PLAIN_RGB;
 constexpr int kPreview = 128;
 
 // The system's file browser on the sails folder. The folder's string may be UTF-8 or the code page (RsBoatSail.cpp's
@@ -119,7 +120,7 @@ class RsBoatSailsWindow final : public Ship::GuiWindow {
         const int32_t pattern = RsBoatSail_Pattern(sail);
         int32_t drawnAs = pattern;
         const int32_t option = RsBoatFit_LookDrawn(RsBoatSail_Kind(sail), pattern, &drawnAs);
-        if (!RsBoatFit_LookColour(drawnAs, option, rgb)) {
+        if (!RsBoatFit_LookColour(RsBoatSail_Kind(sail), drawnAs, option, rgb)) {
             rgb[0] = kPlain[0], rgb[1] = kPlain[1], rgb[2] = kPlain[2];
         }
     }
@@ -202,6 +203,26 @@ class RsBoatSailsWindow final : public Ship::GuiWindow {
         }
     }
 
+    // The picker under a sail whose colour is `custom`: any colour, drawn on the boat as it is dragged, and kept in the
+    // save (RsBoatFit_SetLookRgb). Clicking the swatch opens the picker; the field takes a hex value.
+    void OwnColour(int32_t sail) {
+        const int32_t kind = RsBoatSail_Kind(sail);
+        const int32_t look = RsBoatSail_Pattern(sail);
+        if (RsBoatFit_LookOptionKind(look, RsBoatFit_LookOf(kind, look)) != RS_BOAT_LOOK_OPTION_OWN_COLOUR) {
+            return;
+        }
+        uint8_t rgb[3];
+        RsBoatFit_LookRgb(kind, look, rgb);
+        float colour[3] = { rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f };
+        ImGui::SetNextItemWidth(150.0f);
+        if (ImGui::ColorEdit3("Custom colour", colour, ImGuiColorEditFlags_DisplayHex)) {
+            for (int k = 0; k < 3; k++) {
+                rgb[k] = (uint8_t)(std::clamp(colour[k], 0.0f, 1.0f) * 255.0f + 0.5f);
+            }
+            RsBoatFit_SetLookRgb(kind, look, rgb);
+        }
+    }
+
     void DrawSail(int32_t sail) {
         const int32_t kind = RsBoatSail_Kind(sail);
         const bool owned = RsBoatFit_Owned(kind) != 0;
@@ -222,6 +243,7 @@ class RsBoatSailsWindow final : public Ship::GuiWindow {
         }
         ImGui::BeginDisabled(!owned);
         LookCombo(sail, RsBoatSail_Pattern(sail), "Colour");
+        OwnColour(sail);
         LookCombo(sail, RsBoatSail_Look(sail), "Picture");
         const bool waiting = RsBoatSailDialog_Waiting() >= 0;
         ImGui::BeginDisabled(waiting);

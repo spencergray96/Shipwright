@@ -448,6 +448,9 @@ const ReadmeBlock kReadme[] = {
       "you, and so does dropping one on the game window after pressing \"Drop an image now\". From the console:\n"
       "`boat look <kind> sail_image custom`, or `boat look sloop jib_image custom` for the jib." },
     { ReadmeKind::TEXT,
+      "A sail's Colour drop-down has a \"custom\" option too: it opens a colour picker, so the sail (and your\n"
+      "picture's transparent pixels) can be any colour, not only RS's. Each save file keeps its own colours." },
+    { ReadmeKind::TEXT,
       "Each template is the 1024 x 1024 square the game draws, the sail's outline in white: the grey around it never\n"
       "shows. The picture reads correctly from the boat's right-hand (starboard) side, bow on the right; the other\n"
       "side shows it mirrored. A jib set to match the mainsail shows the mainsail's picture flipped." },

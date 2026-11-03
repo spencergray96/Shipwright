@@ -26,7 +26,11 @@
 //   look <kind> [<look> [<option>]]
 //                    reads (no option) or swaps a look, free. `op=look result=ok kind= <look>=<option> options=a,b,..`
 //                    The looks: sail_pattern and sail_image on every kind, jib_pattern and jib_image on the sloop
-//                    (#287). An image look's `custom` needs that sail's picture accepted (RsBoatSail.h)
+//                    (#287). An image look's `custom` needs that sail's picture accepted (RsBoatSail.h); a pattern's
+//                    `custom` draws the kind's own colour (`colour`), and `fitout` adds `<look>_rgb=<rrggbb>` for it
+//   colour <kind> <look> [<rrggbb>]
+//                    reads a pattern look's own colour, or sets it (a leading '#' allowed) and switches the look to
+//                    `custom`. `op=colour result=ok kind= <look>=<option> rgb=<rrggbb>`. Only a pattern look has one
 //   sails            one `sail name=<n> kind=<k> look=<image look> option=<o> drawn=0|1 file=0|1 accepted=0|1 armed=0|1
 //                    refusal="<why>"` line per sail (drawn: the boat draws a picture there now, a match followed),
 //                    then `op=sails result=ok folder="<path>" armed=<name|none>` (#287)
@@ -53,6 +57,8 @@
 //   op=look result=error error=<not_owned|requirement|no_image> kind=<k>
 //                                                 a look on a boat the player does not own, an option whose
 //                                                 requirements do not hold, or custom with no accepted picture
+//   op=colour result=error error=not_owned kind=<k>
+//                                                 a colour for a boat the player does not own
 //   op=<sub> result=error error=bad_value         a kind, slot, look, option, upgrade or number that is no such thing
 //   op=usage result=error usage="..."             a wrong number of words
 //
@@ -62,7 +68,7 @@ int32_t RsBoatFitConsole_Run(const std::vector<std::string>& args, std::vector<s
 // The grammar, for `boat`'s usage line and help text.
 #define RS_BOAT_FIT_GRAMMAR                                                                                        \
     "fitout [<kind>] | fitout hud [on|off] | fitout reset | upgrades | build <upgrade> | grant <upgrade> | "         \
-    "look <kind> [<look> [<option>]] | own <kind> 0|1 | fit <kind> <slot> <tier> | sails [reload | import <sail> " \
-    "<path> | arm <sail>|off | drop <path> | window [on|off]]"
+    "look <kind> [<look> [<option>]] | colour <kind> <look> [<rrggbb>] | own <kind> 0|1 | fit <kind> <slot> "     \
+    "<tier> | sails [reload | import <sail> <path> | arm <sail>|off | drop <path> | window [on|off]]"
 
 #endif // SOH_RS_BOAT_FIT_CONSOLE_H
