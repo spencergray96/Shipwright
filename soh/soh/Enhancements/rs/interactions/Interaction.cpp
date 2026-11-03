@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstdio>
 #include <map>
+#include <string>
 #include <spdlog/spdlog.h>
 #include "soh/Enhancements/rs/dialogue/NpcDialogue.h"
 #include "soh/Enhancements/rs/quest/Quest.h"
@@ -117,6 +118,31 @@ extern "C" int32_t RsInteraction_RegisteredCount(void) {
 extern "C" const RsDialogueRule* RsInteraction_SlotScreen(const RsInteractionDef* def, int32_t slot) {
     return slot < RS_DIALOGUE_MAX_RULES ? RsDialogue_Screen(def, RS_SCREEN_RULE, slot)
                                         : RsDialogue_Screen(def, RS_SCREEN_NODE, slot - RS_DIALOGUE_MAX_RULES);
+}
+
+namespace {
+std::string sActionWords;
+bool sHaveActionWords = false;
+int32_t sActionWordsInstead = 0;
+} // namespace
+
+extern "C" void RsInteraction_ActionSays(const char* text, int32_t instead) {
+    sActionWords = text != nullptr ? text : "";
+    sHaveActionWords = text != nullptr;
+    sActionWordsInstead = instead != 0 ? 1 : 0;
+}
+
+extern "C" const char* RsInteraction_ActionWords(int32_t* instead) {
+    if (instead != nullptr) {
+        *instead = sActionWordsInstead;
+    }
+    return sHaveActionWords ? sActionWords.c_str() : nullptr;
+}
+
+extern "C" void RsInteraction_ClearActionWords(void) {
+    sActionWords.clear();
+    sHaveActionWords = false;
+    sActionWordsInstead = 0;
 }
 
 extern "C" const RsInteractionDef* RsInteraction_DefAt(int32_t n) {

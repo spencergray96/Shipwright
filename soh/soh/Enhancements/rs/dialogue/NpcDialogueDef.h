@@ -69,10 +69,11 @@ typedef enum RsDialogueActionKind {
                                       // or puts the sail back to its colour
     // a = RS_DLG_DOCK(op, kind) -> RsBoatDock_Run at the pier Link is talking to (sturdy-bassoon#282): take a boat
     // out to this pier's mooring, put away the one moored here, or fetch an abandoned one for its fee. A refusal
-    // (the mooring is blocked, the pools are full, Link is short of the fee) changes nothing, charges nothing, says
-    // why in a toast and is QUEST_ERR_PREREQ_UNMET (QUEST_ERR_CANNOT_AFFORD for the fee). On an interaction (a pier)
-    // a refused action says no reply (RsInteraction.c), so word the reply for it having happened; a character would
-    // still say it. Gate each option on BoatStateIs, and a fetch on RupeesAtLeast(its fee).
+    // (already here, the mooring is blocked, the pools are full, Link is short of the fee) changes nothing, charges
+    // nothing and is QUEST_ERR_PREREQ_UNMET (QUEST_ERR_CANNOT_AFFORD for the fee). On an interaction (a pier) the
+    // action says why in place of the reply, and names any boat it put away to make room after it
+    // (RsInteraction_ActionSays), so word the reply for it having happened. Gate each option on BoatStateIs, and a
+    // fetch on RupeesAtLeast(its fee).
     RS_DLG_ACTION_BOAT_DOCK = 8,
     RS_DLG_ACTION_KIND_COUNT,
 } RsDialogueActionKind;

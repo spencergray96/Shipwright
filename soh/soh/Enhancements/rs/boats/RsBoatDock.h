@@ -21,9 +21,10 @@
 // count, so a boat beside it reads abandoned until its room loads (the docks' test map is one room).
 //
 // OVERLAPPING DOCKS are allowed and never refused. A boat inside several belongs to the one whose mooring is nearest,
-// the earliest-spawned pier on a tie. Taking a boat out stows only the boat that belongs to that pier; if another boat
-// still lies on the mooring, the take-out is refused (`mooring_blocked`) and nothing changes, so two hulls are never
-// spawned inside each other.
+// the earliest-spawned pier on a tie. Taking a boat out stows the boats that belong to that pier, and any other of the
+// player's lying on the mooring (one that belongs to a neighbouring pier); only a boat that is not the player's blocks
+// it (`mooring_blocked`, nothing changes), so two hulls are never spawned inside each other. A boat already inside
+// this pier's ring is not taken out or fetched again: `already_here`, though it may belong to a neighbour.
 //
 // SPAWNS ARE GUARDED against the DynaPoly pools: a boat whose most collision would not fit is not spawned, with a
 // `rs_boat event=refused reason=dyna_pool` marker, and stays where the save has it. Boats already up count at their
@@ -99,8 +100,9 @@ struct Actor;
 int32_t RsBoatDock_Run(int32_t op, int32_t kind, struct Actor* pier);
 // The pier Link is talking to (Player's talk actor, when it is a dock's pier), or NULL. The dialogue action's pier.
 struct Actor* RsBoatDock_TalkPier(void);
-// RS_DLG_ACTION_BOAT_DOCK: RsBoatDock_Run at RsBoatDock_TalkPier, and a toast saying why when it is refused (the
-// option's reply is static, so it cannot).
+// RS_DLG_ACTION_BOAT_DOCK: RsBoatDock_Run at RsBoatDock_TalkPier, and what the pier says about it
+// (RsInteraction_ActionSays): why, in place of the reply, for a refusal ("Your skiff's already here."); after the
+// reply, the boats it put away to make room. A toast only for a refusal its gates should have hidden (a bug).
 int32_t RsBoatDock_DialogueAction(int32_t op, int32_t kind);
 
 // The `rsBoats` keys of one kind (RsBoatFit.cpp's section calls these inside each kind's object), and the reset every

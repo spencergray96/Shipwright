@@ -16,6 +16,7 @@
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/rs/actors/RsActors.h"
 #include "soh/Enhancements/rs/actors/RsBoat.h"
+#include "soh/Enhancements/rs/interactions/Interaction.h"
 #include "soh/Enhancements/rs/quest/Quest.h"
 #include "soh/Notification/Notification.h"
 #include "soh/SaveManager.h"
@@ -385,19 +386,31 @@ RegisterShipInitFunc rsBoatDockInitFunc(RegisterRsBoatDock);
 
 // --- the operations ----------------------------------------------------------------------------------
 
+// The kinds the last pier operation put away to make room, for what the pier says (RsBoatDock_DialogueAction).
+std::vector<int32_t> sMadeRoom;
+
+// The kinds in sMadeRoom as `raft+sloop`, or `none`.
+std::string MadeRoomList() {
+    std::string list;
+    for (int32_t k : sMadeRoom) {
+        list += (list.empty() ? "" : "+") + std::string(RsBoat_KindName(k));
+    }
+    return list.empty() ? "none" : list;
+}
+
 void MarkOp(int32_t op, int32_t kind, int32_t result, int32_t dock, int32_t fee) {
-    char line[240];
+    char line[260];
     const Place& p = sPlace[KindValid(kind) ? kind : 0];
     std::snprintf(line, sizeof(line),
-                  "rs_boat event=%s kind=%s result=%s dock=%d fee=%d rupees=%d state=%s x=%d z=%d yaw=%d",
+                  "rs_boat event=%s kind=%s result=%s dock=%d fee=%d rupees=%d state=%s x=%d z=%d yaw=%d made_room=%s",
                   RsBoatDock_OpName(op), RsBoat_KindName(kind), RsBoatDock_ResultName(result), (int)dock, (int)fee,
                   (int)Quest_RupeesAfterPending(), RsBoatDock_StateName(RsBoatDock_State(kind)), (int)lroundf(p.x),
-                  (int)lroundf(p.z), (int)(u16)p.yaw);
+                  (int)lroundf(p.z), (int)(u16)p.yaw, MadeRoomList().c_str());
     RsAgent_Marker(line);
 }
 
-// Takes the kind to the pier's mooring, stowing the boat that belongs to this pier. Everything is checked before
-// anything changes.
+// Takes the kind to the pier's mooring, stowing the boats that belong to this pier and any other of the player's on
+// the mooring: only a boat that is not the player's blocks it. Everything is checked before anything changes.
 int32_t PlaceAtPier(int32_t kind, const std::vector<Dock>& docks, int32_t dock, int32_t fee) {
     float mx;
     float mz;
@@ -415,7 +428,8 @@ int32_t PlaceAtPier(int32_t kind, const std::vector<Dock>& docks, int32_t dock, 
             stowing.push_back(OwnedBoat(k));
         }
     }
-    // Anything else on the mooring: within the two hulls' half lengths of it.
+    // Anything else on the mooring: within the two hulls' half lengths of it. One of the player's that belongs to a
+    // neighbouring pier (overlapping docks) is put away too, as the owner asked (2026-11-02); anything else blocks.
     for (RsBoat* other : LiveBoats()) {
         if (other == own || std::find(stowing.begin(), stowing.end(), other) != stowing.end()) {
             continue;
@@ -423,7 +437,10 @@ int32_t PlaceAtPier(int32_t kind, const std::vector<Dock>& docks, int32_t dock, 
         const Actor* a = &other->dyna.actor;
         if (DistXZ(a->world.pos.x, a->world.pos.z, mx, mz) <
             RsBoat_KindHalfLength(kind) + RsBoat_KindHalfLength(other->kind)) {
-            return RS_BOAT_DOCK_MOORING_BLOCKED;
+            if (!other->owned) {
+                return RS_BOAT_DOCK_MOORING_BLOCKED;
+            }
+            stowing.push_back(other);
         }
     }
     if (!DynaFits(kind)) {
@@ -444,6 +461,7 @@ int32_t PlaceAtPier(int32_t kind, const std::vector<Dock>& docks, int32_t dock, 
         Quest_ChargeRupees(fee);
     }
     for (RsBoat* boat : stowing) {
+        sMadeRoom.push_back(boat->kind);
         Stow(boat->kind);
     }
     if (own != nullptr) {
@@ -489,31 +507,50 @@ extern "C" Actor* RsBoatDock_TalkPier(void) {
 
 extern "C" int32_t RsBoatDock_DialogueAction(int32_t op, int32_t kind) {
     const int32_t result = RsBoatDock_Run(op, kind, RsBoatDock_TalkPier());
-    const char* why = nullptr;
+    // What the pier says about it (Interaction.h): after the option's reply when it put another boat away to make room,
+    // in its place for a refusal. Placeholder prose, as the menu's.
+    std::string words;
+    int32_t instead = 1;
     switch (result) {
         case RS_BOAT_DOCK_OK:
+            instead = 0;
+            if (!sMadeRoom.empty()) {
+                std::string list;
+                for (size_t i = 0; i < sMadeRoom.size(); i++) {
+                    list += (i == 0 ? "" : " and ") + std::string(RsBoat_KindName(sMadeRoom[i]));
+                }
+                words = "I've put your " + list + " away to make room.";
+            }
+            break;
+        case RS_BOAT_DOCK_ALREADY_HERE:
+            words = "Your " + std::string(RsBoat_KindName(kind)) + "'s already here.";
             break;
         case RS_BOAT_DOCK_MOORING_BLOCKED:
-            why = "Something is in the way at the mooring.";
+            words = "Something's in the way at the end of the pier.";
             break;
         case RS_BOAT_DOCK_DYNA_POOL:
-            why = "There is no room for another boat here.";
+            words = "There's no room for another boat here.";
             break;
         case RS_BOAT_DOCK_NO_WATER:
-            why = "There is no water at the mooring.";
+            words = "There's no water at the end of the pier.";
             break;
         case RS_BOAT_DOCK_CANT_AFFORD:
-            why = "Not enough rupees.";
+            words = "You can't afford that.";
             break;
         default:
-            why = RsBoatDock_ResultName(result); // a gate let through a pick it should have hidden
+            // A gate let through a pick it should have hidden: a bug, so a toast naming it rather than prose.
+            Notification::Emit({ .prefix = RsBoat_KindName(kind),
+                                 .message = RsBoatDock_ResultName(result),
+                                 .messageColor = ImVec4(1.0f, 0.45f, 0.4f, 1.0f),
+                                 .remainingTime = 6.0f });
             break;
     }
-    if (why != nullptr) {
-        Notification::Emit({ .prefix = RsBoat_KindName(kind),
-                             .message = why,
-                             .messageColor = ImVec4(1.0f, 0.45f, 0.4f, 1.0f),
-                             .remainingTime = 6.0f });
+    if (!words.empty()) {
+        RsInteraction_ActionSays(words.c_str(), instead);
+        char line[200];
+        std::snprintf(line, sizeof(line), "rs_boat event=pier_says kind=%s result=%s instead=%d text=\"%s\"",
+                      RsBoat_KindName(kind), RsBoatDock_ResultName(result), (int)instead, words.c_str());
+        RsAgent_Marker(line);
     }
     return result;
 }
@@ -576,6 +613,7 @@ extern "C" int32_t RsBoatDock_Fee(int32_t kind) {
 }
 
 extern "C" int32_t RsBoatDock_Run(int32_t op, int32_t kind, Actor* pier) {
+    sMadeRoom.clear();
     int32_t result = RS_BOAT_DOCK_OK;
     int32_t dock = -1;
     int32_t fee = 0;
@@ -587,6 +625,19 @@ extern "C" int32_t RsBoatDock_Run(int32_t op, int32_t kind, Actor* pier) {
         const std::vector<Dock> docks = Docks();
         dock = DockIndexOf(docks, pier);
         const bool here = dock >= 0 && MooredDock(docks, kind) == dock;
+        // Out inside this pier's ring, though nearer a neighbour's mooring (overlapping docks): already here too, for
+        // taking out or fetching. Putting away still wants it to be this pier's.
+        bool nearby = here;
+        if (dock >= 0 && !nearby) {
+            if (const RsBoat* boat = OwnedBoat(kind)) {
+                float mx;
+                float mz;
+                int16_t myaw;
+                Mooring(docks[dock].pier, docks[dock].def, kind, &mx, &mz, &myaw);
+                nearby = DistXZ(boat->dyna.actor.world.pos.x, boat->dyna.actor.world.pos.z, mx, mz) <=
+                         docks[dock].def->radius;
+            }
+        }
         const int32_t state = RsBoatDock_State(kind);
         if (dock < 0) {
             result = RS_BOAT_DOCK_NO_PIER;
@@ -596,7 +647,7 @@ extern "C" int32_t RsBoatDock_Run(int32_t op, int32_t kind, Actor* pier) {
             } else {
                 Stow(kind);
             }
-        } else if (here) {
+        } else if (nearby) {
             result = RS_BOAT_DOCK_ALREADY_HERE;
         } else if (op == RS_BOAT_DOCK_OP_TAKE_OUT && state == RS_BOAT_DOCK_ABANDONED) {
             result = RS_BOAT_DOCK_IS_ABANDONED;

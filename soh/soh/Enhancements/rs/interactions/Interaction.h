@@ -44,6 +44,17 @@ const RsInteractionDef* RsInteraction_DefAt(int32_t n);
 // a NULL definition or a slot it does not have.
 const RsDialogueRule* RsInteraction_SlotScreen(const RsInteractionDef* def, int32_t slot);
 
+// WHAT AN ACTION'S OUTCOME SAYS (sturdy-bassoon#282). An option's reply is fixed text, written for its action having
+// happened; an action whose outcome needs words of its own (the pier: "Your skiff's already here.", "I've put your
+// raft away to make room.") sets them while it runs. `instead` 1: said in place of the reply (a refusal, which
+// otherwise says no reply); 0: said after it. The trigger clears them before each choice and when the check ends, so
+// they never outlive the option that set them. Only an interaction reads them; an action run from a character's
+// option sets them for nothing. The text is a reply's: no `% # " ^`, and `&` breaks the line.
+void RsInteraction_ActionSays(const char* text, int32_t instead);
+// The words set since the last clear, or NULL; `instead` (may be NULL) gets the flag they were set with.
+const char* RsInteraction_ActionWords(int32_t* instead);
+void RsInteraction_ClearActionWords(void);
+
 #ifdef __cplusplus
 }
 #endif
