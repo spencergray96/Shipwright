@@ -14,7 +14,9 @@
 #include "global.h"
 #include "overlays/effects/ovl_Effect_Ss_G_Ripple/z_eff_ss_g_ripple.h" // the wake's rings and splash, spawned at
 #include "overlays/effects/ovl_Effect_Ss_G_Splash/z_eff_ss_g_splash.h" // its own priority
+#include "soh/Enhancements/rs/boats/RsBoatDock.h"
 #include "soh/Enhancements/rs/boats/RsBoatFit.h"
+#include "soh/Enhancements/rs/boats/RsBoatHealth.h"
 #include "soh/Enhancements/rs/boats/RsBoatSail.h"
 #include "soh/Enhancements/rs/swim/SwimStamina.h"
 
@@ -1717,6 +1719,42 @@ s32 RsBoat_LinkOnDeck(const RsBoat* this, const Player* player) {
            (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND);
 }
 
+s32 RsBoat_LinkAboard(const RsBoat* this, PlayState* play) {
+    // Last tick's too: a hop across the deck leaves the ground for a few ticks, and a hit then still lands.
+    return this->helm || this->linkAboard || RsBoat_LinkOnDeck(this, GET_PLAYER(play));
+}
+
+s32 RsBoat_HullContains(const RsBoat* this, f32 x, f32 z, f32 margin) {
+    const RsBoatKind* kind = &sRsBoatKinds[this->kind];
+    const s32 n = RsBoat_NumStations(kind);
+    const Actor* a = &this->dyna.actor;
+    const f32 dx = x - a->world.pos.x;
+    const f32 dz = z - a->world.pos.z;
+    // Into the hull's own frame: `along` toward the bow (+z), `across` to its side.
+    const f32 along = dx * Math_SinS(a->shape.rot.y) + dz * Math_CosS(a->shape.rot.y);
+    const f32 across = dx * Math_CosS(a->shape.rot.y) - dz * Math_SinS(a->shape.rot.y);
+    f32 hw;
+    s32 i;
+
+    if (n == 0 || along < kind->stations[0].z - margin || along > kind->stations[n - 1].z + margin) {
+        return 0;
+    }
+    // The half width at `along`, between the two stations either side of it; past either end, the end's.
+    hw = along <= kind->stations[0].z ? kind->stations[0].outerHw : kind->stations[n - 1].outerHw;
+    for (i = 0; i + 1 < n; i++) {
+        const RsBoatStation* s0 = &kind->stations[i];
+        const RsBoatStation* s1 = &kind->stations[i + 1];
+
+        if (along >= s0->z && along <= s1->z) {
+            const f32 t = s1->z > s0->z ? (along - s0->z) / (s1->z - s0->z) : 0.0f;
+
+            hw = s0->outerHw + (s1->outerHw - s0->outerHw) * t;
+            break;
+        }
+    }
+    return fabsf(across) <= hw + margin;
+}
+
 void RsBoat_StandAtHelm(const RsBoat* this, Player* player, f32 lift) {
     Vec3f helm;
 
@@ -2440,6 +2478,17 @@ static void RsBoat_CamUpdate(RsBoat* this, PlayState* play, const Player* player
                           100.0f);
 }
 
+// Lets go of the helm. `refuge`: the boat becomes Link's drown refuge, as every let-go does but a capsize's.
+static void RsBoat_LetGo(RsBoat* this, PlayState* play, s32 refuge) {
+    RsSteer_LetGo(GET_PLAYER(play));
+    this->helm = 0;
+    RsSteerCam_Stop(&this->cam, play);
+    if (refuge) {
+        RsBoat_SetRefuge(this);
+    }
+    RsBoat_Mark(this, "helm_off");
+}
+
 s32 RsBoat_SetHelm(RsBoat* this, PlayState* play, s32 on) {
     Player* player = GET_PLAYER(play);
 
@@ -2458,12 +2507,8 @@ s32 RsBoat_SetHelm(RsBoat* this, PlayState* play, s32 on) {
         RsSteerCam_Start(&this->cam, play, CVarGetInteger(CVAR_RS_BOAT_CAM, 1));
         RsBoat_Mark(this, "helm_on");
     } else {
-        RsSteer_LetGo(player);
-        this->helm = 0;
-        RsSteerCam_Stop(&this->cam, play);
         // Every let-go, B or knocked off: he steered this boat. Taking the helm, or only standing aboard, sets nothing.
-        RsBoat_SetRefuge(this);
-        RsBoat_Mark(this, "helm_off");
+        RsBoat_LetGo(this, play, 1);
     }
     return 1;
 }
@@ -2488,6 +2533,66 @@ static f32 RsBoat_FloorLow(const RsBoat* this, f32 bob) {
         low = MIN(low, y);
     }
     return bob + low;
+}
+
+// --- capsizing (#284) -------------------------------------------------------------------------------
+//
+// RsBoatHealth.h decides when (0 HP) and keeps the HP; this is what the hull does. Its collision goes at once, so Link
+// standing on it drops into the water where it went down rather than riding it under, and the hull rolls onto its side
+// and sinks, easing in, taking no input. Gone under, the player's own boat is stowed (the store already has it wrecked)
+// and a fixture is killed.
+
+void RsBoat_Capsize(RsBoat* this, PlayState* play) {
+    Player* player = GET_PLAYER(play);
+
+    if (this->sinkTicks > 0) {
+        return;
+    }
+    // Let go without making it his refuge, and spend one it already was: a drown before it is gone would put him on a
+    // deck sinking under him. One he has on another boat stands.
+    if (this->helm) {
+        RsBoat_LetGo(this, play, 0);
+    }
+    RsSwim_ClearRefugeOn(&this->dyna.actor);
+    func_8003EBF8(play, &play->colCtx.dyna, this->dyna.bgId); // DynaPoly_DisableCollision
+    this->dyna.actor.flags &= ~ACTOR_FLAG_ATTENTION_ENABLED;
+    if (player->focusActor == &this->dyna.actor) {
+        player->focusActor = NULL;
+    }
+    this->sinkTicks = 1;
+    this->speed = 0.0f;
+    this->yawVel = 0;
+    this->throttle = 0.0f;
+    Audio_PlayActorSound2(&this->dyna.actor, NA_SE_EV_WOODBOX_BREAK);
+    Audio_PlayActorSound2(&this->dyna.actor, NA_SE_EV_DIVE_INTO_WATER_L);
+    EffectSsGSplash_Spawn(play, &this->dyna.actor.world.pos, NULL, NULL, 0, 600);
+    RsBoat_Mark(this, "capsize");
+}
+
+// One tick of going under: the roll toward its side and the drop below the surface, both easing in.
+static void RsBoat_Sink(RsBoat* this, PlayState* play) {
+    Actor* thisx = &this->dyna.actor;
+    const f32 t = CLAMP((f32)this->sinkTicks / (f32)RS_BOAT_SINK_TICKS, 0.0f, 1.0f);
+
+    this->timer++;
+    this->linkAboard = 0;
+    thisx->shape.rot.z = (s16)(this->roll + (s16)(0x3800 * t));
+    thisx->shape.rot.x = (s16)(this->pitch * (1.0f - t));
+    thisx->world.pos.y = this->surfaceY - RS_BOAT_SINK_DEPTH * t * t;
+    if ((this->sinkTicks % 8) == 0) {
+        Vec3f ring = thisx->world.pos;
+
+        ring.y = this->surfaceY;
+        EffectSsGRipple_Spawn(play, &ring, (s16)(RsBoat_KindHalfLength(this->kind) * 2.0f), 1200, 0);
+    }
+    if (++this->sinkTicks > RS_BOAT_SINK_TICKS) {
+        RsBoat_Mark(this, "sunk");
+        if (this->owned) {
+            RsBoatDock_Stow(this->kind); // kills it
+        } else {
+            Actor_Kill(thisx);
+        }
+    }
 }
 
 // --- actor --------------------------------------------------------------------------------------
@@ -2546,6 +2651,8 @@ void RsBoat_Init(Actor* thisx, PlayState* play) {
     this->wakeHeld = 0;
     this->wakeFoam = 0;
     this->cam.subCamId = SUBCAM_NONE;
+    this->sinkTicks = 0;
+    RsBoatHealth_InitBoat(this);
     this->surfaceY = thisx->world.pos.y;
     this->onWater = RsBoat_SurfaceBox(play, thisx->world.pos.x, thisx->world.pos.z, &this->surfaceY, thisx,
                                       &this->waterBox);
@@ -2876,6 +2983,10 @@ void RsBoat_Update(Actor* thisx, PlayState* play) {
     s16 nextYaw;
     s32 aDown = (input->cur.button & BTN_A) != 0;
 
+    if (this->sinkTicks > 0) {
+        RsBoat_Sink(this, play);
+        return;
+    }
     // No lag to make up for when drawing: DynaPoly_Setup runs between the BG and Player categories and takes the
     // hull's transform as this tick left it, so Player carries Link by this tick's move, not last tick's.
     this->timer++;

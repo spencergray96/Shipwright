@@ -51,10 +51,10 @@ extern "C" {
 // serialized by number - the save keys each slot by its name - so a slot may be appended anywhere in the list
 // (the eternal brazier, a core part, is the one expected next) without a save break.
 typedef enum RsBoatSlot {
-    RS_BOAT_SLOT_HULL,           // core: top speed (RS: also its health and speed cap)
+    RS_BOAT_SLOT_HULL,           // core: top speed and HP (RS: also its speed cap)
     RS_BOAT_SLOT_HELM,           // core: nothing yet (RS: rapids and kelp)
     RS_BOAT_SLOT_SAILS,          // core, RS's "mast and sails": acceleration
-    RS_BOAT_SLOT_KEEL,           // core, not on the raft: nothing yet (RS: health and armour)
+    RS_BOAT_SLOT_KEEL,           // core, not on the raft: HP and armour
     RS_BOAT_SLOT_SALVAGING_HOOK, // facility
     RS_BOAT_SLOT_WIND_CATCHER,   // facility
     RS_BOAT_SLOT_CANNON,         // facility
@@ -100,17 +100,20 @@ typedef struct RsBoatTier {
                       // the hooks, the cannon to rune); a tier with a mesh of its own is drawn from its own list.
     float topSpeed;   // units a tick ahead (a hull's)
     float accel;      // speed gained a tick toward the throttle's target (a sail's)
-    int32_t hitpoints; // reserved for boat health (designed, not built)
+    int32_t hitpoints; // what it adds to the boat's most HP (a hull's and a keel's; RsBoatHealth.h, #284)
     uint32_t waters;   // reserved: the hazardous waters it lets the boat enter (designed, not built)
+    int32_t armour;    // flat: taken off every hit the boat takes (a keel's; RS's 100 armour is 1 here)
 } RsBoatTier;
 
-// The boats' stats from a fit-out: every fitted tier's stats in slot order, a later slot's nonzero stat winning.
-// A stat at 0 is the boat's own, as in RsBoatTier.
+// The boats' stats from a fit-out: every fitted tier's stats in slot order, a later slot's nonzero speed or
+// acceleration winning, its hitpoints and armour summed and its waters ORed. A stat at 0 is the boat's own, as in
+// RsBoatTier.
 typedef struct RsBoatFitStats {
     float topSpeed;
     float accel;
-    int32_t hitpoints;
+    int32_t hitpoints; // summed, every slot's: the hull's and the keel's
     uint32_t waters;
+    int32_t armour; // summed
 } RsBoatFitStats;
 
 // --- upgrades -----------------------------------------------------------------------------------

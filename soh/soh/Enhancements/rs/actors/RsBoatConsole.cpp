@@ -12,6 +12,7 @@
 #include "RsBoatHud.h"
 #include "RsVehicleMinimap.h"
 #include "soh/Enhancements/rs/boats/RsBoatDock.h"
+#include "soh/Enhancements/rs/boats/RsBoatHealth.h"
 #include "soh/Enhancements/rs/boats/RsBoatFitConsole.h"
 #include "soh/Enhancements/console/ConsoleSink.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
@@ -42,7 +43,8 @@ using ConsoleSink::Addf;
     "climb [hop|hands] | kind [skiff|sloop|raft] | tune [default] | tune <knob> <value> | wake [default|reset] | "  \
     "wake slots [<n>|default] | "                                                                                   \
     "wake <knob> <value> | contact [<idx>] | still [on|off] | shadow [feet|circle|draped|default|reset] | "      \
-    "shadow size <n> | shadow anchor [auto|hull|link] | shadow trace | clear | " RS_BOAT_FIT_GRAMMAR " | "             RS_BOAT_DOCK_GRAMMAR
+    "shadow size <n> | shadow anchor [auto|hull|link] | shadow trace | clear | " RS_BOAT_FIT_GRAMMAR " | "             RS_BOAT_DOCK_GRAMMAR \
+    " | " RS_BOAT_HEALTH_GRAMMAR
 
 const char* kUsage = "op=usage result=error usage=\"boat " RS_BOAT_GRAMMAR "\"";
 
@@ -783,6 +785,11 @@ int32_t RsBoatConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (dockRc >= 0) {
         return dockRc;
     }
+    // Health (#284): `hp` reads the save, so it works from the title screen too; the rest need a scene.
+    const int32_t healthRc = RsBoatHealth_ConsoleRun(args, lines);
+    if (healthRc >= 0) {
+        return healthRc;
+    }
     if (sub == "lakehylia") {
         return LakeHylia(args, lines);
     }
@@ -905,9 +912,13 @@ const ConsoleSink::Command rsBoatCommand(
     "where and docks read where the player's boats are and the piers in this scene (#282): stowed, docked or "
     "abandoned; takeout, putaway and fetch do what a pier does (at the dock given, else the pier Link is talking "
     "to, else dock 0), fetch charging the fee; stow puts a kind back to stowed wherever it is, and place puts it "
-    "down at x z in this scene (test aids, no rules).",
+    "down at x z in this scene (test aids, no rules); repair mends a damaged boat at a pier for its fee (#284). "
+    "hp lists each kind's HP and the live boats' (hp <kind> <n>|full sets one outright); damage hits the boat Link "
+    "is aboard (else idx, else the only one) as a source would, the console's landing with nobody aboard; capsize "
+    "sinks it at once; heart puts a boat heart on the water at Link's feet, lists the scene's, or clears them.",
     { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|kind|tune|wake|contact|still|shadow|"
-        "clear|fitout|upgrades|build|grant|look|own|fit|where|docks|stow|place|takeout|putaway|fetch",
+        "clear|fitout|upgrades|build|grant|look|own|fit|where|docks|stow|place|takeout|putaway|fetch|repair|hp|"
+        "damage|capsize|heart",
         Ship::ArgumentType::TEXT },
       { "arg1", Ship::ArgumentType::TEXT, true },
       { "arg2", Ship::ArgumentType::TEXT, true },
@@ -1026,6 +1037,24 @@ place <kind> <x> <z> [<yaw>]      put your boat down at a spot here, no rules
 takeout <kind> [<dock>]           a boat out to a pier, free
 putaway <kind> [<dock>]           a boat docked at a pier, stowed
 fetch <kind> [<dock>]             an abandoned boat to a pier, for its fee
+repair <kind> [<dock>]            mend a damaged boat at a pier, for its fee
+hp                                each kind's HP, and the live boats'
+  <kind>                          set a kind's HP outright, no rules
+    <n>                           to n; 0 sinks it
+    full                          mended, free
+damage                            hit the boat Link is aboard
+  <n>                             the hit, before armour
+    console                       lands with nobody aboard (the default)
+    hazard                        a hazardous water's hit
+    rapids                        a rapid too strong for the helm
+    lightning                     a lightning strike
+    enemy                         a creature's or a cannon's
+    <idx>                         that boat, not the one Link is aboard
+capsize [<idx>]                   sink the boat at once, as at 0 HP
+heart                             the floating hearts that mend a boat
+  here                            one on the water at Link's feet
+  list                            this scene's hearts
+  clear                           take them all away
 )");
 
 } // namespace

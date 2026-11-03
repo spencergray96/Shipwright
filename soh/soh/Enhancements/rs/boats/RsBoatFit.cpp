@@ -3,6 +3,7 @@
 
 #include "RsBoatFit.h"
 #include "RsBoatDock.h"
+#include "RsBoatHealth.h"
 #include "RsBoatSail.h"
 
 #include <cstdio>
@@ -143,6 +144,7 @@ void MarkUpgrade(const char* event, const RsBoatUpgrade* u, int32_t result, int3
 void RsBoatFitInitFile(bool isDebug) {
     RsBoatFit_Reset();
     RsBoatDock_Reset();
+    RsBoatHealth_Reset();
 }
 
 void SaveRsBoats(SaveContext* saveContext, int sectionID, bool fullSave) {
@@ -164,7 +166,8 @@ void SaveRsBoats(SaveContext* saveContext, int sectionID, bool fullSave) {
                     SaveManager::Instance->SaveData(RgbKey(look), RgbHex(sFit[kind].rgb[look]));
                 }
             }
-            RsBoatDock_SaveKind(kind); // where the boat is (#282): `out`, and its place when it is
+            RsBoatDock_SaveKind(kind);   // where the boat is (#282): `out`, and its place when it is
+            RsBoatHealth_SaveKind(kind); // its HP (#284): `hp`, while it is under its most
         });
     }
 }
@@ -223,6 +226,7 @@ void LoadRsBoatsV1() {
                 }
             }
             RsBoatDock_LoadKind(kind);
+            RsBoatHealth_LoadKind(kind);
         });
     }
 }
@@ -322,6 +326,7 @@ extern "C" void RsBoatFit_Stats(int32_t kind, RsBoatFitStats* out) {
         }
         out->hitpoints += t->hitpoints;
         out->waters |= t->waters;
+        out->armour += t->armour;
     }
 }
 

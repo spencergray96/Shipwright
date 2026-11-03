@@ -84,6 +84,8 @@ int32_t RsSwim_ClockSeconds(void);
 // at all for NULL), when the scene changes, or when the actor is gone.
 void RsSwim_SetRefuge(struct Actor* actor, float x, float y, float z, int16_t yaw);
 void RsSwim_ClearRefuge(void);
+// Clears it only when it is on `actor`: a boat going down (sturdy-bassoon#284) spends itself, not one on another boat.
+void RsSwim_ClearRefugeOn(struct Actor* actor);
 
 #ifdef __cplusplus
 }

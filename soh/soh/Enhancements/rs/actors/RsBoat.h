@@ -79,8 +79,12 @@
 // the circle's, by how many faces lie under it. `boat shadow` switches it (or to the flat circle, or the feet shadows),
 // reads its last draw, and `boat shadow trace` its last RS_VEHICLE_SHADOW_TRACE.
 //
+// HEALTH (#284, boats/RsBoatHealth.h). A hit to 0 capsizes the boat (RsBoat_Capsize): it lets go, its collision goes
+// so Link drops into the water where it went down, and the hull rolls over and sinks out of sight in RS_BOAT_SINK_TICKS,
+// taking no input; then the player's own is stowed (and wrecked) and a fixture is gone. Bumping the shore never hurts.
+//
 // Console: `boat ...` and `agenttest boat ...` (RsBoatConsole.h). Markers: `rs_boat event=<spawn|helm_on|
-// helm_off|blocked> ...` (agent mode).
+// helm_off|blocked|capsize|sunk> ...` (agent mode).
 
 #include "z64.h"
 #include "RsSteer.h"
@@ -277,7 +281,26 @@ typedef struct RsBoat {
     s32 wakeHeld;    // rings held back because the pool was down to its reserve
     s32 wakeFoam;    // rings due at foam speed: every RS_BOAT_WAKE_FOAM_EVERY-th brings a splash
     RsSteerCam cam;  // the steering camera while the helm is held (RsSteer.h)
+    s32 damage;      // a fixture's damage, what it is missing from its most (#284); the player's own is the store's
+    s32 sinkTicks;   // ticks since it capsized, 0 while afloat (#284)
 } RsBoat;
+
+// How long a capsized boat takes to go under, and how far down it goes before it is gone (#284).
+#define RS_BOAT_SINK_TICKS 40
+#define RS_BOAT_SINK_DEPTH 120.0f
+
+// Capsizes the boat now, as its HP reaching 0 does (RsBoatHealth.h): lets go of the helm, drops its collision so Link
+// is left in the water, spends his refuge on it, and starts it sinking. Nothing for a boat already sinking. Marks
+// `capsize`, and `sunk` when it has gone under.
+void RsBoat_Capsize(struct RsBoat* boat, PlayState* play);
+
+// 1 when Link is aboard the boat for a hit (RsBoatHealth.h): on its deck or rail, or at its helm.
+s32 RsBoat_LinkAboard(const struct RsBoat* boat, PlayState* play);
+
+// 1 when (x, z) lies inside the boat's outline grown by `margin` all round: its stations, stern to bow, each its outer
+// half width, taken between stations as the hull tapers. What sailing over something is: a boat heart (#284), a trial's
+// crate (#289, which tests a rectangle of its own today), a rapid.
+s32 RsBoat_HullContains(const struct RsBoat* boat, f32 x, f32 z, f32 margin);
 
 // The drive override for the agent loop: when `ticks` > 0 the boat at the helm reads these instead of the
 // pad, then counts down. Lets a run drive a known course with no stick injection. 0 ticks = the pad.

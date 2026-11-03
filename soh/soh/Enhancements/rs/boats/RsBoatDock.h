@@ -4,6 +4,9 @@
 // Boat docks (sturdy-bassoon#282): where the player's own boats are, and the piers that hand them out. The design is
 // sturdy-bassoon docs/decisions/2026-10-30-boat-ownership-and-fit-out.md ("Docks"); the words are CONTEXT.md's.
 //
+// A BOAT'S HP (#284, RsBoatHealth.h) is the pier's business too: it repairs a damaged boat that is stowed or docked
+// at any pier, to full, for RsBoatHealth_RepairFee, and will not take out a WRECKED one (capsized, 0 HP) until then.
+//
 // EVERY OWNED BOAT IS IN ONE OF TWO PLACES, saved per kind in `rsBoats` (RsBoatFit.cpp writes the section, this file
 // its keys):
 //   - STOWED: in no particular place. Any pier takes it out, free. A newly owned boat starts stowed, and so does every
@@ -48,6 +51,8 @@ typedef enum RsBoatDockState {
     RS_BOAT_DOCK_DOCKED,    // out, inside a dock (as of when it was last in a loaded scene)
     RS_BOAT_DOCK_ABANDONED, // out, outside every dock, or where there is no water to put it now
     RS_BOAT_DOCK_HERE,      // docked at the pier Link is talking to (a test, never a stored state): implies DOCKED
+    RS_BOAT_DOCK_DAMAGED,   // its HP is under its most, wherever it is (a test, as HERE; boats/RsBoatHealth.h, #284)
+    RS_BOAT_DOCK_WRECKED,   // its HP is 0: it capsized and has not been repaired (a test, as HERE; always stowed)
     RS_BOAT_DOCK_STATE_COUNT,
 } RsBoatDockState;
 
@@ -56,6 +61,7 @@ typedef enum RsBoatDockOp {
     RS_BOAT_DOCK_OP_TAKE_OUT, // a stowed or docked boat to this pier's mooring, free
     RS_BOAT_DOCK_OP_PUT_AWAY, // the boat moored here to stowed
     RS_BOAT_DOCK_OP_FETCH,    // an abandoned boat to this pier's mooring, for its fee
+    RS_BOAT_DOCK_OP_REPAIR,   // a damaged boat, stowed or docked at any pier, to full HP, for its repair fee (#284)
     RS_BOAT_DOCK_OP_COUNT,
 } RsBoatDockOp;
 
@@ -70,7 +76,9 @@ typedef enum RsBoatDockResult {
     RS_BOAT_DOCK_MOORING_BLOCKED, // another boat lies on the mooring
     RS_BOAT_DOCK_DYNA_POOL,       // the scene's DynaPoly pools cannot take the hull
     RS_BOAT_DOCK_NO_WATER,        // the mooring is not on water
-    RS_BOAT_DOCK_CANT_AFFORD,     // fetch: fewer rupees than the fee
+    RS_BOAT_DOCK_CANT_AFFORD,     // fetch or repair: fewer rupees than the fee
+    RS_BOAT_DOCK_IS_WRECKED,      // take out or fetch: it capsized, and is mended first (#284)
+    RS_BOAT_DOCK_NOT_DAMAGED,     // repair: it is at full HP
     RS_BOAT_DOCK_RESULT_COUNT,
 } RsBoatDockResult;
 
@@ -106,6 +114,10 @@ struct Actor* RsBoatDock_TalkPier(void);
 // reply, the boats it put away to make room. A toast only for a refusal its gates should have hidden (a bug).
 int32_t RsBoatDock_DialogueAction(int32_t op, int32_t kind);
 
+// Puts the kind back to stowed wherever it is, killing its boat if it is in the loaded scene: a capsized boat gone under,
+// or wrecked in another scene (#284).
+void RsBoatDock_Stow(int32_t kind);
+
 // The `rsBoats` keys of one kind (RsBoatFit.cpp's section calls these inside each kind's object), and the reset every
 // new game and load starts from (everything stowed).
 void RsBoatDock_SaveKind(int32_t kind);
@@ -124,7 +136,7 @@ int32_t RsBoatDock_ConsoleRun(const std::vector<std::string>& args, std::vector<
 // The grammar, for `boat`'s usage line and help text.
 #define RS_BOAT_DOCK_GRAMMAR                                                                                        \
     "where | docks | stow <kind>|all | place <kind> <x> <z> [<yaw>] | takeout <kind> [<dock>] | putaway <kind> "          \
-    "[<dock>] | fetch <kind> [<dock>]"
+    "[<dock>] | fetch <kind> [<dock>] | repair <kind> [<dock>]"
 #endif
 
 #endif // SOH_RS_BOAT_DOCK_H
