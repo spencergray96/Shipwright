@@ -42,7 +42,8 @@ using ConsoleSink::Addf;
     "lakelevel [full|drained] | cam [on|off|default] | cam height|dist|ease <n> | hud [on|off] | "             \
     "climb [hop|hands] | kind [skiff|sloop|raft] | tune [default] | tune <knob> <value> | wake [default|reset] | "  \
     "wake slots [<n>|default] | "                                                                                   \
-    "wake <knob> <value> | contact [<idx>] | still [on|off] | shadow [feet|circle|draped|default|reset] | "      \
+    "wake <knob> <value> | contact [<idx>] | still [on|off] | fade <0-255>|off [both|depth|colour] | "             \
+    "shadow [feet|circle|draped|default|reset] | "                                                                  \
     "shadow size <n> | shadow anchor [auto|hull|link] | shadow trace | clear | " RS_BOAT_FIT_GRAMMAR " | "             RS_BOAT_DOCK_GRAMMAR \
     " | " RS_BOAT_HEALTH_GRAMMAR
 
@@ -397,6 +398,32 @@ int32_t Still(const std::vector<std::string>& args, std::vector<std::string>& li
         return 1;
     }
     Addf(lines, "op=still result=ok still=%s", gRsBoatStill ? "on" : "off");
+    return 0;
+}
+
+// `boat fade <0-255>|off [both|depth|colour]` (#284): every afloat boat drawn faded, as a sinking hull is, with both
+// passes or one alone. A test aid for the fade's look, not saved.
+int32_t Fade(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    static const char* const kPasses[] = { "both", "depth", "colour" };
+    if (args.size() >= 2) {
+        char* end = nullptr;
+        const long amount = args[1] == "off" ? 0 : std::strtol(args[1].c_str(), &end, 10);
+        int32_t passes = RS_BOAT_FADE_BOTH;
+        if (args.size() == 3) {
+            passes = args[2] == "both"     ? RS_BOAT_FADE_BOTH
+                     : args[2] == "depth"  ? RS_BOAT_FADE_DEPTH
+                     : args[2] == "colour" ? RS_BOAT_FADE_COLOUR
+                                           : -1;
+        }
+        if ((args[1] != "off" && (end == args[1].c_str() || *end != '\0' || amount < 0 || amount > 255)) ||
+            passes < 0 || args.size() > 3) {
+            lines.push_back(kUsage);
+            return 1;
+        }
+        gRsBoatFadeTest.amount = (s32)amount;
+        gRsBoatFadeTest.passes = passes;
+    }
+    Addf(lines, "op=fade result=ok amount=%d passes=%s", (int)gRsBoatFadeTest.amount, kPasses[gRsBoatFadeTest.passes]);
     return 0;
 }
 
@@ -803,6 +830,9 @@ int32_t RsBoatConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "climb") {
         return Climb(args, lines);
     }
+    if (sub == "fade") {
+        return Fade(args, lines);
+    }
     if (sub == "still") {
         return Still(args, lines);
     }
@@ -917,7 +947,7 @@ const ConsoleSink::Command rsBoatCommand(
     "is aboard (else idx, else the only one) as a source would, the console's landing with nobody aboard; capsize "
     "sinks it at once; heart puts a boat heart on the water at Link's feet, lists the scene's, or clears them.",
     { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|kind|tune|wake|contact|still|shadow|"
-        "clear|fitout|upgrades|build|grant|look|own|fit|where|docks|stow|place|takeout|putaway|fetch|repair|hp|"
+        "clear|fade|fitout|upgrades|build|grant|look|own|fit|where|docks|stow|place|takeout|putaway|fetch|repair|hp|"
         "damage|capsize|heart",
         Ship::ArgumentType::TEXT },
       { "arg1", Ship::ArgumentType::TEXT, true },
@@ -990,6 +1020,12 @@ contact [<idx>]                   what the hull's outline meets
 still                             hold every boat level
   on                              no bob or rock
   off                             let them bob again
+fade                              draw every boat faded, as one sinking
+  <n>                             0 to 255, then the passes
+    both                          depth, then the faded colour
+    depth                         the depth pass alone
+    colour                        the faded colour alone
+  off                             draw them whole again
 shadow                            Link's shadow over a boat
   feet                            under Link's feet, as on land
   circle                          vanilla's flat shadow

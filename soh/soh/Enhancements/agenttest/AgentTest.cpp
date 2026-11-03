@@ -644,7 +644,8 @@
  *                  lakehylia [on|off]|lakelevel [full|drained]|cam [..]|hud [on|off]|clear|
  *                  fitout [..]|upgrades|build <u>|grant <u>|look <kind> [..]|own <kind> 0|1|fit <kind> <slot> <tier>|
  *                  where|docks|stow <kind>|all|place <kind> <x> <z> [<yaw>]|takeout|putaway|fetch|repair <kind> [<dock>]|
- *                  hp [<kind> <n>|full]|damage <n> [<source>] [<idx>]|capsize [<idx>]|heart here|list|clear
+ *                  hp [<kind> <n>|full]|damage <n> [<source>] [<idx>]|capsize [<idx>]|heart here|list|clear|
+ *                  fade <0-255>|off [both|depth|colour]
  *                                          the sailing prototype's boats (sturdy-bassoon#256): where each is,
  *                                          its speed, helm and why it last stopped; put one down, stand Link
  *                                          at its tiller, take the helm, steer it without the pad. Since #263

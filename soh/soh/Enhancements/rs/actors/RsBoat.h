@@ -81,8 +81,9 @@
 //
 // HEALTH (#284, boats/RsBoatHealth.h). A hit to 0 capsizes the boat (RsBoat_Capsize): it lets go, its collision goes
 // so Link drops into the water where it went down, and the hull rolls over and sinks in RS_BOAT_SINK_TICKS, taking no
-// input, dissolving as it goes (gSPFade, libultraship's) so nothing is left in view to vanish; then the player's own is
-// stowed (and wrecked) and a fixture is gone. Bumping the shore never hurts.
+// input, fading out as it goes (gSPFade, libultraship's; drawn at the frame's end, RsBoat_DrawFaded, so it fades over
+// the water) so nothing is left in view to vanish; then the player's own is stowed (and wrecked) and a fixture is
+// gone. Bumping the shore never hurts.
 //
 // Console: `boat ...` and `agenttest boat ...` (RsBoatConsole.h). Markers: `rs_boat event=<spawn|helm_on|
 // helm_off|blocked|capsize|sunk> ...` (agent mode).
@@ -421,6 +422,24 @@ s32 RsBoat_WallLean(PlayState* play, const Player* player, s32 vanilla);
 
 // `boat still`: every boat level at its float height, no bob and no rock (a test aid, not saved; #262).
 extern s32 gRsBoatStill;
+
+// `boat fade`: every boat drawn faded by `amount` (0 off, to 255), with both passes or one alone, as a sinking hull is
+// (#284; a test aid for the fade's look, not saved).
+typedef enum RsBoatFadePasses {
+    RS_BOAT_FADE_BOTH,   // the depth pass, then the faded colour where it matches (what a sinking hull draws)
+    RS_BOAT_FADE_DEPTH,  // the depth pass alone: nothing on screen, its depth written
+    RS_BOAT_FADE_COLOUR, // the faded colour alone, with no depth pass before it
+} RsBoatFadePasses;
+typedef struct RsBoatFadeTest {
+    s32 amount;
+    s32 passes; // RsBoatFadePasses
+} RsBoatFadeTest;
+extern RsBoatFadeTest gRsBoatFadeTest;
+
+// Draws every faded boat's lists (a sinking hull, `boat fade`), which RsBoat_Draw leaves out: at the frame's end, after
+// every water, so a faded hull blends over the water (#284). The scene water's end-of-frame draw calls it, after its
+// own sheets (RsSceneWater.cpp).
+void RsBoat_DrawFaded(PlayState* play);
 
 // The hookshot's and the boomerang's line test (BgCheck_EntityLineTest1, every surface, as ArmsHook_Shoot and EnBoom_Fly
 // ask), but meeting a boat's hull as projectiles do (#262): past the walls only Link meets (RS_BOAT_POLY_SHOTS_PASS),
