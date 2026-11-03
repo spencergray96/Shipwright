@@ -80,8 +80,9 @@
 // reads its last draw, and `boat shadow trace` its last RS_VEHICLE_SHADOW_TRACE.
 //
 // HEALTH (#284, boats/RsBoatHealth.h). A hit to 0 capsizes the boat (RsBoat_Capsize): it lets go, its collision goes
-// so Link drops into the water where it went down, and the hull rolls over and sinks out of sight in RS_BOAT_SINK_TICKS,
-// taking no input; then the player's own is stowed (and wrecked) and a fixture is gone. Bumping the shore never hurts.
+// so Link drops into the water where it went down, and the hull rolls over and sinks in RS_BOAT_SINK_TICKS, taking no
+// input, dissolving as it goes (gSPFade, libultraship's) so nothing is left in view to vanish; then the player's own is
+// stowed (and wrecked) and a fixture is gone. Bumping the shore never hurts.
 //
 // Console: `boat ...` and `agenttest boat ...` (RsBoatConsole.h). Markers: `rs_boat event=<spawn|helm_on|
 // helm_off|blocked|capsize|sunk> ...` (agent mode).

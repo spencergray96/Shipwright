@@ -2569,6 +2569,17 @@ void RsBoat_Capsize(RsBoat* this, PlayState* play) {
     RsBoat_Mark(this, "capsize");
 }
 
+// How far a sinking hull has dissolved, for gSPFade: 0 until RS_BOAT_SINK_FADE_FROM of the way down, then all the way
+// (255) by RS_BOAT_SINK_FADE_TO, ahead of its removal at the end.
+#define RS_BOAT_SINK_FADE_FROM 0.25f
+#define RS_BOAT_SINK_FADE_TO 0.85f
+static u8 RsBoat_SinkFade(const RsBoat* this) {
+    const f32 t = (f32)this->sinkTicks / (f32)RS_BOAT_SINK_TICKS;
+
+    return (u8)(CLAMP((t - RS_BOAT_SINK_FADE_FROM) / (RS_BOAT_SINK_FADE_TO - RS_BOAT_SINK_FADE_FROM), 0.0f, 1.0f) *
+                255.0f);
+}
+
 // One tick of going under: the roll toward its side and the drop below the surface, both easing in.
 static void RsBoat_Sink(RsBoat* this, PlayState* play) {
     Actor* thisx = &this->dyna.actor;
@@ -3267,6 +3278,11 @@ void RsBoat_Draw(Actor* thisx, PlayState* play) {
     OPEN_DISPS(gfxCtx);
 
     Gfx_SetupDL_25Opa(gfxCtx);
+    // Going down, the hull, its rudder and its facilities dissolve (gSPFade): none at first, gone a little before it is
+    // removed, so nothing is left in view to vanish at once in see-through water (#284).
+    if (this->sinkTicks > 0) {
+        gSPFade(POLY_OPA_DISP++, RsBoat_SinkFade(this));
+    }
     // Actor_Draw has set the hull's matrix: its position and shape.rot, the rock included, as its collision has it.
     if (model != NULL) {
         // The fit-out's colours (sturdy-bassoon#283): the kind's list calls a slot of this segment straight after each
@@ -3328,7 +3344,8 @@ void RsBoat_Draw(Actor* thisx, PlayState* play) {
             gSPMatrix(POLY_OPA_DISP++, mtx, G_MTX_MODELVIEW | G_MTX_LOAD);
             gSPDisplayList(POLY_OPA_DISP++, list);
             Gfx_SetupDL_25Opa(gfxCtx);
-            if (xlu != NULL) {
+            // A facility's faded faces are not the constant-1 alpha a fade takes, so they go with the sinking hull at once.
+            if (xlu != NULL && this->sinkTicks == 0) {
                 Gfx_SetupDL_25Xlu(gfxCtx);
                 gSPSegment(POLY_XLU_DISP++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)colours);
                 gSPMatrix(POLY_XLU_DISP++, mtx, G_MTX_MODELVIEW | G_MTX_LOAD);
@@ -3341,6 +3358,9 @@ void RsBoat_Draw(Actor* thisx, PlayState* play) {
         // Player leaves Link's cull list in 0x0C and an actor drawn later may still call it (AlwaysOnFixes.cpp's
         // Item_Shield fix), so it goes back once the boat's lists are done with the segment.
         gSPSegment(POLY_OPA_DISP++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)gCullBackDList);
+    }
+    if (this->sinkTicks > 0) {
+        gSPFade(POLY_OPA_DISP++, 0);
     }
     gSPMatrix(POLY_OPA_DISP++, MATRIX_NEWMTX(gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
     gSPClearGeometryMode(POLY_OPA_DISP++, G_CULL_BACK);
