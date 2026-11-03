@@ -10,6 +10,8 @@
 #include <spdlog/spdlog.h>
 
 #include "soh/Enhancements/rs/actors/RsActors.h" // RsText_ChoiceWouldPaginate - the renderer answers
+#include "soh/Enhancements/rs/actors/RsBoat.h" // RS_BOAT_KIND_COUNT, for the dock action's operand
+#include "soh/Enhancements/rs/boats/RsBoatDock.h"
 #include "soh/Enhancements/rs/boats/RsBoatFit.h"
 #include "soh/Enhancements/rs/boats/RsBoatSail.h"
 #include "soh/Enhancements/rs/prefs/FloorText.h"
@@ -160,6 +162,7 @@ bool CheckPredicate(char* buf, size_t len, const char* where, const QuestPredica
             break;
         case QUEST_PRED_BOAT_OWNED:
         case QUEST_PRED_BOAT_TIER_AT_LEAST:
+        case QUEST_PRED_BOAT_STATE_IS:
             if (!RsBoatFit_PredicateOperandsValid(p.kind, p.a, p.b)) {
                 return Problem(buf, len, "%s: boat predicate operands %d, %d out of range", where, p.a, p.b);
             }
@@ -518,6 +521,13 @@ bool CheckOption(char* buf, size_t len, const RsNpcDef* def, const ScreenRef& re
             if (option.a < 0 || option.a > 0xFF || RS_DLG_SAIL_SAIL(option.a) >= RS_BOAT_SAIL_COUNT ||
                 RS_DLG_SAIL_OP(option.a) >= RS_BOAT_SAIL_OP_COUNT) {
                 return Problem(buf, len, "%s[%d].opt[%d]: boat sail operand %d names no sail or op", word, screenIndex,
+                               index, option.a);
+            }
+            break;
+        case RS_DLG_ACTION_BOAT_DOCK:
+            if (option.a < 0 || option.a > 0xFF || RS_DLG_DOCK_OP(option.a) >= RS_BOAT_DOCK_OP_COUNT ||
+                RS_DLG_DOCK_KIND(option.a) >= RS_BOAT_KIND_COUNT) {
+                return Problem(buf, len, "%s[%d].opt[%d]: boat dock operand %d names no op or kind", word, screenIndex,
                                index, option.a);
             }
             break;
@@ -1299,6 +1309,8 @@ extern "C" const char* RsNpc_ActionName(int32_t kind) {
             return "buy_item";
         case RS_DLG_ACTION_BOAT_SAIL:
             return "boat_sail";
+        case RS_DLG_ACTION_BOAT_DOCK:
+            return "boat_dock";
         default:
             return "?";
     }
@@ -1503,6 +1515,13 @@ extern "C" int32_t RsNpc_RunAction(const RsDialogueOption* option) {
             return RsBoatSail_DialogueAction(RS_DLG_SAIL_SAIL(option->a), RS_DLG_SAIL_OP(option->a))
                        ? QUEST_OK
                        : QUEST_ERR_PREREQ_UNMET;
+        case RS_DLG_ACTION_BOAT_DOCK: {
+            // At the pier Link is talking to; a refusal is an outcome, said in a toast (RsBoatDock.h).
+            const int32_t result = RsBoatDock_DialogueAction(RS_DLG_DOCK_OP(option->a), RS_DLG_DOCK_KIND(option->a));
+            return result == RS_BOAT_DOCK_OK            ? QUEST_OK
+                   : result == RS_BOAT_DOCK_CANT_AFFORD ? QUEST_ERR_CANNOT_AFFORD
+                                                        : QUEST_ERR_PREREQ_UNMET;
+        }
         default:
             return QUEST_ERR_BAD_DEF;
     }

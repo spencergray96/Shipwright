@@ -139,6 +139,7 @@ static void RsInteraction_Wait(RsInteraction* this, PlayState* play) {
 }
 
 static void RsInteraction_End(RsInteraction* this) {
+    RsInteraction_ClearActionWords();
     RsInteraction_Mark(this, "close");
     this->actionFunc = RsInteraction_Wait;
 }
@@ -231,6 +232,7 @@ static void RsInteraction_Talk(RsInteraction* this, PlayState* play) {
         declared = slots[choice];
         option = &screen->options[declared];
         RsText_RememberChoice(declared); // for a return to this screen (sturdy-bassoon#281)
+        RsInteraction_ClearActionWords();
         result = RsNpc_RunAction(option);
         snprintf(line, sizeof(line),
                  "rs_interaction id=%d event=choice slot=%d index=%d option=%d action=%s a=%d result=%s next=%d "
@@ -238,7 +240,11 @@ static void RsInteraction_Talk(RsInteraction* this, PlayState* play) {
                  this->interactionId, (int)slot, (int)choice, (int)declared, RsNpc_ActionName(option->kind),
                  option->a, Quest_ResultName(result), (int)option->next, (int)scroll);
         RsAgent_Marker(line);
-        if (option->reply != NULL) {
+        // A refused action says no reply: the reply is written for the action having happened ("She'll
+        // be at the end of the pier."). Unless the action said words of its own (Interaction.h), which
+        // take its place, or follow it on success (sturdy-bassoon#282). Characters (RsNpc.c) still say
+        // theirs; their refusals are gated away.
+        if ((option->reply != NULL && result == QUEST_OK) || RsInteraction_ActionWords(NULL) != NULL) {
             // The reply's id names this screen and this option, so the hook composes it from the
             // definition; DONE on that id then follows the option's `next`.
             Message_ContinueTextbox(play, RS_TEXT_INTERACTION_REPLY_ID(slot, declared));

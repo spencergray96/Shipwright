@@ -52,6 +52,8 @@
 // box break - so the registration gate refuses all of them, and '&' means "line break" exactly as
 // an author would expect.
 
+#include "soh/Enhancements/rs/actors/RsBoat.h"
+#include "soh/Enhancements/rs/boats/RsBoatDock.h"
 #include "soh/Enhancements/rs/dialogue/NpcDialogue.h"
 #include "soh/Enhancements/rs/dialogue/NpcDialogueDef.h"
 #include "soh/Enhancements/rs/dialogue/NpcIds.h"
@@ -1258,6 +1260,20 @@ BAD_NPC_DEF(sDefSpeakerRange, sBadSpeakerRange, 1);
 BAD_NPC_DEF(sDefSpeakerUnregistered, sBadSpeakerUnregistered, 1);
 BAD_NPC_DEF(sDefReplySpeakerUnregistered, sBadReplySpeakerUnregistered, 1);
 BAD_NPC_DEF(sDefReplySpeakerNoReply, sBadReplySpeakerNoReply, 1);
+// #282: the dock predicate's state and the dock action's operation, each one past the end.
+const QuestPredicate sPredBoatStateRange[] = { QP_BOAT_STATE_IS(RS_BOAT_KIND_SKIFF, RS_BOAT_DOCK_STATE_COUNT) };
+const RsDialogueRule sBadPredBoatState[] = {
+    { sPredBoatStateRange, 1, "text", nullptr, 0, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+const RsDialogueOption sOptBoatDockOp[] = {
+    { "Yes", RS_DLG_ACTION_BOAT_DOCK, RS_DLG_DOCK(RS_BOAT_DOCK_OP_COUNT, RS_BOAT_KIND_SKIFF), nullptr, RS_DLG_NO_NEXT },
+    { "No", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+const RsDialogueRule sBadBoatDockOp[] = {
+    { nullptr, 0, "text", sOptBoatDockOp, 2, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+BAD_NPC_DEF(sDefPredBoatState, sBadPredBoatState, 1);
+BAD_NPC_DEF(sDefBoatDockOp, sBadBoatDockOp, 1);
 
 struct BadEntry {
     const char* label;
@@ -1356,6 +1372,9 @@ const BadEntry sBadDefs[] = {
     { "speaker_unregistered", &sDefSpeakerUnregistered },
     { "reply_speaker_unregistered", &sDefReplySpeakerUnregistered },
     { "reply_speaker_without_reply", &sDefReplySpeakerNoReply },
+    // Boat docks (#282), appended.
+    { "predicate_boat_state_range", &sDefPredBoatState },
+    { "action_boat_dock_op_range", &sDefBoatDockOp },
 };
 
 // RsNpc_Register is idempotent for the same pointer, which is what makes a ShipInit "*" re-run safe.

@@ -25,6 +25,17 @@ extern PlayState* gPlayState;
 
 #define SS_NULL 0xFFFFFFFF
 
+// The dyna poly pools for normal and spot scenes (sturdy-bassoon#282), before the doubling in BgCheck_Allocate for
+// polys and vertices: vanilla's 512 polys and vertices and 1,000 nodes, SoH's doubled 1,024, are 1,024 here, so 2,048
+// in use. The docks leave the player's boats where they were left, up to three in a scene: three sloops are 1,701
+// triangles, past the 1,024 two sloops already overflowed (ENGINE_BUDGETS.md, "Dynapoly actors"). A node is one dyna poly's entry
+// in its actor's floor, wall or ceiling list, and DynaSSList_InsertSorted asserts when they run out, so the node pool
+// keeps up with the poly pool: nodes are not doubled there, so this sets the doubled count. About 30 KB more of the
+// PlayState arena a scene (1,024 more 16-byte polys and 6-byte vertices, 1,048 more 8-byte nodes), counted in
+// BgCheck_GetFixedMemSize.
+#define RS_DYNA_POLY_LIST_MAX 1024
+#define RS_DYNA_POLY_NODES_MAX (RS_DYNA_POLY_LIST_MAX * 2)
+
 // bccFlags
 #define BGCHECK_CHECK_WALL (1 << 0)
 #define BGCHECK_CHECK_FLOOR (1 << 1)
@@ -1729,9 +1740,9 @@ void BgCheck_Allocate(CollisionContext* colCtx, PlayState* play, CollisionHeader
         colCtx->memSize = 0xF000;
         // "/* BGCheck Spot Size %dbyte */\n"
         osSyncPrintf("/* BGCheck Spot用サイズ %dbyte */\n", 0xF000);
-        colCtx->dyna.polyNodesMax = 1000;
-        colCtx->dyna.polyListMax = 512;
-        colCtx->dyna.vtxListMax = 512;
+        colCtx->dyna.polyNodesMax = RS_DYNA_POLY_NODES_MAX;
+        colCtx->dyna.polyListMax = RS_DYNA_POLY_LIST_MAX;
+        colCtx->dyna.vtxListMax = RS_DYNA_POLY_LIST_MAX;
         colCtx->subdivAmount.x = 16;
         colCtx->subdivAmount.y = 4;
         colCtx->subdivAmount.z = 16;
@@ -1743,9 +1754,9 @@ void BgCheck_Allocate(CollisionContext* colCtx, PlayState* play, CollisionHeader
         }
         // "/* BGCheck Normal Size %dbyte  */\n"
         osSyncPrintf("/* BGCheck ノーマルサイズ %dbyte  */\n", colCtx->memSize);
-        colCtx->dyna.polyNodesMax = 1000;
-        colCtx->dyna.polyListMax = 512;
-        colCtx->dyna.vtxListMax = 512;
+        colCtx->dyna.polyNodesMax = RS_DYNA_POLY_NODES_MAX;
+        colCtx->dyna.polyListMax = RS_DYNA_POLY_LIST_MAX;
+        colCtx->dyna.vtxListMax = RS_DYNA_POLY_LIST_MAX;
         useCustomSubdivisions = false;
 
         for (i = 0; i < ARRAY_COUNT(sceneSubdivisionList); i++) {

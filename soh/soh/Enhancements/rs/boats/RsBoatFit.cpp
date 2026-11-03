@@ -2,6 +2,7 @@
 // RsBoatFitCatalogue.cpp's.
 
 #include "RsBoatFit.h"
+#include "RsBoatDock.h"
 #include "RsBoatSail.h"
 
 #include <cstdio>
@@ -141,6 +142,7 @@ void MarkUpgrade(const char* event, const RsBoatUpgrade* u, int32_t result, int3
 // file with no `rsBoats` section reads the defaults, not the previous slot's boats.
 void RsBoatFitInitFile(bool isDebug) {
     RsBoatFit_Reset();
+    RsBoatDock_Reset();
 }
 
 void SaveRsBoats(SaveContext* saveContext, int sectionID, bool fullSave) {
@@ -162,6 +164,7 @@ void SaveRsBoats(SaveContext* saveContext, int sectionID, bool fullSave) {
                     SaveManager::Instance->SaveData(RgbKey(look), RgbHex(sFit[kind].rgb[look]));
                 }
             }
+            RsBoatDock_SaveKind(kind); // where the boat is (#282): `out`, and its place when it is
         });
     }
 }
@@ -219,6 +222,7 @@ void LoadRsBoatsV1() {
                                  RsBoat_KindName(kind), RgbKey(look), hex);
                 }
             }
+            RsBoatDock_LoadKind(kind);
         });
     }
 }
@@ -508,6 +512,8 @@ extern "C" int32_t RsBoatFit_PredicateOperandsValid(int32_t predKind, int32_t a,
                            b <= RS_BOAT_TIER_MAX
                        ? 1
                        : 0;
+        case QUEST_PRED_BOAT_STATE_IS:
+            return KindValid(a) && b >= 0 && b < RS_BOAT_DOCK_STATE_COUNT ? 1 : 0;
         default:
             return 0;
     }
