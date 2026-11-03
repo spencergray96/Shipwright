@@ -479,6 +479,7 @@ static void RsStairs_Wait(RsStairs* this, PlayState* play) {
                         this->row, screen != NULL ? (int)screen->optionCount : 0, via,
                         RsStair_MenuListName(RS_STAIR_MENU_ORDER_LIST(order)),
                         RsStair_MenuLeadName(RS_STAIR_MENU_ORDER_LEAD(order)));
+        this->openWait = RS_TALK_OPEN_WAIT;
         this->actionFunc = RsStairs_Talk;
         return;
     }
@@ -511,11 +512,16 @@ static void RsStairs_Talk(RsStairs* this, PlayState* play) {
     s32 dest;
     s32 result;
 
-    // Closed from outside - see RsNpc_Talk for why this matters.
+    // Closed from outside - see RsNpc_Talk for why this matters, and for the first box's grace (RS_TALK_OPEN_WAIT).
     if (state == TEXT_STATE_NONE) {
+        if (this->openWait > 0) {
+            this->openWait--;
+            return;
+        }
         RsStairs_EndTalk(this);
         return;
     }
+    this->openWait = 0;
 
     if (state == TEXT_STATE_CHOICE) {
         if (!Message_ShouldAdvance(play)) {

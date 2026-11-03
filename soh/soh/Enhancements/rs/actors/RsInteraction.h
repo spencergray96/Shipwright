@@ -27,6 +27,7 @@ typedef struct RsInteraction {
     /* */ int32_t ruleIndex;     // the entry rule resolved when the current check was accepted
     /* */ int32_t checks;        // times this placement has been checked since it spawned
     /* */ float range;           // talk range, x/z units
+    /* */ int32_t openWait;      // ticks left for a check's first box to open (RS_TALK_OPEN_WAIT); 0 once it has
 } RsInteraction;
 
 #endif // SOH_RS_INTERACTION_ACTOR_H

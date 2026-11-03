@@ -195,6 +195,7 @@ static void RsNpc_Wait(RsNpc* this, PlayState* play) {
          * opens the camera straight on them, because the talk camera has not framed anyone yet. */
         RsSpeaker_Begin(&this->actor, this->npcId);
         RsNpc_HandToScreen(this, play, offered, "entry");
+        this->openWait = RS_TALK_OPEN_WAIT;
         this->actionFunc = RsNpc_Talk;
         return;
     }
@@ -303,12 +304,19 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
     // another actor opening a textbox - leaves no other way back. Without this the actor sits in
     // Talk forever and is permanently unresponsive, which reads as "the rule table broke".
     // ovl_En_Ms has exactly this hole; copying it wholesale would have inherited it.
+    // ...but not before the talk's first box has opened, which can be frames after the talk started
+    // (RS_TALK_OPEN_WAIT): read as "closed", that gap left the box open with nobody listening.
     if (state == TEXT_STATE_NONE) {
+        if (this->openWait > 0) {
+            this->openWait--;
+            return;
+        }
         this->giving = NULL; /* a gift promised in a conversation that never reached its way out */
         RsSpeaker_End();
         this->actionFunc = RsNpc_Wait;
         return;
     }
+    this->openWait = 0;
 
     if (state == TEXT_STATE_CHOICE) {
         if (!Message_ShouldAdvance(play)) {
@@ -322,7 +330,12 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
          * re-talk, and entry resolution runs again, for free. */
         screenKind = RsNpc_DecodeScreen(openId, &screenNpc, &screenIndex);
         if (screenKind == RS_SCREEN_NONE || screenNpc != this->npcId) {
-            return; /* somebody else's box, or a reply box: not ours to pick from */
+            /* somebody else's box, or a reply box: not ours to pick from. Said, because a pick that does nothing
+             * is otherwise invisible (sturdy-bassoon#286's harness, where a pick was lost without a trace). */
+            snprintf(line, sizeof(line), "rs_dialogue npc=%d event=choice_ignored reason=not_ours open=0x%04X",
+                     this->npcId, (unsigned)openId);
+            RsAgent_Marker(line);
+            return;
         }
         screen = RsNpc_Screen(this->npcId, screenKind, screenIndex);
         if (screen == NULL) {
@@ -340,6 +353,10 @@ static void RsNpc_Talk(RsNpc* this, PlayState* play) {
         scroll = RsText_ChoiceScroll();
         choice = play->msgCtx.choiceIndex + scroll;
         if (choice < 0 || choice >= visibleCount) {
+            snprintf(line, sizeof(line),
+                     "rs_dialogue npc=%d event=choice_ignored reason=out_of_range choice_index=%d scroll=%d visible=%d",
+                     this->npcId, (int)play->msgCtx.choiceIndex, (int)scroll, (int)visibleCount);
+            RsAgent_Marker(line);
             return;
         }
         declared = slots[choice];

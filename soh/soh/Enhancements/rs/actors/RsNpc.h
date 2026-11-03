@@ -45,6 +45,7 @@ typedef struct RsNpc {
     /* */ int32_t npcId;    // decoded from params once, at Init
     /* */ int32_t ruleIndex; // the rule currently speaking; recomputed every idle frame
     /* */ const struct RsDialogueOption* giving; // the GIVE_ITEM or BUY_ITEM being handed over, or NULL
+    /* */ int32_t openWait; // ticks left for a talk's first box to open (RS_TALK_OPEN_WAIT); 0 once it has
 } RsNpc;
 
 #endif // SOH_RS_NPC_ACTOR_H

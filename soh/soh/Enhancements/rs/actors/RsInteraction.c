@@ -125,6 +125,7 @@ static void RsInteraction_Wait(RsInteraction* this, PlayState* play) {
         this->checks++;
         RsDialogue_NoticeReset(); // a new check: nothing an earlier conversation left is its to show
         RsInteraction_Mark(this, "open");
+        this->openWait = RS_TALK_OPEN_WAIT;
         this->actionFunc = RsInteraction_Talk;
         return;
     }
@@ -207,11 +208,17 @@ static void RsInteraction_Talk(RsInteraction* this, PlayState* play) {
     s32 declared;
     s32 result;
 
-    // Closed from outside - a transition, damage, another box: back to waiting (RsNpc's rule).
+    // Closed from outside - a transition, damage, another box: back to waiting (RsNpc's rule), once the check's
+    // first box has opened (RS_TALK_OPEN_WAIT).
     if (state == TEXT_STATE_NONE) {
+        if (this->openWait > 0) {
+            this->openWait--;
+            return;
+        }
         RsInteraction_End(this);
         return;
     }
+    this->openWait = 0;
 
     if (state == TEXT_STATE_CHOICE) {
         if (!Message_ShouldAdvance(play)) {
