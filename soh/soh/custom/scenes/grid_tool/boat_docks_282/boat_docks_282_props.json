@@ -8,6 +8,8 @@
   "props": [
     {"id":"pier-a","kind":"standard-5628","pos":[420,84,20],"rot":2,"interaction":1},
     {"id":"pier-b","kind":"standard-5628","pos":[-580,84,500],"rot":6,"interaction":1},
-    {"id":"pier-c","kind":"standard-5628","pos":[620,84,380],"rot":0,"interaction":1}
+    {"id":"pier-c","kind":"standard-5628","pos":[620,84,380],"rot":0,"interaction":1},
+    {"id":"pier-d","kind":"standard-5628","pos":[900,84,-380],"rot":4,"interaction":1},
+    {"id":"pier-e","kind":"standard-5628","pos":[660,84,-380],"rot":4,"interaction":1}
   ]
 }

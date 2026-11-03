@@ -904,9 +904,10 @@ const ConsoleSink::Command rsBoatCommand(
     "free, look swaps a sail pattern; own and fit set ownership or a tier outright (test aids, no rules); "
     "where and docks read where the player's boats are and the piers in this scene (#282): stowed, docked or "
     "abandoned; takeout, putaway and fetch do what a pier does (at the dock given, else the pier Link is talking "
-    "to, else dock 0), fetch charging the fee; stow puts a kind back to stowed wherever it is (a test aid, no rules).",
+    "to, else dock 0), fetch charging the fee; stow puts a kind back to stowed wherever it is, and place puts it "
+    "down at x z in this scene (test aids, no rules).",
     { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|kind|tune|wake|contact|still|shadow|"
-        "clear|fitout|upgrades|build|grant|look|own|fit|where|docks|stow|takeout|putaway|fetch",
+        "clear|fitout|upgrades|build|grant|look|own|fit|where|docks|stow|place|takeout|putaway|fetch",
         Ship::ArgumentType::TEXT },
       { "arg1", Ship::ArgumentType::TEXT, true },
       { "arg2", Ship::ArgumentType::TEXT, true },
@@ -1021,8 +1022,9 @@ stow                              put a boat back to stowed, no rules
   sloop                           the sloop
   raft                            the raft
   all                             every boat
+place <kind> <x> <z> [<yaw>]      put your boat down at a spot here, no rules
 takeout <kind> [<dock>]           a boat out to a pier, free
-putaway <kind> [<dock>]           the boat moored at a pier, stowed
+putaway <kind> [<dock>]           a boat docked at a pier, stowed
 fetch <kind> [<dock>]             an abandoned boat to a pier, for its fee
 )");
 

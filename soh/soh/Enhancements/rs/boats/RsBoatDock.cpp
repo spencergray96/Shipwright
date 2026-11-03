@@ -537,7 +537,9 @@ extern "C" int32_t RsBoatDock_DialogueAction(int32_t op, int32_t kind) {
             words = "There's no water at the end of the pier.";
             break;
         case RS_BOAT_DOCK_CANT_AFFORD:
-            words = "You can't afford that.";
+            // The row shows short of the fee (InteractionTable.cpp), so the refusal names the price and the purse.
+            words = "Fetching your " + std::string(RsBoat_KindName(kind)) + " is " + std::to_string(RsBoatDock_Fee(kind)) +
+                    " rupees, and you've only " + std::to_string(Quest_RupeesAfterPending()) + ".";
             break;
         default:
             // A gate let through a pick it should have hidden: a bug, so a toast naming it rather than prose.
@@ -822,7 +824,8 @@ int32_t DocksList(std::vector<std::string>& lines) {
 
 int32_t RsBoatDock_ConsoleRun(const std::vector<std::string>& args, std::vector<std::string>& lines) {
     const std::string& sub = args[0];
-    if (sub != "where" && sub != "docks" && sub != "stow" && sub != "takeout" && sub != "putaway" && sub != "fetch") {
+    if (sub != "where" && sub != "docks" && sub != "stow" && sub != "place" && sub != "takeout" && sub != "putaway" &&
+        sub != "fetch") {
         return -1;
     }
     if (sub == "where" && args.size() == 1) {
@@ -849,6 +852,54 @@ int32_t RsBoatDock_ConsoleRun(const std::vector<std::string>& args, std::vector<
             return 1;
         }
         Addf(lines, "op=stow result=ok stowed=%d", (int)stowed);
+        return 0;
+    }
+    // A test aid with no rules: the player's boat of the kind put down at a spot in this scene, wherever it was, as if
+    // sailed there. Spots a test cannot sail to exactly: a point equally near two moorings, a hull a unit inside a reach.
+    if (sub == "place" && (args.size() == 4 || args.size() == 5)) {
+        const int32_t kind = KindArg(args, 1, "place", lines);
+        if (kind < 0) {
+            return 1;
+        }
+        if (!RsBoatFit_Owned(kind)) {
+            Addf(lines, "op=place result=error error=not_owned kind=%s", RsBoat_KindName(kind));
+            return 1;
+        }
+        char* end = nullptr;
+        const float x = std::strtof(args[2].c_str(), &end);
+        const bool xOk = end != args[2].c_str() && *end == '\0';
+        const float z = std::strtof(args[3].c_str(), &end);
+        const bool zOk = end != args[3].c_str() && *end == '\0';
+        long yaw = 0;
+        bool yawOk = true;
+        if (args.size() == 5) {
+            yaw = std::strtol(args[4].c_str(), &end, 10);
+            yawOk = end != args[4].c_str() && *end == '\0';
+        }
+        if (!xOk || !zOk || !yawOk) {
+            Addf(lines, "op=place result=error error=bad_value");
+            return 1;
+        }
+        RsBoat* old = OwnedBoat(kind);
+        int32_t result = RS_BOAT_DOCK_OK;
+        if (SpawnOwned(kind, x, z, (int16_t)yaw, &result) == nullptr) {
+            Addf(lines, "op=place result=error error=%s kind=%s", RsBoatDock_ResultName(result), RsBoat_KindName(kind));
+            return 1;
+        }
+        if (old != nullptr) {
+            Actor_Kill(&old->dyna.actor);
+        }
+        Place& p = sPlace[kind];
+        p = {};
+        p.out = true;
+        p.scene = gPlayState->sceneNum;
+        p.x = x;
+        p.z = z;
+        p.yaw = (int16_t)yaw;
+        const int32_t dock = DockAt(Docks(), kind, x, z);
+        p.docked = dock >= 0;
+        Addf(lines, "op=place result=ok kind=%s x=%g z=%g yaw=%d dock=%d", RsBoat_KindName(kind), x, z,
+             (int)(u16)(int16_t)yaw, (int)dock);
         return 0;
     }
     if ((sub == "takeout" || sub == "putaway" || sub == "fetch") && (args.size() == 2 || args.size() == 3)) {

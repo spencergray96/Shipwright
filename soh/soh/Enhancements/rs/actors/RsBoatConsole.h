@@ -160,6 +160,11 @@
 //                   radius= skiff_mooring_x= skiff_mooring_z= mooring_yaw= docked=<kinds, as raft+sloop|none>`, then `op=docks
 //                   result=ok count=`
 //   stow <kind>|all a test aid, no rules: the kind back to stowed wherever it is. `op=stow result=ok stowed=<n>`
+//   place <kind> <x> <z> [<yaw>]
+//                   a test aid, no rules: the player's boat of the kind put down at (x, z) in this scene, facing yaw
+//                   (default 0), wherever it was, as if sailed there; for spots a test cannot sail to exactly (a point
+//                   equally near two moorings). Refused when the kind is not owned or the spot fails a spawn's checks
+//                   (`error=not_owned|no_water|dyna_pool`). `op=place result=ok kind= x= z= yaw= dock=<idx|-1>`
 //   takeout|putaway|fetch <kind> [<dock>]
 //                   what a pier does, at the dock index given, else the pier Link is talking to, else dock 0:
 //                   `op=<verb> result=ok|refused kind= state= reason=<RsBoatDock_ResultName>`. Each also writes

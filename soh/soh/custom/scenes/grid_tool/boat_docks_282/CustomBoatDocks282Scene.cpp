@@ -73,11 +73,13 @@ static ActorEntry sBoatDocks282PlayerSpawn = {
     ACTOR_PLAYER, { 780, 84, 20 }, { 0, 16384, 0 }, 0xDFF
 };
 
-// 3 interaction triggers (sturdy-bassoon#183), one per prop that names an interaction.
-static ActorEntry sBoatDocks282Actors[3] = {
+// 5 interaction triggers (sturdy-bassoon#183), one per prop that names an interaction.
+static ActorEntry sBoatDocks282Actors[5] = {
     { ACTOR_RS_INTERACTION, { 420, 84, 20 }, { 115, -0x4000, 50 }, RS_INTERACTION_PARAMS(1) }, // I-0001, prop "pier-a" on level 1
     { ACTOR_RS_INTERACTION, { -580, 84, 500 }, { 115, 0x4000, 50 }, RS_INTERACTION_PARAMS(1) }, // I-0001, prop "pier-b" on level 1
     { ACTOR_RS_INTERACTION, { 620, 84, 380 }, { 115, 0, 50 }, RS_INTERACTION_PARAMS(1) }, // I-0001, prop "pier-c" on level 1
+    { ACTOR_RS_INTERACTION, { 900, 84, -380 }, { 115, -0x8000, 50 }, RS_INTERACTION_PARAMS(1) }, // I-0001, prop "pier-d" on level 1
+    { ACTOR_RS_INTERACTION, { 660, 84, -380 }, { 115, -0x8000, 50 }, RS_INTERACTION_PARAMS(1) }, // I-0001, prop "pier-e" on level 1
 };
 
 static RomFile sBoatDocks282RoomList[] = {
@@ -170,9 +172,9 @@ extern "C" void CustomBoatDocks282Scene_InitRoom(PlayState* play, RoomContext* r
     roomCtx->curRoom.behaviorType2 = ROOM_BEHAVIOR_TYPE2_0;
     roomCtx->curRoom.lensMode      = LENS_MODE_HIDE_ACTORS;
 
-    // 3 entries; play->numSetupActors is an s16 (sturdy-bassoon#45), so this is
+    // 5 entries; play->numSetupActors is an s16 (sturdy-bassoon#45), so this is
     // the authored count and not a truncation of it.
-    play->numSetupActors = 3;
+    play->numSetupActors = 5;
     play->setupActorList = sBoatDocks282Actors;
 
     ArchiveProps_DeclareRoom(play, roomCtx, sBoatDocks282PropLists, ARRAY_COUNT(sBoatDocks282PropLists));

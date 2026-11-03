@@ -54,15 +54,18 @@ typedef enum RsDialogueActionKind {
     // a = price, 1..QUEST_RUPEE_AMOUNT_MAX (sturdy-bassoon#281). Refused as QUEST_ERR_CANNOT_AFFORD when Link holds less
     // (Quest_RupeesAfterPending), and then nothing is taken. The price lives HERE, in the definition, so
     // `npc dump` prints it - Majora's Mask keeps a shop's prices in the message header, where no tool
-    // sees them. Gate the option on RupeesAtLeast(price) so a player who cannot pay never sees it.
+    // sees them. DO NOT HIDE A PRICED OPTION FROM A PLAYER WHO CANNOT PAY (the owner, 2026-11-02): one who first
+    // comes with no money never learns it exists. Show it with its price and refuse in words: a character with the
+    // can't-afford pair (the paying option gated on RupeesAtLeast(price), a same-labelled NONE option gated on its
+    // Not whose reply is the refusal: QUEST_SYSTEM.md), an interaction through RsInteraction_ActionSays (the pier).
     RS_DLG_ACTION_CHARGE_RUPEES = 5,
     // a = RS_DLG_BUY(questId, step, price): a SALE in one pick (sturdy-bassoon#281) - GIVE_ITEM's hand-over,
     // paid for. Picking it checks both halves (the step can be set, Link can afford the price) and
     // takes nothing; the rupees go when Link ACCEPTS the item, in the same breath as the step is set.
     // So a sale is all or nothing: a hand-over withdrawn or lost to a scene change charges nothing,
     // and there is no screen between paying and receiving for the player to leave by. Refused as
-    // QUEST_ERR_CANNOT_AFFORD when short; gate it on RupeesAtLeast(price) as well, so a player who
-    // cannot pay never sees it. RsNpc only, like GIVE_ITEM.
+    // QUEST_ERR_CANNOT_AFFORD when short. Priced, so CHARGE_RUPEES's rule above applies: never hidden from a player
+    // who cannot pay, always the can't-afford pair. RsNpc only, like GIVE_ITEM.
     RS_DLG_ACTION_BUY_ITEM = 6,
     RS_DLG_ACTION_BOAT_SAIL = 7,      // a = RS_DLG_SAIL(sail, op) -> RsBoatSail_DialogueAction (sturdy-bassoon#287):
                                       // the sailmaker arms a sail for a dropped picture, opens the file dialog,
@@ -72,8 +75,8 @@ typedef enum RsDialogueActionKind {
     // (already here, the mooring is blocked, the pools are full, Link is short of the fee) changes nothing, charges
     // nothing and is QUEST_ERR_PREREQ_UNMET (QUEST_ERR_CANNOT_AFFORD for the fee). On an interaction (a pier) the
     // action says why in place of the reply, and names any boat it put away to make room after it
-    // (RsInteraction_ActionSays), so word the reply for it having happened. Gate each option on BoatStateIs, and a
-    // fetch on RupeesAtLeast(its fee).
+    // (RsInteraction_ActionSays), so word the reply for it having happened. Gate each option on BoatStateIs, but
+    // never a fetch on its fee: it shows, and the pier says the price and the purse (CHARGE_RUPEES's rule).
     RS_DLG_ACTION_BOAT_DOCK = 8,
     RS_DLG_ACTION_KIND_COUNT,
 } RsDialogueActionKind;

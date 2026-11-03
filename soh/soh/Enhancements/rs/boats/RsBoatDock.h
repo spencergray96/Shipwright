@@ -32,7 +32,7 @@
 // most too, since a facility fitted later grows a hull with no spawn to check it. Two sloops used to assert
 // (ENGINE_BUDGETS.md).
 //
-// Console: `boat where|docks|stow|takeout|putaway|fetch` (RsBoatDock_ConsoleRun). The pier's dialogue runs the same
+// Console: `boat where|docks|stow|place|takeout|putaway|fetch` (RsBoatDock_ConsoleRun). The pier's dialogue runs the same
 // operations through RS_DLG_ACTION_BOAT_DOCK, and gates its options on BoatStateIs (QuestPredicate.h).
 
 #include <stdint.h>
@@ -123,7 +123,8 @@ int32_t RsBoatDock_ConsoleRun(const std::vector<std::string>& args, std::vector<
 
 // The grammar, for `boat`'s usage line and help text.
 #define RS_BOAT_DOCK_GRAMMAR                                                                                        \
-    "where | docks | stow <kind>|all | takeout <kind> [<dock>] | putaway <kind> [<dock>] | fetch <kind> [<dock>]"
+    "where | docks | stow <kind>|all | place <kind> <x> <z> [<yaw>] | takeout <kind> [<dock>] | putaway <kind> "          \
+    "[<dock>] | fetch <kind> [<dock>]"
 #endif
 
 #endif // SOH_RS_BOAT_DOCK_H
