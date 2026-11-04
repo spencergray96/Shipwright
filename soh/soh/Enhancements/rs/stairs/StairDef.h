@@ -144,7 +144,7 @@ typedef struct RsStairGenOption {
 // staircases in talk range still cannot render each other's menu: Player picks exactly one talk
 // actor. Two placements on the same row of different staircases now share a text id, so the actor
 // tells its own box from another's by the talk actor, not the id (RsStairs.c, RsStairs_Talk).
-// 0xC404..0xC7FF is free again.
+// 0xC404..0xC5FF is free again (0xC600 up is the journal notices', 0xC700 up the inventory's, #286).
 #define RS_TEXT_STAIR_BASE 0xC400
 #define RS_TEXT_STAIR_ID(row) ((uint16_t)(RS_TEXT_STAIR_BASE + (row)))
 #define RS_TEXT_STAIR_GET_ROW(textId) ((int32_t)((textId)-RS_TEXT_STAIR_BASE))

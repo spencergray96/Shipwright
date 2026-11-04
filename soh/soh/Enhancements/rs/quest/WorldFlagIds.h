@@ -67,6 +67,13 @@ typedef enum WorldFlagId {
     WORLD_FLAG_BOAT_UNLOCK_SLOOP_WIND_CATCHER = 10,
     WORLD_FLAG_BOAT_UNLOCK_SLOOP_CANNON_BRONZE = 11,
 
+    // Key items (sturdy-bassoon#286, items/RsItems.h): a permanent find, never spent or lost. Set means held; the
+    // row beside it (items/RsItemCatalogue.cpp) carries its name, category and icon. Nothing in the world gives them
+    // yet - the console and the debug fixtures do.
+    WORLD_FLAG_KEY_HAMMER = 12,
+    WORLD_FLAG_KEY_SAW = 13,
+    WORLD_FLAG_KEY_SKIFF_SCHEMATIC = 14,
+
     // --- debug band, named: [WORLD_FLAG_DEBUG_FIRST, WORLD_FLAG_PLACEMENT_DEBUG_FIRST) -----------------------------
     WORLD_FLAG_DEBUG_SMOKE = 3840,   // exercised by the agent-test predicate probe; never real state
     WORLD_FLAG_DEBUG_JOURNAL = 3841, // QUEST_DEBUG_JOURNAL's completion witness (P2). Its OWN flag on
@@ -108,6 +115,9 @@ typedef enum WorldFlagId {
     // rs/interactions/InteractionTable.cpp): set by prising the crate open, read by its first rule.
     // It is the first pass's whole model of prop state - a PERMANENT world flag set by a dialogue
     // choice, as a quest sets one; "forget when I leave" arrives with actor-drawn props (the ADR).
+    WORLD_FLAG_DEBUG_KEY_ITEM = 3850,
+    // RS_KEY_ITEM_DEBUG's flag (sturdy-bassoon#286): the key item debug fixtures grant, in this band so `quest
+    // debugwipe` takes it back and a debug quest may grant it (Quest_Register's tier rule).
 } WorldFlagId;
 
 #define WORLD_FLAG_IS_DEBUG(flag) ((flag) >= WORLD_FLAG_DEBUG_FIRST)
@@ -125,6 +135,13 @@ RS_STATIC_ASSERT(WORLD_FLAG_COOK_RANGE_OPEN >= 0 && WORLD_FLAG_COOK_RANGE_OPEN <
 RS_STATIC_ASSERT(WORLD_FLAG_BOAT_UNLOCK_RAFT > WORLD_FLAG_COOK_RANGE_OPEN &&
                      WORLD_FLAG_BOAT_UNLOCK_SLOOP_CANNON_BRONZE < WORLD_FLAG_PLACEMENT_FIRST,
                  "the boat upgrades' unlocks must sit in the production band's named part");
+
+RS_STATIC_ASSERT(WORLD_FLAG_KEY_HAMMER > WORLD_FLAG_BOAT_UNLOCK_SLOOP_CANNON_BRONZE &&
+                     WORLD_FLAG_KEY_SKIFF_SCHEMATIC < WORLD_FLAG_PLACEMENT_FIRST,
+                 "the key items' flags must sit in the production band's named part");
+RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_KEY_ITEM >= WORLD_FLAG_DEBUG_FIRST &&
+                     WORLD_FLAG_DEBUG_KEY_ITEM < WORLD_FLAG_PLACEMENT_DEBUG_FIRST,
+                 "WORLD_FLAG_DEBUG_KEY_ITEM must sit in the debug band");
 
 RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_SMOKE >= WORLD_FLAG_DEBUG_FIRST &&
                      WORLD_FLAG_DEBUG_SMOKE < WORLD_FLAG_PLACEMENT_DEBUG_FIRST,

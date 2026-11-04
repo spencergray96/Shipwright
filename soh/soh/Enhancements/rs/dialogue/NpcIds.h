@@ -89,6 +89,8 @@ typedef enum NpcId {
     NPC_DEBUG_SPEAKER_B = 204, // the second speaker of 203's conversation, placed TWICE: beside 203 and
                                // far away, so the nearer placement is the one that gets the floor
     NPC_DEBUG_SPEAKER_ABSENT = 205, // registered and never placed: the speaker who does not turn up
+    NPC_DEBUG_TRADER = 206, // THE INVENTORY (sturdy-bassoon#286): counted items given, bought, taken and sold, a
+                            // gift Link cannot carry, and a key item handed over with its ceremony
 } NpcId;
 
 #define NPC_ID_IS_VALID(id) ((id) >= 0 && (id) < NPC_MAX)
@@ -127,5 +129,7 @@ RS_STATIC_ASSERT(NPC_DEBUG_SPEAKER_B >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_SPEAKER_
                  "NPC_DEBUG_SPEAKER_B must sit in the debug band");
 RS_STATIC_ASSERT(NPC_DEBUG_SPEAKER_ABSENT >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_SPEAKER_ABSENT < NPC_MAX,
                  "NPC_DEBUG_SPEAKER_ABSENT must sit in the debug band");
+RS_STATIC_ASSERT(NPC_DEBUG_TRADER >= NPC_ID_DEBUG_FIRST && NPC_DEBUG_TRADER < NPC_MAX,
+                 "NPC_DEBUG_TRADER must sit in the debug band");
 
 #endif // SOH_RS_NPC_IDS_H

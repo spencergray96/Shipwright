@@ -35,6 +35,7 @@ enum ActorIDExtra {
     /* 0x01DE */ ACTOR_RS_ANIMPROP,    // Enhancements/rs/actors/RsAnimProp.c - a flipbook prop; params = copy index
     /* 0x01DF */ ACTOR_RS_BOAT,        // Enhancements/rs/actors/RsBoat.c - a steerable boat (#256 prototype); params: RsBoatKindId
     /* 0x01E0 */ ACTOR_RS_BALLOON,     // Enhancements/rs/actors/RsBalloon.c - a balloon basket (#274 prototype); params unused
+    /* 0x01E1 */ ACTOR_RS_ITEM_PICKUP, // Enhancements/rs/actors/RsItemPickup.c - an inventory item (#286); params = (item, key, float)
     // #endregion
     ACTOR_ID_EXTRA_MAX
 };

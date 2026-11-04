@@ -42,6 +42,9 @@
 //                          visit to a child starts fresh.
 //   NPC_DEBUG_SCROLL (201) added for #290: a list longer than the box, which scrolls - ten options on
 //                          the entry rule with one gated, and a node holding the cap of sixteen.
+//   NPC_DEBUG_TRADER (206) added for #286's inventory: counted items given, bought, taken and sold, every
+//                          row shown and a refusal said in words; a gift past the cap, filled to it; a key
+//                          item handed over, whose ceremony plays after the conversation.
 //   NPC_DEBUG_SPEAKER_A (203) added for #281's speaker per screen: a conversation 203 owns whose lines
 //                          alternate between 203 and 204, whose replies come from whichever of them the
 //                          pick names, one reply from 205 (registered, never placed), and a gift whose
@@ -57,6 +60,7 @@
 #include "soh/Enhancements/rs/dialogue/NpcDialogue.h"
 #include "soh/Enhancements/rs/dialogue/NpcDialogueDef.h"
 #include "soh/Enhancements/rs/dialogue/NpcIds.h"
+#include "soh/Enhancements/rs/items/RsItems.h"
 #include "soh/Enhancements/rs/quest/QuestIds.h"
 #include "soh/Enhancements/rs/quest/QuestPredicate.h"
 #include "soh/Enhancements/rs/quest/QuestStore.h"
@@ -518,6 +522,52 @@ const RsDialogueRule sShopRules[] = {
 
 const RsNpcDef sShop = {
     NPC_DEBUG_SHOP, QUEST_TIER_DEBUG, "debug_shop", "Debug: the shopkeeper", sShopRules, 1, sShopNodes, 7,
+};
+
+// --- NPC_DEBUG_TRADER (206) ---------------------------------------------------------------------
+//
+// The #286 actions on the entry rule (seven rows, so it scrolls). Every row shows whatever Link carries or holds,
+// and a refusal says why in place of the reply, with vanilla's error sound (RsItems_SayRefusal) - so each reply is
+// written for the action having happened.
+//
+//   "Free planks"    GIVE_ITEMS 5 planks: a gift is never refused, it fills to the cap.
+//   "Nails (5)"      BUY_ITEMS 10 steel nails for 5 rupees: refused only with 999 nails ("You can't carry any more
+//                    steel nails.") or short of 5 rupees ("You don't have enough rupees."); short of the cap it fills
+//                    to it at the full price.
+//   "Hand 3 planks"  TAKE_ITEMS 3 planks: refused short of three ("You haven't got 3 planks.").
+//   "Sell 2 planks"  SELL_ITEMS 2 planks for 4 rupees: refused short of two.
+//   "A trinket"      GIVE_KEY_ITEM the debug key item, gated on not holding it (state, not price: held, the row
+//                    would be meaningless); its ceremony plays once the conversation is over.
+//   "Every log"      GIVE_ITEMS 999 logs: the cap exactly, so with any log carried it fills to the cap and the rest
+//                    is lost, with the float as ever.
+
+const QuestPredicate sTraderTrinketWhen[] = {
+    QP_NOT_WORLD_FLAG_SET(WORLD_FLAG_DEBUG_KEY_ITEM),
+};
+
+const RsDialogueOption sTraderOptions[] = {
+    { "Free planks", RS_DLG_ACTION_GIVE_ITEMS, RS_ITEMS(RS_ITEM_PLANK, 5), "Five planks. Mind the splinters.",
+      RS_DLG_NO_NEXT },
+    { "Nails (5)", RS_DLG_ACTION_BUY_ITEMS, RS_ITEMS_PRICED(RS_ITEM_STEEL_NAILS, 10, 5), "Ten nails, five rupees.",
+      RS_DLG_NO_NEXT },
+    { "Hand 3 planks", RS_DLG_ACTION_TAKE_ITEMS, RS_ITEMS(RS_ITEM_PLANK, 3), "Three planks. Thank you.",
+      RS_DLG_NO_NEXT },
+    { "Sell 2 planks", RS_DLG_ACTION_SELL_ITEMS, RS_ITEMS_PRICED(RS_ITEM_PLANK, 2, 4), "Two planks, four rupees.",
+      RS_DLG_NO_NEXT },
+    { "A trinket", RS_DLG_ACTION_GIVE_KEY_ITEM, RS_KEY_ITEM_DEBUG, "Keep it safe.", RS_DLG_NO_NEXT,
+      sTraderTrinketWhen, 1 },
+    { "Every log", RS_DLG_ACTION_GIVE_ITEMS, RS_ITEMS(RS_ITEM_LOGS, 999), "All of them, as many as you can carry.",
+      RS_DLG_NO_NEXT },
+    { "Goodbye", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
+};
+
+const RsDialogueRule sTraderRules[] = {
+    // One line: a screen of more than four options scrolls, and its body has one row (#290).
+    { nullptr, 0, "Planks, nails or trinkets?", sTraderOptions, 7, RS_DLG_NO_MISSING, RS_DLG_NO_NEXT },
+};
+
+const RsNpcDef sTrader = {
+    NPC_DEBUG_TRADER, QUEST_TIER_DEBUG, "debug_trader", "Debug: the trader", sTraderRules, 1, nullptr, 0,
 };
 
 // --- NPC_DEBUG_SCROLL (201) ----------------------------------------------------------------------
@@ -1393,6 +1443,7 @@ void RegisterDebugNpcs() {
     RsNpc_Register(&sSpeakerA);
     RsNpc_Register(&sSpeakerB);
     RsNpc_Register(&sSpeakerAbsent);
+    RsNpc_Register(&sTrader);
 }
 
 RegisterShipInitFunc debugNpcsInitFunc(RegisterDebugNpcs);

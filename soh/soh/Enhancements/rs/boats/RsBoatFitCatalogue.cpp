@@ -16,6 +16,7 @@
 #include <spdlog/spdlog.h>
 
 #include "soh/Enhancements/rs/actors/RsBoat.h"
+#include "soh/Enhancements/rs/items/RsItems.h"
 #include "soh/Enhancements/rs/quest/WorldFlagIds.h"
 #include "soh/ShipInit.hpp"
 
@@ -297,7 +298,8 @@ const LookInfo kLooks[RS_BOAT_LOOK_COUNT] = {
 #undef RS_SAIL_COLOURS
 
 // What can be built. An upgrade's fits on a boat imply owning it (RsBoatFit_Check), so they do not list it. The
-// costs are the owner's placeholders for testing, 5 and 10 rupees (#263, 2026-10-30), marked so. A tier that
+// costs are the owner's placeholders for testing, 5 and 10 rupees (#263, 2026-10-30), marked so; the two hulls also
+// take placeholder planks and nails (#286, 2026-11-02), so an item cost has an upgrade to be tested on. A tier that
 // should only follow the one below it says so with a BoatTierAtLeast requirement; none here has one below it.
 const RsBoatUpgrade kUpgrades[RS_BOAT_UPGRADE_COUNT] = {
     { RS_BOAT_UPGRADE_RAFT,
@@ -337,8 +339,10 @@ const RsBoatUpgrade kUpgrades[RS_BOAT_UPGRADE_COUNT] = {
       { { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 1 } },
       0,
       {},
-      1,
-      { { RS_BOAT_COST_RUPEES, 0, 10 } },
+      3,
+      { { RS_BOAT_COST_RUPEES, 0, 10 },
+        { RS_BOAT_COST_ITEMS, RS_ITEM_OAK_PLANK, 5 },
+        { RS_BOAT_COST_ITEMS, RS_ITEM_STEEL_NAILS, 10 } },
       1 },
     { RS_BOAT_UPGRADE_SLOOP_HULL_OAK,
       "sloop_hull_oak",
@@ -347,8 +351,10 @@ const RsBoatUpgrade kUpgrades[RS_BOAT_UPGRADE_COUNT] = {
       { { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 1 } },
       0,
       {},
-      1,
-      { { RS_BOAT_COST_RUPEES, 0, 10 } },
+      3,
+      { { RS_BOAT_COST_RUPEES, 0, 10 },
+        { RS_BOAT_COST_ITEMS, RS_ITEM_OAK_PLANK, 10 },
+        { RS_BOAT_COST_ITEMS, RS_ITEM_STEEL_NAILS, 20 } },
       1 },
     { RS_BOAT_UPGRADE_RAFT_HOOK_BRONZE,
       "raft_hook_bronze",
@@ -435,8 +441,12 @@ bool Problem(const char* what, int32_t index) {
 // A requirement's operands in range: the boat words through the check quest registration uses, the others by
 // kind only (a quest id or a flag past its store is the quest system's own refusal, reported at its registration).
 bool RequirementValid(const QuestPredicate& p) {
-    if (p.kind == QUEST_PRED_BOAT_OWNED || p.kind == QUEST_PRED_BOAT_TIER_AT_LEAST) {
+    if (p.kind == QUEST_PRED_BOAT_OWNED || p.kind == QUEST_PRED_BOAT_TIER_AT_LEAST ||
+        p.kind == QUEST_PRED_BOAT_STATE_IS) {
         return RsBoatFit_PredicateOperandsValid(p.kind, p.a, p.b) != 0;
+    }
+    if (p.kind == QUEST_PRED_ITEM_COUNT_AT_LEAST) {
+        return RsItems_PredicateOperandsValid(p.a, p.b) != 0;
     }
     return p.kind >= 0 && p.kind < QUEST_PRED_KIND_COUNT;
 }
@@ -514,6 +524,10 @@ void CheckCatalogue() {
         for (int32_t c = 0; c < u.costCount; c++) {
             if (u.costs[c].kind < 0 || u.costs[c].kind >= RS_BOAT_COST_KIND_COUNT || u.costs[c].amount <= 0) {
                 Problem("upgrade (a cost)", i);
+            }
+            if (u.costs[c].kind == RS_BOAT_COST_ITEMS &&
+                (RsItems_Def(u.costs[c].a) == nullptr || u.costs[c].amount > RsItems_Def(u.costs[c].a)->cap)) {
+                Problem("upgrade (an item cost no player could carry)", i);
             }
         }
         for (int32_t r = 0; r < u.reqCount; r++) {

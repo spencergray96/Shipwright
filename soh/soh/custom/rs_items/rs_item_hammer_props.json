@@ -1,0 +1,20 @@
+{
+ "format": 2,
+ "scene": "rs_item",
+ "list": "objects/rs_props/rs_item_hammer/props",
+ "kinds": {
+  "item-hammer": "rs_item_hammer"
+ },
+ "props": [
+  {
+   "id": "hammer",
+   "kind": "item-hammer",
+   "pos": [
+    0,
+    0,
+    0
+   ],
+   "rot": 0
+  }
+ ]
+}

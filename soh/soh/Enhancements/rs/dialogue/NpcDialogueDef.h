@@ -78,6 +78,23 @@ typedef enum RsDialogueActionKind {
     // (RsInteraction_ActionSays), so word the reply for it having happened. Gate each option on BoatStateIs, but
     // never a fetch on its fee: it shows, and the pier says the price and the purse (CHARGE_RUPEES's rule).
     RS_DLG_ACTION_BOAT_DOCK = 8,
+    // THE INVENTORY (sturdy-bassoon#286, items/RsItems.h). Counted items change hands AT THE PICK, unlike a quest
+    // item's hand-over: there is nothing to accept, so the count moves, the icon bounces over Link's head while the
+    // reply shows, and an NPC and a prop may both offer them. A GIFT is never refused: past the cap it fills to it
+    // and the rest is lost, as a pickup does. A PURCHASE is refused only when Link is already full (vanilla's shop);
+    // short of that it fills to the cap at the full price. A take and a sale are all or nothing, refused with
+    // nothing moved. A REFUSAL SAYS WHY by itself, with vanilla's error sound, in place of the reply ("You can't
+    // carry any more steel nails.", RsItems_SayRefusal), on a character and a prop alike - so leave the option
+    // ungated and word its reply for it having happened. A can't-afford twin (QUEST_SYSTEM.md) is still the way to a
+    // line of the character's own.
+    RS_DLG_ACTION_GIVE_ITEMS = 9,    // a = RS_ITEMS(item, count): Link gets them, up to the cap
+    RS_DLG_ACTION_BUY_ITEMS = 10,    // a = RS_ITEMS_PRICED(item, count, price): refused CANNOT_CARRY only when
+                                     // already full, else filled to the cap at full price (or CANNOT_AFFORD)
+    RS_DLG_ACTION_TAKE_ITEMS = 11,   // a = RS_ITEMS(item, count): Link hands them over; QUEST_ERR_NOT_ENOUGH_ITEMS
+    RS_DLG_ACTION_SELL_ITEMS = 12,   // a = RS_ITEMS_PRICED(item, count, price): the take, paid for in rupees (the
+                                     // wallet's limit applies, as to any rupee gain)
+    RS_DLG_ACTION_GIVE_KEY_ITEM = 13, // a = RsKeyItemId: sets its flag at the pick and queues its get-item ceremony,
+                                      // which plays once the conversation is over. QUEST_ERR_ALREADY_HELD if held
     RS_DLG_ACTION_KIND_COUNT,
 } RsDialogueActionKind;
 
@@ -323,10 +340,11 @@ typedef struct RsNpcDef {
 
 // --- text ids -----------------------------------------------------------------------------------
 //
-// The band is 0xA000..0xF4FF, in nine pieces: entry rules (0xA000..0xBFFF), the one direct-text id
+// The band is 0xA000..0xF4FF, in ten pieces: entry rules (0xA000..0xBFFF), the one direct-text id
 // (0xC000), interaction screens (0xC100..0xC13F, #183 - defined in interactions/InteractionIds.h,
-// which asserts it clear of its neighbours), staircase menus (0xC400..0xC403, #147; 0xC404..0xC7FF freed by #214 - defined in
+// which asserts it clear of its neighbours), staircase menus (0xC400..0xC403, #147; 0xC404..0xC5FF freed by #214 - defined in
 // stairs/StairDef.h, which asserts it clear of its neighbours), journal notices (0xC600..0xC6FF, #281),
+// inventory lines (0xC700..0xC7FF, #286),
 // quest-item pickups (0xC800..0xCFFF, #99), nodes (0xD000..0xEFFF, #96)
 // and the reply-then-navigate ids (0xF000..0xF01F, #96). Above them, interaction replies
 // (0xF100..0xF4FF, moved there by #290 - InteractionIds.h).
@@ -392,6 +410,19 @@ typedef struct RsNpcDef {
 #define RS_TEXT_NOTICE_END (RS_TEXT_NOTICE_BASE + (QUEST_MAX << RS_TEXT_NOTICE_SHIFT) - 1)
 #define RS_TEXT_IS_NOTICE(textId) ((textId) >= RS_TEXT_NOTICE_BASE && (textId) <= RS_TEXT_NOTICE_END)
 
+// --- the INVENTORY band (sturdy-bassoon#286, items/RsItems.h) --------------------------------------
+//
+//     0xC700 + key item               a key item's get-item box        64 key items  ->  0xC700..0xC73F
+//
+// Composed from the item tables when the box opens, from the id alone, for the quest-item pickup's reason: the
+// get-item box is opened by PLAYER from the GetItemEntry, after whatever offered it has gone, and the held-item
+// draw reads the same id to find the icon. 0xC740..0xC7FF is free (a pickup's "can't carry" line was there
+// until the owner ruled that nothing is refused at the cap).
+#define RS_TEXT_KEY_ITEM_BASE 0xC700
+#define RS_TEXT_KEY_ITEM_ID(key) ((uint16_t)(RS_TEXT_KEY_ITEM_BASE + (key)))
+#define RS_TEXT_KEY_ITEM_GET(textId) ((int32_t)((textId)-RS_TEXT_KEY_ITEM_BASE))
+#define RS_TEXT_IS_KEY_ITEM(textId) ((textId) >= RS_TEXT_KEY_ITEM_BASE && (textId) < RS_TEXT_KEY_ITEM_BASE + 64)
+
 // --- the NODE band (sturdy-bassoon#96 P1) -------------------------------------------------------
 //
 //     0xD000 + (npcId << 5) + node      256 NPCs x 32 nodes  ->  0xD000..0xEFFF
@@ -450,8 +481,10 @@ RS_STATIC_ASSERT(QUEST_MAX << 5 == 1 << RS_DLG_ITEM_BITS, "RS_DLG_ITEM fills exa
 RS_STATIC_ASSERT(QUEST_STEP_MAX == (1 << RS_TEXT_ITEM_SHIFT),
                  "the item text id's step field width and QUEST_STEP_MAX are the same number");
 RS_STATIC_ASSERT(RS_TEXT_DIRECT < RS_TEXT_ITEM_BASE, "the item pickup band must start above RS_TEXT_DIRECT");
-RS_STATIC_ASSERT(RS_TEXT_NOTICE_END < RS_TEXT_ITEM_BASE,
-                 "raising QUEST_MAX must not push a journal notice id onto the item pickup band");
+RS_STATIC_ASSERT(RS_TEXT_NOTICE_END < RS_TEXT_KEY_ITEM_BASE,
+                 "raising QUEST_MAX must not push a journal notice id onto the inventory band");
+RS_STATIC_ASSERT(RS_TEXT_KEY_ITEM_BASE + 64 <= RS_TEXT_ITEM_BASE,
+                 "the inventory band must end below the item pickup band");
 RS_STATIC_ASSERT(RS_TEXT_ITEM_END < RS_TEXT_NODE_BASE,
                  "raising QUEST_MAX must not push an item pickup text id onto the node band");
 RS_STATIC_ASSERT(RS_TEXT_NODE_END < RS_TEXT_REPLY_TO_NODE_BASE,

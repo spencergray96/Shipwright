@@ -1,0 +1,20 @@
+{
+ "format": 2,
+ "scene": "rs_item",
+ "list": "objects/rs_props/rs_item_skiff_schematic/props",
+ "kinds": {
+  "item-skiff_schematic": "rs_item_skiff_schematic"
+ },
+ "props": [
+  {
+   "id": "skiff_schematic",
+   "kind": "item-skiff_schematic",
+   "pos": [
+    0,
+    0,
+    0
+   ],
+   "rot": 0
+  }
+ ]
+}

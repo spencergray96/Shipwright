@@ -67,6 +67,8 @@ typedef enum QuestId {
                                 // so a sale is shown setting a step on a quest the journal does not show
     QUEST_DEBUG_SPEAKER = 55, // the speaker fixture's token (quests/DebugSpeakerQuest.cpp, #281): one step,
                               // handed over by GIVE_ITEM so a gift's re-open lands on another speaker
+    QUEST_DEBUG_TRADE = 56, // the inventory's rewards (quests/DebugTradeQuest.cpp, #286): one step, and on
+                            // completion 20 logs and the debug key item, with its ceremony
 } QuestId;
 
 #define QUEST_ID_IS_VALID(id) ((id) >= 0 && (id) < QUEST_MAX)
@@ -98,5 +100,7 @@ RS_STATIC_ASSERT(QUEST_DEBUG_GROCERIES >= QUEST_ID_DEBUG_FIRST && QUEST_DEBUG_GR
                  "QUEST_DEBUG_GROCERIES must sit in the debug band");
 RS_STATIC_ASSERT(QUEST_DEBUG_SPEAKER >= QUEST_ID_DEBUG_FIRST && QUEST_DEBUG_SPEAKER < QUEST_MAX,
                  "QUEST_DEBUG_SPEAKER must sit in the debug band");
+RS_STATIC_ASSERT(QUEST_DEBUG_TRADE >= QUEST_ID_DEBUG_FIRST && QUEST_DEBUG_TRADE < QUEST_MAX,
+                 "QUEST_DEBUG_TRADE must sit in the debug band");
 
 #endif // SOH_RS_QUEST_IDS_H

@@ -10,6 +10,7 @@
 #include "RsBoatSail.h"
 #include "soh/Enhancements/console/ConsoleSink.h"
 #include "soh/Enhancements/rs/actors/RsBoat.h"
+#include "soh/Enhancements/rs/items/RsItems.h"
 #include "soh/Enhancements/worldstate/WorldFlags.h"
 #include "soh/cvar_prefixes.h"
 
@@ -120,7 +121,10 @@ int32_t Upgrades(std::vector<std::string>& lines) {
         }
         std::string costs;
         for (int32_t c = 0; c < u->costCount; c++) {
-            costs += std::string(c > 0 ? "," : "") + "rupees:" + std::to_string(u->costs[c].amount);
+            const RsBoatCost& cost = u->costs[c];
+            const RsItemDef* item = cost.kind == RS_BOAT_COST_ITEMS ? RsItems_Def(cost.a) : nullptr;
+            costs += std::string(c > 0 ? "," : "") + (item != nullptr ? item->token : "rupees") + ":" +
+                     std::to_string(cost.amount);
         }
         Addf(lines, "upgrade name=%s unlock_flag=%d unlocked=%d check=%s fail_index=%d fits=%s costs=%s placeholder=%d",
              u->name, (int)u->unlockFlag, Flags_GetWorldFlag(u->unlockFlag) ? 1 : 0, RsBoatFit_ResultName(check),

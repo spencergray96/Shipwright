@@ -369,7 +369,9 @@ add_dependencies(SohOtrBesideExe soh)
 # Package the boats' RS prop archives into mods/ on every build (sturdy-bassoon#262 point 4). Rs_Boat
 # draws its hull, parts and rudder from rs-props-rs_boat_<list>.o2r, made from the placement lists in
 # soh/soh/custom/rs_boats/ by sturdy-bassoon's prop generator; with no archive it draws a placeholder
-# box. package_props.py runs the generator over every list in that folder (well under a second) and
+# box. The key items' models ride along (sturdy-bassoon#286): rs-props-rs_item_<token>.o2r from the lists in
+# soh/soh/custom/rs_items/, which the get-item ceremony holds up, its icon when the archive is missing. package_props.py
+# runs the generator over every list in those folders (well under a second) and
 # copies an archive over the one in mods/ only when its bytes changed. RS bytes never come from this
 # repo (the clean-distribution ADR), so no Python, no sturdy-bassoon beside this tree, no RS props
 # install root or a list the generator refuses is a warning, never a failed build.
@@ -383,7 +385,8 @@ if(Python3_Interpreter_FOUND AND EXISTS "${SOH_PACKAGE_PROPS}")
         COMMAND ${Python3_EXECUTABLE} ${SOH_PACKAGE_PROPS}
                 --mods $<TARGET_FILE_DIR:soh>/mods
                 ${CMAKE_CURRENT_SOURCE_DIR}/soh/soh/custom/rs_boats
-        COMMENT "Packaging the boats' RS prop archives into mods/..."
+                ${CMAKE_CURRENT_SOURCE_DIR}/soh/soh/custom/rs_items
+        COMMENT "Packaging the boats' and key items' RS prop archives into mods/..."
         VERBATIM
     )
 else()

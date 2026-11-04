@@ -12,6 +12,7 @@
 
 #include "soh/Enhancements/rs/actors/RsActors.h"
 #include "soh/Enhancements/rs/actors/RsBoat.h"
+#include "soh/Enhancements/rs/items/RsItems.h"
 #include "soh/Enhancements/rs/quest/Quest.h"
 #include "soh/Enhancements/worldstate/WorldFlags.h"
 #include "soh/SaveManager.h"
@@ -445,18 +446,31 @@ extern "C" int32_t RsBoatFit_Check(int32_t id, int32_t* failIndex) {
     }
     int32_t rupees = 0;
     for (int32_t i = 0; i < u->costCount; i++) {
+        bool cantPay = false;
         switch (u->costs[i].kind) {
             case RS_BOAT_COST_RUPEES:
                 rupees += u->costs[i].amount;
-                if (rupees > RsBoatFit_RupeesAfterPending()) {
-                    if (failIndex != nullptr) {
-                        *failIndex = i;
-                    }
-                    return RS_BOAT_FIT_CANT_AFFORD;
-                }
+                cantPay = rupees > RsBoatFit_RupeesAfterPending();
                 break;
+            case RS_BOAT_COST_ITEMS: {
+                // Summed over every cost naming the same item, as rupees are: two rows of 5 planks need 10.
+                int32_t items = 0;
+                for (int32_t j = 0; j <= i; j++) {
+                    if (u->costs[j].kind == RS_BOAT_COST_ITEMS && u->costs[j].a == u->costs[i].a) {
+                        items += u->costs[j].amount;
+                    }
+                }
+                cantPay = items > RsItems_Count(u->costs[i].a);
+                break;
+            }
             default:
                 break; // unreachable: CheckCatalogue refuses an unknown kind
+        }
+        if (cantPay) {
+            if (failIndex != nullptr) {
+                *failIndex = i;
+            }
+            return RS_BOAT_FIT_CANT_AFFORD;
         }
     }
     return RS_BOAT_FIT_OK;
@@ -470,6 +484,8 @@ extern "C" int32_t RsBoatFit_Build(int32_t id, int32_t* failIndex) {
         for (int32_t i = 0; i < u->costCount; i++) {
             if (u->costs[i].kind == RS_BOAT_COST_RUPEES) {
                 Rupees_ChangeBy(static_cast<s16>(-u->costs[i].amount));
+            } else if (u->costs[i].kind == RS_BOAT_COST_ITEMS) {
+                RsItems_Take(u->costs[i].a, u->costs[i].amount, RS_ITEMS_SRC_BOAT); // checked just above
             }
         }
         Apply(u);

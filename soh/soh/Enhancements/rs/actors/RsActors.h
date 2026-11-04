@@ -60,6 +60,13 @@ int32_t RsText_ChoiceEdge(int32_t dir);
 // the default). Read
 // every draw by RsText_DrawScrollArrows, which the engine calls with the box's PlayState and display
 // list (declared there, in z_message_PAL.c, because this header names no engine types).
+// HOW LONG A TALK WAITS FOR ITS FIRST BOX (sturdy-bassoon#286's harness found it). Actor_ProcessTalkRequest says
+// the talk has started, but the box can open a few frames later: Link mid-swing finishes the swing first. A talk
+// actor that read "no box" in those frames as "closed from outside" went back to waiting, the box then opened
+// with nobody listening, and the player's pick did nothing. So a talk's first box gets this many ticks (2 s) to
+// appear; after that box has been seen, "no box" means closed, as it always did. RsNpc, RsInteraction, RsStairs.
+#define RS_TALK_OPEN_WAIT 40
+
 #define CVAR_RS_SCROLL_ARROW_ANIM CVAR_DEVELOPER_TOOLS("RsScrollArrowAnim")
 #define RS_SCROLL_ARROW_BOUNCE 0
 #define RS_SCROLL_ARROW_FADE 1

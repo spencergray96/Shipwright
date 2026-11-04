@@ -44,6 +44,7 @@ typedef struct RsStairs {
     // reported: `stairs actors` prints it, and a placement off its floor writes `bad_placement`.
     /* */ float landingFloorY; // what the raycast found; meaningful while landingFloor is FOUND
     /* */ int8_t landingFloor; // an RsStairsLandingFloor
+    /* */ int32_t openWait;    // ticks left for a menu's box to open (RS_TALK_OPEN_WAIT); 0 once it has
 } RsStairs;
 
 // What RsStairs_MeasureLanding found under a placement's landing. The values are what `stairs actors`

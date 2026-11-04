@@ -38,6 +38,10 @@ typedef enum QuestResult {
     QUEST_ERR_CANNOT_AFFORD = 11,   // outcome: a dialogue charge (RS_DLG_ACTION_CHARGE_RUPEES) Link is short
                                     // of (sturdy-bassoon#281). No quest write returns it; it shares this
                                     // enum because a dialogue action's result is reported through it
+    QUEST_ERR_CANNOT_CARRY = 12,    // outcome: a dialogue PURCHASE of counted items Link already holds the cap of
+                                    // (#286; vanilla's shop); the same sharing as CANNOT_AFFORD
+    QUEST_ERR_NOT_ENOUGH_ITEMS = 13, // outcome: a dialogue take or sale of counted items Link is short of (#286)
+    QUEST_ERR_ALREADY_HELD = 14,     // outcome: a dialogue gift of a key item Link already holds (#286)
     QUEST_RESULT_COUNT,
 } QuestResult;
 
@@ -168,6 +172,9 @@ int32_t Quest_RupeesAfterPending(void);
 // is for every quest write.
 int32_t Quest_CheckChargeRupees(int32_t amount);
 int32_t Quest_ChargeRupees(int32_t amount);
+// The other way: pays Link `amount` rupees, 1..QUEST_RUPEE_AMOUNT_MAX, through the HUD's counter (the wallet's limit
+// applies). A dialogue sale of counted items (RS_DLG_ACTION_SELL_ITEMS, #286). QUEST_OK, or QUEST_ERR_BAD_DEF.
+int32_t Quest_PayRupees(int32_t amount);
 
 // One line, no newline, always NUL-terminated for len > 0:
 //   id=48 name=debug_smoke tier=debug status=in_progress steps=0x00000003/3 ordered=0 available=0 prereqs=met
