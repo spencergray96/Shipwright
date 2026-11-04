@@ -3,12 +3,12 @@
  "scene": "rs_boat",
  "list": "objects/rs_props/rs_boat_sloop_cannon_dragon/props",
  "kinds": {
-  "dragon-cannon-59452-no-fire": "rs_59452_no_fire"
+  "dragon-cannon-59452": "rs_59452"
  },
  "props": [
   {
    "id": "starboard",
-   "kind": "dragon-cannon-59452-no-fire",
+   "kind": "dragon-cannon-59452",
    "pos": [
     -44,
     0,
@@ -18,7 +18,7 @@
   },
   {
    "id": "port",
-   "kind": "dragon-cannon-59452-no-fire",
+   "kind": "dragon-cannon-59452",
    "pos": [
     44,
     0,

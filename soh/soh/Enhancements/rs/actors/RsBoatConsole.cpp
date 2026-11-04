@@ -123,13 +123,15 @@ int32_t List(std::vector<std::string>& lines) {
         const Actor* a = &boat->dyna.actor;
         Vec3f helm;
         char facilities[96];
+        char poses[96];
         RsBoat_HelmPos(boat, &helm);
         RsBoat_FacilityNames(boat->kind, facilities, sizeof(facilities));
+        RsBoat_FacilityPoses(boat, poses, sizeof(poses));
         Addf(lines,
              "boat idx=%d kind=%s x=%d y=%d z=%d yaw=%d speed=%d top=%d throttle=%d tiller=%d rudder=%d helm=%d on_water=%d "
              "surface=%d blocked=%s blocks=%d touch=%s touches=%d lift=%d floor_low=%d link_on=%d helm_dist=%d "
              "cam=%d map_arrow=%s wake_rings=%d wake_held=%d facilities=%s facility_polys=%d owned=%d cull=%d drawn=%d "
-             "reach=%d",
+             "reach=%d facility_poses=%s catcher=%s",
              (int)idx, RsBoat_KindName(boat->kind), (int)lroundf(a->world.pos.x), (int)lroundf(a->world.pos.y),
              (int)lroundf(a->world.pos.z), (int)(u16)a->shape.rot.y, (int)lroundf(boat->speed * 100.0f),
              (int)lroundf(RsBoat_TopSpeed(boat) * 100.0f),
@@ -142,7 +144,7 @@ int32_t List(std::vector<std::string>& lines) {
              boat->cam.subCamId != SUBCAM_NONE ? 1 : 0, RsVehicleMinimap_ArrowName(RsVehicleMinimap_Arrow(a)),
              boat->wakeRings, boat->wakeHeld, facilities, RsBoat_FacilityPolyCount(boat->kind), boat->owned,
              RsBoat_CullApplies(boat) ? 1 : 0, RsBoat_Drawn(boat) ? 1 : 0,
-             (int)lroundf(RsBoat_KindReach(boat->kind)));
+             (int)lroundf(RsBoat_KindReach(boat->kind)), poses, RsBoat_CatcherActive(boat->kind) ? "active" : "idle");
     }
     Addf(lines,
          "op=list result=ok count=%d link_x=%d link_y=%d link_z=%d link_yaw=%d link_floor_bg=%d "
@@ -609,6 +611,29 @@ std::string PoolCensus() {
 // The kind Lake Hylia's boat and `boat spawn` put down (saved). In Lake Hylia, with its boat on, every boat is
 // killed and the lake's put back at its spot as the new kind at once, so a kind can be tried without leaving;
 // elsewhere it shows on the next spawn.
+// Each kind's wind catcher, idle or active (#291): `catcher` reports, `catcher <idle|active> [<kind>]` sets one kind or
+// every kind. Not saved; nothing in the game sets it yet.
+int32_t Catcher(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() >= 2) {
+        const s32 kind = args.size() == 3 ? RsBoat_KindByName(args[2].c_str()) : -1;
+        if ((args[1] != "idle" && args[1] != "active") || args.size() > 3 || (args.size() == 3 && kind < 0)) {
+            lines.push_back(kUsage);
+            return 1;
+        }
+        for (s32 k = 0; k < RS_BOAT_KIND_COUNT; k++) {
+            if (kind < 0 || k == kind) {
+                RsBoat_SetCatcherActive(k, args[1] == "active");
+            }
+        }
+    }
+    std::string states;
+    for (s32 k = 0; k < RS_BOAT_KIND_COUNT; k++) {
+        states += std::string(" ") + RsBoat_KindName(k) + "=" + (RsBoat_CatcherActive(k) ? "active" : "idle");
+    }
+    lines.push_back("op=catcher result=ok" + states);
+    return 0;
+}
+
 int32_t Kind(const std::vector<std::string>& args, std::vector<std::string>& lines) {
     int respawned = 0;
     if (args.size() == 2) {
@@ -817,6 +842,9 @@ int32_t RsBoatConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "cull") {
         return Cull(args, lines);
     }
+    if (sub == "catcher") {
+        return Catcher(args, lines);
+    }
     if (sub == "shadow") {
         return Shadow(args, lines);
     }
@@ -915,6 +943,8 @@ const ConsoleSink::Command rsBoatCommand(
     "hull's outline meets where it is; still holds every boat level, with no bob or rock (a test aid, not saved); "
     "cull off draws every boat every frame wherever it is, as before #293, rather than only when it can be on screen "
     "(a test aid, not saved; list's cull= and drawn= say what each boat did last frame); "
+    "catcher sets each kind's wind catcher idle (the default) or active, its cups and mote spinning (not saved; "
+    "list's facility_poses= says which pose each fitted facility drew last frame); "
     "shadow picks Link's shadow over a boat (feet: as on land; circle: vanilla's flat one; draped: over the drawn "
     "hull) and its size (percent of his shadow scale; saved), and reports the draped one's last draw; "
     "fitout, upgrades, build, grant and look read and change the save's boats (#263): fitout lists each kind's owned "
@@ -927,7 +957,7 @@ const ConsoleSink::Command rsBoatCommand(
     "to, else dock 0), fetch charging the fee; stow puts a kind back to stowed wherever it is, and place puts it "
     "down at x z in this scene (test aids, no rules).",
     { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|kind|tune|wake|contact|still|cull|shadow|"
-        "clear|fitout|upgrades|build|grant|look|own|fit|where|docks|stow|place|takeout|putaway|fetch",
+        "clear|fitout|upgrades|build|grant|look|own|fit|where|docks|stow|place|takeout|putaway|fetch|catcher",
         Ship::ArgumentType::TEXT },
       { "arg1", Ship::ArgumentType::TEXT, true },
       { "arg2", Ship::ArgumentType::TEXT, true },
@@ -999,6 +1029,9 @@ contact [<idx>]                   what the hull's outline meets
 still                             hold every boat level
   on                              no bob or rock
   off                             let them bob again
+catcher                           each kind's wind catcher, idle or active
+  idle [<kind>]                   RS's idle catcher, its mote hidden
+  active [<kind>]                 its cups and stored mote spinning
 cull                              leave unseen boats out of the draw
   on                              draw a boat only when it can be seen
   off                             draw every boat every frame
