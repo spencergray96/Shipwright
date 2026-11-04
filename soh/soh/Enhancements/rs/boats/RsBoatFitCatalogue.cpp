@@ -7,6 +7,7 @@
 // its name and class in kSlots, and the kinds that have it in kKindSlots. None of it touches the save's layout.
 
 #include "RsBoatFit.h"
+#include "RsBoatHazard.h"
 
 #include <cassert>
 #include <cstring>
@@ -33,17 +34,21 @@ const SlotInfo kSlots[RS_BOAT_SLOT_COUNT] = {
     { "salvaging_hook", false },
     { "wind_catcher", false },
     { "cannon", false },
+    { "inoculation_station", false },
+    { "brazier", true },
 };
 
 // Which kind has which slot. The hotspots are the owner's pick (#263, 2026-10-30), far fewer than RS's 1/7/11 and
 // each typed to one facility: RS's either/or hotspots (a cannon or a misc facility) are deliberately not modelled.
 static_assert(RS_BOAT_KIND_SKIFF == 0 && RS_BOAT_KIND_SLOOP == 1 && RS_BOAT_KIND_RAFT == 2, "kKindSlots' row order");
-static_assert(RS_BOAT_SLOT_COUNT == 7, "kSlots and kKindSlots' columns list every slot");
+static_assert(RS_BOAT_SLOT_COUNT == 9, "kSlots and kKindSlots' columns list every slot");
 const bool kKindSlots[RS_BOAT_KIND_COUNT][RS_BOAT_SLOT_COUNT] = {
-    //                   hull  helm  sails keel   hook  wind   cannon
-    /* skiff */ { true, true, true, true, true, true, false },
-    /* sloop */ { true, true, true, true, true, true, true },
-    /* raft  */ { true, true, true, false, true, false, false },
+    // The inoculation station and the brazier are #285's, where RS has them: the station on the skiff and sloop, the
+    // brazier on every kind.
+    //                   hull  helm  sails keel   hook  wind   cannon station brazier
+    /* skiff */ { true, true, true, true, true, true, false, true, true },
+    /* sloop */ { true, true, true, true, true, true, true, true, true },
+    /* raft  */ { true, true, true, false, true, false, false, false, true },
 };
 
 // Every tier. A core part's tier 0 is its kind's free default and has a row; a facility's 0 is empty and has none.
@@ -60,6 +65,18 @@ const bool kKindSlots[RS_BOAT_KIND_COUNT][RS_BOAT_SLOT_COUNT] = {
 //   own (RsBoat.c's sRsBoatFacilities); the hooks' and the cannon's tiers are one mesh recoloured, and the gale
 //   catcher and the dragon cannon, meshes of their own, are lists of their own.
 // The wiki's sloop bronze keel is 59517, which is the iron skiff keel; 59523 is the cache's.
+//
+// `waters` (#285, RsBoatHazard.h): every hazard a tier protects against, RS's resistances. Sails: storm resistance 1
+// from oak (stormy seas), 2 from camphor (lightning too). Helm: RS's rapid resistance, a strength more a step (iron
+// gentle, mithril strong, rune powerful, dragon deadly), and tangled kelp from adamant. Keel: crystal-flecked waters
+// from adamant. The inoculation station sets fetid, the eternal brazier icy. Only the waters are read (#285); the
+// rapids and lightning are for #289.
+constexpr uint32_t kStormProof = RS_BOAT_WATER_STORMY | RS_BOAT_WATER_LIGHTNING;
+constexpr uint32_t kHelmMithril = RS_BOAT_WATER_RAPIDS_GENTLE | RS_BOAT_WATER_RAPIDS_STRONG;
+constexpr uint32_t kHelmAdamant = kHelmMithril | RS_BOAT_WATER_KELP;
+constexpr uint32_t kHelmRune = kHelmAdamant | RS_BOAT_WATER_RAPIDS_POWERFUL;
+constexpr uint32_t kHelmDragon = kHelmRune | RS_BOAT_WATER_RAPIDS_DEADLY;
+
 const RsBoatTier kTiers[] = {
     // kind, slot, tier, name, loc, topSpeed, accel, hitpoints, waters, armour. The hulls' and keels' hitpoints and the
     // keels' armour are RS's (the owner, #284: RS's numbers as they are; the research note's hull and keel tables).
@@ -71,19 +88,19 @@ const RsBoatTier kTiers[] = {
     { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HULL, 5, "ironwood", 59499, 0.0f, 0.0f, 100, 0 },
     { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HULL, 6, "rosewood", 59500, 0.0f, 0.0f, 120, 0 },
     { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HELM, 0, "bronze", 60551, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HELM, 1, "iron", 60552, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HELM, 2, "steel", 60553, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HELM, 3, "mithril", 60554, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HELM, 4, "adamant", 60555, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HELM, 5, "rune", 60556, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HELM, 6, "dragon", 60557, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HELM, 1, "iron", 60552, 0.0f, 0.0f, 0, RS_BOAT_WATER_RAPIDS_GENTLE },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HELM, 2, "steel", 60553, 0.0f, 0.0f, 0, RS_BOAT_WATER_RAPIDS_GENTLE },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HELM, 3, "mithril", 60554, 0.0f, 0.0f, 0, kHelmMithril },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HELM, 4, "adamant", 60555, 0.0f, 0.0f, 0, kHelmAdamant },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HELM, 5, "rune", 60556, 0.0f, 0.0f, 0, kHelmRune },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_HELM, 6, "dragon", 60557, 0.0f, 0.0f, 0, kHelmDragon },
     { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 0, "wooden", 29473, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 1, "oak", 29474, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 2, "teak", 29475, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 3, "mahogany", 29476, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 4, "camphor", 29477, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 5, "ironwood", 29478, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 6, "rosewood", 29479, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 1, "oak", 29474, 0.0f, 0.0f, 0, RS_BOAT_WATER_STORMY },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 2, "teak", 29475, 0.0f, 0.0f, 0, RS_BOAT_WATER_STORMY },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 3, "mahogany", 29476, 0.0f, 0.0f, 0, RS_BOAT_WATER_STORMY },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 4, "camphor", 29477, 0.0f, 0.0f, 0, kStormProof },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 5, "ironwood", 29478, 0.0f, 0.0f, 0, kStormProof },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SAILS, 6, "rosewood", 29479, 0.0f, 0.0f, 0, kStormProof },
     { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SALVAGING_HOOK, 1, "bronze", 60483, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SALVAGING_HOOK, 2, "iron", 60484, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_SALVAGING_HOOK, 3, "steel", 60485, 0.0f, 0.0f, 0, 0 },
@@ -103,26 +120,26 @@ const RsBoatTier kTiers[] = {
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 5, "ironwood", 59506, 18.0f, 0.0f, 150, 0 },
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HULL, 6, "rosewood", 59507, 18.0f, 0.0f, 180, 0 },
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 0, "bronze", 59576, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 1, "iron", 59579, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 2, "steel", 59582, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 3, "mithril", 59585, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 4, "adamant", 59588, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 5, "rune", 59591, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 6, "dragon", 59594, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 1, "iron", 59579, 0.0f, 0.0f, 0, RS_BOAT_WATER_RAPIDS_GENTLE },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 2, "steel", 59582, 0.0f, 0.0f, 0, RS_BOAT_WATER_RAPIDS_GENTLE },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 3, "mithril", 59585, 0.0f, 0.0f, 0, kHelmMithril },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 4, "adamant", 59588, 0.0f, 0.0f, 0, kHelmAdamant },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 5, "rune", 59591, 0.0f, 0.0f, 0, kHelmRune },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_HELM, 6, "dragon", 59594, 0.0f, 0.0f, 0, kHelmDragon },
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SAILS, 0, "wooden", 29480, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SAILS, 1, "oak", 29481, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SAILS, 2, "teak", 29482, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SAILS, 3, "mahogany", 29483, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SAILS, 4, "camphor", 29484, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SAILS, 5, "ironwood", 29485, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SAILS, 6, "rosewood", 29496, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SAILS, 1, "oak", 29481, 0.0f, 0.0f, 0, RS_BOAT_WATER_STORMY },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SAILS, 2, "teak", 29482, 0.0f, 0.0f, 0, RS_BOAT_WATER_STORMY },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SAILS, 3, "mahogany", 29483, 0.0f, 0.0f, 0, RS_BOAT_WATER_STORMY },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SAILS, 4, "camphor", 29484, 0.0f, 0.0f, 0, kStormProof },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SAILS, 5, "ironwood", 29485, 0.0f, 0.0f, 0, kStormProof },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SAILS, 6, "rosewood", 29496, 0.0f, 0.0f, 0, kStormProof },
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_KEEL, 0, "bronze", 59516, 0.0f, 0.0f, 50, 0, 1 },
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_KEEL, 1, "iron", 59517, 0.0f, 0.0f, 50, 0, 2 },
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_KEEL, 2, "steel", 59518, 0.0f, 0.0f, 60, 0, 3 },
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_KEEL, 3, "mithril", 59519, 0.0f, 0.0f, 60, 0, 4 },
-    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_KEEL, 4, "adamant", 59520, 0.0f, 0.0f, 70, 0, 6 },
-    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_KEEL, 5, "rune", 59521, 0.0f, 0.0f, 80, 0, 8 },
-    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_KEEL, 6, "dragon", 59522, 0.0f, 0.0f, 80, 0, 10 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_KEEL, 4, "adamant", 59520, 0.0f, 0.0f, 70, RS_BOAT_WATER_CRYSTAL, 6 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_KEEL, 5, "rune", 59521, 0.0f, 0.0f, 80, RS_BOAT_WATER_CRYSTAL, 8 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_KEEL, 6, "dragon", 59522, 0.0f, 0.0f, 80, RS_BOAT_WATER_CRYSTAL, 10 },
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SALVAGING_HOOK, 1, "bronze", 60490, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SALVAGING_HOOK, 2, "iron", 60491, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_SALVAGING_HOOK, 3, "steel", 60492, 0.0f, 0.0f, 0, 0 },
@@ -142,26 +159,26 @@ const RsBoatTier kTiers[] = {
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 5, "ironwood", 59513, 14.0f, 0.0f, 200, 0 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HULL, 6, "rosewood", 59514, 14.0f, 0.0f, 240, 0 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 0, "bronze", 59598, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 1, "iron", 59601, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 2, "steel", 59604, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 3, "mithril", 59607, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 4, "adamant", 59610, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 5, "rune", 59613, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 6, "dragon", 59616, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 1, "iron", 59601, 0.0f, 0.0f, 0, RS_BOAT_WATER_RAPIDS_GENTLE },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 2, "steel", 59604, 0.0f, 0.0f, 0, RS_BOAT_WATER_RAPIDS_GENTLE },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 3, "mithril", 59607, 0.0f, 0.0f, 0, kHelmMithril },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 4, "adamant", 59610, 0.0f, 0.0f, 0, kHelmAdamant },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 5, "rune", 59613, 0.0f, 0.0f, 0, kHelmRune },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_HELM, 6, "dragon", 59616, 0.0f, 0.0f, 0, kHelmDragon },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SAILS, 0, "wooden", 29498, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SAILS, 1, "oak", 29499, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SAILS, 2, "teak", 29500, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SAILS, 3, "mahogany", 29501, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SAILS, 4, "camphor", 29502, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SAILS, 5, "ironwood", 29503, 0.0f, 0.0f, 0, 0 },
-    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SAILS, 6, "rosewood", 29504, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SAILS, 1, "oak", 29499, 0.0f, 0.0f, 0, RS_BOAT_WATER_STORMY },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SAILS, 2, "teak", 29500, 0.0f, 0.0f, 0, RS_BOAT_WATER_STORMY },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SAILS, 3, "mahogany", 29501, 0.0f, 0.0f, 0, RS_BOAT_WATER_STORMY },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SAILS, 4, "camphor", 29502, 0.0f, 0.0f, 0, kStormProof },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SAILS, 5, "ironwood", 29503, 0.0f, 0.0f, 0, kStormProof },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SAILS, 6, "rosewood", 29504, 0.0f, 0.0f, 0, kStormProof },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_KEEL, 0, "bronze", 59523, 0.0f, 0.0f, 70, 0, 1 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_KEEL, 1, "iron", 59524, 0.0f, 0.0f, 70, 0, 2 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_KEEL, 2, "steel", 59525, 0.0f, 0.0f, 90, 0, 3 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_KEEL, 3, "mithril", 59526, 0.0f, 0.0f, 90, 0, 4 },
-    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_KEEL, 4, "adamant", 59527, 0.0f, 0.0f, 100, 0, 6 },
-    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_KEEL, 5, "rune", 59528, 0.0f, 0.0f, 120, 0, 8 },
-    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_KEEL, 6, "dragon", 59529, 0.0f, 0.0f, 120, 0, 10 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_KEEL, 4, "adamant", 59527, 0.0f, 0.0f, 100, RS_BOAT_WATER_CRYSTAL, 6 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_KEEL, 5, "rune", 59528, 0.0f, 0.0f, 120, RS_BOAT_WATER_CRYSTAL, 8 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_KEEL, 6, "dragon", 59529, 0.0f, 0.0f, 120, RS_BOAT_WATER_CRYSTAL, 10 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SALVAGING_HOOK, 1, "bronze", 60497, 0.0f, 0.0f, 0, 0 },
     // the sloop's starboard hooks: RS draws its port one, 60498 on, as this mesh mirrored
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_SALVAGING_HOOK, 2, "iron", 60499, 0.0f, 0.0f, 0, 0 },
@@ -180,6 +197,20 @@ const RsBoatTier kTiers[] = {
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_CANNON, 5, "adamant", 59450, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_CANNON, 6, "rune", 59451, 0.0f, 0.0f, 0, 0 },
     { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_CANNON, 7, "dragon", 59452, 0.0f, 0.0f, 0, 0 },
+
+    // #285's two, data only (the owner): no model is drawn and no upgrade builds them yet, so `boat fit` reaches them.
+    // The station's loc was not looked up (0). The brazier's are RS's three, in its hulls' order (raft, skiff, sloop),
+    // not checked against the cache; its tier 0 is the empty default every core part needs.
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_INOCULATION_STATION, 1, "inoculation_station", 0, 0.0f, 0.0f, 0,
+      RS_BOAT_WATER_FETID },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_INOCULATION_STATION, 1, "inoculation_station", 0, 0.0f, 0.0f, 0,
+      RS_BOAT_WATER_FETID },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_BRAZIER, 0, "none", 0, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_RAFT, RS_BOAT_SLOT_BRAZIER, 1, "eternal", 59707, 0.0f, 0.0f, 0, RS_BOAT_WATER_ICY },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_BRAZIER, 0, "none", 0, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SKIFF, RS_BOAT_SLOT_BRAZIER, 1, "eternal", 59708, 0.0f, 0.0f, 0, RS_BOAT_WATER_ICY },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_BRAZIER, 0, "none", 0, 0.0f, 0.0f, 0, 0 },
+    { RS_BOAT_KIND_SLOOP, RS_BOAT_SLOT_BRAZIER, 1, "eternal", 59709, 0.0f, 0.0f, 0, RS_BOAT_WATER_ICY },
 };
 
 constexpr int kTierCount = static_cast<int>(sizeof(kTiers) / sizeof(kTiers[0]));
@@ -442,6 +473,11 @@ void CheckCatalogue() {
         if (!KindValid(t.kind) || !SlotValid(t.slot) || !kKindSlots[t.kind][t.slot] || t.tier < 0 ||
             t.tier > RS_BOAT_TIER_MAX || (t.tier == 0 && !kSlots[t.slot].core) || t.name == nullptr) {
             Problem("tier", i);
+        }
+        // Every hull carries HP, so no boat's most is 0 (#284: a keel only adds; the raft has none). A boat at 0 most
+        // would ignore every hit as `no_hp`, never sinking.
+        if (t.slot == RS_BOAT_SLOT_HULL && t.hitpoints <= 0) {
+            Problem("tier (a hull with no hitpoints)", i);
         }
         for (int j = 0; j < i; j++) {
             if (kTiers[j].kind == t.kind && kTiers[j].slot == t.slot && kTiers[j].tier == t.tier) {

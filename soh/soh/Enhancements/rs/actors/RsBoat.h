@@ -91,6 +91,7 @@
 #include "z64.h"
 #include "RsSteer.h"
 #include "RsVehicleShadow.h"
+#include "soh/Enhancements/rs/boats/RsBoatHazard.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -228,8 +229,17 @@ const EffectSs* RsBoat_EffectSlot(s32 index);
 
 struct RsBoat;
 // The top speed this boat uses now, units a tick: `fwd` when it is set, else its kind's fit-out's (a hull past its
-// default, RsBoatFit_Stats), else its kind's own.
+// default, RsBoatFit_Stats), else its kind's own; then its speed modifiers (RsBoatSpeedMod) on that.
 f32 RsBoat_TopSpeed(const struct RsBoat* boat);
+
+// What is changing a boat's top speed this tick, the one input every source writes (sturdy-bassoon#285): the cap is
+// the top speed times `share`, plus `burst`. A hazard water sets `share` (boats/RsBoatHazard.h); #289's rapids will set
+// `burst`, RS's speed stacks over the hull's cap. Each source sets its own every tick, so a modifier ends when its
+// source does.
+typedef struct RsBoatSpeedMod {
+    f32 share; // 1 for none; a hazard's slowdown, the strongest of those the boat is in
+    f32 burst; // units a tick over the cap; 0 for none (nothing sets it yet)
+} RsBoatSpeedMod;
 
 typedef enum RsBoatBlock {
     RS_BOAT_BLOCK_NONE,
@@ -287,6 +297,12 @@ typedef struct RsBoat {
     s32 sinkTicks;   // ticks since it capsized, 0 while afloat (#284)
     s32 culled;      // RsBoat_Draw left it out on the last frame: no part of it could be on screen (#293)
     f32 sinkFloorY;  // the bed under it when it capsized, BGCHECK_Y_MIN for none: gone once all of it is below
+    // #285's: this tick's top-speed modifiers, and the hazard waters (boats/RsBoatHazard.h) as of its last tick.
+    RsBoatSpeedMod speedMod;
+    u32 hazardIn;   // the hazard kinds its helm is in, a bit each
+    u32 hazardHarm; // those of them its fit-out does not protect against: what slows it, hits it and the HUD lists
+    s32 hazardTicks[RS_BOAT_HAZARD_COUNT]; // ticks with Link aboard toward each kind's next hit
+    s32 hazardHits[RS_BOAT_HAZARD_COUNT];  // each kind's hits since it entered: icy's grow with them
 } RsBoat;
 
 // How a capsized boat goes down (#284). It rolls onto its side over RS_BOAT_SINK_ROLL_TICKS and drops, gathering speed

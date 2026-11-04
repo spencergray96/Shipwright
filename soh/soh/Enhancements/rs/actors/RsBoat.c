@@ -484,12 +484,17 @@ f32 RsBoat_TopSpeed(const RsBoat* boat) {
     const RsBoatKind* kind = &sRsBoatKinds[boat->kind];
     const f32 override = RsBoat_Tune(RS_BOAT_TUNE_FORWARD);
     RsBoatFitStats fit;
+    f32 top;
 
     if (override > 0.0f) {
-        return override;
+        top = override;
+    } else {
+        RsBoatFit_Stats(boat->kind, &fit);
+        top = fit.topSpeed > 0.0f ? fit.topSpeed : kind->topSpeed;
     }
-    RsBoatFit_Stats(boat->kind, &fit);
-    return fit.topSpeed > 0.0f ? fit.topSpeed : kind->topSpeed;
+    // The modifiers (#285): a hazard's share, then a burst over the cap. Never below a crawl, so a share is a slowdown,
+    // not a stop, and the turn rate's divisions stay sound.
+    return MAX(top * boat->speedMod.share + boat->speedMod.burst, 1.0f);
 }
 
 // The turn rate at full tiller for a boat moving at `speed`, binang a tick. From the kind's rest rate it rises with
@@ -2770,6 +2775,12 @@ void RsBoat_Init(Actor* thisx, PlayState* play) {
     this->cam.subCamId = SUBCAM_NONE;
     this->sinkTicks = 0;
     RsBoatHealth_InitBoat(this);
+    this->speedMod.share = 1.0f;
+    this->speedMod.burst = 0.0f;
+    this->hazardIn = 0;
+    this->hazardHarm = 0;
+    memset(this->hazardTicks, 0, sizeof(this->hazardTicks));
+    memset(this->hazardHits, 0, sizeof(this->hazardHits));
     this->surfaceY = thisx->world.pos.y;
     this->onWater = RsBoat_SurfaceBox(play, thisx->world.pos.x, thisx->world.pos.z, &this->surfaceY, thisx,
                                       &this->waterBox);
@@ -3142,7 +3153,7 @@ void RsBoat_Update(Actor* thisx, PlayState* play) {
     const RsBoatHull* hull = &sHulls[this->kind];
     Player* player = GET_PLAYER(play);
     Input* input = &play->state.input[0];
-    const f32 top = RsBoat_TopSpeed(this);
+    f32 top;
     f32 rate;
     f32 throttle = 0.0f;
     f32 turn = 0.0f;
@@ -3162,6 +3173,12 @@ void RsBoat_Update(Actor* thisx, PlayState* play) {
     // Read before Player's update this tick, so it is where Link stood last tick: Player asks when he leaves the
     // ground whether the floor he left was a boat (RsBoat_LinkWasAboard).
     this->linkAboard = RsBoat_LinkOnDeck(this, player);
+    // The hazard waters under its helm (#285): their slowdown is in this tick's top speed, and their hits land now.
+    RsBoatHazard_Tick(this, play);
+    if (this->sinkTicks > 0) {
+        return; // a hit capsized it
+    }
+    top = RsBoat_TopSpeed(this);
     if (sHulls[this->kind].interiorHands != (CVarGetInteger(CVAR_RS_BOAT_INTERIOR_CLIMB, RS_BOAT_INTERIOR_CLIMB_DEFAULT) != 0)) {
         RsBoat_SetInteriorClimb(&sHulls[this->kind], CVarGetInteger(CVAR_RS_BOAT_INTERIOR_CLIMB, RS_BOAT_INTERIOR_CLIMB_DEFAULT) != 0);
     }

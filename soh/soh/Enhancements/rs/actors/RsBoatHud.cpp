@@ -6,6 +6,10 @@
 // The boat's HP (sturdy-bassoon#284): a bar under the label while Link is aboard a boat, on its deck or at its helm,
 // its colour going from green to red as it empties, and "HP n/max" over it (RsBoatHealth.h). The same `boat hud` hides it.
 //
+// The hazards' alerts (sturdy-bassoon#285): under the bar, a red line for every hazard water the boat is in and not
+// fitted for, in RS's words, until it leaves that water (RsBoatHazard.h). A first look, kept plain until the owner
+// makes the boat's alerts presentable.
+//
 // The save's boats (sturdy-bassoon#263), a debug readout at the left under the magic bar: a block per kind, owned or
 // not, then its parts, facilities and looks one a line (RsBoatFit_Summary), a blank line between kinds. `boat fitout
 // hud off` (CVAR_RS_BOAT_FIT_HUD) hides it alone.
@@ -29,6 +33,7 @@
 #include "RsBoat.h"
 #include "RsBalloon.h"
 #include "soh/Enhancements/rs/boats/RsBoatFit.h"
+#include "soh/Enhancements/rs/boats/RsBoatHazard.h"
 #include "soh/Enhancements/rs/boats/RsBoatHealth.h"
 #include "soh/ShipInit.hpp"
 #include "soh/cvar_prefixes.h"
@@ -49,6 +54,7 @@ const ImVec4 kNotSteering = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
 const ImVec4 kSteering = ImVec4(0.35f, 1.0f, 0.35f, 1.0f);
 const ImVec4 kFitOwned = ImVec4(0.85f, 0.85f, 0.85f, 1.0f);
 const ImVec4 kFitNotOwned = ImVec4(0.55f, 0.55f, 0.55f, 1.0f);
+const ImVec4 kAlert = ImVec4(1.0f, 0.3f, 0.25f, 1.0f); // RS's chatbox red
 
 int32_t sShown = RS_BOAT_HUD_HIDDEN; // what the last frame drew, for `boat list`
 
@@ -106,6 +112,18 @@ class RsBoatHudWindow final : public Ship::GuiWindow {
                 std::snprintf(label, sizeof(label), "HP %d/%d", (int)hp, (int)max);
                 ImGui::ProgressBar(share, ImVec2(ImGui::GetFontSize() * 9.0f, 0.0f), label);
                 ImGui::PopStyleColor(2);
+            }
+            const uint32_t harm = RsBoatHazard_Harmful(boat);
+            if (harm != 0) {
+                ImGui::SetWindowFontScale(1.0f);
+                // Wrapped to a width of its own: the box auto-sizes, and an alert is far wider than the label.
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetFontSize() * 16.0f);
+                for (int32_t kind = 0; kind < RS_BOAT_HAZARD_COUNT; kind++) {
+                    if (harm & (1u << kind)) {
+                        ImGui::TextColored(kAlert, "%s", RsBoatHazard_Alert(kind));
+                    }
+                }
+                ImGui::PopTextWrapPos();
             }
         }
         ImGui::End();
