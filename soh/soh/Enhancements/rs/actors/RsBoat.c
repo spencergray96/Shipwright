@@ -401,21 +401,22 @@ typedef struct RsBoatFacility {
 } RsBoatFacility;
 
 static const RsBoatFacility sRsBoatFacilities[RS_BOAT_KIND_COUNT][RS_BOAT_MAX_FACILITIES] = {
-    // skiff: the catcher's box is its legs and tub, 39 tall; the gale catcher's is wider
+    // skiff: the catcher's box is its legs and tub, to the tub's rim 28 up (RS's 90): the mote, the swirl's haze and the
+    // gale catcher's glow rise out of the tub above it, and Link stands on the rim, not on them. The gale catcher's is wider
     {
         { RS_BOAT_SLOT_SALVAGING_HOOK, 1, "skiff_hook", "objects/rs_props/rs_boat_skiff_hook/props" },
         { RS_BOAT_SLOT_WIND_CATCHER, 1, "skiff_catcher", "objects/rs_props/rs_boat_skiff_catcher/props",
-          { { { 14.0f, 35.0f }, { 17.0f, 53.0f }, 39.0f } }, "objects/rs_props/rs_boat_skiff_catcher_active/props" },
+          { { { 14.0f, 35.0f }, { 17.0f, 53.0f }, 28.0f } }, "objects/rs_props/rs_boat_skiff_catcher_active/props" },
         { RS_BOAT_SLOT_WIND_CATCHER, 2, "skiff_gale", "objects/rs_props/rs_boat_skiff_gale/props",
-          { { { 11.0f, 38.0f }, { 18.0f, 52.0f }, 39.0f } }, "objects/rs_props/rs_boat_skiff_gale_active/props" },
+          { { { 11.0f, 38.0f }, { 18.0f, 52.0f }, 28.0f } }, "objects/rs_props/rs_boat_skiff_gale_active/props" },
     },
     // sloop: each cannon's box is its carriage, 40 square and 33 tall; the barrel over the rail is the rail's
     {
         { RS_BOAT_SLOT_SALVAGING_HOOK, 1, "sloop_hook", "objects/rs_props/rs_boat_sloop_hook/props" },
         { RS_BOAT_SLOT_WIND_CATCHER, 1, "sloop_catcher", "objects/rs_props/rs_boat_sloop_catcher/props",
-          { { { 32.0f, 53.0f }, { 36.0f, 72.0f }, 39.0f } }, "objects/rs_props/rs_boat_sloop_catcher_active/props" },
+          { { { 32.0f, 53.0f }, { 36.0f, 72.0f }, 28.0f } }, "objects/rs_props/rs_boat_sloop_catcher_active/props" },
         { RS_BOAT_SLOT_WIND_CATCHER, 2, "sloop_gale", "objects/rs_props/rs_boat_sloop_gale/props",
-          { { { 29.0f, 56.0f }, { 36.0f, 72.0f }, 39.0f } }, "objects/rs_props/rs_boat_sloop_gale_active/props" },
+          { { { 29.0f, 56.0f }, { 36.0f, 72.0f }, 28.0f } }, "objects/rs_props/rs_boat_sloop_gale_active/props" },
         { RS_BOAT_SLOT_CANNON, 1, "sloop_cannon", "objects/rs_props/rs_boat_sloop_cannon/props",
           { { { -64.0f, -24.0f }, { -43.0f, -3.0f }, 33.0f }, { { 24.0f, 64.0f }, { -83.0f, -43.0f }, 33.0f } } },
         { RS_BOAT_SLOT_CANNON, 7, "sloop_cannon_dragon", "objects/rs_props/rs_boat_sloop_cannon_dragon/props",
