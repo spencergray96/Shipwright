@@ -12,6 +12,7 @@
 #include "RsBoatHud.h"
 #include "RsVehicleMinimap.h"
 #include "soh/Enhancements/rs/boats/RsBoatDock.h"
+#include "soh/Enhancements/rs/boats/RsBoatHazard.h"
 #include "soh/Enhancements/rs/boats/RsBoatHealth.h"
 #include "soh/Enhancements/rs/boats/RsBoatFitConsole.h"
 #include "soh/Enhancements/console/ConsoleSink.h"
@@ -46,7 +47,7 @@ using ConsoleSink::Addf;
     "fade <0-255>|off [both|depth|colour] | sinkfade [on|off] | "                                                 \
     "shadow [feet|circle|draped|default|reset] | "                                                                  \
     "shadow size <n> | shadow anchor [auto|hull|link] | shadow trace | clear | " RS_BOAT_FIT_GRAMMAR " | "             RS_BOAT_DOCK_GRAMMAR \
-    " | " RS_BOAT_HEALTH_GRAMMAR
+    " | " RS_BOAT_HEALTH_GRAMMAR " | " RS_BOAT_HAZARD_GRAMMAR
 
 const char* kUsage = "op=usage result=error usage=\"boat " RS_BOAT_GRAMMAR "\"";
 
@@ -850,6 +851,11 @@ int32_t RsBoatConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (healthRc >= 0) {
         return healthRc;
     }
+    // Hazard waters (#285): `tune` is settings, so it works from the title screen too; the rest need a scene.
+    const int32_t hazardRc = RsBoatHazard_ConsoleRun(args, lines);
+    if (hazardRc >= 0) {
+        return hazardRc;
+    }
     if (sub == "lakehylia") {
         return LakeHylia(args, lines);
     }
@@ -986,11 +992,14 @@ const ConsoleSink::Command rsBoatCommand(
     "down at x z in this scene (test aids, no rules); repair mends a damaged boat at a pier for its fee (#284). "
     "hp lists each kind's HP and the live boats' (hp <kind> <n>|full sets one outright); damage hits the boat Link "
     "is aboard (else idx, else the only one) as a source would, the console's landing with nobody aboard; capsize "
-    "sinks it at once; heart puts a boat heart on the water at Link's feet, lists the scene's, or clears them.",
+    "sinks it at once; heart puts a boat heart on the water at Link's feet, lists the scene's, or clears them. "
+    "hazard reads the hazard waters (#285) at Link's feet or a point, lists the scene's with each kind's numbers and "
+    "what each boat is fitted for, puts a square of one down round Link for this visit (add, clear), and tunes a "
+    "kind's slowdown and hits (saved; default puts the row back).",
     { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|kind|tune|wake|contact|still|cull|shadow|"
         "clear|fade|sinkfade|fitout|upgrades|build|grant|look|own|fit|where|docks|stow|place|takeout|putaway|fetch|"
         "repair|hp|"
-        "damage|capsize|heart",
+        "damage|capsize|heart|hazard",
         Ship::ArgumentType::TEXT },
       { "arg1", Ship::ArgumentType::TEXT, true },
       { "arg2", Ship::ArgumentType::TEXT, true },
@@ -1139,6 +1148,30 @@ heart                             the floating hearts that mend a boat
   here                            one on the water at Link's feet
   list                            this scene's hearts
   clear                           take them all away
+hazard                            hazard waters: slow and hit an unfitted boat
+  here                            the hazards at Link's feet, and his boat's
+  at <x> <z>                      the hazards at a point
+  list                            the scene's hazard waters, numbers, protection
+  add                             a hazard water round Link, until the scene reloads
+    stormy here [<half>]          stormy seas: sails from oak
+    kelp here [<half>]            tangled kelp: a helm from adamant
+    crystal here [<half>]         crystal-flecked: a keel from adamant
+    fetid here [<half>]           fetid waters: the inoculation station
+    icy here [<half>]             icy seas: the eternal brazier
+  clear                           take the console's away
+  tune                            each kind's numbers
+    default                       every kind back to its own
+    stormy                        stormy seas
+      default                     back to its own
+      share <n>                   top speed's share in it, 0.05 to 1
+      hit <n>                     a hit, before armour
+      every <n>                   seconds between hits
+      step <n>                    what each hit adds to the next
+      cap <n>                     the most a growing hit reaches
+    kelp ...                      as stormy
+    crystal ...                   as stormy
+    fetid ...                     as stormy
+    icy ...                       as stormy
 )");
 
 } // namespace

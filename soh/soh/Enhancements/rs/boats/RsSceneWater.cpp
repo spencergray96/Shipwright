@@ -9,6 +9,7 @@
 
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/rs/actors/RsBoat.h"
+#include "soh/Enhancements/rs/boats/RsBoatHazard.h"
 #include "soh/ShipInit.hpp"
 
 extern "C" {
@@ -104,10 +105,11 @@ static void RsSceneWater_DrawSheets() {
     CLOSE_DISPS(gfxCtx);
 }
 
-// The frame's end: the sheets, then every faded boat over them and over any other water (RsBoat_DrawFaded, #284). One
-// hook for both, so nothing about hook order decides which comes first.
+// The frame's end: the sheets, the hazard waters' tinted ones over them (#285), then every faded boat over them all and
+// over any other water (RsBoat_DrawFaded, #284). One hook for all three, so nothing about hook order decides the order.
 static void RsSceneWater_Draw() {
     RsSceneWater_DrawSheets();
+    RsBoatHazard_DrawSheets();
     if (gPlayState != nullptr) {
         RsBoat_DrawFaded(gPlayState);
     }

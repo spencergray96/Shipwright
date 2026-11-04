@@ -49,15 +49,19 @@ extern "C" {
 
 // Every slot a boat kind may have. Which kind has which is the catalogue's (RsBoatFit_KindHasSlot). Never
 // serialized by number - the save keys each slot by its name - so a slot may be appended anywhere in the list
-// (the eternal brazier, a core part, is the one expected next) without a save break.
+// without a save break, as #285 appended the inoculation station and the eternal brazier.
 typedef enum RsBoatSlot {
     RS_BOAT_SLOT_HULL,           // core: top speed and HP (RS: also its speed cap)
-    RS_BOAT_SLOT_HELM,           // core: nothing yet (RS: rapids and kelp)
-    RS_BOAT_SLOT_SAILS,          // core, RS's "mast and sails": acceleration
-    RS_BOAT_SLOT_KEEL,           // core, not on the raft: HP and armour
+    RS_BOAT_SLOT_HELM,           // core: tangled kelp from adamant (RsBoatHazard.h); the rapids' bits, for #289
+    RS_BOAT_SLOT_SAILS,          // core, RS's "mast and sails": acceleration; stormy seas from oak
+    RS_BOAT_SLOT_KEEL,           // core, not on the raft: HP and armour; crystal-flecked waters from adamant
     RS_BOAT_SLOT_SALVAGING_HOOK, // facility
     RS_BOAT_SLOT_WIND_CATCHER,   // facility
     RS_BOAT_SLOT_CANNON,         // facility
+    // #285's two, data only (not drawn): fetid waters' facility on the skiff and sloop, and icy seas' core part on
+    // every kind, RS's eternal brazier, whose tier 0 is none.
+    RS_BOAT_SLOT_INOCULATION_STATION, // facility
+    RS_BOAT_SLOT_BRAZIER,             // core
     RS_BOAT_SLOT_COUNT,
 } RsBoatSlot;
 
@@ -101,7 +105,7 @@ typedef struct RsBoatTier {
     float topSpeed;   // units a tick ahead (a hull's)
     float accel;      // speed gained a tick toward the throttle's target (a sail's)
     int32_t hitpoints; // what it adds to the boat's most HP (a hull's and a keel's; RsBoatHealth.h, #284)
-    uint32_t waters;   // reserved: the hazardous waters it lets the boat enter (designed, not built)
+    uint32_t waters;   // the hazard waters it protects the boat against, RS_BOAT_WATER_* bits (RsBoatHazard.h)
     int32_t armour;    // flat: taken off every hit the boat takes (a keel's; RS's 100 armour is 1 here)
 } RsBoatTier;
 
