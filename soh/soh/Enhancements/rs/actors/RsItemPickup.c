@@ -433,6 +433,10 @@ void RsItemPickup_Draw(Actor* thisx, PlayState* play) {
 // centred, so under Player's matrix it spins about its own middle as vanilla's get-item models do. Its list carries its
 // own materials, lit by the lights Player bound, so the setup is only the one every get-item draw starts from.
 //
+// `items hold` (sturdy-bassoon#294) stops the spin: Player turned it by gameplayFrames * 1000 about the world's upright,
+// and the scale before it is uniform, so turning it back by that and on by the camera's yaw leaves it at the held side,
+// turned from its +z facing the camera, wherever the ceremony's camera stands.
+//
 // Without one, the icon: one quad that does not face the camera by itself (gItemDropDL does, which is why
 // RsQuestItem_DrawHeld replaces the rotation with identity), so it takes the billboard, and the spin goes.
 static void RsItemPickup_DrawHeld(PlayState* play, GetItemEntry* entry) {
@@ -442,8 +446,14 @@ static void RsItemPickup_DrawHeld(PlayState* play, GetItemEntry* entry) {
     if (model != NULL) {
         const f32 scale = RS_PICKUP_HELD_MODEL_SIZE / RsKeyItems_ModelExtent(key);
 
+        s16 hold;
+
         OPEN_DISPS(play->state.gfxCtx);
         Gfx_SetupDL_25Opa(play->state.gfxCtx);
+        if (RsKeyItems_CeremonyHold(&hold)) {
+            const s16 toCamera = Camera_GetCamDirYaw(GET_ACTIVE_CAM(play)) + 0x8000;
+            Matrix_RotateY(BINANG_TO_RAD((s16)(toCamera + hold - (s16)(play->gameplayFrames * 1000))), MTXMODE_APPLY);
+        }
         Matrix_Scale(scale, scale, scale, MTXMODE_APPLY);
         gSPMatrix(POLY_OPA_DISP++, RS_PICKUP_MTX(play), G_MTX_MODELVIEW | G_MTX_LOAD);
         gSPDisplayList(POLY_OPA_DISP++, model);

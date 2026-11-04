@@ -35,6 +35,12 @@
 //   hud [on|off]            the on-screen readout of every count and key item (CVAR_RS_ITEMS_HUD, off by default)
 //   groundcount [on|off]    whether a counted pickup lying in the world shows its count (CVAR_RS_ITEMS_GROUND_COUNT,
 //                           on by default); the float over Link's head always does. `op=groundcount groundcount=1`
+//   ceremony <key item>     the key item's get-item ceremony queued, its flag untouched (sturdy-bassoon#294, the kind
+//                           editor's Look in ceremony): `op=ceremony result=ok item=saw model=1 ceremonies=1`, then
+//                           `rs_items event=ceremony item=saw held=model` once Link holds it up. A counted item is
+//                           `error=unknown_item`
+//   hold <degrees>|off      the ceremony's model held still at a side, 0-359 turned from its +z facing the camera,
+//                           so a capture shows that side; off spins it again. `op=hold result=ok hold=90`
 //
 // Errors are `op=<sub> result=error error=<kind>`: unknown_item, bad_value, full, short, held, no_play (a
 // subcommand that needs a scene, run from the title screen), spawn_failed (the actor table refused it), usage.

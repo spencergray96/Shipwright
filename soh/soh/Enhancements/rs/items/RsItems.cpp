@@ -60,6 +60,9 @@ constexpr int32_t kQueueMax = 8;
 int32_t sQueue[kQueueMax];
 int32_t sQueued = 0;
 int16_t sQueueScene = -1;
+// `items hold` (sturdy-bassoon#294): the held model's side, for a capture of the ceremony.
+bool sHoldOn = false;
+int16_t sHoldYaw = 0;
 
 void PopCeremony() {
     for (int32_t i = 1; i < sQueued; i++) {
@@ -118,6 +121,7 @@ void PlayCeremonies() {
 void RsItemsInitFile(bool isDebug) {
     RsItems_Reset();
     sQueued = 0;
+    sHoldOn = false;
 }
 
 void SaveRsItems(SaveContext* saveContext, int sectionID, bool fullSave) {
@@ -394,4 +398,16 @@ extern "C" void RsKeyItems_QueueCeremony(int32_t key) {
 
 extern "C" int32_t RsKeyItems_CeremoniesQueued(void) {
     return sQueued;
+}
+
+extern "C" void RsKeyItems_SetCeremonyHold(int32_t on, int16_t yaw) {
+    sHoldOn = on != 0;
+    sHoldYaw = yaw;
+}
+
+extern "C" int32_t RsKeyItems_CeremonyHold(int16_t* yaw) {
+    if (yaw != nullptr) {
+        *yaw = sHoldYaw;
+    }
+    return sHoldOn ? 1 : 0;
 }

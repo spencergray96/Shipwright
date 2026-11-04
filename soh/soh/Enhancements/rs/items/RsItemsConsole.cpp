@@ -68,6 +68,45 @@ const char* ErrorOf(int32_t result) {
     return RsItems_ResultName(result);
 }
 
+// `items ceremony <key>` (sturdy-bassoon#294): the key item's get-item ceremony queued, its flag untouched, so the kind
+// editor's Look in ceremony can show a rebuilt model whether the save holds the item or not.
+int32_t Ceremony(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    int32_t index;
+    bool key;
+    if (args.size() != 2) {
+        return Error(lines, "ceremony", "usage");
+    }
+    if (!Resolve(args[1], &index, &key) || !key) {
+        return Error(lines, "ceremony", "unknown_item"); // a counted item has no ceremony
+    }
+    if (gPlayState == nullptr) {
+        return Error(lines, "ceremony", "no_play");
+    }
+    RsKeyItems_QueueCeremony(index);
+    Addf(lines, "op=ceremony result=ok item=%s model=%d ceremonies=%d", args[1].c_str(),
+         RsKeyItems_ModelList(index) != nullptr ? 1 : 0, (int)RsKeyItems_CeremoniesQueued());
+    return 0;
+}
+
+// `items hold <degrees>|off` (sturdy-bassoon#294): the ceremony's model held at a side, or spinning again.
+int32_t Hold(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    long degrees = 0;
+    if (args.size() != 2) {
+        return Error(lines, "hold", "usage");
+    }
+    if (args[1] == "off") {
+        RsKeyItems_SetCeremonyHold(0, 0);
+        Addf(lines, "op=hold result=ok hold=off");
+        return 0;
+    }
+    if (!ParseInt(args[1], &degrees) || degrees < 0 || degrees >= 360) {
+        return Error(lines, "hold", "bad_value");
+    }
+    RsKeyItems_SetCeremonyHold(1, (int16_t)(degrees * 0x10000 / 360));
+    Addf(lines, "op=hold result=ok hold=%d", (int)degrees);
+    return 0;
+}
+
 int32_t List(std::vector<std::string>& lines) {
     for (int32_t i = 0; i < RS_ITEM_COUNT; i++) {
         const RsItemDef* d = RsItems_Def(i);
@@ -367,9 +406,15 @@ int32_t RsItemsConsole_Run(const std::vector<std::string>& args, std::vector<std
     if (sub == "groundcount") {
         return GroundCount(args, lines);
     }
+    if (sub == "ceremony") {
+        return Ceremony(args, lines);
+    }
+    if (sub == "hold") {
+        return Hold(args, lines);
+    }
     lines.push_back("op=usage result=error usage=\"items list | give <item> [n] | take <item> [n] | set <item> <n> | "
                     "reset | float <item> [n] | spawn <item> [n] [once <flag>] | hud [on|off] | "
-                    "groundcount [on|off]\"");
+                    "groundcount [on|off] | ceremony <key item> | hold <degrees>|off\"");
     return 1;
 }
 
@@ -382,10 +427,10 @@ namespace {
 const ConsoleSink::Command itemsCommand(
     "items", RsItemsConsole_Run,
     "The inventory (sturdy-bassoon#286): list | give <item> [n] | take <item> [n] | set <item> <n> | reset | "
-    "float <item> [n] | spawn <item> [n] [once <flag>] | hud [on|off] | groundcount [on|off]. Counted items "
-    "(planks, logs, nails) are a count per save; key items (hammer, saw, schematic) are world flags with a get-item "
-    "ceremony. `items list` names every token.",
-    { { "list|give|take|set|reset|float|spawn|hud|groundcount", Ship::ArgumentType::TEXT },
+    "float <item> [n] | spawn <item> [n] [once <flag>] | hud [on|off] | groundcount [on|off] | ceremony <key item> | "
+    "hold <degrees>|off. Counted items (planks, logs, nails) are a count per save; key items (hammer, saw, schematic) "
+    "are world flags with a get-item ceremony. `items list` names every token.",
+    { { "list|give|take|set|reset|float|spawn|hud|groundcount|ceremony|hold", Ship::ArgumentType::TEXT },
       { "item", Ship::ArgumentType::TEXT, true },
       { "count", Ship::ArgumentType::TEXT, true } });
 
@@ -408,6 +453,10 @@ hud                         the on-screen readout of every item
 groundcount                 the count on items lying in the world
   on                        show it, as the float over Link does
   off                       hide it until Link picks the item up
+ceremony <key item>         play a key item's get-item ceremony, its flag untouched
+hold                        the ceremony's model held at one side
+  <degrees>                 0-359, turned from its +z facing the camera
+  off                       spinning again, as vanilla's do
 )");
 
 } // namespace

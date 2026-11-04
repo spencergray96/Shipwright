@@ -222,6 +222,12 @@ void RsItems_ShowGain(int32_t item, int32_t count);
 // time, once no textbox is up and Link is free; dropped by a scene change, which costs nothing (the flag is set).
 void RsKeyItems_QueueCeremony(int32_t key);
 int32_t RsKeyItems_CeremoniesQueued(void);
+// The ceremony's model held still instead of spinning (sturdy-bassoon#294, `items hold`), so a capture shows a chosen
+// side: turned `yaw` (a binang, 0x4000 a quarter) about its upright from its +z facing the camera. `on` 0 spins it
+// again, as vanilla does. Not saved; a new file spins.
+void RsKeyItems_SetCeremonyHold(int32_t on, int16_t yaw);
+// 1 and the yaw when held still, else 0.
+int32_t RsKeyItems_CeremonyHold(int16_t* yaw);
 
 #ifdef __cplusplus
 }
