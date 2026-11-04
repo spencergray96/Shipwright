@@ -41,7 +41,7 @@ using ConsoleSink::Addf;
     "lakelevel [full|drained] | cam [on|off|default] | cam height|dist|ease <n> | hud [on|off] | "             \
     "climb [hop|hands] | kind [skiff|sloop|raft] | tune [default] | tune <knob> <value> | wake [default|reset] | "  \
     "wake slots [<n>|default] | "                                                                                   \
-    "wake <knob> <value> | contact [<idx>] | still [on|off] | cull [on|off] | "                                  \
+    "wake <knob> <value> | contact [<idx>] | still [on|off] | cull [on|off] | catcher [idle|active [<kind>]] | "                                  \
     "shadow [feet|circle|draped|default|reset] | "                                                               \
     "shadow size <n> | shadow anchor [auto|hull|link] | shadow trace | clear | " RS_BOAT_FIT_GRAMMAR " | "             RS_BOAT_DOCK_GRAMMAR
 
@@ -608,9 +608,6 @@ std::string PoolCensus() {
     return line + types;
 }
 
-// The kind Lake Hylia's boat and `boat spawn` put down (saved). In Lake Hylia, with its boat on, every boat is
-// killed and the lake's put back at its spot as the new kind at once, so a kind can be tried without leaving;
-// elsewhere it shows on the next spawn.
 // Each kind's wind catcher, idle or active (#291): `catcher` reports, `catcher <idle|active> [<kind>]` sets one kind or
 // every kind. Not saved; nothing in the game sets it yet.
 int32_t Catcher(const std::vector<std::string>& args, std::vector<std::string>& lines) {
@@ -634,6 +631,9 @@ int32_t Catcher(const std::vector<std::string>& args, std::vector<std::string>& 
     return 0;
 }
 
+// The kind Lake Hylia's boat and `boat spawn` put down (saved). In Lake Hylia, with its boat on, every boat is
+// killed and the lake's put back at its spot as the new kind at once, so a kind can be tried without leaving;
+// elsewhere it shows on the next spawn.
 int32_t Kind(const std::vector<std::string>& args, std::vector<std::string>& lines) {
     int respawned = 0;
     if (args.size() == 2) {
