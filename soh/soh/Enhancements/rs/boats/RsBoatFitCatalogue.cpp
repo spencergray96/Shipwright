@@ -474,6 +474,11 @@ void CheckCatalogue() {
             t.tier > RS_BOAT_TIER_MAX || (t.tier == 0 && !kSlots[t.slot].core) || t.name == nullptr) {
             Problem("tier", i);
         }
+        // Every hull carries HP, so no boat's most is 0 (#284: a keel only adds; the raft has none). A boat at 0 most
+        // would ignore every hit as `no_hp`, never sinking.
+        if (t.slot == RS_BOAT_SLOT_HULL && t.hitpoints <= 0) {
+            Problem("tier (a hull with no hitpoints)", i);
+        }
         for (int j = 0; j < i; j++) {
             if (kTiers[j].kind == t.kind && kTiers[j].slot == t.slot && kTiers[j].tier == t.tier) {
                 Problem("tier (a duplicate)", i);
