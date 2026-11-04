@@ -51,10 +51,10 @@ extern "C" {
 // serialized by number - the save keys each slot by its name - so a slot may be appended anywhere in the list
 // (the eternal brazier, a core part, is the one expected next) without a save break.
 typedef enum RsBoatSlot {
-    RS_BOAT_SLOT_HULL,           // core: top speed (RS: also its health and speed cap)
+    RS_BOAT_SLOT_HULL,           // core: top speed and HP (RS: also its speed cap)
     RS_BOAT_SLOT_HELM,           // core: nothing yet (RS: rapids and kelp)
     RS_BOAT_SLOT_SAILS,          // core, RS's "mast and sails": acceleration
-    RS_BOAT_SLOT_KEEL,           // core, not on the raft: nothing yet (RS: health and armour)
+    RS_BOAT_SLOT_KEEL,           // core, not on the raft: HP and armour
     RS_BOAT_SLOT_SALVAGING_HOOK, // facility
     RS_BOAT_SLOT_WIND_CATCHER,   // facility
     RS_BOAT_SLOT_CANNON,         // facility
@@ -100,17 +100,20 @@ typedef struct RsBoatTier {
                       // the hooks, the cannon to rune); a tier with a mesh of its own is drawn from its own list.
     float topSpeed;   // units a tick ahead (a hull's)
     float accel;      // speed gained a tick toward the throttle's target (a sail's)
-    int32_t hitpoints; // reserved for boat health (designed, not built)
+    int32_t hitpoints; // what it adds to the boat's most HP (a hull's and a keel's; RsBoatHealth.h, #284)
     uint32_t waters;   // reserved: the hazardous waters it lets the boat enter (designed, not built)
+    int32_t armour;    // flat: taken off every hit the boat takes (a keel's; RS's 100 armour is 1 here)
 } RsBoatTier;
 
-// The boats' stats from a fit-out: every fitted tier's stats in slot order, a later slot's nonzero stat winning.
-// A stat at 0 is the boat's own, as in RsBoatTier.
+// The boats' stats from a fit-out: every fitted tier's stats in slot order, a later slot's nonzero speed or
+// acceleration winning, its hitpoints and armour summed and its waters ORed. A stat at 0 is the boat's own, as in
+// RsBoatTier.
 typedef struct RsBoatFitStats {
     float topSpeed;
     float accel;
-    int32_t hitpoints;
+    int32_t hitpoints; // summed, every slot's: the hull's and the keel's
     uint32_t waters;
+    int32_t armour; // summed
 } RsBoatFitStats;
 
 // --- upgrades -----------------------------------------------------------------------------------
@@ -179,6 +182,8 @@ typedef enum RsBoatFitResult {
     RS_BOAT_FIT_ALREADY,       // every fit already holds: nothing to build
     RS_BOAT_FIT_LOCKED,        // its unlock flag is not set
     RS_BOAT_FIT_NOT_OWNED,     // a fit is on a boat the player does not own
+    RS_BOAT_FIT_WRECKED,       // a fit is on a boat that capsized and is not mended (#284; `*failIndex` is its kind)
+    RS_BOAT_FIT_ABANDONED,     // a fit is on a boat left out at sea, outside every dock (#284; `*failIndex` is its kind)
     RS_BOAT_FIT_REQUIREMENT,   // a requirement does not hold (`*failIndex` names it)
     RS_BOAT_FIT_CANT_AFFORD,   // a cost is more than the player has (`*failIndex` names it)
     RS_BOAT_FIT_NO_IMAGE,      // a look's custom option with no accepted picture for that sail (#287)
@@ -266,10 +271,17 @@ void RsBoatFit_Reset(void);
 // the order the enum lists them. `failIndex` (may be NULL) gets the requirement's or the cost's index.
 int32_t RsBoatFit_Check(int32_t id, int32_t* failIndex);
 // Builds it: checks as above, then pays its costs and applies its fits. A dialogue option or the console calls it.
+// A boat it fits a part onto is refused while wrecked or abandoned (#284: mended at a pier first, or brought in), and
+// mended to full when the build goes through, as RS's hull and keel upgrades heal (the owner: every upgrade).
 int32_t RsBoatFit_Build(int32_t id, int32_t* failIndex);
 // Applies its fits free, ignoring the unlock, the requirements and the costs: a quest's gift. Still refuses a fit
-// onto a boat the player does not own, so a reward list grants the boat before its parts.
+// onto a boat the player does not own, so a reward list grants the boat before its parts. Never refused for a wreck or
+// an abandoned boat - a refused reward is lost - but mends only a boat that is not wrecked.
 int32_t RsBoatFit_Grant(int32_t id);
+// What a shipwright says about a result of RsBoatFit_Check or _Build for the upgrade, placeholder prose for the dialogue
+// that will build them (none does yet; the console prints it as `says=`). `failIndex` is the one the check gave: the
+// boat's kind for WRECKED and ABANDONED, the cost's index for CANT_AFFORD. Empty for OK.
+void RsBoatFit_ResultSays(int32_t id, int32_t result, int32_t failIndex, char* buf, size_t len);
 // Swaps a look, free, either way. Refuses an unowned boat, a look the kind does not have, and a custom option whose
 // picture is not accepted (RS_BOAT_FIT_NO_IMAGE).
 int32_t RsBoatFit_SetLook(int32_t kind, int32_t look, int32_t option);

@@ -8,6 +8,7 @@
 #include <spdlog/spdlog.h>
 
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
+#include "soh/Enhancements/rs/actors/RsBoat.h"
 #include "soh/ShipInit.hpp"
 
 extern "C" {
@@ -65,7 +66,7 @@ void RegisterRsSceneWater();
 } // namespace
 
 // The sheets, at file scope: OPEN_DISPS in an anonymous namespace does not link (the Tempor Tantrum note).
-static void RsSceneWater_Draw() {
+static void RsSceneWater_DrawSheets() {
     if (sLive == nullptr || gPlayState == nullptr || gPlayState->sceneNum != sLive->scene) {
         return;
     }
@@ -101,6 +102,15 @@ static void RsSceneWater_Draw() {
     }
     gSPSetGeometryMode(POLY_XLU_DISP++, G_CULL_BACK | G_LIGHTING);
     CLOSE_DISPS(gfxCtx);
+}
+
+// The frame's end: the sheets, then every faded boat over them and over any other water (RsBoat_DrawFaded, #284). One
+// hook for both, so nothing about hook order decides which comes first.
+static void RsSceneWater_Draw() {
+    RsSceneWater_DrawSheets();
+    if (gPlayState != nullptr) {
+        RsBoat_DrawFaded(gPlayState);
+    }
 }
 
 namespace {

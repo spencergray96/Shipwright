@@ -18,6 +18,7 @@
 #include "Interaction.h"
 #include "soh/Enhancements/rs/actors/RsBoat.h"
 #include "soh/Enhancements/rs/boats/RsBoatDock.h"
+#include "soh/Enhancements/rs/boats/RsBoatHealth.h"
 #include "soh/Enhancements/rs/dialogue/NpcDialogueDef.h"
 #include "soh/Enhancements/rs/quest/QuestIds.h"
 #include "soh/Enhancements/rs/quest/QuestPredicate.h"
@@ -34,6 +35,10 @@ namespace {
 // none. The fetch row shows whether or not Link can pay, with its fee in the label: hidden, a player who first came
 // with no money would not learn it exists (the owner, 2026-11-02). Short of the fee, the pier says so (RsBoatDock's
 // words). The two ungated rows keep the choice a choice. Placeholder prose: the owner tidies it, as the sailmaker's.
+//
+// A fourth row a kind mends a damaged boat that is stowed or docked at any pier (#284): to full, its price a point in the
+// label, shown whether or not Link can pay, as the fetch row is. A wrecked boat's take-out row stays, and the pier says
+// it must be mended first and what that costs.
 
 #define PIER_STR_(x) #x
 #define PIER_STR(x) PIER_STR_(x)
@@ -51,10 +56,16 @@ const QuestPredicate sPierPutSloop[] = { QP_BOAT_STATE_IS(RS_BOAT_KIND_SLOOP, RS
 const QuestPredicate sPierFetchRaft[] = { QP_BOAT_STATE_IS(RS_BOAT_KIND_RAFT, RS_BOAT_DOCK_ABANDONED) };
 const QuestPredicate sPierFetchSkiff[] = { QP_BOAT_STATE_IS(RS_BOAT_KIND_SKIFF, RS_BOAT_DOCK_ABANDONED) };
 const QuestPredicate sPierFetchSloop[] = { QP_BOAT_STATE_IS(RS_BOAT_KIND_SLOOP, RS_BOAT_DOCK_ABANDONED) };
+#define PIER_MEND_WHEN(kind) { QP_BOAT_STATE_IS(kind, RS_BOAT_DOCK_DAMAGED), QP_NOT_BOAT_STATE_IS(kind, RS_BOAT_DOCK_ABANDONED) }
+const QuestPredicate sPierMendRaft[] = PIER_MEND_WHEN(RS_BOAT_KIND_RAFT);
+const QuestPredicate sPierMendSkiff[] = PIER_MEND_WHEN(RS_BOAT_KIND_SKIFF);
+const QuestPredicate sPierMendSloop[] = PIER_MEND_WHEN(RS_BOAT_KIND_SLOOP);
+#undef PIER_MEND_WHEN
 
 const char* const kPierTaken = "She'll be at the end of the pier.";
 const char* const kPierStowed = "I'll see her stowed.";
 const char* const kPierFetched = "I'll have her brought round.";
+const char* const kPierMended = "She's as good as new.";
 const char* const kPierHow =
     "Any boat of yours that is put away, or tied up at any pier, I bring here free. One left anywhere else I fetch "
     "for a fee.";
@@ -68,18 +79,24 @@ const RsDialogueOption sPierMenuOptions[] = {
       RS_DLG_NO_NEXT, sPierPutRaft, 1 },
     { "Fetch the raft: " PIER_STR(RS_BOAT_DOCK_FEE_RAFT) " rupees", RS_DLG_ACTION_BOAT_DOCK,
       RS_DLG_DOCK(RS_BOAT_DOCK_OP_FETCH, RS_BOAT_KIND_RAFT), kPierFetched, RS_DLG_NO_NEXT, sPierFetchRaft, 1 },
+    { "Mend the raft: " PIER_STR(RS_BOAT_REPAIR_RUPEES_PER_HP) " rupee/HP", RS_DLG_ACTION_BOAT_DOCK,
+      RS_DLG_DOCK(RS_BOAT_DOCK_OP_REPAIR, RS_BOAT_KIND_RAFT), kPierMended, RS_DLG_NO_NEXT, sPierMendRaft, 2 },
     { "Take the skiff out", RS_DLG_ACTION_BOAT_DOCK, RS_DLG_DOCK(RS_BOAT_DOCK_OP_TAKE_OUT, RS_BOAT_KIND_SKIFF),
       kPierTaken, RS_DLG_NO_NEXT, sPierTakeSkiff, 3 },
     { "Put the skiff away", RS_DLG_ACTION_BOAT_DOCK, RS_DLG_DOCK(RS_BOAT_DOCK_OP_PUT_AWAY, RS_BOAT_KIND_SKIFF),
       kPierStowed, RS_DLG_NO_NEXT, sPierPutSkiff, 1 },
     { "Fetch the skiff: " PIER_STR(RS_BOAT_DOCK_FEE_SKIFF) " rupees", RS_DLG_ACTION_BOAT_DOCK,
       RS_DLG_DOCK(RS_BOAT_DOCK_OP_FETCH, RS_BOAT_KIND_SKIFF), kPierFetched, RS_DLG_NO_NEXT, sPierFetchSkiff, 1 },
+    { "Mend the skiff: " PIER_STR(RS_BOAT_REPAIR_RUPEES_PER_HP) " rupee/HP", RS_DLG_ACTION_BOAT_DOCK,
+      RS_DLG_DOCK(RS_BOAT_DOCK_OP_REPAIR, RS_BOAT_KIND_SKIFF), kPierMended, RS_DLG_NO_NEXT, sPierMendSkiff, 2 },
     { "Take the sloop out", RS_DLG_ACTION_BOAT_DOCK, RS_DLG_DOCK(RS_BOAT_DOCK_OP_TAKE_OUT, RS_BOAT_KIND_SLOOP),
       kPierTaken, RS_DLG_NO_NEXT, sPierTakeSloop, 3 },
     { "Put the sloop away", RS_DLG_ACTION_BOAT_DOCK, RS_DLG_DOCK(RS_BOAT_DOCK_OP_PUT_AWAY, RS_BOAT_KIND_SLOOP),
       kPierStowed, RS_DLG_NO_NEXT, sPierPutSloop, 1 },
     { "Fetch the sloop: " PIER_STR(RS_BOAT_DOCK_FEE_SLOOP) " rupees", RS_DLG_ACTION_BOAT_DOCK,
       RS_DLG_DOCK(RS_BOAT_DOCK_OP_FETCH, RS_BOAT_KIND_SLOOP), kPierFetched, RS_DLG_NO_NEXT, sPierFetchSloop, 1 },
+    { "Mend the sloop: " PIER_STR(RS_BOAT_REPAIR_RUPEES_PER_HP) " rupee/HP", RS_DLG_ACTION_BOAT_DOCK,
+      RS_DLG_DOCK(RS_BOAT_DOCK_OP_REPAIR, RS_BOAT_KIND_SLOOP), kPierMended, RS_DLG_NO_NEXT, sPierMendSloop, 2 },
     { "How does this work?", RS_DLG_ACTION_NONE, 0, kPierHow, PIER_NODE_MENU },
     { "Never mind", RS_DLG_ACTION_NONE, 0, nullptr, RS_DLG_NO_NEXT },
 };

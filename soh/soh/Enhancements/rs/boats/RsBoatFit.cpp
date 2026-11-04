@@ -3,6 +3,7 @@
 
 #include "RsBoatFit.h"
 #include "RsBoatDock.h"
+#include "RsBoatHealth.h"
 #include "RsBoatSail.h"
 
 #include <cstdio>
@@ -96,6 +97,32 @@ bool AlreadyBuilt(const RsBoatUpgrade* u) {
     return true;
 }
 
+// The kind of the first boat a fit puts a part onto that is wrecked (`wrecked`) or abandoned, or -1. Owning a boat is
+// not a part, and a boat the upgrade itself makes owned is neither.
+int32_t KindRefusedFor(const RsBoatUpgrade* u, bool wrecked) {
+    for (int32_t f = 0; f < u->fitCount; f++) {
+        const RsBoatUpgradeFit& fit = u->fits[f];
+        if (fit.slot == RS_BOAT_FIT_OWN || !sFit[fit.kind].owned) {
+            continue;
+        }
+        if (wrecked ? RsBoatHealth_KindWrecked(fit.kind) != 0
+                    : RsBoatDock_State(fit.kind) == RS_BOAT_DOCK_ABANDONED) {
+            return fit.kind;
+        }
+    }
+    return -1;
+}
+
+// Mends every boat the upgrade put a part onto, but a wreck (#284): the owner's "an upgrade recovers it to full".
+void MendFitted(const RsBoatUpgrade* u) {
+    for (int32_t f = 0; f < u->fitCount; f++) {
+        const RsBoatUpgradeFit& fit = u->fits[f];
+        if (fit.slot != RS_BOAT_FIT_OWN && !RsBoatHealth_KindWrecked(fit.kind) && RsBoatHealth_KindDamaged(fit.kind)) {
+            RsBoatHealth_SetKindHp(fit.kind, RsBoatHealth_Max(fit.kind), RS_BOAT_HEAL_UPGRADE);
+        }
+    }
+}
+
 // A fit onto a boat the player does not own; owning it in the same upgrade counts.
 bool OntoUnownedBoat(const RsBoatUpgrade* u) {
     for (int32_t f = 0; f < u->fitCount; f++) {
@@ -143,6 +170,7 @@ void MarkUpgrade(const char* event, const RsBoatUpgrade* u, int32_t result, int3
 void RsBoatFitInitFile(bool isDebug) {
     RsBoatFit_Reset();
     RsBoatDock_Reset();
+    RsBoatHealth_Reset();
 }
 
 void SaveRsBoats(SaveContext* saveContext, int sectionID, bool fullSave) {
@@ -164,7 +192,8 @@ void SaveRsBoats(SaveContext* saveContext, int sectionID, bool fullSave) {
                     SaveManager::Instance->SaveData(RgbKey(look), RgbHex(sFit[kind].rgb[look]));
                 }
             }
-            RsBoatDock_SaveKind(kind); // where the boat is (#282): `out`, and its place when it is
+            RsBoatDock_SaveKind(kind);   // where the boat is (#282): `out`, and its place when it is
+            RsBoatHealth_SaveKind(kind); // its HP (#284): `hp`, while it is under its most
         });
     }
 }
@@ -223,6 +252,7 @@ void LoadRsBoatsV1() {
                 }
             }
             RsBoatDock_LoadKind(kind);
+            RsBoatHealth_LoadKind(kind);
         });
     }
 }
@@ -322,6 +352,7 @@ extern "C" void RsBoatFit_Stats(int32_t kind, RsBoatFitStats* out) {
         }
         out->hitpoints += t->hitpoints;
         out->waters |= t->waters;
+        out->armour += t->armour;
     }
 }
 
@@ -395,6 +426,15 @@ extern "C" int32_t RsBoatFit_Check(int32_t id, int32_t* failIndex) {
     if (OntoUnownedBoat(u)) {
         return RS_BOAT_FIT_NOT_OWNED;
     }
+    for (const bool wrecked : { true, false }) {
+        const int32_t kind = KindRefusedFor(u, wrecked);
+        if (kind >= 0) {
+            if (failIndex != nullptr) {
+                *failIndex = kind;
+            }
+            return wrecked ? RS_BOAT_FIT_WRECKED : RS_BOAT_FIT_ABANDONED;
+        }
+    }
     for (int32_t i = 0; i < u->reqCount; i++) {
         if (!QuestPredicate_Eval(&u->reqs[i])) {
             if (failIndex != nullptr) {
@@ -433,6 +473,7 @@ extern "C" int32_t RsBoatFit_Build(int32_t id, int32_t* failIndex) {
             }
         }
         Apply(u);
+        MendFitted(u);
         SPDLOG_INFO("RsBoatFit: built {}", u->name);
     }
     MarkUpgrade("build", u, result, index);
@@ -440,6 +481,44 @@ extern "C" int32_t RsBoatFit_Build(int32_t id, int32_t* failIndex) {
         *failIndex = index;
     }
     return result;
+}
+
+extern "C" void RsBoatFit_ResultSays(int32_t id, int32_t result, int32_t failIndex, char* buf, size_t len) {
+    if (buf == nullptr || len == 0) {
+        return;
+    }
+    const RsBoatUpgrade* u = RsBoatFit_Upgrade(id);
+    const char* boat = failIndex >= 0 && failIndex < RS_BOAT_KIND_COUNT ? RsBoat_KindName(failIndex) : "boat";
+    switch (result) {
+        case RS_BOAT_FIT_OK:
+            buf[0] = '\0';
+            break;
+        case RS_BOAT_FIT_WRECKED:
+            std::snprintf(buf, len, "Your %s's at the bottom of the sea. Get her raised and mended at a pier first.",
+                          boat);
+            break;
+        case RS_BOAT_FIT_ABANDONED:
+            std::snprintf(buf, len, "Your %s's out at sea where you left her. Bring her in to a pier first.", boat);
+            break;
+        case RS_BOAT_FIT_ALREADY:
+            std::snprintf(buf, len, "She's got that already.");
+            break;
+        case RS_BOAT_FIT_LOCKED:
+            std::snprintf(buf, len, "That's not something I can build for you yet.");
+            break;
+        case RS_BOAT_FIT_NOT_OWNED:
+            std::snprintf(buf, len, "You'll need the boat before I can fit her out.");
+            break;
+        case RS_BOAT_FIT_CANT_AFFORD:
+            std::snprintf(buf, len, "That's %d rupees, and you've only %d.",
+                          (int)(u != nullptr && failIndex >= 0 && failIndex < u->costCount ? u->costs[failIndex].amount
+                                                                                              : 0),
+                          (int)RsBoatFit_RupeesAfterPending());
+            break;
+        default:
+            std::snprintf(buf, len, "I can't do that one for you.");
+            break;
+    }
 }
 
 extern "C" int32_t RsBoatFit_Grant(int32_t id) {
@@ -453,6 +532,7 @@ extern "C" int32_t RsBoatFit_Grant(int32_t id) {
         result = RS_BOAT_FIT_NOT_OWNED;
     } else {
         Apply(u);
+        MendFitted(u);
         SPDLOG_INFO("RsBoatFit: granted {}", u->name);
     }
     MarkUpgrade("grant", u, result, -1);

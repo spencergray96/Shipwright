@@ -11,6 +11,7 @@
 #include <spdlog/spdlog.h>
 
 #include "RsBoatFit.h"
+#include "RsBoatHealth.h"
 #include "RsSceneWater.h"
 #include "soh/Enhancements/console/ConsoleSink.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
@@ -291,7 +292,7 @@ RsBoat* SpawnOwned(int32_t kind, float x, float z, int16_t yaw, int32_t* result)
 }
 
 void Stow(int32_t kind) {
-    if (RsBoat* boat = OwnedBoat(kind)) {
+    if (RsBoat* boat = gPlayState != nullptr ? OwnedBoat(kind) : nullptr) {
         Actor_Kill(&boat->dyna.actor);
     }
     sPlace[kind] = {};
@@ -314,6 +315,12 @@ void Arrive() {
         p.stranded = false;
         p.refused = false;
         if (!p.out || p.scene != gPlayState->sceneNum || !RsBoatFit_Owned(kind)) {
+            continue;
+        }
+        // A wreck is stowed as it goes down (Track) or when it is wrecked elsewhere (RsBoatHealth_SetKindHp), so one out
+        // here is a save from before that: stowed now, as it would have been.
+        if (RsBoatHealth_KindWrecked(kind)) {
+            p = {};
             continue;
         }
         int32_t result = RS_BOAT_DOCK_OK;
@@ -350,6 +357,12 @@ void Track() {
             continue;
         }
         Place& p = sPlace[boat->kind];
+        // A capsized boat is stowed from its first tick going down, so a save or a scene change mid-sink finds it
+        // stowed and wrecked, never out (RsBoat_Sink stows it again, killing it, once it is under).
+        if (boat->sinkTicks > 0) {
+            p = {};
+            continue;
+        }
         const Actor* a = &boat->dyna.actor;
         p.out = true;
         p.scene = gPlayState->sceneNum;
@@ -538,8 +551,15 @@ extern "C" int32_t RsBoatDock_DialogueAction(int32_t op, int32_t kind) {
             break;
         case RS_BOAT_DOCK_CANT_AFFORD:
             // The row shows short of the fee (InteractionTable.cpp), so the refusal names the price and the purse.
-            words = "Fetching your " + std::string(RsBoat_KindName(kind)) + " is " + std::to_string(RsBoatDock_Fee(kind)) +
+            words = std::string(op == RS_BOAT_DOCK_OP_REPAIR ? "Mending your " : "Fetching your ") +
+                    RsBoat_KindName(kind) + " is " +
+                    std::to_string(op == RS_BOAT_DOCK_OP_REPAIR ? RsBoatHealth_RepairFee(kind) : RsBoatDock_Fee(kind)) +
                     " rupees, and you've only " + std::to_string(Quest_RupeesAfterPending()) + ".";
+            break;
+        case RS_BOAT_DOCK_IS_WRECKED:
+            // The owner (#284): the take-out row stays, and the pier says why and what mending costs.
+            words = "Your " + std::string(RsBoat_KindName(kind)) + " went down. She's no good to you until she's mended: " +
+                    std::to_string(RsBoatHealth_RepairFee(kind)) + " rupees.";
             break;
         default:
             // A gate let through a pick it should have hidden: a bug, so a toast naming it rather than prose.
@@ -564,6 +584,12 @@ extern "C" int32_t RsBoatDock_StateIs(int32_t kind, int32_t state) {
     if (now < 0) {
         return 0;
     }
+    if (state == RS_BOAT_DOCK_DAMAGED) {
+        return RsBoatHealth_KindDamaged(kind);
+    }
+    if (state == RS_BOAT_DOCK_WRECKED) {
+        return RsBoatHealth_KindWrecked(kind);
+    }
     if (state == RS_BOAT_DOCK_HERE) {
         const Actor* pier = RsBoatDock_TalkPier();
         if (pier == nullptr || now != RS_BOAT_DOCK_DOCKED) {
@@ -586,6 +612,10 @@ extern "C" const char* RsBoatDock_StateName(int32_t state) {
             return "abandoned";
         case RS_BOAT_DOCK_HERE:
             return "here";
+        case RS_BOAT_DOCK_DAMAGED:
+            return "damaged";
+        case RS_BOAT_DOCK_WRECKED:
+            return "wrecked";
         default:
             return "?";
     }
@@ -594,7 +624,8 @@ extern "C" const char* RsBoatDock_StateName(int32_t state) {
 extern "C" const char* RsBoatDock_ResultName(int32_t result) {
     static const char* const kNames[RS_BOAT_DOCK_RESULT_COUNT] = {
         "ok",       "not_owned",       "no_pier",   "already_here", "not_here",   "is_abandoned",
-        "not_abandoned", "mooring_blocked", "dyna_pool", "no_water",     "cant_afford",
+        "not_abandoned", "mooring_blocked", "dyna_pool", "no_water",     "cant_afford", "is_wrecked",
+        "not_damaged",
     };
     return result >= 0 && result < RS_BOAT_DOCK_RESULT_COUNT ? kNames[result] : "?";
 }
@@ -607,6 +638,8 @@ extern "C" const char* RsBoatDock_OpName(int32_t op) {
             return "putaway";
         case RS_BOAT_DOCK_OP_FETCH:
             return "fetch";
+        case RS_BOAT_DOCK_OP_REPAIR:
+            return "repair";
         default:
             return "?";
     }
@@ -645,12 +678,30 @@ extern "C" int32_t RsBoatDock_Run(int32_t op, int32_t kind, Actor* pier) {
         const int32_t state = RsBoatDock_State(kind);
         if (dock < 0) {
             result = RS_BOAT_DOCK_NO_PIER;
+        } else if (op == RS_BOAT_DOCK_OP_REPAIR) {
+            // Stowed, or docked at any pier, like a take-out: an abandoned one is fetched first.
+            fee = RsBoatHealth_RepairFee(kind);
+            if (!RsBoatHealth_KindDamaged(kind)) {
+                result = RS_BOAT_DOCK_NOT_DAMAGED;
+            } else if (state == RS_BOAT_DOCK_ABANDONED) {
+                result = RS_BOAT_DOCK_IS_ABANDONED;
+            } else if (Quest_CheckChargeRupees(fee) != QUEST_OK) {
+                result = RS_BOAT_DOCK_CANT_AFFORD;
+            } else {
+                Quest_ChargeRupees(fee);
+                RsBoatHealth_SetKindHp(kind, RsBoatHealth_Max(kind), RS_BOAT_HEAL_PIER);
+            }
+            if (result != RS_BOAT_DOCK_OK) {
+                fee = 0;
+            }
         } else if (op == RS_BOAT_DOCK_OP_PUT_AWAY) {
             if (!here) {
                 result = RS_BOAT_DOCK_NOT_HERE;
             } else {
                 Stow(kind);
             }
+        } else if ((op == RS_BOAT_DOCK_OP_TAKE_OUT || op == RS_BOAT_DOCK_OP_FETCH) && RsBoatHealth_KindWrecked(kind)) {
+            result = RS_BOAT_DOCK_IS_WRECKED; // always stowed; checked first all the same, so no wreck ever leaves a pier
         } else if (nearby) {
             result = RS_BOAT_DOCK_ALREADY_HERE;
         } else if (op == RS_BOAT_DOCK_OP_TAKE_OUT && state == RS_BOAT_DOCK_ABANDONED) {
@@ -719,6 +770,12 @@ extern "C" void RsBoatDock_LoadKind(int32_t kind) {
     p.z = (float)z;
     p.yaw = (int16_t)yaw;
     p.docked = docked != 0;
+}
+
+extern "C" void RsBoatDock_Stow(int32_t kind) {
+    if (KindValid(kind)) {
+        Stow(kind);
+    }
 }
 
 extern "C" void RsBoatDock_Reset(void) {
@@ -826,7 +883,7 @@ int32_t DocksList(std::vector<std::string>& lines) {
 int32_t RsBoatDock_ConsoleRun(const std::vector<std::string>& args, std::vector<std::string>& lines) {
     const std::string& sub = args[0];
     if (sub != "where" && sub != "docks" && sub != "stow" && sub != "place" && sub != "takeout" && sub != "putaway" &&
-        sub != "fetch") {
+        sub != "fetch" && sub != "repair") {
         return -1;
     }
     if (sub == "where" && args.size() == 1) {
@@ -903,7 +960,8 @@ int32_t RsBoatDock_ConsoleRun(const std::vector<std::string>& args, std::vector<
              (int)(u16)(int16_t)yaw, (int)dock);
         return 0;
     }
-    if ((sub == "takeout" || sub == "putaway" || sub == "fetch") && (args.size() == 2 || args.size() == 3)) {
+    if ((sub == "takeout" || sub == "putaway" || sub == "fetch" || sub == "repair") &&
+        (args.size() == 2 || args.size() == 3)) {
         const int32_t kind = KindArg(args, 1, sub.c_str(), lines);
         if (kind < 0) {
             return 1;
@@ -912,9 +970,10 @@ int32_t RsBoatDock_ConsoleRun(const std::vector<std::string>& args, std::vector<
         if (pier == nullptr) {
             return 1;
         }
-        const int32_t op = sub == "takeout" ? RS_BOAT_DOCK_OP_TAKE_OUT
+        const int32_t op = sub == "takeout"   ? RS_BOAT_DOCK_OP_TAKE_OUT
                            : sub == "putaway" ? RS_BOAT_DOCK_OP_PUT_AWAY
-                                              : RS_BOAT_DOCK_OP_FETCH;
+                           : sub == "fetch"   ? RS_BOAT_DOCK_OP_FETCH
+                                              : RS_BOAT_DOCK_OP_REPAIR;
         const int32_t result = RsBoatDock_Run(op, kind, pier);
         Addf(lines, "op=%s result=%s kind=%s state=%s", sub.c_str(), result == RS_BOAT_DOCK_OK ? "ok" : "refused",
              RsBoat_KindName(kind), RsBoatDock_StateName(RsBoatDock_State(kind)));

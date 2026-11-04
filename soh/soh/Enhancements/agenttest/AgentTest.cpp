@@ -318,7 +318,9 @@
  *   rs_boat event=<spawn|helm_on|helm_off|blocked> x= y= z= yaw= speed= helm= blocked= surface=
  *                                        the sailing prototype's boat (sturdy-bassoon#256): spawned, the helm
  *                                        taken or let go, a move refused at the shore or a wall. Gameplay
- *                                        markers
+ *                                        markers. Since #284 also capsize|sunk, and hit|hit_ignored|heal|hp_set|
+ *                                        heart with kind= owned= source= ... hp= max= (boats/RsBoatHealth.cpp), and
+ *                                        sunk_reason reason=<under_bed|cap|faded> ticks= y= floor= reach=
  *   rs_boat <line>                       one line of RsBoatConsole_Run output per marker, from
  *                                        `agenttest boat ...` - `boat idx=...` or `op=...`, never `event=...`
  *   rs_balloon event=<spawn|controls_on|controls_off|liftoff|landed|blocked|abandoned|home> x= y= z= yaw= vy=
@@ -642,13 +644,15 @@
  *   agenttest boat list|spawn [<x> <z> [<yaw>]]|probe <x> <z>|water <x0> <z0> <x1> <z1> <y>|water clear|board [<idx>]|helm on|off [<idx>]|drive <t> <turn> <ticks>|
  *                  lakehylia [on|off]|lakelevel [full|drained]|cam [..]|hud [on|off]|cull [on|off]|clear|
  *                  fitout [..]|upgrades|build <u>|grant <u>|look <kind> [..]|own <kind> 0|1|fit <kind> <slot> <tier>|
- *                  where|docks|stow <kind>|all|place <kind> <x> <z> [<yaw>]|takeout|putaway|fetch <kind> [<dock>]
+ *                  where|docks|stow <kind>|all|place <kind> <x> <z> [<yaw>]|takeout|putaway|fetch|repair <kind> [<dock>]|
+ *                  hp [<kind> <n>|full]|damage <n> [<source>] [<idx>]|capsize [<idx>]|heart here|list|clear|
+ *                  fade <0-255>|off [both|depth|colour]|sinkfade [on|off]
  *                                          the sailing prototype's boats (sturdy-bassoon#256): where each is,
  *                                          its speed, helm and why it last stopped; put one down, stand Link
  *                                          at its tiller, take the helm, steer it without the pad. Since #263
  *                                          the save's boats: owned, fitted, built (boats/RsBoatFitConsole.h).
  *                                          Since #282 where they are and the piers' operations
- *                                          (boats/RsBoatDock.h).
+ *                                          (boats/RsBoatDock.h). Since #284 their HP (boats/RsBoatHealth.h).
  *                                          RsBoatConsole.h documents every line
  *   agenttest balloon list|spawn [<x> <z> [<yaw> [<height>]]]|board [<idx>]|controls on|off [<idx>]|
  *                  drive <t> <turn> <lift> <ticks>|tune [..]|cam [..]|abandon [sink|hang|home]|field [on|off]|clear

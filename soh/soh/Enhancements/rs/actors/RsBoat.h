@@ -79,8 +79,14 @@
 // the circle's, by how many faces lie under it. `boat shadow` switches it (or to the flat circle, or the feet shadows),
 // reads its last draw, and `boat shadow trace` its last RS_VEHICLE_SHADOW_TRACE.
 //
+// HEALTH (#284, boats/RsBoatHealth.h). A hit to 0 capsizes the boat (RsBoat_Capsize): it lets go, its collision goes
+// so Link drops into the water where it went down, and the hull rolls over and sinks through the bed, taking no input
+// (RS_BOAT_SINK_*), until it is all below the bed, or at a 30 s cap; then the player's own is stowed (and wrecked)
+// and a fixture is gone. `boat sinkfade on` brings back a short drop that fades out instead (gSPFade, libultraship's;
+// drawn at the frame's end, RsBoat_DrawFaded, so it fades over the water). Bumping the shore never hurts.
+//
 // Console: `boat ...` and `agenttest boat ...` (RsBoatConsole.h). Markers: `rs_boat event=<spawn|helm_on|
-// helm_off|blocked> ...` (agent mode).
+// helm_off|blocked|capsize|sunk> ...` (agent mode).
 
 #include "z64.h"
 #include "RsSteer.h"
@@ -277,8 +283,40 @@ typedef struct RsBoat {
     s32 wakeHeld;    // rings held back because the pool was down to its reserve
     s32 wakeFoam;    // rings due at foam speed: every RS_BOAT_WAKE_FOAM_EVERY-th brings a splash
     RsSteerCam cam;  // the steering camera while the helm is held (RsSteer.h)
+    s32 damage;      // a fixture's damage, what it is missing from its most (#284); the player's own is the store's
+    s32 sinkTicks;   // ticks since it capsized, 0 while afloat (#284)
     s32 culled;      // RsBoat_Draw left it out on the last frame: no part of it could be on screen (#293)
+    f32 sinkFloorY;  // the bed under it when it capsized, BGCHECK_Y_MIN for none: gone once all of it is below
 } RsBoat;
+
+// How a capsized boat goes down (#284). It rolls onto its side over RS_BOAT_SINK_ROLL_TICKS and drops, gathering speed
+// to RS_BOAT_SINK_SPEED, unfaded: drawn in its own place, before the water, its underwater part is tinted as any boat's
+// is. With no collision it goes straight through the bed, which hides what has gone below it (the owner, 2026-11-04).
+// It is removed once its reach (RsBoat_KindReach) is all below the bed measured under it at the capsize, or, where that
+// takes too long (deep water, no bed), at RS_BOAT_SINK_CAP_TICKS, a large buffer (30 s), with no fade: a fade there
+// would draw the hull after the water, untinted (the owner, 2026-11-04).
+#define RS_BOAT_SINK_ROLL_TICKS 30
+#define RS_BOAT_SINK_ACCEL 0.25f // units a tick, a tick
+#define RS_BOAT_SINK_SPEED 4.0f  // units a tick: 80 a second
+#define RS_BOAT_SINK_CAP_TICKS 600
+// The first prototype's sink, which `boat sinkfade on` brings back (saved): a 2 s drop of 120, fading out from a
+// quarter of the way down, then removed. The fade is gSPFade, drawn by RsBoat_DrawFaded.
+#define CVAR_RS_BOAT_SINK_FADE CVAR_ENHANCEMENT("RsBoatSinkFade")
+#define RS_BOAT_SINK_TICKS 40
+#define RS_BOAT_SINK_DEPTH 120.0f
+
+// Capsizes the boat now, as its HP reaching 0 does (RsBoatHealth.h): lets go of the helm, drops its collision so Link
+// is left in the water, spends his refuge on it, and starts it sinking. Nothing for a boat already sinking. Marks
+// `capsize`, and `sunk` when it has gone under.
+void RsBoat_Capsize(struct RsBoat* boat, PlayState* play);
+
+// 1 when Link is aboard the boat for a hit (RsBoatHealth.h): on its deck or rail, or at its helm.
+s32 RsBoat_LinkAboard(const struct RsBoat* boat, PlayState* play);
+
+// 1 when (x, z) lies inside the boat's outline grown by `margin` all round: its stations, stern to bow, each its outer
+// half width, taken between stations as the hull tapers. What sailing over something is: a boat heart (#284), a trial's
+// crate (#289, which tests a rectangle of its own today), a rapid.
+s32 RsBoat_HullContains(const struct RsBoat* boat, f32 x, f32 z, f32 margin);
 
 // The drive override for the agent loop: when `ticks` > 0 the boat at the helm reads these instead of the
 // pad, then counts down. Lets a run drive a known course with no stick injection. 0 ticks = the pad.
@@ -398,6 +436,24 @@ s32 RsBoat_WallLean(PlayState* play, const Player* player, s32 vanilla);
 
 // `boat still`: every boat level at its float height, no bob and no rock (a test aid, not saved; #262).
 extern s32 gRsBoatStill;
+
+// `boat fade`: every boat drawn faded by `amount` (0 off, to 255), with both passes or one alone, as a sinking hull is
+// (#284; a test aid for the fade's look, not saved).
+typedef enum RsBoatFadePasses {
+    RS_BOAT_FADE_BOTH,   // the depth pass, then the faded colour where it matches (what a sinking hull draws)
+    RS_BOAT_FADE_DEPTH,  // the depth pass alone: nothing on screen, its depth written
+    RS_BOAT_FADE_COLOUR, // the faded colour alone, with no depth pass before it
+} RsBoatFadePasses;
+typedef struct RsBoatFadeTest {
+    s32 amount;
+    s32 passes; // RsBoatFadePasses
+} RsBoatFadeTest;
+extern RsBoatFadeTest gRsBoatFadeTest;
+
+// Draws every faded boat's lists (a sinking hull, `boat fade`), which RsBoat_Draw leaves out: at the frame's end, after
+// every water, so a faded hull blends over the water (#284). The scene water's end-of-frame draw calls it, after its
+// own sheets (RsSceneWater.cpp).
+void RsBoat_DrawFaded(PlayState* play);
 
 // `boat cull`: a boat nobody is aboard draws only when some part of it can be on screen (1, the default), or every
 // frame wherever it is (0, as before #293: an A/B for the agent loop, not saved). RsBoat_Draw decides (RsBoat.c).

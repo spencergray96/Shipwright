@@ -14,7 +14,10 @@
 #include "global.h"
 #include "overlays/effects/ovl_Effect_Ss_G_Ripple/z_eff_ss_g_ripple.h" // the wake's rings and splash, spawned at
 #include "overlays/effects/ovl_Effect_Ss_G_Splash/z_eff_ss_g_splash.h" // its own priority
+#include "soh/frame_interpolation.h"
+#include "soh/Enhancements/rs/boats/RsBoatDock.h"
 #include "soh/Enhancements/rs/boats/RsBoatFit.h"
+#include "soh/Enhancements/rs/boats/RsBoatHealth.h"
 #include "soh/Enhancements/rs/boats/RsBoatSail.h"
 #include "soh/Enhancements/rs/swim/SwimStamina.h"
 #include "soh/OTRGlobals.h" // OTRGetAspectRatio: the draw cull's sides (#293)
@@ -1755,6 +1758,42 @@ s32 RsBoat_LinkOnDeck(const RsBoat* this, const Player* player) {
            (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND);
 }
 
+s32 RsBoat_LinkAboard(const RsBoat* this, PlayState* play) {
+    // Last tick's too: a hop across the deck leaves the ground for a few ticks, and a hit then still lands.
+    return this->helm || this->linkAboard || RsBoat_LinkOnDeck(this, GET_PLAYER(play));
+}
+
+s32 RsBoat_HullContains(const RsBoat* this, f32 x, f32 z, f32 margin) {
+    const RsBoatKind* kind = &sRsBoatKinds[this->kind];
+    const s32 n = RsBoat_NumStations(kind);
+    const Actor* a = &this->dyna.actor;
+    const f32 dx = x - a->world.pos.x;
+    const f32 dz = z - a->world.pos.z;
+    // Into the hull's own frame: `along` toward the bow (+z), `across` to its side.
+    const f32 along = dx * Math_SinS(a->shape.rot.y) + dz * Math_CosS(a->shape.rot.y);
+    const f32 across = dx * Math_CosS(a->shape.rot.y) - dz * Math_SinS(a->shape.rot.y);
+    f32 hw;
+    s32 i;
+
+    if (n == 0 || along < kind->stations[0].z - margin || along > kind->stations[n - 1].z + margin) {
+        return 0;
+    }
+    // The half width at `along`, between the two stations either side of it; past either end, the end's.
+    hw = along <= kind->stations[0].z ? kind->stations[0].outerHw : kind->stations[n - 1].outerHw;
+    for (i = 0; i + 1 < n; i++) {
+        const RsBoatStation* s0 = &kind->stations[i];
+        const RsBoatStation* s1 = &kind->stations[i + 1];
+
+        if (along >= s0->z && along <= s1->z) {
+            const f32 t = s1->z > s0->z ? (along - s0->z) / (s1->z - s0->z) : 0.0f;
+
+            hw = s0->outerHw + (s1->outerHw - s0->outerHw) * t;
+            break;
+        }
+    }
+    return fabsf(across) <= hw + margin;
+}
+
 void RsBoat_StandAtHelm(const RsBoat* this, Player* player, f32 lift) {
     Vec3f helm;
 
@@ -2389,6 +2428,7 @@ s32 RsBoat_ShotLineTest(PlayState* play, Vec3f* from, Vec3f* to, Vec3f* result, 
 }
 
 s32 gRsBoatStill = 0;
+RsBoatFadeTest gRsBoatFadeTest = { 0, RS_BOAT_FADE_BOTH };
 s32 gRsBoatCull = 1;
 
 s32 RsBoat_WallLean(PlayState* play, const Player* player, s32 vanilla) {
@@ -2479,6 +2519,17 @@ static void RsBoat_CamUpdate(RsBoat* this, PlayState* play, const Player* player
                           100.0f);
 }
 
+// Lets go of the helm. `refuge`: the boat becomes Link's drown refuge, as every let-go does but a capsize's.
+static void RsBoat_LetGo(RsBoat* this, PlayState* play, s32 refuge) {
+    RsSteer_LetGo(GET_PLAYER(play));
+    this->helm = 0;
+    RsSteerCam_Stop(&this->cam, play);
+    if (refuge) {
+        RsBoat_SetRefuge(this);
+    }
+    RsBoat_Mark(this, "helm_off");
+}
+
 s32 RsBoat_SetHelm(RsBoat* this, PlayState* play, s32 on) {
     Player* player = GET_PLAYER(play);
 
@@ -2497,12 +2548,8 @@ s32 RsBoat_SetHelm(RsBoat* this, PlayState* play, s32 on) {
         RsSteerCam_Start(&this->cam, play, CVarGetInteger(CVAR_RS_BOAT_CAM, 1));
         RsBoat_Mark(this, "helm_on");
     } else {
-        RsSteer_LetGo(player);
-        this->helm = 0;
-        RsSteerCam_Stop(&this->cam, play);
         // Every let-go, B or knocked off: he steered this boat. Taking the helm, or only standing aboard, sets nothing.
-        RsBoat_SetRefuge(this);
-        RsBoat_Mark(this, "helm_off");
+        RsBoat_LetGo(this, play, 1);
     }
     return 1;
 }
@@ -2527,6 +2574,139 @@ static f32 RsBoat_FloorLow(const RsBoat* this, f32 bob) {
         low = MIN(low, y);
     }
     return bob + low;
+}
+
+// --- capsizing (#284) -------------------------------------------------------------------------------
+//
+// RsBoatHealth.h decides when (0 HP) and keeps the HP; this is what the hull does. Its collision goes at once, so Link
+// standing on it drops into the water where it went down rather than riding it under, and the hull rolls onto its side
+// and sinks, easing in, taking no input. Gone under, the player's own boat is stowed (the store already has it wrecked)
+// and a fixture is killed.
+
+void RsBoat_Capsize(RsBoat* this, PlayState* play) {
+    Player* player = GET_PLAYER(play);
+
+    if (this->sinkTicks > 0) {
+        return;
+    }
+    // Let go without making it his refuge, and spend one it already was: a drown before it is gone would put him on a
+    // deck sinking under him. One he has on another boat stands.
+    if (this->helm) {
+        RsBoat_LetGo(this, play, 0);
+    }
+    RsSwim_ClearRefugeOn(&this->dyna.actor);
+    func_8003EBF8(play, &play->colCtx.dyna, this->dyna.bgId); // DynaPoly_DisableCollision
+    this->dyna.actor.flags &= ~ACTOR_FLAG_ATTENTION_ENABLED;
+    if (player->focusActor == &this->dyna.actor) {
+        player->focusActor = NULL;
+    }
+    // The bed under it, the scene's or anything else's (its own collision is off, and the ray skips it besides): it is
+    // gone once all of it is below this. None (no floor under the water at all) is BGCHECK_Y_MIN: the cap decides.
+    {
+        Vec3f from = this->dyna.actor.world.pos;
+        CollisionPoly* poly = NULL;
+        s32 bgId = BGCHECK_SCENE;
+
+        from.y = this->surfaceY;
+        this->sinkFloorY = BgCheck_EntityRaycastFloor4(&play->colCtx, &poly, &bgId, &this->dyna.actor, &from);
+    }
+    this->sinkTicks = 1;
+    this->speed = 0.0f;
+    this->yawVel = 0;
+    this->throttle = 0.0f;
+    Audio_PlayActorSound2(&this->dyna.actor, NA_SE_EV_WOODBOX_BREAK);
+    Audio_PlayActorSound2(&this->dyna.actor, NA_SE_EV_DIVE_INTO_WATER_L);
+    EffectSsGSplash_Spawn(play, &this->dyna.actor.world.pos, NULL, NULL, 0, 600);
+    RsBoat_Mark(this, "capsize");
+}
+
+// The render setup a boat's list is drawn after: the opaque pass's, or, faded, the translucent pass's.
+static void RsBoat_SetupDL(GraphicsContext* gfxCtx, s32 fade) {
+    if (fade > 0) {
+        Gfx_SetupDL_25Xlu(gfxCtx);
+    } else {
+        Gfx_SetupDL_25Opa(gfxCtx);
+    }
+}
+
+// `boat sinkfade on`: the first prototype's sink, a short drop that fades as it goes (RsBoat.h).
+static s32 RsBoat_SinkFades(void) {
+    return CVarGetInteger(CVAR_RS_BOAT_SINK_FADE, 0) != 0;
+}
+
+// How far a sinking hull has faded, for gSPFade: through the bed, never. Under `boat sinkfade on`, the first
+// prototype's: 0 until RS_BOAT_SINK_FADE_FROM of the way down, then all the way (255) by RS_BOAT_SINK_FADE_TO, ahead of
+// its removal at the end.
+#define RS_BOAT_SINK_FADE_FROM 0.25f
+#define RS_BOAT_SINK_FADE_TO 0.85f
+static u8 RsBoat_SinkFade(const RsBoat* this) {
+    const f32 t = (f32)this->sinkTicks / (f32)RS_BOAT_SINK_TICKS;
+
+    if (!RsBoat_SinkFades()) {
+        return 0;
+    }
+    return (u8)(CLAMP((t - RS_BOAT_SINK_FADE_FROM) / (RS_BOAT_SINK_FADE_TO - RS_BOAT_SINK_FADE_FROM), 0.0f, 1.0f) *
+                255.0f);
+}
+
+// How far below the surface the hull is `ticks` into its sink: gathering speed at RS_BOAT_SINK_ACCEL up to
+// RS_BOAT_SINK_SPEED, then steady.
+static f32 RsBoat_SinkDepth(s32 ticks) {
+    const f32 rampTicks = RS_BOAT_SINK_SPEED / RS_BOAT_SINK_ACCEL;
+    const f32 n = (f32)ticks;
+
+    if (n <= rampTicks) {
+        return 0.5f * RS_BOAT_SINK_ACCEL * n * n;
+    }
+    return 0.5f * RS_BOAT_SINK_ACCEL * rampTicks * rampTicks + RS_BOAT_SINK_SPEED * (n - rampTicks);
+}
+
+// Gone under: stowed (the player's own; the store already has it wrecked) or killed (a fixture). `reason` says why now.
+static void RsBoat_Sunk(RsBoat* this, const char* reason) {
+    char line[200];
+
+    RsBoat_Mark(this, "sunk");
+    snprintf(line, sizeof(line), "rs_boat event=sunk_reason reason=%s ticks=%d y=%d floor=%d reach=%d kind=%s",
+             reason, this->sinkTicks, (int)lroundf(this->dyna.actor.world.pos.y), (int)lroundf(this->sinkFloorY),
+             (int)lroundf(RsBoat_KindReach(this->kind)), RsBoat_KindName(this->kind));
+    RsAgent_Marker(line);
+    if (this->owned) {
+        RsBoatDock_Stow(this->kind); // kills it
+    } else {
+        Actor_Kill(&this->dyna.actor);
+    }
+}
+
+// One tick of going under: the roll toward its side, easing in, and the drop.
+static void RsBoat_Sink(RsBoat* this, PlayState* play) {
+    Actor* thisx = &this->dyna.actor;
+    const s32 fades = RsBoat_SinkFades();
+    const f32 t = CLAMP((f32)this->sinkTicks / (f32)(fades ? RS_BOAT_SINK_TICKS : RS_BOAT_SINK_ROLL_TICKS), 0.0f, 1.0f);
+    const f32 ease = t * (2.0f - t);
+
+    this->timer++;
+    this->linkAboard = 0;
+    thisx->shape.rot.z = (s16)(this->roll + (s16)(0x3800 * ease));
+    thisx->shape.rot.x = (s16)(this->pitch * (1.0f - ease));
+    thisx->world.pos.y =
+        this->surfaceY - (fades ? RS_BOAT_SINK_DEPTH * t * t : RsBoat_SinkDepth(this->sinkTicks));
+    // Rings where it went down, while it is still near the surface.
+    if ((this->sinkTicks % 8) == 0 && this->sinkTicks <= RS_BOAT_SINK_TICKS) {
+        Vec3f ring = thisx->world.pos;
+
+        ring.y = this->surfaceY;
+        EffectSsGRipple_Spawn(play, &ring, (s16)(RsBoat_KindHalfLength(this->kind) * 2.0f), 1200, 0);
+    }
+    this->sinkTicks++;
+    if (fades) {
+        if (this->sinkTicks > RS_BOAT_SINK_TICKS) {
+            RsBoat_Sunk(this, "faded");
+        }
+    } else if (thisx->world.pos.y + RsBoat_KindReach(this->kind) < this->sinkFloorY) {
+        RsBoat_Sunk(this, "under_bed");
+    } else if (this->sinkTicks > RS_BOAT_SINK_CAP_TICKS) {
+        RsBoat_Sunk(this, "cap");
+    }
 }
 
 // --- actor --------------------------------------------------------------------------------------
@@ -2588,6 +2768,8 @@ void RsBoat_Init(Actor* thisx, PlayState* play) {
     this->wakeFoam = 0;
     this->culled = 0;
     this->cam.subCamId = SUBCAM_NONE;
+    this->sinkTicks = 0;
+    RsBoatHealth_InitBoat(this);
     this->surfaceY = thisx->world.pos.y;
     this->onWater = RsBoat_SurfaceBox(play, thisx->world.pos.x, thisx->world.pos.z, &this->surfaceY, thisx,
                                       &this->waterBox);
@@ -2600,9 +2782,10 @@ void RsBoat_Init(Actor* thisx, PlayState* play) {
 void RsBoat_Destroy(Actor* thisx, PlayState* play) {
     RsBoat* this = (RsBoat*)thisx;
 
+    // Removed with Link at the helm (put away, a scene change, gone under): every let-go is RsBoat_LetGo. No refuge on a
+    // boat that is going.
     if (this->helm) {
-        RsSteer_LetGo(GET_PLAYER(play));
-        RsSteerCam_Stop(&this->cam, play);
+        RsBoat_LetGo(this, play, 0);
     }
     DynaPoly_DeleteBgActor(play, &play->colCtx.dyna, this->dyna.bgId);
 }
@@ -2969,6 +3152,10 @@ void RsBoat_Update(Actor* thisx, PlayState* play) {
     s16 nextYaw;
     s32 aDown = (input->cur.button & BTN_A) != 0;
 
+    if (this->sinkTicks > 0) {
+        RsBoat_Sink(this, play);
+        return;
+    }
     // No lag to make up for when drawing: DynaPoly_Setup runs between the BG and Player categories and takes the
     // hull's transform as this tick left it, so Player carries Link by this tick's move, not last tick's.
     this->timer++;
@@ -3240,96 +3427,166 @@ static Gfx* RsBoat_RecolourList(GraphicsContext* gfxCtx, s32 kind, const RsBoatR
     return list;
 }
 
-void RsBoat_Draw(Actor* thisx, PlayState* play) {
-    RsBoat* this = (RsBoat*)thisx;
+// The boat's own lists - hull, rudder, fitted facilities - under the matrix already set: once, opaque, or faded
+// (`fade` > 0, gSPFade) in the translucent pass, twice: a depth pass, then the faded colour where it matches, so a
+// faded hull shows its outside rather than its insides through it. `passes` keeps one of the two alone (`boat fade`).
+static void RsBoat_DrawLists(RsBoat* this, PlayState* play, Gfx* model, s32 fade, s32 passes) {
     GraphicsContext* gfxCtx = play->state.gfxCtx;
     RsBoatHull* hull = &sHulls[this->kind];
-    Gfx* model = RsBoat_ModelList(sRsBoatKinds[this->kind].list);
-
-    // First, before anything goes into a list: an unseen boat costs nothing to draw (#293).
-    this->culled = RsBoat_CullApplies(this) && RsBoat_OffScreen(this, play);
-    if (this->culled) {
-        return;
-    }
+    s32 pass;
 
     OPEN_DISPS(gfxCtx);
 
-    Gfx_SetupDL_25Opa(gfxCtx);
-    // Actor_Draw has set the hull's matrix: its position and shape.rot, the rock included, as its collision has it.
-    if (model != NULL) {
-        // The fit-out's colours (sturdy-bassoon#283): the kind's list calls a slot of this segment straight after each
-        // material its tiers or the sail pattern recolour (the `tiers` and `look` in rs_boat_<kind>_props.json).
-        gSPSegment(POLY_OPA_DISP++, RS_BOAT_LOOK_SEGMENT,
-                   (uintptr_t)RsBoat_RecolourList(gfxCtx, this->kind,
-                                                  RsBoat_Recolour(this->kind, sRsBoatKinds[this->kind].list)));
+    RsBoat_SetupDL(gfxCtx, fade);
+    for (pass = 0; pass < (fade > 0 ? 2 : 1); pass++) {
+        Gfx** dl = fade > 0 ? &POLY_XLU_DISP : &POLY_OPA_DISP;
 
-        // The kind's model, in its own model space: its floor on the deck, centred on the collision. Its list carries
-        // its own materials (lit, RS's base colours as prim colours), so the state is set up again after it.
-        Matrix_Push();
-        Matrix_Translate(0.0f, sRsBoatKinds[this->kind].modelY, sRsBoatKinds[this->kind].modelZ, MTXMODE_APPLY);
-        gSPMatrix(POLY_OPA_DISP++, MATRIX_NEWMTX(gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
-        gSPDisplayList(POLY_OPA_DISP++, model);
-        Matrix_Pop();
-        Gfx_SetupDL_25Opa(gfxCtx);
-    }
-    if (model != NULL && sRsBoatKinds[this->kind].rudder.list != NULL) {
-        const RsBoatRudder* rudder = &sRsBoatKinds[this->kind].rudder;
-        Gfx* rudderModel = RsBoat_ModelList(rudder->list);
-
-        if (rudderModel != NULL) {
-            // The rudder is the helm's: its own list's slots, coloured by the helm's tier.
-            gSPSegment(POLY_OPA_DISP++, RS_BOAT_LOOK_SEGMENT,
-                       (uintptr_t)RsBoat_RecolourList(gfxCtx, this->kind, RsBoat_Recolour(this->kind, rudder->list)));
-            Matrix_Push();
-            Matrix_Translate(rudder->pin[0], sRsBoatKinds[this->kind].modelY + rudder->pin[1],
-                             sRsBoatKinds[this->kind].modelZ + rudder->pin[2], MTXMODE_APPLY);
-            // A left turn ahead swings the handle to starboard, which is -x looking at the bow (astern, port).
-            Matrix_RotateY(BINANG_TO_RAD(-this->rudder * RS_BOAT_RUDDER_YAW), MTXMODE_APPLY);
-            gSPMatrix(POLY_OPA_DISP++, MATRIX_NEWMTX(gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
-            gSPDisplayList(POLY_OPA_DISP++, rudderModel);
-            Matrix_Pop();
-            Gfx_SetupDL_25Opa(gfxCtx);
-        }
-    }
-    if (model != NULL) {
-        // The fitted facilities (#288), each its own list in the kind's model space, in its tier's colours through its
-        // own slots. A list's faded faces are its `.xlu`, drawn in the translucent pass under the same matrix.
-        s32 i;
-
-        for (i = 0; i < RS_BOAT_MAX_FACILITIES; i++) {
-            const char* path = sRsBoatFacilities[this->kind][i].list;
-            Gfx* list = (hull->facilities & (1 << i)) ? RsBoat_ModelList(path) : NULL;
-            Gfx* xlu;
-            Gfx* colours;
-            Mtx* mtx;
-
-            if (list == NULL) {
+        if (fade > 0) {
+            if ((pass == 0 && passes == RS_BOAT_FADE_COLOUR) || (pass == 1 && passes == RS_BOAT_FADE_DEPTH)) {
                 continue;
             }
-            xlu = RsBoat_TranslucentList(path);
-            colours = RsBoat_RecolourList(gfxCtx, this->kind, RsBoat_Recolour(this->kind, path));
+            gSPFade((*dl)++, fade | (pass == 0 ? G_FADE_DEPTH : 0));
+        }
+        // Actor_Draw has set the hull's matrix: its position and shape.rot, the rock included, as its collision has it.
+        if (model != NULL) {
+            // The fit-out's colours (sturdy-bassoon#283): the kind's list calls a slot of this segment straight after
+            // each material its tiers or the sail pattern recolour (the `tiers` and `look` in
+            // rs_boat_<kind>_props.json).
+            gSPSegment((*dl)++, RS_BOAT_LOOK_SEGMENT,
+                       (uintptr_t)RsBoat_RecolourList(gfxCtx, this->kind,
+                                                      RsBoat_Recolour(this->kind, sRsBoatKinds[this->kind].list)));
+
+            // The kind's model, in its own model space: its floor on the deck, centred on the collision. Its list
+            // carries its own materials (lit, RS's base colours as prim colours), so the state is set up again
+            // after it.
             Matrix_Push();
             Matrix_Translate(0.0f, sRsBoatKinds[this->kind].modelY, sRsBoatKinds[this->kind].modelZ, MTXMODE_APPLY);
-            mtx = MATRIX_NEWMTX(gfxCtx);
+            gSPMatrix((*dl)++, MATRIX_NEWMTX(gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
+            gSPDisplayList((*dl)++, model);
             Matrix_Pop();
-            gSPSegment(POLY_OPA_DISP++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)colours);
-            gSPMatrix(POLY_OPA_DISP++, mtx, G_MTX_MODELVIEW | G_MTX_LOAD);
-            gSPDisplayList(POLY_OPA_DISP++, list);
-            Gfx_SetupDL_25Opa(gfxCtx);
-            if (xlu != NULL) {
-                Gfx_SetupDL_25Xlu(gfxCtx);
-                gSPSegment(POLY_XLU_DISP++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)colours);
-                gSPMatrix(POLY_XLU_DISP++, mtx, G_MTX_MODELVIEW | G_MTX_LOAD);
-                gSPDisplayList(POLY_XLU_DISP++, xlu);
-                gSPSegment(POLY_XLU_DISP++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)gCullBackDList);
+            RsBoat_SetupDL(gfxCtx, fade);
+        }
+        if (model != NULL && sRsBoatKinds[this->kind].rudder.list != NULL) {
+            const RsBoatRudder* rudder = &sRsBoatKinds[this->kind].rudder;
+            Gfx* rudderModel = RsBoat_ModelList(rudder->list);
+
+            if (rudderModel != NULL) {
+                // The rudder is the helm's: its own list's slots, coloured by the helm's tier.
+                gSPSegment((*dl)++, RS_BOAT_LOOK_SEGMENT,
+                           (uintptr_t)RsBoat_RecolourList(gfxCtx, this->kind,
+                                                          RsBoat_Recolour(this->kind, rudder->list)));
+                Matrix_Push();
+                Matrix_Translate(rudder->pin[0], sRsBoatKinds[this->kind].modelY + rudder->pin[1],
+                                 sRsBoatKinds[this->kind].modelZ + rudder->pin[2], MTXMODE_APPLY);
+                // A left turn ahead swings the handle to starboard, which is -x looking at the bow (astern, port).
+                Matrix_RotateY(BINANG_TO_RAD(-this->rudder * RS_BOAT_RUDDER_YAW), MTXMODE_APPLY);
+                gSPMatrix((*dl)++, MATRIX_NEWMTX(gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
+                gSPDisplayList((*dl)++, rudderModel);
+                Matrix_Pop();
+                RsBoat_SetupDL(gfxCtx, fade);
+            }
+        }
+        if (model != NULL) {
+            // The fitted facilities (#288), each its own list in the kind's model space, in its tier's colours through
+            // its own slots. A list's faded faces are its `.xlu`, drawn in the translucent pass under the same matrix.
+            s32 i;
+
+            for (i = 0; i < RS_BOAT_MAX_FACILITIES; i++) {
+                const char* path = sRsBoatFacilities[this->kind][i].list;
+                Gfx* list = (hull->facilities & (1 << i)) ? RsBoat_ModelList(path) : NULL;
+                Gfx* xlu;
+                Gfx* colours;
+                Mtx* mtx;
+
+                if (list == NULL) {
+                    continue;
+                }
+                xlu = RsBoat_TranslucentList(path);
+                colours = RsBoat_RecolourList(gfxCtx, this->kind, RsBoat_Recolour(this->kind, path));
+                Matrix_Push();
+                Matrix_Translate(0.0f, sRsBoatKinds[this->kind].modelY, sRsBoatKinds[this->kind].modelZ, MTXMODE_APPLY);
+                mtx = MATRIX_NEWMTX(gfxCtx);
+                Matrix_Pop();
+                gSPSegment((*dl)++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)colours);
+                gSPMatrix((*dl)++, mtx, G_MTX_MODELVIEW | G_MTX_LOAD);
+                gSPDisplayList((*dl)++, list);
+                RsBoat_SetupDL(gfxCtx, fade);
+                // A facility's translucent faces are not the constant-1 alpha a fade takes: they go as the hull sinks.
+                if (xlu != NULL && fade == 0) {
+                    Gfx_SetupDL_25Xlu(gfxCtx);
+                    gSPSegment(POLY_XLU_DISP++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)colours);
+                    gSPMatrix(POLY_XLU_DISP++, mtx, G_MTX_MODELVIEW | G_MTX_LOAD);
+                    gSPDisplayList(POLY_XLU_DISP++, xlu);
+                    gSPSegment(POLY_XLU_DISP++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)gCullBackDList);
+                }
             }
         }
     }
     if (model != NULL) {
         // Player leaves Link's cull list in 0x0C and an actor drawn later may still call it (AlwaysOnFixes.cpp's
         // Item_Shield fix), so it goes back once the boat's lists are done with the segment.
-        gSPSegment(POLY_OPA_DISP++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)gCullBackDList);
+        Gfx** tail = fade > 0 ? &POLY_XLU_DISP : &POLY_OPA_DISP;
+
+        gSPSegment((*tail)++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)gCullBackDList);
     }
+    if (fade > 0) {
+        gSPFade(POLY_XLU_DISP++, 0);
+    }
+
+    CLOSE_DISPS(gfxCtx);
+}
+
+// How far a boat is faded now, and with which passes: a sinking hull's fade, else `boat fade`'s (0: whole).
+static s32 RsBoat_Fade(const RsBoat* this, s32* passes) {
+    *passes = this->sinkTicks > 0 ? RS_BOAT_FADE_BOTH : gRsBoatFadeTest.passes;
+    return this->sinkTicks > 0 ? RsBoat_SinkFade(this) : gRsBoatFadeTest.amount;
+}
+
+void RsBoat_DrawFaded(PlayState* play) {
+    Actor* a;
+
+    for (a = play->actorCtx.actorLists[ACTORCAT_BG].head; a != NULL; a = a->next) {
+        RsBoat* boat = (RsBoat*)a;
+        s32 passes;
+        s32 fade;
+        Gfx* model;
+
+        // Left out as its own draw is when unseen (#293): RsBoat_Draw has decided this frame's `culled` already.
+        if (a->id != ACTOR_RS_BOAT || a->update == NULL || boat->culled || (fade = RsBoat_Fade(boat, &passes)) == 0) {
+            continue;
+        }
+        model = RsBoat_ModelList(sRsBoatKinds[boat->kind].list);
+        // Actor_Draw's own matrix and interpolation key, as the boat's draw would have had them.
+        FrameInterpolation_RecordOpenChild(a, 0);
+        FrameInterpolation_RecordActorPosRotMatrix();
+        Matrix_SetTranslateRotateYXZ(a->world.pos.x, a->world.pos.y + a->shape.yOffset * a->scale.y, a->world.pos.z,
+                                     &a->shape.rot);
+        Matrix_Scale(a->scale.x, a->scale.y, a->scale.z, MTXMODE_APPLY);
+        RsBoat_DrawLists(boat, play, model, fade, passes);
+        FrameInterpolation_RecordCloseChild();
+    }
+}
+
+void RsBoat_Draw(Actor* thisx, PlayState* play) {
+    RsBoat* this = (RsBoat*)thisx;
+    GraphicsContext* gfxCtx = play->state.gfxCtx;
+    RsBoatHull* hull = &sHulls[this->kind];
+    Gfx* model = RsBoat_ModelList(sRsBoatKinds[this->kind].list);
+    s32 passes;
+
+    // First, before anything goes into a list: an unseen boat costs nothing to draw (#293).
+    this->culled = RsBoat_CullApplies(this) && RsBoat_OffScreen(this, play);
+    if (this->culled) {
+        return;
+    }
+    // Faded (sinking, #284), its lists are drawn at the frame's end instead (RsBoat_DrawFaded): after every water,
+    // the scene's, an actor's (Lake Hylia's is Bg_Spot06_Objects) and the scene water's sheet, so the faded hull
+    // blends over the water rather than the water drawing over it or, behind its depth, leaving a hole.
+    if (RsBoat_Fade(this, &passes) == 0) {
+        RsBoat_DrawLists(this, play, model, 0, passes);
+    }
+
+    OPEN_DISPS(gfxCtx);
     gSPMatrix(POLY_OPA_DISP++, MATRIX_NEWMTX(gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
     gSPClearGeometryMode(POLY_OPA_DISP++, G_CULL_BACK);
     // PRIMITIVE * SHADE: the part's colour, lit by the scene through each face's normal.

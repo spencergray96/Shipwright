@@ -12,6 +12,7 @@
 #include "RsBoatHud.h"
 #include "RsVehicleMinimap.h"
 #include "soh/Enhancements/rs/boats/RsBoatDock.h"
+#include "soh/Enhancements/rs/boats/RsBoatHealth.h"
 #include "soh/Enhancements/rs/boats/RsBoatFitConsole.h"
 #include "soh/Enhancements/console/ConsoleSink.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
@@ -42,8 +43,10 @@ using ConsoleSink::Addf;
     "climb [hop|hands] | kind [skiff|sloop|raft] | tune [default] | tune <knob> <value> | wake [default|reset] | "  \
     "wake slots [<n>|default] | "                                                                                   \
     "wake <knob> <value> | contact [<idx>] | still [on|off] | cull [on|off] | "                                  \
-    "shadow [feet|circle|draped|default|reset] | "                                                               \
-    "shadow size <n> | shadow anchor [auto|hull|link] | shadow trace | clear | " RS_BOAT_FIT_GRAMMAR " | "             RS_BOAT_DOCK_GRAMMAR
+    "fade <0-255>|off [both|depth|colour] | sinkfade [on|off] | "                                                 \
+    "shadow [feet|circle|draped|default|reset] | "                                                                  \
+    "shadow size <n> | shadow anchor [auto|hull|link] | shadow trace | clear | " RS_BOAT_FIT_GRAMMAR " | "             RS_BOAT_DOCK_GRAMMAR \
+    " | " RS_BOAT_HEALTH_GRAMMAR
 
 const char* kUsage = "op=usage result=error usage=\"boat " RS_BOAT_GRAMMAR "\"";
 
@@ -411,6 +414,50 @@ int32_t Still(const std::vector<std::string>& args, std::vector<std::string>& li
 // or off, every boat drawing every frame wherever it is, as before (an A/B for the agent loop).
 int32_t Cull(const std::vector<std::string>& args, std::vector<std::string>& lines) {
     return OnOff("cull", &gRsBoatCull, args, lines);
+}
+
+// `boat sinkfade [on|off]` (#284): a capsized boat's sink, through the bed (off, the default) or the first prototype's
+// short drop that fades as it goes (on). Saved.
+int32_t SinkFade(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() == 2) {
+        if (args[1] != "on" && args[1] != "off") {
+            lines.push_back(kUsage);
+            return 1;
+        }
+        CVarSetInteger(CVAR_RS_BOAT_SINK_FADE, args[1] == "on" ? 1 : 0);
+        CVarSave();
+    } else if (args.size() != 1) {
+        lines.push_back(kUsage);
+        return 1;
+    }
+    Addf(lines, "op=sinkfade result=ok sinkfade=%s", CVarGetInteger(CVAR_RS_BOAT_SINK_FADE, 0) ? "on" : "off");
+    return 0;
+}
+
+// `boat fade <0-255>|off [both|depth|colour]` (#284): every afloat boat drawn faded, as a sinking hull is, with both
+// passes or one alone. A test aid for the fade's look, not saved.
+int32_t Fade(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    static const char* const kPasses[] = { "both", "depth", "colour" };
+    if (args.size() >= 2) {
+        char* end = nullptr;
+        const long amount = args[1] == "off" ? 0 : std::strtol(args[1].c_str(), &end, 10);
+        int32_t passes = RS_BOAT_FADE_BOTH;
+        if (args.size() == 3) {
+            passes = args[2] == "both"     ? RS_BOAT_FADE_BOTH
+                     : args[2] == "depth"  ? RS_BOAT_FADE_DEPTH
+                     : args[2] == "colour" ? RS_BOAT_FADE_COLOUR
+                                           : -1;
+        }
+        if ((args[1] != "off" && (end == args[1].c_str() || *end != '\0' || amount < 0 || amount > 255)) ||
+            passes < 0 || args.size() > 3) {
+            lines.push_back(kUsage);
+            return 1;
+        }
+        gRsBoatFadeTest.amount = (s32)amount;
+        gRsBoatFadeTest.passes = passes;
+    }
+    Addf(lines, "op=fade result=ok amount=%d passes=%s", (int)gRsBoatFadeTest.amount, kPasses[gRsBoatFadeTest.passes]);
+    return 0;
 }
 
 // How Link gets from the deck onto a rail (saved): the hands-on climb a prop and a covered bow get (the default, the
@@ -798,6 +845,11 @@ int32_t RsBoatConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (dockRc >= 0) {
         return dockRc;
     }
+    // Health (#284): `hp` reads the save, so it works from the title screen too; the rest need a scene.
+    const int32_t healthRc = RsBoatHealth_ConsoleRun(args, lines);
+    if (healthRc >= 0) {
+        return healthRc;
+    }
     if (sub == "lakehylia") {
         return LakeHylia(args, lines);
     }
@@ -810,6 +862,12 @@ int32_t RsBoatConsole_Run(const std::vector<std::string>& args, std::vector<std:
     }
     if (sub == "climb") {
         return Climb(args, lines);
+    }
+    if (sub == "fade") {
+        return Fade(args, lines);
+    }
+    if (sub == "sinkfade") {
+        return SinkFade(args, lines);
     }
     if (sub == "still") {
         return Still(args, lines);
@@ -925,9 +983,14 @@ const ConsoleSink::Command rsBoatCommand(
     "where and docks read where the player's boats are and the piers in this scene (#282): stowed, docked or "
     "abandoned; takeout, putaway and fetch do what a pier does (at the dock given, else the pier Link is talking "
     "to, else dock 0), fetch charging the fee; stow puts a kind back to stowed wherever it is, and place puts it "
-    "down at x z in this scene (test aids, no rules).",
+    "down at x z in this scene (test aids, no rules); repair mends a damaged boat at a pier for its fee (#284). "
+    "hp lists each kind's HP and the live boats' (hp <kind> <n>|full sets one outright); damage hits the boat Link "
+    "is aboard (else idx, else the only one) as a source would, the console's landing with nobody aboard; capsize "
+    "sinks it at once; heart puts a boat heart on the water at Link's feet, lists the scene's, or clears them.",
     { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|kind|tune|wake|contact|still|cull|shadow|"
-        "clear|fitout|upgrades|build|grant|look|own|fit|where|docks|stow|place|takeout|putaway|fetch",
+        "clear|fade|sinkfade|fitout|upgrades|build|grant|look|own|fit|where|docks|stow|place|takeout|putaway|fetch|"
+        "repair|hp|"
+        "damage|capsize|heart",
         Ship::ArgumentType::TEXT },
       { "arg1", Ship::ArgumentType::TEXT, true },
       { "arg2", Ship::ArgumentType::TEXT, true },
@@ -1002,6 +1065,15 @@ still                             hold every boat level
 cull                              leave unseen boats out of the draw
   on                              draw a boat only when it can be seen
   off                             draw every boat every frame
+fade                              draw every boat faded, as one sinking
+  <n>                             0 to 255, then the passes
+    both                          depth, then the faded colour
+    depth                         the depth pass alone
+    colour                        the faded colour alone
+  off                             draw them whole again
+sinkfade                          how a capsized boat goes down
+  on                              a short drop that fades out
+  off                             sinks through the bed (the default)
 shadow                            Link's shadow over a boat
   feet                            under Link's feet, as on land
   circle                          vanilla's flat shadow
@@ -1049,6 +1121,24 @@ place <kind> <x> <z> [<yaw>]      put your boat down at a spot here, no rules
 takeout <kind> [<dock>]           a boat out to a pier, free
 putaway <kind> [<dock>]           a boat docked at a pier, stowed
 fetch <kind> [<dock>]             an abandoned boat to a pier, for its fee
+repair <kind> [<dock>]            mend a damaged boat at a pier, for its fee
+hp                                each kind's HP, and the live boats'
+  <kind>                          set a kind's HP outright, no rules
+    <n>                           to n; 0 sinks it
+    full                          mended, free
+damage                            hit the boat Link is aboard
+  <n>                             the hit, before armour
+    console                       lands with nobody aboard (the default)
+    hazard                        a hazardous water's hit
+    rapids                        a rapid too strong for the helm
+    lightning                     a lightning strike
+    enemy                         a creature's or a cannon's
+    <idx>                         that boat, not the one Link is aboard
+capsize [<idx>]                   sink the boat at once, as at 0 HP
+heart                             the floating hearts that mend a boat
+  here                            one on the water at Link's feet
+  list                            this scene's hearts
+  clear                           take them all away
 )");
 
 } // namespace

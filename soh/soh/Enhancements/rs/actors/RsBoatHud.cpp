@@ -3,6 +3,9 @@
 // just under the C buttons, while there are no steering animations or poses to say it. On at all times in a
 // build of the prototype, scene with a boat or not; `boat hud off` (CVAR_RS_BOAT_HUD) hides it.
 //
+// The boat's HP (sturdy-bassoon#284): a bar under the label while Link is aboard a boat, on its deck or at its helm,
+// its colour going from green to red as it empties, and "HP n/max" over it (RsBoatHealth.h). The same `boat hud` hides it.
+//
 // The save's boats (sturdy-bassoon#263), a debug readout at the left under the magic bar: a block per kind, owned or
 // not, then its parts, facilities and looks one a line (RsBoatFit_Summary), a blank line between kinds. `boat fitout
 // hud off` (CVAR_RS_BOAT_FIT_HUD) hides it alone.
@@ -12,6 +15,7 @@
 
 #include "RsBoatHud.h"
 
+#include <cstdio>
 #include <memory>
 #include <string>
 
@@ -25,6 +29,7 @@
 #include "RsBoat.h"
 #include "RsBalloon.h"
 #include "soh/Enhancements/rs/boats/RsBoatFit.h"
+#include "soh/Enhancements/rs/boats/RsBoatHealth.h"
 #include "soh/ShipInit.hpp"
 #include "soh/cvar_prefixes.h"
 
@@ -88,6 +93,21 @@ class RsBoatHudWindow final : public Ship::GuiWindow {
                            what == RS_BOAT_HUD_STEERING_BALLOON ? "Steering balloon"
                            : steering                           ? "Steering boat"
                                                                 : "Not steering");
+        if (const RsBoat* boat = RsBoatHealth_LinkBoat()) {
+            const int32_t max = RsBoatHealth_Max(boat->kind);
+            const int32_t hp = RsBoatHealth_Of(boat);
+            if (max > 0) {
+                const float share = (float)hp / (float)max;
+                ImGui::SetWindowFontScale(1.0f);
+                ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
+                                      ImVec4(1.0f - share * 0.7f, 0.25f + share * 0.65f, 0.25f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.1f, 0.1f, 0.1f, 0.8f));
+                char label[32];
+                std::snprintf(label, sizeof(label), "HP %d/%d", (int)hp, (int)max);
+                ImGui::ProgressBar(share, ImVec2(ImGui::GetFontSize() * 9.0f, 0.0f), label);
+                ImGui::PopStyleColor(2);
+            }
+        }
         ImGui::End();
         // The readout, a box of its own: at the left, its edge in line with the hearts and its top under the magic
         // bar (which ends about 0.18 of the way down), so it covers neither the bar nor the C buttons.

@@ -51,9 +51,12 @@
 //                    TEST AID: sets the tier outright, up or down, no rules. `op=fit result=ok kind= slot= tier=`
 //
 // Refusals, each with rc 1:
-//   op=<build|grant> result=error error=<unknown|already|locked|not_owned|requirement|cant_afford>
-//                    upgrade=<n> fail_index=<i>   the rule that refused it (RsBoatFitResult; fail_index names the
-//                                                 requirement or the cost)
+//   op=<build|grant> result=error error=<unknown|already|locked|not_owned|wrecked|abandoned|requirement|cant_afford>
+//                    upgrade=<n> fail_index=<i> says="<text>"
+//                                                 the rule that refused it (RsBoatFitResult; fail_index names the
+//                                                 requirement, the cost, or for wrecked and abandoned the boat's
+//                                                 kind), and what a shipwright would say (RsBoatFit_ResultSays). A
+//                                                 grant is never wrecked or abandoned (#284)
 //   op=look result=error error=<not_owned|requirement|no_image> kind=<k>
 //                                                 a look on a boat the player does not own, an option whose
 //                                                 requirements do not hold, or custom with no accepted picture

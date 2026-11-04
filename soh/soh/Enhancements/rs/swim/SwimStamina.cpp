@@ -534,6 +534,12 @@ extern "C" void RsSwim_SetRefuge(Actor* actor, float x, float y, float z, int16_
            y, z, yaw);
 }
 
+extern "C" void RsSwim_ClearRefugeOn(Actor* actor) {
+    if (sState.refuge.set && actor != nullptr && sState.refuge.actor == actor) {
+        ClearRefuge("sunk");
+    }
+}
+
 extern "C" void RsSwim_ClearRefuge(void) {
     ClearRefuge("call");
 }
