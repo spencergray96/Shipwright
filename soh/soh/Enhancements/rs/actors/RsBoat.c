@@ -2600,6 +2600,16 @@ void RsBoat_Capsize(RsBoat* this, PlayState* play) {
     if (player->focusActor == &this->dyna.actor) {
         player->focusActor = NULL;
     }
+    // The bed under it, the scene's or anything else's (its own collision is off, and the ray skips it besides): it is
+    // gone once all of it is below this. None (no floor under the water at all) is BGCHECK_Y_MIN: the cap decides.
+    {
+        Vec3f from = this->dyna.actor.world.pos;
+        CollisionPoly* poly = NULL;
+        s32 bgId = BGCHECK_SCENE;
+
+        from.y = this->surfaceY;
+        this->sinkFloorY = BgCheck_EntityRaycastFloor4(&play->colCtx, &poly, &bgId, &this->dyna.actor, &from);
+    }
     this->sinkTicks = 1;
     this->speed = 0.0f;
     this->yawVel = 0;
@@ -2619,40 +2629,86 @@ static void RsBoat_SetupDL(GraphicsContext* gfxCtx, s32 fade) {
     }
 }
 
-// How far a sinking hull has faded, for gSPFade: 0 until RS_BOAT_SINK_FADE_FROM of the way down, then all the way
+// `boat sinkfade on`: the first prototype's sink, a short drop that fades as it goes (RsBoat.h).
+static s32 RsBoat_SinkFades(void) {
+    return CVarGetInteger(CVAR_RS_BOAT_SINK_FADE, 0) != 0;
+}
+
+// How far a sinking hull has faded, for gSPFade. Through the bed, none until the cap, then out over the cap's fade.
+// Under `boat sinkfade on`, the first prototype's: 0 until RS_BOAT_SINK_FADE_FROM of the way down, then all the way
 // (255) by RS_BOAT_SINK_FADE_TO, ahead of its removal at the end.
 #define RS_BOAT_SINK_FADE_FROM 0.25f
 #define RS_BOAT_SINK_FADE_TO 0.85f
 static u8 RsBoat_SinkFade(const RsBoat* this) {
-    const f32 t = (f32)this->sinkTicks / (f32)RS_BOAT_SINK_TICKS;
+    f32 share;
 
-    return (u8)(CLAMP((t - RS_BOAT_SINK_FADE_FROM) / (RS_BOAT_SINK_FADE_TO - RS_BOAT_SINK_FADE_FROM), 0.0f, 1.0f) *
-                255.0f);
+    if (RsBoat_SinkFades()) {
+        const f32 t = (f32)this->sinkTicks / (f32)RS_BOAT_SINK_TICKS;
+
+        share = (t - RS_BOAT_SINK_FADE_FROM) / (RS_BOAT_SINK_FADE_TO - RS_BOAT_SINK_FADE_FROM);
+    } else {
+        share = (f32)(this->sinkTicks - RS_BOAT_SINK_CAP_TICKS) / (f32)RS_BOAT_SINK_CAP_FADE_TICKS;
+    }
+    return (u8)(CLAMP(share, 0.0f, 1.0f) * 255.0f);
 }
 
-// One tick of going under: the roll toward its side and the drop below the surface, both easing in.
+// How far below the surface the hull is `ticks` into its sink: gathering speed at RS_BOAT_SINK_ACCEL up to
+// RS_BOAT_SINK_SPEED, then steady.
+static f32 RsBoat_SinkDepth(s32 ticks) {
+    const f32 rampTicks = RS_BOAT_SINK_SPEED / RS_BOAT_SINK_ACCEL;
+    const f32 n = (f32)ticks;
+
+    if (n <= rampTicks) {
+        return 0.5f * RS_BOAT_SINK_ACCEL * n * n;
+    }
+    return 0.5f * RS_BOAT_SINK_ACCEL * rampTicks * rampTicks + RS_BOAT_SINK_SPEED * (n - rampTicks);
+}
+
+// Gone under: stowed (the player's own; the store already has it wrecked) or killed (a fixture). `reason` says why now.
+static void RsBoat_Sunk(RsBoat* this, const char* reason) {
+    char line[200];
+
+    RsBoat_Mark(this, "sunk");
+    snprintf(line, sizeof(line), "rs_boat event=sunk_reason reason=%s ticks=%d y=%d floor=%d reach=%d kind=%s",
+             reason, this->sinkTicks, (int)lroundf(this->dyna.actor.world.pos.y), (int)lroundf(this->sinkFloorY),
+             (int)lroundf(RsBoat_KindReach(this->kind)), RsBoat_KindName(this->kind));
+    RsAgent_Marker(line);
+    if (this->owned) {
+        RsBoatDock_Stow(this->kind); // kills it
+    } else {
+        Actor_Kill(&this->dyna.actor);
+    }
+}
+
+// One tick of going under: the roll toward its side, easing in, and the drop.
 static void RsBoat_Sink(RsBoat* this, PlayState* play) {
     Actor* thisx = &this->dyna.actor;
-    const f32 t = CLAMP((f32)this->sinkTicks / (f32)RS_BOAT_SINK_TICKS, 0.0f, 1.0f);
+    const s32 fades = RsBoat_SinkFades();
+    const f32 t = CLAMP((f32)this->sinkTicks / (f32)(fades ? RS_BOAT_SINK_TICKS : RS_BOAT_SINK_ROLL_TICKS), 0.0f, 1.0f);
+    const f32 ease = t * (2.0f - t);
 
     this->timer++;
     this->linkAboard = 0;
-    thisx->shape.rot.z = (s16)(this->roll + (s16)(0x3800 * t));
-    thisx->shape.rot.x = (s16)(this->pitch * (1.0f - t));
-    thisx->world.pos.y = this->surfaceY - RS_BOAT_SINK_DEPTH * t * t;
-    if ((this->sinkTicks % 8) == 0) {
+    thisx->shape.rot.z = (s16)(this->roll + (s16)(0x3800 * ease));
+    thisx->shape.rot.x = (s16)(this->pitch * (1.0f - ease));
+    thisx->world.pos.y =
+        this->surfaceY - (fades ? RS_BOAT_SINK_DEPTH * t * t : RsBoat_SinkDepth(this->sinkTicks));
+    // Rings where it went down, while it is still near the surface.
+    if ((this->sinkTicks % 8) == 0 && this->sinkTicks <= RS_BOAT_SINK_TICKS) {
         Vec3f ring = thisx->world.pos;
 
         ring.y = this->surfaceY;
         EffectSsGRipple_Spawn(play, &ring, (s16)(RsBoat_KindHalfLength(this->kind) * 2.0f), 1200, 0);
     }
-    if (++this->sinkTicks > RS_BOAT_SINK_TICKS) {
-        RsBoat_Mark(this, "sunk");
-        if (this->owned) {
-            RsBoatDock_Stow(this->kind); // kills it
-        } else {
-            Actor_Kill(thisx);
+    this->sinkTicks++;
+    if (fades) {
+        if (this->sinkTicks > RS_BOAT_SINK_TICKS) {
+            RsBoat_Sunk(this, "faded");
         }
+    } else if (thisx->world.pos.y + RsBoat_KindReach(this->kind) < this->sinkFloorY) {
+        RsBoat_Sunk(this, "under_bed");
+    } else if (this->sinkTicks > RS_BOAT_SINK_CAP_TICKS + RS_BOAT_SINK_CAP_FADE_TICKS) {
+        RsBoat_Sunk(this, "cap");
     }
 }
 

@@ -80,10 +80,10 @@
 // reads its last draw, and `boat shadow trace` its last RS_VEHICLE_SHADOW_TRACE.
 //
 // HEALTH (#284, boats/RsBoatHealth.h). A hit to 0 capsizes the boat (RsBoat_Capsize): it lets go, its collision goes
-// so Link drops into the water where it went down, and the hull rolls over and sinks in RS_BOAT_SINK_TICKS, taking no
-// input, fading out as it goes (gSPFade, libultraship's; drawn at the frame's end, RsBoat_DrawFaded, so it fades over
-// the water) so nothing is left in view to vanish; then the player's own is stowed (and wrecked) and a fixture is
-// gone. Bumping the shore never hurts.
+// so Link drops into the water where it went down, and the hull rolls over and sinks through the bed, taking no input
+// (RS_BOAT_SINK_*), until it is all below the bed; then the player's own is stowed (and wrecked) and a fixture is gone.
+// Where it would take too long it fades out at a cap instead (gSPFade, libultraship's; drawn at the frame's end,
+// RsBoat_DrawFaded, so it fades over the water). Bumping the shore never hurts.
 //
 // Console: `boat ...` and `agenttest boat ...` (RsBoatConsole.h). Markers: `rs_boat event=<spawn|helm_on|
 // helm_off|blocked|capsize|sunk> ...` (agent mode).
@@ -286,9 +286,22 @@ typedef struct RsBoat {
     s32 damage;      // a fixture's damage, what it is missing from its most (#284); the player's own is the store's
     s32 sinkTicks;   // ticks since it capsized, 0 while afloat (#284)
     s32 culled;      // RsBoat_Draw left it out on the last frame: no part of it could be on screen (#293)
+    f32 sinkFloorY;  // the bed under it when it capsized, BGCHECK_Y_MIN for none: gone once all of it is below
 } RsBoat;
 
-// How long a capsized boat takes to go under, and how far down it goes before it is gone (#284).
+// How a capsized boat goes down (#284). It rolls onto its side over RS_BOAT_SINK_ROLL_TICKS and drops, gathering speed
+// to RS_BOAT_SINK_SPEED, unfaded: drawn in its own place, before the water, its underwater part is tinted as any boat's
+// is. With no collision it goes straight through the bed, which hides what has gone below it (the owner, 2026-11-04).
+// It is removed once its reach (RsBoat_KindReach) is all below the bed measured under it at the capsize, or, where that
+// takes too long (deep water, no bed), at RS_BOAT_SINK_CAP_TICKS, fading out over RS_BOAT_SINK_CAP_FADE_TICKS first.
+#define RS_BOAT_SINK_ROLL_TICKS 30
+#define RS_BOAT_SINK_ACCEL 0.25f // units a tick, a tick
+#define RS_BOAT_SINK_SPEED 4.0f  // units a tick: 80 a second
+#define RS_BOAT_SINK_CAP_TICKS 160
+#define RS_BOAT_SINK_CAP_FADE_TICKS 20
+// The first prototype's sink, which `boat sinkfade on` brings back (saved): a 2 s drop of 120, fading out from a
+// quarter of the way down, then removed. The fade itself is gSPFade and RsBoat_DrawFaded either way.
+#define CVAR_RS_BOAT_SINK_FADE CVAR_ENHANCEMENT("RsBoatSinkFade")
 #define RS_BOAT_SINK_TICKS 40
 #define RS_BOAT_SINK_DEPTH 120.0f
 

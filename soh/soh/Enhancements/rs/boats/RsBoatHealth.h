@@ -20,9 +20,10 @@
 // The console's hit lands with nobody aboard, as a test aid.
 //
 // AT 0 THE BOAT CAPSIZES (RsBoat_Capsize, RsBoat.h): Link lets go and is left in the water where it went down, with
-// the drown rules as ever (the boat is no longer his refuge); the hull sinks out of sight in RS_BOAT_SINK_TICKS. Then
-// the player's own boat is STOWED and WRECKED (0 HP): a pier will not take it out until it has been repaired there,
-// and says the price. A fixture is gone until its scene puts it back.
+// the drown rules as ever (the boat is no longer his refuge); the hull rolls over and sinks through the bed
+// (RS_BOAT_SINK_*, RsBoat.h). The player's own boat is STOWED and WRECKED (0 HP) from its first tick going down: a pier
+// will not take it out until it has been repaired there, and says the price. A fixture is gone until its scene puts it
+// back.
 //
 // MENDING. Nothing heals a boat but:
 //   - a pier's repair (RsBoatDock.h, RS_BOAT_DOCK_OP_REPAIR): to full, RS_BOAT_REPAIR_RUPEES_PER_HP a point missing,

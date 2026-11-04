@@ -42,8 +42,8 @@ using ConsoleSink::Addf;
     "lakelevel [full|drained] | cam [on|off|default] | cam height|dist|ease <n> | hud [on|off] | "             \
     "climb [hop|hands] | kind [skiff|sloop|raft] | tune [default] | tune <knob> <value> | wake [default|reset] | "  \
     "wake slots [<n>|default] | "                                                                                   \
-    "wake <knob> <value> | contact [<idx>] | still [on|off] | cull [on|off] | "                                               \
-    "fade <0-255>|off [both|depth|colour] | "                                                        \
+    "wake <knob> <value> | contact [<idx>] | still [on|off] | cull [on|off] | "                                  \
+    "fade <0-255>|off [both|depth|colour] | sinkfade [on|off] | "                                                 \
     "shadow [feet|circle|draped|default|reset] | "                                                                  \
     "shadow size <n> | shadow anchor [auto|hull|link] | shadow trace | clear | " RS_BOAT_FIT_GRAMMAR " | "             RS_BOAT_DOCK_GRAMMAR \
     " | " RS_BOAT_HEALTH_GRAMMAR
@@ -414,6 +414,24 @@ int32_t Still(const std::vector<std::string>& args, std::vector<std::string>& li
 // or off, every boat drawing every frame wherever it is, as before (an A/B for the agent loop).
 int32_t Cull(const std::vector<std::string>& args, std::vector<std::string>& lines) {
     return OnOff("cull", &gRsBoatCull, args, lines);
+}
+
+// `boat sinkfade [on|off]` (#284): a capsized boat's sink, through the bed (off, the default) or the first prototype's
+// short drop that fades as it goes (on). Saved.
+int32_t SinkFade(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() == 2) {
+        if (args[1] != "on" && args[1] != "off") {
+            lines.push_back(kUsage);
+            return 1;
+        }
+        CVarSetInteger(CVAR_RS_BOAT_SINK_FADE, args[1] == "on" ? 1 : 0);
+        CVarSave();
+    } else if (args.size() != 1) {
+        lines.push_back(kUsage);
+        return 1;
+    }
+    Addf(lines, "op=sinkfade result=ok sinkfade=%s", CVarGetInteger(CVAR_RS_BOAT_SINK_FADE, 0) ? "on" : "off");
+    return 0;
 }
 
 // `boat fade <0-255>|off [both|depth|colour]` (#284): every afloat boat drawn faded, as a sinking hull is, with both
@@ -848,6 +866,9 @@ int32_t RsBoatConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "fade") {
         return Fade(args, lines);
     }
+    if (sub == "sinkfade") {
+        return SinkFade(args, lines);
+    }
     if (sub == "still") {
         return Still(args, lines);
     }
@@ -967,7 +988,8 @@ const ConsoleSink::Command rsBoatCommand(
     "is aboard (else idx, else the only one) as a source would, the console's landing with nobody aboard; capsize "
     "sinks it at once; heart puts a boat heart on the water at Link's feet, lists the scene's, or clears them.",
     { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|kind|tune|wake|contact|still|cull|shadow|"
-        "clear|fade|fitout|upgrades|build|grant|look|own|fit|where|docks|stow|place|takeout|putaway|fetch|repair|hp|"
+        "clear|fade|sinkfade|fitout|upgrades|build|grant|look|own|fit|where|docks|stow|place|takeout|putaway|fetch|"
+        "repair|hp|"
         "damage|capsize|heart",
         Ship::ArgumentType::TEXT },
       { "arg1", Ship::ArgumentType::TEXT, true },
@@ -1049,6 +1071,9 @@ fade                              draw every boat faded, as one sinking
     depth                         the depth pass alone
     colour                        the faded colour alone
   off                             draw them whole again
+sinkfade                          how a capsized boat goes down
+  on                              a short drop that fades out
+  off                             sinks through the bed (the default)
 shadow                            Link's shadow over a boat
   feet                            under Link's feet, as on land
   circle                          vanilla's flat shadow

@@ -319,7 +319,8 @@
  *                                        the sailing prototype's boat (sturdy-bassoon#256): spawned, the helm
  *                                        taken or let go, a move refused at the shore or a wall. Gameplay
  *                                        markers. Since #284 also capsize|sunk, and hit|hit_ignored|heal|hp_set|
- *                                        heart with kind= owned= source= ... hp= max= (boats/RsBoatHealth.cpp)
+ *                                        heart with kind= owned= source= ... hp= max= (boats/RsBoatHealth.cpp), and
+ *                                        sunk_reason reason=<under_bed|cap|faded> ticks= y= floor= reach=
  *   rs_boat <line>                       one line of RsBoatConsole_Run output per marker, from
  *                                        `agenttest boat ...` - `boat idx=...` or `op=...`, never `event=...`
  *   rs_balloon event=<spawn|controls_on|controls_off|liftoff|landed|blocked|abandoned|home> x= y= z= yaw= vy=
@@ -645,7 +646,7 @@
  *                  fitout [..]|upgrades|build <u>|grant <u>|look <kind> [..]|own <kind> 0|1|fit <kind> <slot> <tier>|
  *                  where|docks|stow <kind>|all|place <kind> <x> <z> [<yaw>]|takeout|putaway|fetch|repair <kind> [<dock>]|
  *                  hp [<kind> <n>|full]|damage <n> [<source>] [<idx>]|capsize [<idx>]|heart here|list|clear|
- *                  fade <0-255>|off [both|depth|colour]
+ *                  fade <0-255>|off [both|depth|colour]|sinkfade [on|off]
  *                                          the sailing prototype's boats (sturdy-bassoon#256): where each is,
  *                                          its speed, helm and why it last stopped; put one down, stand Link
  *                                          at its tiller, take the helm, steer it without the pad. Since #263
