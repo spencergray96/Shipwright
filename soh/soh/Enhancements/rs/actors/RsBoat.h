@@ -81,9 +81,9 @@
 //
 // HEALTH (#284, boats/RsBoatHealth.h). A hit to 0 capsizes the boat (RsBoat_Capsize): it lets go, its collision goes
 // so Link drops into the water where it went down, and the hull rolls over and sinks through the bed, taking no input
-// (RS_BOAT_SINK_*), until it is all below the bed; then the player's own is stowed (and wrecked) and a fixture is gone.
-// Where it would take too long it fades out at a cap instead (gSPFade, libultraship's; drawn at the frame's end,
-// RsBoat_DrawFaded, so it fades over the water). Bumping the shore never hurts.
+// (RS_BOAT_SINK_*), until it is all below the bed, or at a 30 s cap; then the player's own is stowed (and wrecked) and a
+// fixture is gone. `boat sinkfade on` brings back a short drop that fades out instead (gSPFade, libultraship's; drawn
+// at the frame's end, RsBoat_DrawFaded, so it fades over the water). Bumping the shore never hurts.
 //
 // Console: `boat ...` and `agenttest boat ...` (RsBoatConsole.h). Markers: `rs_boat event=<spawn|helm_on|
 // helm_off|blocked|capsize|sunk> ...` (agent mode).
@@ -293,14 +293,14 @@ typedef struct RsBoat {
 // to RS_BOAT_SINK_SPEED, unfaded: drawn in its own place, before the water, its underwater part is tinted as any boat's
 // is. With no collision it goes straight through the bed, which hides what has gone below it (the owner, 2026-11-04).
 // It is removed once its reach (RsBoat_KindReach) is all below the bed measured under it at the capsize, or, where that
-// takes too long (deep water, no bed), at RS_BOAT_SINK_CAP_TICKS, fading out over RS_BOAT_SINK_CAP_FADE_TICKS first.
+// takes too long (deep water, no bed), at RS_BOAT_SINK_CAP_TICKS, a large buffer (30 s), with no fade: a fade there would
+// draw the hull after the water, untinted (the owner, 2026-11-04).
 #define RS_BOAT_SINK_ROLL_TICKS 30
 #define RS_BOAT_SINK_ACCEL 0.25f // units a tick, a tick
 #define RS_BOAT_SINK_SPEED 4.0f  // units a tick: 80 a second
-#define RS_BOAT_SINK_CAP_TICKS 160
-#define RS_BOAT_SINK_CAP_FADE_TICKS 20
+#define RS_BOAT_SINK_CAP_TICKS 600
 // The first prototype's sink, which `boat sinkfade on` brings back (saved): a 2 s drop of 120, fading out from a
-// quarter of the way down, then removed. The fade itself is gSPFade and RsBoat_DrawFaded either way.
+// quarter of the way down, then removed. The fade is gSPFade, drawn by RsBoat_DrawFaded.
 #define CVAR_RS_BOAT_SINK_FADE CVAR_ENHANCEMENT("RsBoatSinkFade")
 #define RS_BOAT_SINK_TICKS 40
 #define RS_BOAT_SINK_DEPTH 120.0f

@@ -2634,22 +2634,19 @@ static s32 RsBoat_SinkFades(void) {
     return CVarGetInteger(CVAR_RS_BOAT_SINK_FADE, 0) != 0;
 }
 
-// How far a sinking hull has faded, for gSPFade. Through the bed, none until the cap, then out over the cap's fade.
-// Under `boat sinkfade on`, the first prototype's: 0 until RS_BOAT_SINK_FADE_FROM of the way down, then all the way
-// (255) by RS_BOAT_SINK_FADE_TO, ahead of its removal at the end.
+// How far a sinking hull has faded, for gSPFade: through the bed, never. Under `boat sinkfade on`, the first
+// prototype's: 0 until RS_BOAT_SINK_FADE_FROM of the way down, then all the way (255) by RS_BOAT_SINK_FADE_TO, ahead of
+// its removal at the end.
 #define RS_BOAT_SINK_FADE_FROM 0.25f
 #define RS_BOAT_SINK_FADE_TO 0.85f
 static u8 RsBoat_SinkFade(const RsBoat* this) {
-    f32 share;
+    const f32 t = (f32)this->sinkTicks / (f32)RS_BOAT_SINK_TICKS;
 
-    if (RsBoat_SinkFades()) {
-        const f32 t = (f32)this->sinkTicks / (f32)RS_BOAT_SINK_TICKS;
-
-        share = (t - RS_BOAT_SINK_FADE_FROM) / (RS_BOAT_SINK_FADE_TO - RS_BOAT_SINK_FADE_FROM);
-    } else {
-        share = (f32)(this->sinkTicks - RS_BOAT_SINK_CAP_TICKS) / (f32)RS_BOAT_SINK_CAP_FADE_TICKS;
+    if (!RsBoat_SinkFades()) {
+        return 0;
     }
-    return (u8)(CLAMP(share, 0.0f, 1.0f) * 255.0f);
+    return (u8)(CLAMP((t - RS_BOAT_SINK_FADE_FROM) / (RS_BOAT_SINK_FADE_TO - RS_BOAT_SINK_FADE_FROM), 0.0f, 1.0f) *
+                255.0f);
 }
 
 // How far below the surface the hull is `ticks` into its sink: gathering speed at RS_BOAT_SINK_ACCEL up to
@@ -2707,7 +2704,7 @@ static void RsBoat_Sink(RsBoat* this, PlayState* play) {
         }
     } else if (thisx->world.pos.y + RsBoat_KindReach(this->kind) < this->sinkFloorY) {
         RsBoat_Sunk(this, "under_bed");
-    } else if (this->sinkTicks > RS_BOAT_SINK_CAP_TICKS + RS_BOAT_SINK_CAP_FADE_TICKS) {
+    } else if (this->sinkTicks > RS_BOAT_SINK_CAP_TICKS) {
         RsBoat_Sunk(this, "cap");
     }
 }
