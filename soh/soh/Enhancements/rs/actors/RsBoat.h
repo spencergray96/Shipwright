@@ -285,6 +285,7 @@ typedef struct RsBoat {
     RsSteerCam cam;  // the steering camera while the helm is held (RsSteer.h)
     s32 damage;      // a fixture's damage, what it is missing from its most (#284); the player's own is the store's
     s32 sinkTicks;   // ticks since it capsized, 0 while afloat (#284)
+    s32 culled;      // RsBoat_Draw left it out on the last frame: no part of it could be on screen (#293)
 } RsBoat;
 
 // How long a capsized boat takes to go under, and how far down it goes before it is gone (#284).
@@ -440,6 +441,22 @@ extern RsBoatFadeTest gRsBoatFadeTest;
 // every water, so a faded hull blends over the water (#284). The scene water's end-of-frame draw calls it, after its
 // own sheets (RsSceneWater.cpp).
 void RsBoat_DrawFaded(PlayState* play);
+
+// `boat cull`: a boat nobody is aboard draws only when some part of it can be on screen (1, the default), or every
+// frame wherever it is (0, as before #293: an A/B for the agent loop, not saved). RsBoat_Draw decides (RsBoat.c).
+extern s32 gRsBoatCull;
+// The kind's draw cull radius, world units from the boat's origin: its farthest drawn vertex, read from its archive
+// (hull, sails, rudder and every facility) once, or RS_BOAT_CULL_REACH_NO_MODEL when the archive is not mounted then.
+#define RS_BOAT_CULL_REACH_NO_MODEL 300.0f // the placeholder boxes', with room to spare
+f32 RsBoat_KindReach(s32 kind);
+// How far past each edge of the screen the cull still counts as on screen, as a share of the view (0.15: the sides
+// 15% wider, the top and bottom 15% taller): the frames interpolated between two ticks turn the camera on from the
+// view the draw was decided in.
+#define RS_BOAT_CULL_EDGE_PAD 0.15f
+// Whether the cull may leave this boat out (`boat cull` on, nobody aboard, no helm, no test water), and whether it was
+// drawn on the last frame: Actor_DrawAll drew it and the cull did not leave it out (`boat list`'s cull= and drawn=).
+s32 RsBoat_CullApplies(const RsBoat* boat);
+s32 RsBoat_Drawn(const RsBoat* boat);
 
 // The hookshot's and the boomerang's line test (BgCheck_EntityLineTest1, every surface, as ArmsHook_Shoot and EnBoom_Fly
 // ask), but meeting a boat's hull as projectiles do (#262): past the walls only Link meets (RS_BOAT_POLY_SHOTS_PASS),

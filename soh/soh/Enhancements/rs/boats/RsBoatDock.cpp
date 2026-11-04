@@ -830,10 +830,11 @@ int32_t Where(std::vector<std::string>& lines) {
                                                                 player->actor.world.pos.z))
                                       : -1;
         Addf(lines,
-             "boat_where kind=%s owned=%d state=%s out=%d scene=%s in_scene=%d spawned=%d x=%d z=%d yaw=%d dock=%d "
-             "dist=%d stranded=%d refused=%d fee=%d",
+             "boat_where kind=%s owned=%d state=%s out=%d scene=%s in_scene=%d spawned=%d drawn=%d x=%d z=%d yaw=%d "
+             "dock=%d dist=%d stranded=%d refused=%d fee=%d",
              RsBoat_KindName(kind), RsBoatFit_Owned(kind), RsBoatDock_StateName(RsBoatDock_State(kind)), p.out ? 1 : 0,
-             p.out ? SceneEnumName(p.scene) : "-", here, boat != nullptr ? 1 : 0, (int)lroundf(p.x), (int)lroundf(p.z),
+             p.out ? SceneEnumName(p.scene) : "-", here, boat != nullptr ? 1 : 0,
+             boat != nullptr && RsBoat_Drawn(boat) ? 1 : 0, (int)lroundf(p.x), (int)lroundf(p.z),
              (int)(u16)p.yaw, (int)dock, (int)dist, p.stranded ? 1 : 0, p.refused ? 1 : 0, (int)RsBoatDock_Fee(kind));
     }
     int32_t polys = 0;

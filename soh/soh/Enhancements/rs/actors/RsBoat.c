@@ -20,6 +20,7 @@
 #include "soh/Enhancements/rs/boats/RsBoatHealth.h"
 #include "soh/Enhancements/rs/boats/RsBoatSail.h"
 #include "soh/Enhancements/rs/swim/SwimStamina.h"
+#include "soh/OTRGlobals.h" // OTRGetAspectRatio: the draw cull's sides (#293)
 
 void RsBoat_Init(Actor* thisx, PlayState* play);
 void RsBoat_Destroy(Actor* thisx, PlayState* play);
@@ -670,6 +671,43 @@ f32 RsBoat_KindHalfLength(s32 kind) {
     }
     n = RsBoat_NumStations(&sRsBoatKinds[kind]);
     return n > 0 ? (sRsBoatKinds[kind].stations[n - 1].z - sRsBoatKinds[kind].stations[0].z) * 0.5f : 0.0f;
+}
+
+// Once a kind (#293): every list RsBoat_Draw draws for it, each from the offset it is drawn at. The rudder turns about
+// its pin, so its reach counts from there.
+f32 RsBoat_KindReach(s32 kind) {
+    static f32 sReach[RS_BOAT_KIND_COUNT];
+    const RsBoatKind* k;
+    f32 offset;
+    f32 reach;
+    s32 i;
+
+    if (kind < 0 || kind >= RS_BOAT_KIND_COUNT) {
+        return RS_BOAT_CULL_REACH_NO_MODEL;
+    }
+    if (sReach[kind] > 0.0f) { // 0 is "not read yet": every reach it stores, the fallback's too, is above 0
+        return sReach[kind];
+    }
+    k = &sRsBoatKinds[kind];
+    reach = RsVehicleDeck_ArchiveReach(k->list);
+    if (reach <= 0.0f) {
+        sReach[kind] = RS_BOAT_CULL_REACH_NO_MODEL;
+        return sReach[kind];
+    }
+    offset = sqrtf(SQ(k->modelY) + SQ(k->modelZ));
+    reach += offset;
+    if (k->rudder.list != NULL) {
+        reach = MAX(reach, sqrtf(SQ(k->rudder.pin[0]) + SQ(k->modelY + k->rudder.pin[1]) +
+                                 SQ(k->modelZ + k->rudder.pin[2])) +
+                               RsVehicleDeck_ArchiveReach(k->rudder.list));
+    }
+    for (i = 0; i < RS_BOAT_MAX_FACILITIES && sRsBoatFacilities[kind][i].name != NULL; i++) {
+        if (sRsBoatFacilities[kind][i].list != NULL) {
+            reach = MAX(reach, offset + RsVehicleDeck_ArchiveReach(sRsBoatFacilities[kind][i].list));
+        }
+    }
+    sReach[kind] = reach;
+    return reach;
 }
 
 s32 RsBoat_FacilityPolyCount(s32 kind) {
@@ -2391,6 +2429,7 @@ s32 RsBoat_ShotLineTest(PlayState* play, Vec3f* from, Vec3f* to, Vec3f* result, 
 
 s32 gRsBoatStill = 0;
 RsBoatFadeTest gRsBoatFadeTest = { 0, RS_BOAT_FADE_BOTH };
+s32 gRsBoatCull = 1;
 
 s32 RsBoat_WallLean(PlayState* play, const Player* player, s32 vanilla) {
     return RsBoat_HullOf(play, player->actor.wallBgId) != NULL ? RS_BOAT_WALL_LEAN : vanilla;
@@ -2630,6 +2669,8 @@ void RsBoat_Init(Actor* thisx, PlayState* play) {
     // Link's draped shadow's deck map, read from the archive now, inside the scene's load, rather than as he first
     // steps aboard: ~40-60 ms a kind in Debug, once a session (#267).
     (void)RsVehicleDeck_FromArchive(sRsBoatKinds[this->kind].list, sRsBoatDeckSkip);
+    // The draw cull's radius likewise, read from the same archive here rather than on the first tick (#293).
+    (void)RsBoat_KindReach(this->kind);
 
     Actor_SetScale(thisx, 1.0f);
     // Position and yaw: the engine's moving-platform path carries Link along and turns him with the hull.
@@ -2672,6 +2713,7 @@ void RsBoat_Init(Actor* thisx, PlayState* play) {
     this->wakeRings = 0;
     this->wakeHeld = 0;
     this->wakeFoam = 0;
+    this->culled = 0;
     this->cam.subCamId = SUBCAM_NONE;
     this->sinkTicks = 0;
     RsBoatHealth_InitBoat(this);
@@ -2989,6 +3031,57 @@ static void RsBoat_Wake(RsBoat* this, PlayState* play, f32 moved) {
     } else {
         this->wakeFoam = 0;
     }
+}
+
+// The draw cull (#293). An idle boat costs its whole draw every rendered frame wherever it is, behind the camera too:
+// the interpreter walks and lights every vertex before it rejects a triangle off screen (~0.9 ms a frame for a sloop
+// in Release). So RsBoat_Draw leaves out a boat nobody is aboard when no part of it can be on screen. Its update is
+// never culled: it still bobs, keeps its collision, follows the save and stays boardable.
+s32 RsBoat_CullApplies(const RsBoat* this) {
+    return gRsBoatCull && !this->linkAboard && !this->helm && !gRsBoatTestWater.active;
+}
+
+s32 RsBoat_Drawn(const RsBoat* this) {
+    return this->dyna.actor.isDrawn && !this->culled;
+}
+
+// Whether the sphere of the kind's reach around the boat is wholly outside this frame's view. Asked in the draw, so the
+// view is this tick's (Play_Draw builds viewProjectionMtxF before Actor_DrawAll), and exactly: each of the six planes
+// comes from the matrix itself (Gribb and Hartmann: in clip space the view is -w <= x, y, z <= w, so a plane is the w
+// row plus or minus the x, y or z row). Not vanilla's culling volume, which measures one margin in clip space and so
+// cannot hold a sphere: it assumes a 4:3 screen, and its top and bottom need reach / sin(fovy / 2), not the reach.
+// Fast3D widens the 4:3 projection to the window, so the sides reach to the aspect over 4:3 times w, as SoH's own
+// widescreen culling reads it (Ship_CalcShouldDrawAndUpdate). Every edge is padded by RS_BOAT_CULL_EDGE_PAD for the
+// frames interpolated between ticks, which turn the camera from this tick's view toward the next.
+static s32 RsBoat_OffScreen(const RsBoat* this, PlayState* play) {
+    static const s8 sRow[6] = { 0, 0, 1, 1, 2, 2 }; // left, right (x); bottom, top (y); near, far (z)
+    const MtxF* m = &play->viewProjectionMtxF;
+    const Actor* a = &this->dyna.actor;
+    const f32 rows[4][4] = { { m->xx, m->xy, m->xz, m->xw },
+                             { m->yx, m->yy, m->yz, m->yw },
+                             { m->zx, m->zy, m->zz, m->zw },
+                             { m->wx, m->wy, m->wz, m->ww } };
+    // Actor_Draw's origin: the position plus the shape's lift.
+    const f32 at[3] = { a->world.pos.x, a->world.pos.y + a->shape.yOffset * a->scale.y, a->world.pos.z };
+    const f32 reach = RsBoat_KindReach(this->kind);
+    const f32 wide = MAX(OTRGetAspectRatio() / (4.0f / 3.0f), 1.0f) * (1.0f + RS_BOAT_CULL_EDGE_PAD);
+    const f32 tall = 1.0f + RS_BOAT_CULL_EDGE_PAD;
+    s32 i;
+
+    for (i = 0; i < 6; i++) {
+        const f32* row = rows[sRow[i]];
+        const f32 sign = (i & 1) ? -1.0f : 1.0f;
+        const f32 w = i < 2 ? wide : (i < 4 ? tall : 1.0f);
+        const f32 nx = w * rows[3][0] + sign * row[0];
+        const f32 ny = w * rows[3][1] + sign * row[1];
+        const f32 nz = w * rows[3][2] + sign * row[2];
+        const f32 side = nx * at[0] + ny * at[1] + nz * at[2] + w * rows[3][3] + sign * row[3];
+
+        if (side < -reach * sqrtf(SQ(nx) + SQ(ny) + SQ(nz))) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 void RsBoat_Update(Actor* thisx, PlayState* play) {
@@ -3405,7 +3498,8 @@ void RsBoat_DrawFaded(PlayState* play) {
         s32 fade;
         Gfx* model;
 
-        if (a->id != ACTOR_RS_BOAT || a->update == NULL || (fade = RsBoat_Fade(boat, &passes)) == 0) {
+        // Left out as its own draw is when unseen (#293): RsBoat_Draw has decided this frame's `culled` already.
+        if (a->id != ACTOR_RS_BOAT || a->update == NULL || boat->culled || (fade = RsBoat_Fade(boat, &passes)) == 0) {
             continue;
         }
         model = RsBoat_ModelList(sRsBoatKinds[boat->kind].list);
@@ -3427,6 +3521,11 @@ void RsBoat_Draw(Actor* thisx, PlayState* play) {
     Gfx* model = RsBoat_ModelList(sRsBoatKinds[this->kind].list);
     s32 passes;
 
+    // First, before anything goes into a list: an unseen boat costs nothing to draw (#293).
+    this->culled = RsBoat_CullApplies(this) && RsBoat_OffScreen(this, play);
+    if (this->culled) {
+        return;
+    }
     // Faded (sinking, #284), its lists are drawn at the frame's end instead (RsBoat_DrawFaded): after every water,
     // the scene's, an actor's (Lake Hylia's is Bg_Spot06_Objects) and the scene water's sheet, so the faded hull
     // blends over the water rather than the water drawing over it or, behind its depth, leaving a hole.

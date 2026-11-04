@@ -42,7 +42,8 @@ using ConsoleSink::Addf;
     "lakelevel [full|drained] | cam [on|off|default] | cam height|dist|ease <n> | hud [on|off] | "             \
     "climb [hop|hands] | kind [skiff|sloop|raft] | tune [default] | tune <knob> <value> | wake [default|reset] | "  \
     "wake slots [<n>|default] | "                                                                                   \
-    "wake <knob> <value> | contact [<idx>] | still [on|off] | fade <0-255>|off [both|depth|colour] | "             \
+    "wake <knob> <value> | contact [<idx>] | still [on|off] | cull [on|off] | "                                               \
+    "fade <0-255>|off [both|depth|colour] | "                                                        \
     "shadow [feet|circle|draped|default|reset] | "                                                                  \
     "shadow size <n> | shadow anchor [auto|hull|link] | shadow trace | clear | " RS_BOAT_FIT_GRAMMAR " | "             RS_BOAT_DOCK_GRAMMAR \
     " | " RS_BOAT_HEALTH_GRAMMAR
@@ -130,7 +131,8 @@ int32_t List(std::vector<std::string>& lines) {
         Addf(lines,
              "boat idx=%d kind=%s x=%d y=%d z=%d yaw=%d speed=%d top=%d throttle=%d tiller=%d rudder=%d helm=%d on_water=%d "
              "surface=%d blocked=%s blocks=%d touch=%s touches=%d lift=%d floor_low=%d link_on=%d helm_dist=%d "
-             "cam=%d map_arrow=%s wake_rings=%d wake_held=%d facilities=%s facility_polys=%d owned=%d",
+             "cam=%d map_arrow=%s wake_rings=%d wake_held=%d facilities=%s facility_polys=%d owned=%d cull=%d drawn=%d "
+             "reach=%d",
              (int)idx, RsBoat_KindName(boat->kind), (int)lroundf(a->world.pos.x), (int)lroundf(a->world.pos.y),
              (int)lroundf(a->world.pos.z), (int)(u16)a->shape.rot.y, (int)lroundf(boat->speed * 100.0f),
              (int)lroundf(RsBoat_TopSpeed(boat) * 100.0f),
@@ -141,7 +143,9 @@ int32_t List(std::vector<std::string>& lines) {
              (int)lroundf(boat->floorLow * 100.0f), RsBoat_LinkOnDeck(boat, player) ? 1 : 0,
              (int)lroundf(Math_Vec3f_DistXZ(&helm, (Vec3f*)&player->actor.world.pos)),
              boat->cam.subCamId != SUBCAM_NONE ? 1 : 0, RsVehicleMinimap_ArrowName(RsVehicleMinimap_Arrow(a)),
-             boat->wakeRings, boat->wakeHeld, facilities, RsBoat_FacilityPolyCount(boat->kind), boat->owned);
+             boat->wakeRings, boat->wakeHeld, facilities, RsBoat_FacilityPolyCount(boat->kind), boat->owned,
+             RsBoat_CullApplies(boat) ? 1 : 0, RsBoat_Drawn(boat) ? 1 : 0,
+             (int)lroundf(RsBoat_KindReach(boat->kind)));
     }
     Addf(lines,
          "op=list result=ok count=%d link_x=%d link_y=%d link_z=%d link_yaw=%d link_floor_bg=%d "
@@ -386,19 +390,30 @@ int32_t Hud(const std::vector<std::string>& args, std::vector<std::string>& line
 
 // Holds every boat level and at its float height, no bob and no rock (not saved: a test aid, #262), so a line test
 // or a capture against the hull meets it where its boat-space numbers say.
-int32_t Still(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+// A test aid's on|off switch, not saved: `<op> on|off` sets it, `<op>` reads it. `op=<op> result=ok <op>=on|off`.
+int32_t OnOff(const char* op, s32* flag, const std::vector<std::string>& args, std::vector<std::string>& lines) {
     if (args.size() == 2) {
         if (args[1] != "on" && args[1] != "off") {
             lines.push_back(kUsage);
             return 1;
         }
-        gRsBoatStill = args[1] == "on" ? 1 : 0;
+        *flag = args[1] == "on" ? 1 : 0;
     } else if (args.size() != 1) {
         lines.push_back(kUsage);
         return 1;
     }
-    Addf(lines, "op=still result=ok still=%s", gRsBoatStill ? "on" : "off");
+    Addf(lines, "op=%s result=ok %s=%s", op, op, *flag ? "on" : "off");
     return 0;
+}
+
+int32_t Still(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    return OnOff("still", &gRsBoatStill, args, lines);
+}
+
+// Whether a boat nobody is aboard is left out of the draw while no part of it can be on screen (#293): on, the default,
+// or off, every boat drawing every frame wherever it is, as before (an A/B for the agent loop).
+int32_t Cull(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    return OnOff("cull", &gRsBoatCull, args, lines);
 }
 
 // `boat fade <0-255>|off [both|depth|colour]` (#284): every afloat boat drawn faded, as a sinking hull is, with both
@@ -836,6 +851,9 @@ int32_t RsBoatConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "still") {
         return Still(args, lines);
     }
+    if (sub == "cull") {
+        return Cull(args, lines);
+    }
     if (sub == "shadow") {
         return Shadow(args, lines);
     }
@@ -932,6 +950,8 @@ const ConsoleSink::Command rsBoatCommand(
     "speed), lines (1 or 2), bow (the bow wave), foam (share of top speed for a stern splash; 0: none), reserve "
     "(effect slots kept free for everything else); saved; it also reports the effect pool; contact lists what the "
     "hull's outline meets where it is; still holds every boat level, with no bob or rock (a test aid, not saved); "
+    "cull off draws every boat every frame wherever it is, as before #293, rather than only when it can be on screen "
+    "(a test aid, not saved; list's cull= and drawn= say what each boat did last frame); "
     "shadow picks Link's shadow over a boat (feet: as on land; circle: vanilla's flat one; draped: over the drawn "
     "hull) and its size (percent of his shadow scale; saved), and reports the draped one's last draw; "
     "fitout, upgrades, build, grant and look read and change the save's boats (#263): fitout lists each kind's owned "
@@ -946,7 +966,7 @@ const ConsoleSink::Command rsBoatCommand(
     "hp lists each kind's HP and the live boats' (hp <kind> <n>|full sets one outright); damage hits the boat Link "
     "is aboard (else idx, else the only one) as a source would, the console's landing with nobody aboard; capsize "
     "sinks it at once; heart puts a boat heart on the water at Link's feet, lists the scene's, or clears them.",
-    { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|kind|tune|wake|contact|still|shadow|"
+    { { "list|spawn|probe|water|board|helm|drive|lakehylia|lakelevel|cam|hud|kind|tune|wake|contact|still|cull|shadow|"
         "clear|fade|fitout|upgrades|build|grant|look|own|fit|where|docks|stow|place|takeout|putaway|fetch|repair|hp|"
         "damage|capsize|heart",
         Ship::ArgumentType::TEXT },
@@ -1020,6 +1040,9 @@ contact [<idx>]                   what the hull's outline meets
 still                             hold every boat level
   on                              no bob or rock
   off                             let them bob again
+cull                              leave unseen boats out of the draw
+  on                              draw a boat only when it can be seen
+  off                             draw every boat every frame
 fade                              draw every boat faded, as one sinking
   <n>                             0 to 255, then the passes
     both                          depth, then the faded colour
