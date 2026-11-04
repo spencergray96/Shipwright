@@ -124,14 +124,16 @@ int32_t List(std::vector<std::string>& lines) {
         Vec3f helm;
         char facilities[96];
         char poses[96];
+        char parts[96];
         RsBoat_HelmPos(boat, &helm);
         RsBoat_FacilityNames(boat->kind, facilities, sizeof(facilities));
         RsBoat_FacilityPoses(boat, poses, sizeof(poses));
+        RsBoat_FacilityParts(boat, parts, sizeof(parts));
         Addf(lines,
              "boat idx=%d kind=%s x=%d y=%d z=%d yaw=%d speed=%d top=%d throttle=%d tiller=%d rudder=%d helm=%d on_water=%d "
              "surface=%d blocked=%s blocks=%d touch=%s touches=%d lift=%d floor_low=%d link_on=%d helm_dist=%d "
              "cam=%d map_arrow=%s wake_rings=%d wake_held=%d facilities=%s facility_polys=%d owned=%d cull=%d drawn=%d "
-             "reach=%d facility_poses=%s catcher=%s",
+             "reach=%d facility_poses=%s facility_parts=%s catcher=%s",
              (int)idx, RsBoat_KindName(boat->kind), (int)lroundf(a->world.pos.x), (int)lroundf(a->world.pos.y),
              (int)lroundf(a->world.pos.z), (int)(u16)a->shape.rot.y, (int)lroundf(boat->speed * 100.0f),
              (int)lroundf(RsBoat_TopSpeed(boat) * 100.0f),
@@ -144,7 +146,8 @@ int32_t List(std::vector<std::string>& lines) {
              boat->cam.subCamId != SUBCAM_NONE ? 1 : 0, RsVehicleMinimap_ArrowName(RsVehicleMinimap_Arrow(a)),
              boat->wakeRings, boat->wakeHeld, facilities, RsBoat_FacilityPolyCount(boat->kind), boat->owned,
              RsBoat_CullApplies(boat) ? 1 : 0, RsBoat_Drawn(boat) ? 1 : 0,
-             (int)lroundf(RsBoat_KindReach(boat->kind)), poses, RsBoat_CatcherActive(boat->kind) ? "active" : "idle");
+             (int)lroundf(RsBoat_KindReach(boat->kind)), poses, parts,
+             RsBoat_CatcherActive(boat->kind) ? "active" : "idle");
     }
     Addf(lines,
          "op=list result=ok count=%d link_x=%d link_y=%d link_z=%d link_yaw=%d link_floor_bg=%d "
@@ -944,7 +947,8 @@ const ConsoleSink::Command rsBoatCommand(
     "cull off draws every boat every frame wherever it is, as before #293, rather than only when it can be on screen "
     "(a test aid, not saved; list's cull= and drawn= say what each boat did last frame); "
     "catcher sets each kind's wind catcher idle (the default) or active, its cups and mote spinning (not saved; "
-    "list's facility_poses= says which pose each fitted facility drew last frame); "
+    "list's facility_poses= says which pose each fitted facility drew last frame, facility_parts= where in its "
+    "96-cycle loop each turned part, a hook's anchor or a catcher's mote, was drawn); "
     "shadow picks Link's shadow over a boat (feet: as on land; circle: vanilla's flat one; draped: over the drawn "
     "hull) and its size (percent of his shadow scale; saved), and reports the draped one's last draw; "
     "fitout, upgrades, build, grant and look read and change the save's boats (#263): fitout lists each kind's owned "

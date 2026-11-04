@@ -286,6 +286,9 @@ typedef struct RsBoat {
     // The pose each facility row's flipbook copies drew on its last draw (#291), -1 for none (a still facility, one not
     // fitted, or a culled boat), for `boat list`'s facility_poses=.
     s16 facilityPose[RS_BOAT_FACILITY_POSE_ROWS][RS_BOAT_FACILITY_POSE_COPIES];
+    // Where each facility row's moving part (#291: a hook's anchor, a catcher's mote) was turned on its last draw, in
+    // RS client cycles round its loop, -1 for none, for `boat list`'s facility_parts=.
+    f32 facilityPart[RS_BOAT_FACILITY_POSE_ROWS];
 } RsBoat;
 
 // The drive override for the agent loop: when `ticks` > 0 the boat at the helm reads these instead of the
@@ -333,6 +336,8 @@ const char* RsBoat_FacilityList(s32 kind, s32 i);
 // Its fitted facilities' flipbook poses on the boat's last draw (#291), for `boat list`: `<name>:<pose>` a facility,
 // `/<pose>` for each further copy (the sloop's two cannons), comma-separated, or "-" for none.
 void RsBoat_FacilityPoses(const RsBoat* boat, char* buf, size_t len);
+// `boat list`'s facility_parts=: each drawn part's row and where it was in its loop (RsBoat.facilityPart); "-": none.
+void RsBoat_FacilityParts(const RsBoat* boat, char* buf, size_t len);
 // The kind's wind catcher drawn active, its cups and stored mote spinning (#291), or idle (RS's idle catcher, mote
 // hidden; the default). Per kind, not saved: `boat catcher` sets it.
 s32 RsBoat_CatcherActive(s32 kind);

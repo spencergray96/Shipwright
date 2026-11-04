@@ -3,12 +3,12 @@
  "scene": "rs_boat",
  "list": "objects/rs_props/rs_boat_skiff_gale_active/props",
  "kinds": {
-  "gale-catcher-59686": "rs_59686"
+  "gale-catcher-59686-spin": "rs_59686_spin"
  },
  "props": [
   {
    "id": "catcher",
-   "kind": "gale-catcher-59686",
+   "kind": "gale-catcher-59686-spin",
    "pos": [
     22,
     0,
