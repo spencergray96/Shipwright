@@ -216,4 +216,10 @@
 //   op=usage result=error usage="..."        an unknown subcommand or a wrong number of words
 int32_t RsBoatConsole_Run(const std::vector<std::string>& args, std::vector<std::string>& lines);
 
+// What `water <x0> <z0> <x1> <z1> <y>` does, for code: the loaded scene gets one more waterbox until it reloads,
+// replacing any test box already there (sturdy-bassoon#289's trial scene floods itself with it on load). The
+// caller checks the coordinates are within +-16000. Returns the waterbox count with it added, or 0 when the scene
+// already has as many as the copy holds.
+uint32_t RsBoatConsole_AddWater(float x0, float z0, float x1, float z1, float y);
+
 #endif // SOH_RS_BOAT_CONSOLE_H

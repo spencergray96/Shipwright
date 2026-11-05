@@ -56,4 +56,5 @@
     { SCENE_KIND_BENCH, CustomKindBenchScene_TrySpawn, CustomKindBenchScene_InitRoom }, // project be4c0217-0000-4000-8000-00000000be4c name kind_bench
     { SCENE_SOUNDS_276, CustomSounds276Scene_TrySpawn, CustomSounds276Scene_InitRoom }, // project 52760276-0276-4000-8000-000000000276 name sounds_276
     { SCENE_BOAT_DOCKS_282, CustomBoatDocks282Scene_TrySpawn, CustomBoatDocks282Scene_InitRoom }, // project 8a0dd776-0163-40b3-b9fe-a6176850128e name boat_docks_282
+    { SCENE_TEMPOR_TANTRUM, CustomTemporTantrumScene_TrySpawn, CustomTemporTantrumScene_InitRoom }, // world tempor_tantrum_289 name tempor_tantrum
 // END GRID TOOL EXPORTS

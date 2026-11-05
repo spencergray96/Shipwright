@@ -80,6 +80,11 @@ void RsBalloon_Init(Actor* thisx, PlayState* play);
 void RsBalloon_Destroy(Actor* thisx, PlayState* play);
 void RsBalloon_Update(Actor* thisx, PlayState* play);
 void RsBalloon_Draw(Actor* thisx, PlayState* play);
+
+void RsTrial_Init(Actor* thisx, PlayState* play);
+void RsTrial_Destroy(Actor* thisx, PlayState* play);
+void RsTrial_Update(Actor* thisx, PlayState* play);
+void RsTrial_Draw(Actor* thisx, PlayState* play);
 }
 
 // The C++ half of the mod's actors (sturdy-bassoon#58 P3 / #64):
@@ -980,6 +985,24 @@ void RegisterRsActors() {
             nullptr,
         };
         ActorDB::Instance->AddEntry(pickup);
+        // The Barracuda Trial's manager (sturdy-bassoon#289, rs/trials/RsTrial.h): spawned by the trial's scene load,
+        // it runs a run and draws the crates. ACTORCAT_MISC, so it reads the boat and Link after both have moved. It
+        // keeps no state of its own (the run is the module's), so its instance size is a bare Actor.
+        ActorDBInit trial = {
+            "Rs_Trial",
+            "RS Barracuda Trial manager (Tempor Tantrum crude cut: crates, clock, area)",
+            ACTOR_RS_TRIAL,
+            ACTORCAT_MISC,
+            (u32)(ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED),
+            OBJECT_GAMEPLAY_KEEP,
+            sizeof(Actor),
+            (ActorFunc)RsTrial_Init,
+            (ActorFunc)RsTrial_Destroy,
+            (ActorFunc)RsTrial_Update,
+            (ActorFunc)RsTrial_Draw,
+            nullptr,
+        };
+        ActorDB::Instance->AddEntry(trial);
 
         sAddedToActorDB = true;
     }
