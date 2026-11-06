@@ -67,7 +67,7 @@ const WorldScene* SceneOf(int16_t sceneId) {
 // encodeWorldMap's header, little-endian. Read field by field with memcpy, never cast onto the buffer.
 constexpr uint32_t kHeaderBytes = 64;
 constexpr uint32_t kTlutBytes = 32;
-constexpr uint16_t kVersion = 2;
+constexpr uint16_t kVersion = 3;
 constexpr int32_t kMaxClasses = 4;
 
 struct LoadedMap {
@@ -139,8 +139,8 @@ std::unique_ptr<LoadedMap> Load(const WorldScene& scene) {
     i.fileBytes = (uint32_t)b.size();
     const size_t want = (size_t)out->layerOffset + (size_t)i.layers * out->layerBytes +
                         (size_t)out->classLevels * i.widthTiles * i.depthTiles;
-    i.storeys = (uint8_t)(i.layers > 0 ? i.layers - 1 : 0);
-    if (i.storeys == 0 || i.pxPerTile == 0 || out->unitsPerTile == 0 || (i.widthPx % 2) != 0 ||
+    i.storeys = (uint8_t)ReadLe<uint16_t>(b, 56);
+    if (i.storeys == 0 || i.layers != 2 * i.storeys - 1 || i.pxPerTile == 0 || out->unitsPerTile == 0 || (i.widthPx % 2) != 0 ||
         out->layerBytes != (uint32_t)i.widthPx * i.heightPx / 2 || i.widthPx != i.widthTiles * i.pxPerTile ||
         i.heightPx != i.depthTiles * i.pxPerTile || out->layerOffset < kHeaderBytes + kTlutBytes ||
         b.size() < want) {
@@ -234,10 +234,16 @@ void OnPlayerUpdateWorldMap() {
 
 int32_t LayerOf(const LoadedMap& m) {
     switch (RsWorldMap_StoreyMode()) {
+        // The layers: storeys alone (0..S-1), then the stacks 0..k for k = 1..S-1 (S..2S-2). Stack 0 is
+        // alone 0, so it is not stored.
         case RS_WORLD_MAP_STOREY_ALL:
-            return m.info.layers - 1; // the flattened layer is last
+            return m.info.layers - 1; // the top stack
         case RS_WORLD_MAP_STOREY_CURRENT:
             return std::clamp<int32_t>(sLinkStorey, 0, m.info.storeys - 1);
+        case RS_WORLD_MAP_STOREY_BELOW: {
+            const int32_t k = std::clamp<int32_t>(sLinkStorey, 0, m.info.storeys - 1);
+            return k == 0 ? 0 : m.info.storeys + k - 1;
+        }
         default:
             return 0;
     }
@@ -506,6 +512,8 @@ extern "C" const char* RsWorldMap_StoreyModeName(RsWorldMapStoreyMode mode) {
             return "all";
         case RS_WORLD_MAP_STOREY_CURRENT:
             return "current";
+        case RS_WORLD_MAP_STOREY_BELOW:
+            return "below";
         default:
             return "ground";
     }

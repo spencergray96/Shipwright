@@ -11,9 +11,11 @@
  * world exported into it has no map: every call below answers false/none (reason=no_map).
  *
  * THE PICTURE. 2 px a tile, north up, row 0 the north edge. CI4 with a 16-entry TLUT (the matrix
- * view's thumbnail greys). One LAYER a storey, holding that storey ALONE, then one more: every storey
- * flattened. The storey CVar picks the layer every draw uses: ground (layer 0), current (Link's storey's
- * layer - his storey only, nothing below it) or all (the last layer).
+ * view's thumbnail greys). Two sets of LAYERS, both precomputed: each storey ALONE (0..S-1), then the
+ * STACKS 0..k for k = 1..S-1 (S..2S-2), in painter's order from the bottom up, so an upper floor hides
+ * the walls under it and open sky still shows the storey below. The storey CVar picks the layer every
+ * draw uses: ground (storey 0 alone), current (Link's storey alone), below (Link's storey and everything
+ * under it, stacked) or all (the top stack).
  *
  * TWO SPACES:
  *   - IMAGE PIXELS: x east, y south, (0, 0) the image's north-west corner. WorldToPixel answers in it,
@@ -56,6 +58,7 @@ typedef enum {
     RS_WORLD_MAP_STOREY_GROUND = 0,
     RS_WORLD_MAP_STOREY_ALL = 1,
     RS_WORLD_MAP_STOREY_CURRENT = 2,
+    RS_WORLD_MAP_STOREY_BELOW = 3,
     RS_WORLD_MAP_STOREY_MODE_COUNT
 } RsWorldMapStoreyMode;
 
@@ -64,8 +67,8 @@ typedef struct {
     uint16_t widthPx, heightPx;     // the whole image
     uint16_t widthTiles, depthTiles; // the stitched grid, in RS tiles
     uint8_t pxPerTile;               // 2
-    uint8_t storeys;                 // levels in the image; layer k is level k alone
-    uint8_t layers;                  // storeys + 1: the flattened `all` layer is the last
+    uint8_t storeys;                 // levels in the image; layer k < storeys is level k alone
+    uint8_t layers;                  // 2 * storeys - 1: layer storeys + k - 1 is the stack 0..k
     uint8_t layer;                   // the layer the storey CVar picks right now
     int32_t minRsX, minRsY;          // the RS tile of the image's south-west corner
     int32_t originRsX, originRsY;    // the matrix's origin: the RS tile whose SOUTH-west corner is OoT (0, 0)

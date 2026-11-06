@@ -10,12 +10,14 @@
 //
 //   worldmap [status]
 //       op=status scene=0x<id> map=1 size=<w>x<h> px_per_tile=<n> tiles=<w>x<d> storeys=<n> layers=<n> layer=<k>
-//         storey_mode=<ground|all|current> link_storey=<k> link_px=<x>,<y> link_rs=<x>,<y> blocks=<w>x<h>
+//         storey_mode=<ground|all|current|below> link_storey=<k> link_px=<x>,<y> link_rs=<x>,<y> blocks=<w>x<h>
 //         bytes=<n>
 //       or, with no map for this scene:
 //       op=status scene=0x<id> map=0 reason=<no_scene|no_map|bad_file|stale_archive> storey_mode=<mode>
-//   worldmap storey ground|all|current
+//   worldmap storey ground|all|current|below
 //       sets the storey CVar (saved), live: the next frame draws the new layer. Then the status line.
+//       ground: storey 0 alone. current: Link's storey alone. below: Link's storey and every storey under
+//       it, stacked (upper floors hide what is under them). all: every storey, stacked.
 //   worldmap debug off|whole|link
 //       the on-screen debug view: the whole image in the top-right corner, or a window around Link with a
 //       red dot on his pixel. op=debug view=<v> blocks=<n> words=<n> (blocks and Gfx words the view's last

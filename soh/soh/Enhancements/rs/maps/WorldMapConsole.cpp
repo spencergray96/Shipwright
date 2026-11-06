@@ -67,7 +67,7 @@ bool ParseNumber(const std::string& word, float* out) {
     return true;
 }
 
-const char* kUsage = "usage: worldmap [status] | storey ground|all|current | debug off|whole|link | block <w> <h> | "
+const char* kUsage = "usage: worldmap [status] | storey ground|all|current|below | debug off|whole|link | block <w> <h> | "
                      "pixel <x> <z>";
 
 } // namespace
@@ -86,7 +86,7 @@ int32_t RsWorldMapConsole_Run(const std::vector<std::string>& args, std::vector<
                 return 0;
             }
         }
-        lines.push_back("op=storey result=error error=bad_mode want=ground|all|current");
+        lines.push_back("op=storey result=error error=bad_mode want=ground|all|current|below");
         return 1;
     }
     if (sub == "debug") {
@@ -146,7 +146,7 @@ namespace {
 
 const ConsoleSink::Command worldMapCommand(
     "worldmap", RsWorldMapConsole_Run,
-    "The world map image (sturdy-bassoon#298): status | storey ground|all|current | debug off|whole|link | "
+    "The world map image (sturdy-bassoon#298): status | storey ground|all|current|below | debug off|whole|link | "
     "block <w> <h> | pixel <x> <z>. Its size, the storey layer drawn, and the pixel under Link.",
     { { "status|storey|debug|block|pixel", Ship::ArgumentType::TEXT, true },
       { "argument", Ship::ArgumentType::TEXT, true },
@@ -156,8 +156,9 @@ const ConsoleSink::Hints worldMapHints("worldmap", R"(
 status                  size, layer, storey mode and Link's pixel
 storey                  which storeys the map draws (saved)
   ground                the ground floor only
-  all                   every storey at once
-  current               the storey Link stands on
+  all                   every storey, upper floors hiding lower
+  current               the storey Link stands on, alone
+  below                 Link's storey and every storey under it
 debug                   draw the map on screen
   off                   no debug view
   whole                 the whole image in the top-right corner
