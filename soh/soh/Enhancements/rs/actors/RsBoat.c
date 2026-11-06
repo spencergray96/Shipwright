@@ -397,9 +397,12 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
 // frame 0, and is the turn from the list's own frame.
 typedef enum {
     RS_BOAT_PART_NONE,
-    // A hook's anchor: Matrix_RotateZ then Matrix_RotateX about the pivot (the rope's top), each angle in degrees
+    // A hook's anchor: Matrix_RotateZ then Matrix_RotateX about the pivot, each angle in degrees
     // `mean + cos * cos(phi) + sin * sin(phi)` with phi once round RS's loop. RS's own swing, a small loop under the
-    // drum; the hidden chain's flex aside, RS's frames lie within 1.6 units of it.
+    // drum, about the rope's second ring (label 8, which RS moves under a unit): the stand holds the rope's top
+    // segment still, since swung rigidly it slid in and out of the rope wound on the drum. RS's frames lie within
+    // 1.3 units of it. On the skiff's and sloop's hooks the rope's top three rings are moved out of the wound rope,
+    // which RS's own model runs them through (a vertex edit on both variants), and the pivot with its ring.
     RS_BOAT_PART_SWING,
     // A catcher's mote: Matrix_RotateY about the pivot's vertical, 22.5 degrees an RS frame, one turn a loop, as RS
     // turns it to within 0.4 degrees; lifted RS_BOAT_MOTE_LIFT clear of the swirl under it, which it would fight. Its
@@ -425,8 +428,8 @@ typedef struct RsBoatPart {
 // priority draws it.
 #define RS_BOAT_MOTE_LIFT 1.0f
 // The raft's hook (60483) and the skiff's and sloop's (60490, 60497, one mesh): fitmotion.py's fits.
-static const RsBoatPartSwing sRsBoatSwingRaft = { { 0.41f, 0.85f, -4.28f }, { -5.75f, 4.51f, 0.85f } };
-static const RsBoatPartSwing sRsBoatSwingDeck = { { -0.63f, 1.48f, -4.05f }, { -5.74f, 4.26f, 1.57f } };
+static const RsBoatPartSwing sRsBoatSwingRaft = { { 0.93f, 1.02f, -5.11f }, { -6.87f, 5.40f, 0.97f } };
+static const RsBoatPartSwing sRsBoatSwingDeck = { { -0.36f, 1.67f, -4.61f }, { -6.35f, 4.82f, 1.71f } };
 
 typedef struct RsBoatFacility {
     s32 slot;         // RsBoatSlot
@@ -447,7 +450,7 @@ static const RsBoatFacility sRsBoatFacilities[RS_BOAT_KIND_COUNT][RS_BOAT_MAX_FA
     // gale catcher's glow rise out of the tub above it, and Link stands on the rim, not on them. The gale catcher's is wider
     {
         { RS_BOAT_SLOT_SALVAGING_HOOK, 1, "skiff_hook", "objects/rs_props/rs_boat_skiff_hook/props", {}, NULL,
-          { "objects/rs_props/rs_boat_skiff_hook_anchor/props", RS_BOAT_PART_SWING, { -56.16f, 45.47f, 58.19f },
+          { "objects/rs_props/rs_boat_skiff_hook_anchor/props", RS_BOAT_PART_SWING, { -59.08f, 42.19f, 58.44f },
             &sRsBoatSwingDeck } },
         { RS_BOAT_SLOT_WIND_CATCHER, 1, "skiff_catcher", "objects/rs_props/rs_boat_skiff_catcher/props",
           { { { 14.0f, 35.0f }, { 17.0f, 53.0f }, 28.0f } }, "objects/rs_props/rs_boat_skiff_catcher_active/props",
@@ -461,7 +464,7 @@ static const RsBoatFacility sRsBoatFacilities[RS_BOAT_KIND_COUNT][RS_BOAT_MAX_FA
     // sloop: each cannon's box is its carriage, 40 square and 33 tall; the barrel over the rail is the rail's
     {
         { RS_BOAT_SLOT_SALVAGING_HOOK, 1, "sloop_hook", "objects/rs_props/rs_boat_sloop_hook/props", {}, NULL,
-          { "objects/rs_props/rs_boat_sloop_hook_anchor/props", RS_BOAT_PART_SWING, { -76.73f, 45.04f, 55.19f },
+          { "objects/rs_props/rs_boat_sloop_hook_anchor/props", RS_BOAT_PART_SWING, { -79.64f, 41.75f, 55.44f },
             &sRsBoatSwingDeck } },
         { RS_BOAT_SLOT_WIND_CATCHER, 1, "sloop_catcher", "objects/rs_props/rs_boat_sloop_catcher/props",
           { { { 32.0f, 53.0f }, { 36.0f, 72.0f }, 28.0f } }, "objects/rs_props/rs_boat_sloop_catcher_active/props",
@@ -479,7 +482,7 @@ static const RsBoatFacility sRsBoatFacilities[RS_BOAT_KIND_COUNT][RS_BOAT_MAX_FA
     // raft
     {
         { RS_BOAT_SLOT_SALVAGING_HOOK, 1, "raft_hook", "objects/rs_props/rs_boat_raft_hook/props", {}, NULL,
-          { "objects/rs_props/rs_boat_raft_hook_anchor/props", RS_BOAT_PART_SWING, { -36.18f, 36.54f, 37.29f },
+          { "objects/rs_props/rs_boat_raft_hook_anchor/props", RS_BOAT_PART_SWING, { -37.36f, 33.19f, 37.25f },
             &sRsBoatSwingRaft } },
     },
 };
