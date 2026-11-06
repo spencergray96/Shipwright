@@ -21,6 +21,7 @@
 #include "soh/Enhancements/rs/boats/RsBoatSail.h"
 #include "soh/Enhancements/rs/swim/SwimStamina.h"
 #include "soh/OTRGlobals.h" // OTRGetAspectRatio: the draw cull's sides (#293)
+#include "RsAnimProp.h" // the flipbook clock a facility's poses are picked by (#291)
 
 void RsBoat_Init(Actor* thisx, PlayState* play);
 void RsBoat_Destroy(Actor* thisx, PlayState* play);
@@ -383,37 +384,99 @@ static const RsBoatKind sRsBoatKinds[RS_BOAT_KIND_COUNT] = {
 // on the sloop's starboard side forward; the wind catcher opposite the hook; on the sloop a cannon each side, through
 // the forward opening to starboard and the aft one to port, 4 further out than Sailing's template (15459) places
 // them, so Link passes between. The hooks are not solid; nearly all of each hangs over the side.
-#define RS_BOAT_MAX_FACILITIES 6
+#define RS_BOAT_MAX_FACILITIES RS_BOAT_FACILITY_POSE_ROWS // RsBoat.h's, which `boat list`'s poses are sized by
 #define RS_BOAT_FACILITY_BOXES 2
 // Boxes one kind can carry at once: the sloop's two cannons and its catcher. A fit past it leaves the rest out.
 #define RS_BOAT_MAX_FACILITY_BOXES 3
 // What one facility box adds to the hull's collision: its corners, and two triangles a face but the bottom.
 #define RS_BOAT_FACILITY_BOX_VTX 8
 #define RS_BOAT_FACILITY_BOX_POLYS 10
+// A facility's moving part the boat turns itself (#291), rather than a flipbook of RS's frames: posed one frame at a
+// time, each rounded to whole units, the hooks' anchors crawled and the catchers' motes crumpled as they turned. The
+// part is its own list (a variant kind held at one of RS's frames, `frame`, built on its base's origin), drawn after
+// its row's in the row's colours, turned about `pivot` (the list's space, as the kind's list is) on Rs_AnimProp's
+// clock, so it keeps RS's timing, pins with `staticbake clock` and is smoothed between ticks with the boat. Each
+// turn is fitted to RS's 16 frames by docs/test-runs/2026-11-03-issue-291-facility-animation/fitmotion.py, from
+// frame 0, and is the turn from the list's own frame.
+typedef enum {
+    RS_BOAT_PART_NONE,
+    // A hook's anchor: Matrix_RotateZ then Matrix_RotateX about the pivot, each angle in degrees
+    // `mean + cos * cos(phi) + sin * sin(phi)` with phi once round RS's loop. RS's own swing, a small loop under the
+    // drum, about the rope's second ring (label 8, which RS moves under a unit): the stand holds the rope's top
+    // segment still, since swung rigidly it slid in and out of the rope wound on the drum. RS's frames lie within
+    // 1.3 units of it. On the skiff's and sloop's hooks the rope's top three rings are moved out of the wound rope,
+    // which RS's own model runs them through (a vertex edit on both variants), and the pivot with its ring.
+    RS_BOAT_PART_SWING,
+    // A catcher's mote: Matrix_RotateY about the pivot's vertical, 22.5 degrees an RS frame, one turn a loop, as RS
+    // turns it to within 0.4 degrees; lifted RS_BOAT_MOTE_LIFT clear of the swirl under it, which it would fight. Its
+    // list holds frame 2: rounded to whole units, frame 0's mote lost a thin triangle at its second bend, and frame 2's
+    // keeps all 30 (frames 9 and 15 lost some too).
+    RS_BOAT_PART_SPIN,
+} RsBoatPartMotion;
+typedef struct RsBoatPartSwing {
+    f32 x[3]; // Matrix_RotateX's degrees: mean, cos, sin
+    f32 z[3]; // Matrix_RotateZ's
+} RsBoatPartSwing;
+typedef struct RsBoatPart {
+    const char* list; // NULL: none
+    s32 motion;       // RsBoatPartMotion
+    f32 pivot[3];
+    const RsBoatPartSwing* swing; // RS_BOAT_PART_SWING's
+    s32 frame;                    // the RS frame its list holds; a swing's is 0, as its fit is
+} RsBoatPart;
+// RS's facility loop (animations 13565, 13572 and 13423): 16 frames of 6 client cycles.
+#define RS_BOAT_PART_LOOP_CYCLES 96.0
+#define RS_BOAT_PART_FRAME_CYCLES 6.0
+// A mote lies 3 RS units over its swirl at most; once rounded that is one plane. A unit up keeps it in front, as RS's
+// priority draws it.
+#define RS_BOAT_MOTE_LIFT 1.0f
+// The raft's hook (60483) and the skiff's and sloop's (60490, 60497, one mesh): fitmotion.py's fits.
+static const RsBoatPartSwing sRsBoatSwingRaft = { { 0.93f, 1.02f, -5.11f }, { -6.87f, 5.40f, 0.97f } };
+static const RsBoatPartSwing sRsBoatSwingDeck = { { -0.36f, 1.67f, -4.61f }, { -6.35f, 4.82f, 1.71f } };
+
 typedef struct RsBoatFacility {
     s32 slot;         // RsBoatSlot
     s32 fromTier;
     const char* name; // `boat list`'s, and the list's: objects/rs_props/rs_boat_<name>/props. NULL ends the kind's
     const char* list;
     RsBoatPost boxes[RS_BOAT_FACILITY_BOXES];
+    // A wind catcher's active state (#291): its cups and stored mote spinning, RS's 59683 (the gale catcher's 59686),
+    // drawn in place of `list` (RS's idle catcher, mote hidden) while the kind's catcher is active
+    // (RsBoat_CatcherActive). Its own list, on the same spot; NULL for every other row.
+    const char* activeList;
+    // Its moving part (#291), drawn with `activeList` on a row that has one and with `list` on any other.
+    RsBoatPart part;
 } RsBoatFacility;
 
 static const RsBoatFacility sRsBoatFacilities[RS_BOAT_KIND_COUNT][RS_BOAT_MAX_FACILITIES] = {
-    // skiff: the catcher's box is its legs and tub, 39 tall; the gale catcher's is wider
+    // skiff: the catcher's box is its legs and tub, to the tub's rim 28 up (RS's 90): the mote, the swirl's haze and the
+    // gale catcher's glow rise out of the tub above it, and Link stands on the rim, not on them. The gale catcher's is wider
     {
-        { RS_BOAT_SLOT_SALVAGING_HOOK, 1, "skiff_hook", "objects/rs_props/rs_boat_skiff_hook/props" },
+        { RS_BOAT_SLOT_SALVAGING_HOOK, 1, "skiff_hook", "objects/rs_props/rs_boat_skiff_hook/props", {}, NULL,
+          { "objects/rs_props/rs_boat_skiff_hook_anchor/props", RS_BOAT_PART_SWING, { -59.08f, 42.19f, 58.44f },
+            &sRsBoatSwingDeck } },
         { RS_BOAT_SLOT_WIND_CATCHER, 1, "skiff_catcher", "objects/rs_props/rs_boat_skiff_catcher/props",
-          { { { 14.0f, 35.0f }, { 17.0f, 53.0f }, 39.0f } } },
+          { { { 14.0f, 35.0f }, { 17.0f, 53.0f }, 28.0f } }, "objects/rs_props/rs_boat_skiff_catcher_active/props",
+          { "objects/rs_props/rs_boat_skiff_catcher_mote/props", RS_BOAT_PART_SPIN, { 23.55f, 26.25f, 60.14f },
+            NULL, 2 } },
         { RS_BOAT_SLOT_WIND_CATCHER, 2, "skiff_gale", "objects/rs_props/rs_boat_skiff_gale/props",
-          { { { 11.0f, 38.0f }, { 18.0f, 52.0f }, 39.0f } } },
+          { { { 11.0f, 38.0f }, { 18.0f, 52.0f }, 28.0f } }, "objects/rs_props/rs_boat_skiff_gale_active/props",
+          { "objects/rs_props/rs_boat_skiff_gale_mote/props", RS_BOAT_PART_SPIN, { 23.55f, 26.25f, 60.14f },
+            NULL, 2 } },
     },
     // sloop: each cannon's box is its carriage, 40 square and 33 tall; the barrel over the rail is the rail's
     {
-        { RS_BOAT_SLOT_SALVAGING_HOOK, 1, "sloop_hook", "objects/rs_props/rs_boat_sloop_hook/props" },
+        { RS_BOAT_SLOT_SALVAGING_HOOK, 1, "sloop_hook", "objects/rs_props/rs_boat_sloop_hook/props", {}, NULL,
+          { "objects/rs_props/rs_boat_sloop_hook_anchor/props", RS_BOAT_PART_SWING, { -79.64f, 41.75f, 55.44f },
+            &sRsBoatSwingDeck } },
         { RS_BOAT_SLOT_WIND_CATCHER, 1, "sloop_catcher", "objects/rs_props/rs_boat_sloop_catcher/props",
-          { { { 32.0f, 53.0f }, { 36.0f, 72.0f }, 39.0f } } },
+          { { { 32.0f, 53.0f }, { 36.0f, 72.0f }, 28.0f } }, "objects/rs_props/rs_boat_sloop_catcher_active/props",
+          { "objects/rs_props/rs_boat_sloop_catcher_mote/props", RS_BOAT_PART_SPIN, { 41.55f, 26.25f, 57.14f },
+            NULL, 2 } },
         { RS_BOAT_SLOT_WIND_CATCHER, 2, "sloop_gale", "objects/rs_props/rs_boat_sloop_gale/props",
-          { { { 29.0f, 56.0f }, { 36.0f, 72.0f }, 39.0f } } },
+          { { { 29.0f, 56.0f }, { 36.0f, 72.0f }, 28.0f } }, "objects/rs_props/rs_boat_sloop_gale_active/props",
+          { "objects/rs_props/rs_boat_sloop_gale_mote/props", RS_BOAT_PART_SPIN, { 41.55f, 26.25f, 57.14f },
+            NULL, 2 } },
         { RS_BOAT_SLOT_CANNON, 1, "sloop_cannon", "objects/rs_props/rs_boat_sloop_cannon/props",
           { { { -64.0f, -24.0f }, { -43.0f, -3.0f }, 33.0f }, { { 24.0f, 64.0f }, { -83.0f, -43.0f }, 33.0f } } },
         { RS_BOAT_SLOT_CANNON, 7, "sloop_cannon_dragon", "objects/rs_props/rs_boat_sloop_cannon_dragon/props",
@@ -421,7 +484,9 @@ static const RsBoatFacility sRsBoatFacilities[RS_BOAT_KIND_COUNT][RS_BOAT_MAX_FA
     },
     // raft
     {
-        { RS_BOAT_SLOT_SALVAGING_HOOK, 1, "raft_hook", "objects/rs_props/rs_boat_raft_hook/props" },
+        { RS_BOAT_SLOT_SALVAGING_HOOK, 1, "raft_hook", "objects/rs_props/rs_boat_raft_hook/props", {}, NULL,
+          { "objects/rs_props/rs_boat_raft_hook_anchor/props", RS_BOAT_PART_SWING, { -37.36f, 33.19f, 37.25f },
+            &sRsBoatSwingRaft } },
     },
 };
 
@@ -459,8 +524,149 @@ void RsBoat_FacilityNames(s32 kind, char* buf, size_t len) {
             continue;
         }
         at += (size_t)snprintf(buf + at, len - at, "%s%s%s", at > 0 ? "," : "", row->name,
-                               RsBoat_ModelList(row->list) != NULL ? "" : "?");
+                               RsBoat_ModelList(RsBoat_FacilityList(kind, i)) != NULL ? "" : "?");
         at = MIN(at, len - 1);
+    }
+    if (at == 0) {
+        snprintf(buf, len, "-");
+    }
+}
+
+// The kind's wind catcher is active (#291): its cups and stored mote spinning, RS's active state, instead of RS's idle
+// one with the mote hidden. Per kind and not saved: idle until the boat knows a state that makes it active (a stored
+// mote, later), and `boat catcher` switches it for the agent loop.
+static u8 sRsBoatCatcherActive[RS_BOAT_KIND_COUNT];
+
+s32 RsBoat_CatcherActive(s32 kind) {
+    return kind >= 0 && kind < RS_BOAT_KIND_COUNT && sRsBoatCatcherActive[kind];
+}
+
+void RsBoat_SetCatcherActive(s32 kind, s32 on) {
+    if (kind >= 0 && kind < RS_BOAT_KIND_COUNT) {
+        sRsBoatCatcherActive[kind] = on ? 1 : 0;
+    }
+}
+
+// The list the kind's facility row `i` draws: its active list while the kind's catcher is active, else its own.
+const char* RsBoat_FacilityList(s32 kind, s32 i) {
+    const RsBoatFacility* row = &sRsBoatFacilities[kind][i];
+
+    return row->activeList != NULL && RsBoat_CatcherActive(kind) ? row->activeList : row->list;
+}
+
+// Which pose a facility's flipbook copy draws now (#291): Rs_AnimProp's tick pick (RsAnimProp.c), on the same clock,
+// so `staticbake clock` pins a boat's facilities as it pins a map's flipbooks, and `animprop pose` forces them too. A
+// boat list is not the bake's, so the pose is picked here once a tick rather than by a flip head every frame; RS's
+// frames on these hold 120 ms. A sequence that plays once (none on a boat yet) draws its rest pose.
+static s32 RsBoat_FacilityPose(const ArchivePropsAnimCopy* copy) {
+    const int32_t forced = RsAnimProp_ForcedPose();
+    int64_t start = copy->startCycle;
+    s32 k;
+
+    if (forced == RS_ANIMPROP_FORCE_REST || !RsAnimProp_Loops(copy)) {
+        return copy->poseCount;
+    }
+    if (forced >= 0) {
+        return MIN(forced, copy->poseCount - 1);
+    }
+    for (k = 0; k < copy->startPose; k++) {
+        start += copy->cycles[k];
+    }
+    return RsAnimProp_PoseAt(copy, (int64_t)floor(RsAnimProp_ClockSeconds() * 50.0) + start);
+}
+
+void RsBoat_FacilityPoses(const RsBoat* boat, char* buf, size_t len) {
+    size_t at = 0;
+    s32 i;
+    s32 c;
+
+    if (len == 0) {
+        return;
+    }
+    buf[0] = '\0';
+    for (i = 0; i < RS_BOAT_FACILITY_POSE_ROWS && at + 1 < len; i++) {
+        for (c = 0; c < RS_BOAT_FACILITY_POSE_COPIES && boat->facilityPose[i][c] >= 0 && at + 1 < len; c++) {
+            if (c == 0) {
+                at += (size_t)snprintf(buf + at, len - at, "%s%s:%d", at > 0 ? "," : "",
+                                       sRsBoatFacilities[boat->kind][i].name, (int)boat->facilityPose[i][c]);
+            } else {
+                at += (size_t)snprintf(buf + at, len - at, "/%d", (int)boat->facilityPose[i][c]);
+            }
+            at = MIN(at, len - 1);
+        }
+    }
+    if (at == 0) {
+        snprintf(buf, len, "-");
+    }
+}
+
+// The row's moving part when it is drawn with `path` (#291): with its active list on a row that has one, else with its
+// list. NULL for none.
+static const RsBoatPart* RsBoat_FacilityPart(s32 kind, s32 i, const char* path) {
+    const RsBoatFacility* row = &sRsBoatFacilities[kind][i];
+    const char* with = row->activeList != NULL ? row->activeList : row->list;
+
+    return row->part.list != NULL && path == with ? &row->part : NULL;
+}
+
+// Where a part is in its loop now, in client cycles (#291): Rs_AnimProp's clock as RsBoat_FacilityPose reads it,
+// unfloored, and from its row's first flipbook copy's start when the row has one, so a mote turns with the swirl
+// under it. A forced pose is that frame's middle; the rest pose, frame 0's.
+static f64 RsBoat_PartCycles(const char* path) {
+    const ArchivePropsAnimCopy* copy = RsBoat_AnimCopy(path, 0);
+    const int32_t forced = RsAnimProp_ForcedPose();
+    f64 start = 0.0;
+    s32 k;
+
+    if (forced == RS_ANIMPROP_FORCE_REST) {
+        return RS_BOAT_PART_FRAME_CYCLES / 2.0;
+    }
+    if (forced >= 0) {
+        return RS_BOAT_PART_FRAME_CYCLES * (forced + 0.5);
+    }
+    if (copy != NULL) {
+        start = (f64)copy->startCycle;
+        for (k = 0; k < copy->startPose; k++) {
+            start += copy->cycles[k];
+        }
+    }
+    return fmod(RsAnimProp_ClockSeconds() * 50.0 + start, RS_BOAT_PART_LOOP_CYCLES);
+}
+
+// The part's turn about its pivot at `cycles` (#291), applied to the current matrix: the list's space in, turned out.
+static void RsBoat_PartTurn(const RsBoatPart* part, f64 cycles) {
+    Matrix_Translate(part->pivot[0], part->pivot[1], part->pivot[2], MTXMODE_APPLY);
+    if (part->motion == RS_BOAT_PART_SPIN) {
+        // Frame k's middle (cycle 6k + 3) is frame 0's mote turned k * 22.5 degrees, so the list's frame is turned on
+        // from there.
+        Matrix_Translate(0.0f, RS_BOAT_MOTE_LIFT, 0.0f, MTXMODE_APPLY);
+        Matrix_RotateY((f32)((cycles - RS_BOAT_PART_FRAME_CYCLES * (part->frame + 0.5)) *
+                             (2.0 * M_PI / RS_BOAT_PART_LOOP_CYCLES)),
+                       MTXMODE_APPLY);
+    } else if (part->motion == RS_BOAT_PART_SWING) {
+        const f32 phi = (f32)(cycles * (2.0 * M_PI / RS_BOAT_PART_LOOP_CYCLES));
+        const RsBoatPartSwing* w = part->swing;
+
+        Matrix_RotateZ(DEG_TO_RAD(w->z[0] + w->z[1] * cosf(phi) + w->z[2] * sinf(phi)), MTXMODE_APPLY);
+        Matrix_RotateX(DEG_TO_RAD(w->x[0] + w->x[1] * cosf(phi) + w->x[2] * sinf(phi)), MTXMODE_APPLY);
+    }
+    Matrix_Translate(-part->pivot[0], -part->pivot[1], -part->pivot[2], MTXMODE_APPLY);
+}
+
+void RsBoat_FacilityParts(const RsBoat* boat, char* buf, size_t len) {
+    size_t at = 0;
+    s32 i;
+
+    if (len == 0) {
+        return;
+    }
+    buf[0] = '\0';
+    for (i = 0; i < RS_BOAT_FACILITY_POSE_ROWS && at + 1 < len; i++) {
+        if (boat->facilityPart[i] >= 0.0f) {
+            at += (size_t)snprintf(buf + at, len - at, "%s%s:%.1f", at > 0 ? "," : "",
+                                   sRsBoatFacilities[boat->kind][i].name, boat->facilityPart[i]);
+            at = MIN(at, len - 1);
+        }
     }
     if (at == 0) {
         snprintf(buf, len, "-");
@@ -709,6 +915,22 @@ f32 RsBoat_KindReach(s32 kind) {
     for (i = 0; i < RS_BOAT_MAX_FACILITIES && sRsBoatFacilities[kind][i].name != NULL; i++) {
         if (sRsBoatFacilities[kind][i].list != NULL) {
             reach = MAX(reach, offset + RsVehicleDeck_ArchiveReach(sRsBoatFacilities[kind][i].list));
+        }
+        if (sRsBoatFacilities[kind][i].activeList != NULL) {
+            reach = MAX(reach, offset + RsVehicleDeck_ArchiveReach(sRsBoatFacilities[kind][i].activeList));
+        }
+        // A moving part (#291) turns a few degrees about its pivot, or about its own vertical: its list stands for it.
+        if (sRsBoatFacilities[kind][i].part.list != NULL) {
+            reach = MAX(reach, offset + RsVehicleDeck_ArchiveReach(sRsBoatFacilities[kind][i].part.list));
+        }
+        // A flipbook copy's triangles are in its pose lists, not the list's own (#291): its rest pose stands for them.
+        for (s32 l = 0; l < 2; l++) {
+            const char* list = l == 0 ? sRsBoatFacilities[kind][i].list : sRsBoatFacilities[kind][i].activeList;
+            const char* rest;
+
+            for (s32 c = 0; list != NULL && (rest = RsBoat_AnimRestPath(list, c)) != NULL; c++) {
+                reach = MAX(reach, offset + RsVehicleDeck_ArchiveReach(rest));
+            }
         }
     }
     sReach[kind] = reach;
@@ -2772,6 +2994,10 @@ void RsBoat_Init(Actor* thisx, PlayState* play) {
     this->wakeHeld = 0;
     this->wakeFoam = 0;
     this->culled = 0;
+    memset(this->facilityPose, 0xFF, sizeof(this->facilityPose)); // -1: no pose drawn yet (#291)
+    for (s32 r = 0; r < RS_BOAT_FACILITY_POSE_ROWS; r++) {
+        this->facilityPart[r] = -1.0f; // no part drawn yet
+    }
     this->cam.subCamId = SUBCAM_NONE;
     this->sinkTicks = 0;
     RsBoatHealth_InitBoat(this);
@@ -3512,17 +3738,35 @@ static void RsBoat_DrawLists(RsBoat* this, PlayState* play, Gfx* model, s32 fade
         if (model != NULL) {
             // The fitted facilities (#288), each its own list in the kind's model space, in its tier's colours through
             // its own slots. A list's faded faces are its `.xlu`, drawn in the translucent pass under the same matrix.
+            // A list's flipbook copies (#291: an active catcher's cups and swirl) draw the pose the clock picks after
+            // it, from their own pose lists in the same space and colours; what never moves stays in the list itself.
+            // A turned part (a hook's anchor, a catcher's mote) draws last, under its own matrix (RsBoatPart).
             s32 i;
 
             for (i = 0; i < RS_BOAT_MAX_FACILITIES; i++) {
-                const char* path = sRsBoatFacilities[this->kind][i].list;
+                const char* path = RsBoat_FacilityList(this->kind, i);
                 Gfx* list = (hull->facilities & (1 << i)) ? RsBoat_ModelList(path) : NULL;
+                const ArchivePropsAnimCopy* copies[RS_BOAT_FACILITY_POSE_COPIES];
+                s32 poses[RS_BOAT_FACILITY_POSE_COPIES];
+                s32 copyCount = 0;
+                const RsBoatPart* part;
+                Gfx* partList = NULL;
+                Gfx* partXlu = NULL;
+                Gfx* partColours = NULL;
+                Mtx* partMtx = NULL;
                 Gfx* xlu;
                 Gfx* colours;
                 Mtx* mtx;
+                s32 c;
 
                 if (list == NULL) {
                     continue;
+                }
+                while (copyCount < RS_BOAT_FACILITY_POSE_COPIES &&
+                       (copies[copyCount] = RsBoat_AnimCopy(path, copyCount)) != NULL) {
+                    poses[copyCount] = RsBoat_FacilityPose(copies[copyCount]);
+                    this->facilityPose[i][copyCount] = (s16)poses[copyCount];
+                    copyCount++;
                 }
                 xlu = RsBoat_TranslucentList(path);
                 colours = RsBoat_RecolourList(gfxCtx, this->kind, RsBoat_Recolour(this->kind, path));
@@ -3533,13 +3777,56 @@ static void RsBoat_DrawLists(RsBoat* this, PlayState* play, Gfx* model, s32 fade
                 gSPSegment((*dl)++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)colours);
                 gSPMatrix((*dl)++, mtx, G_MTX_MODELVIEW | G_MTX_LOAD);
                 gSPDisplayList((*dl)++, list);
+                for (c = 0; c < copyCount; c++) {
+                    gSPDisplayList((*dl)++, copies[c]->lists[poses[c]][ARCHIVE_PROPS_PASS_OPA]);
+                }
                 RsBoat_SetupDL(gfxCtx, fade);
+                // Its moving part (#291), turned about its pivot under a matrix of its own, in its own list's colours.
+                part = RsBoat_FacilityPart(this->kind, i, path);
+                partList = part != NULL ? RsBoat_ModelList(part->list) : NULL;
+                if (partList != NULL) {
+                    const f64 cycles = RsBoat_PartCycles(path);
+
+                    this->facilityPart[i] = (f32)cycles;
+                    partXlu = RsBoat_TranslucentList(part->list);
+                    partColours = RsBoat_RecolourList(gfxCtx, this->kind, RsBoat_Recolour(this->kind, part->list));
+                    Matrix_Push();
+                    Matrix_Translate(0.0f, sRsBoatKinds[this->kind].modelY, sRsBoatKinds[this->kind].modelZ,
+                                     MTXMODE_APPLY);
+                    RsBoat_PartTurn(part, cycles);
+                    partMtx = MATRIX_NEWMTX(gfxCtx);
+                    Matrix_Pop();
+                    gSPSegment((*dl)++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)partColours);
+                    gSPMatrix((*dl)++, partMtx, G_MTX_MODELVIEW | G_MTX_LOAD);
+                    gSPDisplayList((*dl)++, partList);
+                    RsBoat_SetupDL(gfxCtx, fade);
+                }
                 // A facility's translucent faces are not the constant-1 alpha a fade takes: they go as the hull sinks.
-                if (xlu != NULL && fade == 0) {
+                if (fade > 0) {
+                    continue;
+                }
+                // A pose may fade a face its list has none of (the gale catcher's haze): the pass then opens on an
+                // empty list.
+                for (c = 0; c < copyCount && xlu == NULL; c++) {
+                    xlu = copies[c]->lists[poses[c]][ARCHIVE_PROPS_PASS_XLU] != NULL ? gEmptyDL : NULL;
+                }
+                if (xlu != NULL) {
                     Gfx_SetupDL_25Xlu(gfxCtx);
                     gSPSegment(POLY_XLU_DISP++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)colours);
                     gSPMatrix(POLY_XLU_DISP++, mtx, G_MTX_MODELVIEW | G_MTX_LOAD);
                     gSPDisplayList(POLY_XLU_DISP++, xlu);
+                    for (c = 0; c < copyCount; c++) {
+                        if (copies[c]->lists[poses[c]][ARCHIVE_PROPS_PASS_XLU] != NULL) {
+                            gSPDisplayList(POLY_XLU_DISP++, copies[c]->lists[poses[c]][ARCHIVE_PROPS_PASS_XLU]);
+                        }
+                    }
+                    gSPSegment(POLY_XLU_DISP++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)gCullBackDList);
+                }
+                if (partXlu != NULL) {
+                    Gfx_SetupDL_25Xlu(gfxCtx);
+                    gSPSegment(POLY_XLU_DISP++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)partColours);
+                    gSPMatrix(POLY_XLU_DISP++, partMtx, G_MTX_MODELVIEW | G_MTX_LOAD);
+                    gSPDisplayList(POLY_XLU_DISP++, partXlu);
                     gSPSegment(POLY_XLU_DISP++, RS_BOAT_LOOK_SEGMENT, (uintptr_t)gCullBackDList);
                 }
             }
@@ -3599,6 +3886,12 @@ void RsBoat_Draw(Actor* thisx, PlayState* play) {
 
     // First, before anything goes into a list: an unseen boat costs nothing to draw (#293).
     this->culled = RsBoat_CullApplies(this) && RsBoat_OffScreen(this, play);
+    // No facility pose or part drawn until one is below; the cull leaves them all out, so an unseen boat picks none
+    // (#291).
+    memset(this->facilityPose, 0xFF, sizeof(this->facilityPose));
+    for (s32 r = 0; r < RS_BOAT_FACILITY_POSE_ROWS; r++) {
+        this->facilityPart[r] = -1.0f;
+    }
     if (this->culled) {
         return;
     }

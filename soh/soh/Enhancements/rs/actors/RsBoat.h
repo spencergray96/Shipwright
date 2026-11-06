@@ -92,6 +92,7 @@
 #include "RsSteer.h"
 #include "RsVehicleShadow.h"
 #include "soh/Enhancements/rs/boats/RsBoatHazard.h"
+#include "soh/Enhancements/staticbake/ArchivePropLists.h" // ArchivePropsAnimCopy: a facility's poses (#291)
 
 #ifdef __cplusplus
 extern "C" {
@@ -113,6 +114,10 @@ typedef enum RsBoatKindId {
 #define RS_BOAT_RECOLOUR_STRIDE 32 // a SetPrimColor and an EndDisplayList, two 16-byte Gfx
 #define RS_BOAT_RECOLOUR_MAX_SLOTS 32
 #define RS_BOAT_RECOLOUR_MAX_TIERS 8
+// A kind's facility rows (RsBoat.c's RS_BOAT_MAX_FACILITIES) and the flipbook copies one list holds at most (the
+// sloop's two cannons), for the poses `boat list` reports (#291).
+#define RS_BOAT_FACILITY_POSE_ROWS 6
+#define RS_BOAT_FACILITY_POSE_COPIES 2
 
 // One recolour slot of a boat's list, from its archive's `.recolour` file (generate_props.py, THE RECOLOUR FILE).
 typedef struct RsBoatRecolourSlot {
@@ -303,6 +308,12 @@ typedef struct RsBoat {
     u32 hazardHarm; // those of them its fit-out does not protect against: what slows it, hits it and the HUD lists
     s32 hazardTicks[RS_BOAT_HAZARD_COUNT]; // ticks with Link aboard toward each kind's next hit
     s32 hazardHits[RS_BOAT_HAZARD_COUNT];  // each kind's hits since it entered: icy's grow with them
+    // The pose each facility row's flipbook copies drew on its last draw (#291), -1 for none (a still facility, one not
+    // fitted, or a culled boat), for `boat list`'s facility_poses=.
+    s16 facilityPose[RS_BOAT_FACILITY_POSE_ROWS][RS_BOAT_FACILITY_POSE_COPIES];
+    // Where each facility row's moving part (#291: a hook's anchor, a catcher's mote) was turned on its last draw, in
+    // RS client cycles round its loop, -1 for none, for `boat list`'s facility_parts=.
+    f32 facilityPart[RS_BOAT_FACILITY_POSE_ROWS];
 } RsBoat;
 
 // How a capsized boat goes down (#284). It rolls onto its side over RS_BOAT_SINK_ROLL_TICKS and drops, gathering speed
@@ -374,6 +385,17 @@ s32 RsBoat_FacilityPolyCount(s32 kind);
 // The kind's facilities drawn now (#288), for `boat list`: each list's name less its "rs_boat_" ("sloop_cannon"),
 // comma-separated, "?" after one whose archive is not mounted, or "-" for none fitted.
 void RsBoat_FacilityNames(s32 kind, char* buf, size_t len);
+// The list a kind's facility row `i` draws (#291): a wind catcher's active list while the kind's catcher is active.
+const char* RsBoat_FacilityList(s32 kind, s32 i);
+// Its fitted facilities' flipbook poses on the boat's last draw (#291), for `boat list`: `<name>:<pose>` a facility,
+// `/<pose>` for each further copy (the sloop's two cannons), comma-separated, or "-" for none.
+void RsBoat_FacilityPoses(const RsBoat* boat, char* buf, size_t len);
+// `boat list`'s facility_parts=: each drawn part's row and where it was in its loop (RsBoat.facilityPart); "-": none.
+void RsBoat_FacilityParts(const RsBoat* boat, char* buf, size_t len);
+// The kind's wind catcher drawn active, its cups and stored mote spinning (#291), or idle (RS's idle catcher, mote
+// hidden; the default). Per kind, not saved: `boat catcher` sets it.
+s32 RsBoat_CatcherActive(s32 kind);
+void RsBoat_SetCatcherActive(s32 kind, s32 on);
 
 // Takes or lets go of the helm as A/B would, for the console. Returns 0 if Link is not on this boat's deck.
 s32 RsBoat_SetHelm(RsBoat* boat, PlayState* play, s32 on);
@@ -535,6 +557,11 @@ Gfx* RsBoat_ModelList(const char* listPath);
 // The list's translucent twin, `<listPath>.xlu` (generate_props.py's THE TRANSLUCENT LIST, #216), or NULL when its
 // kinds draw nothing translucent: a facility's faded faces (#288). Not logged when absent, which is the usual case.
 Gfx* RsBoat_TranslucentList(const char* listPath);
+// A list's flipbook copy `copy` (#291), in `<listPath>.anim`'s order, or NULL past the last or when the list has no
+// table: its poses' lists, in the list's own space, and its clock, which RsAnimProp_PoseAt reads. Read once.
+const ArchivePropsAnimCopy* RsBoat_AnimCopy(const char* listPath, s32 copy);
+// That copy's rest pose's list path, for the draw cull's reach, or NULL when there is no such copy.
+const char* RsBoat_AnimRestPath(const char* listPath, s32 copy);
 // The list's recolour slots (#283), read once from `<listPath>.recolour` in its archive, or NULL when it has none (an
 // archive from before tiers, whose one slot is the sail pattern's). `kind` is checked against: a part's tier locs
 // that differ from RsBoatFit's catalogue are logged once.

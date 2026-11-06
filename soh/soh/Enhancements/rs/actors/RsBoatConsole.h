@@ -23,7 +23,8 @@
 //                   tiller=<x100> rudder=<x100> helm=0|1 on_water=0|1 surface=<y> blocked=<none|no_water|shallow|wall|headroom>
 //                   blocks=<n> touch=<same names> touches=<n> lift=<x100> floor_low=<x100> link_on=0|1
 //                   helm_dist=<n> cam=0|1 map_arrow=<drawn|controls|no_minimap> wake_rings=<n> wake_held=<n>
-//                   facilities=<names, comma-separated|-> facility_polys=<n> owned=0|1 cull=0|1 drawn=0|1 reach=<n>`
+//                   facilities=<names, comma-separated|-> facility_polys=<n> owned=0|1 cull=0|1 drawn=0|1 reach=<n>
+//                   facility_poses=<name>:<pose>[/<pose>],...|- catcher=idle|active`
 //                   line per live boat, then `op=list result=ok count=<n> link_x= link_y= link_z= link_yaw=
 //                   link_floor_bg=<n>
 //                   link_input_disabled=0|1 link_swimming=0|1 link_can_take_helm=0|1 tiller_in_reach=0|1
@@ -48,7 +49,10 @@
 //                   facilities: the fitted ones drawn (#288), facility_polys their collision; owned: the player's;
 //                   cull: the draw cull may leave it out (#293, RsBoat_CullApplies: 0 aboard, at the helm, with test
 //                   water up or `cull off`); drawn: it was drawn on the last frame (RsBoat_Drawn: 0 when the cull left
-//                   it out); reach: its cull radius (RsBoat_KindReach);
+//                   it out); reach: its cull radius (RsBoat_KindReach); facility_poses: the pose each fitted facility's
+//                   flipbook copies drew on the last frame (#291: a hook's, an active catcher's; `/` before a second
+//                   copy's), the pose count meaning its rest pose, "-" for none drawn (culled, or every one still);
+//                   catcher: the kind's wind catcher's state (`catcher`);
 //                   map_arrow: what the last minimap draw did with that boat's blue arrow (RsVehicleMinimap.h):
 //                   drawn, or left out because Link holds its helm, or no_minimap when none was drawn;
 //                   wake_rings: wake rings and splashes it has spawned (#268), wake_held: ones held back because the
@@ -141,6 +145,10 @@
 //   cull [on|off]   the draw cull (#293): on, the default, a boat nobody is aboard draws only when some part of it
 //                   can be on screen; off, every boat draws every frame wherever it is, as before (an A/B for the
 //                   agent loop, not saved). `op=cull result=ok cull=on|off`; list's cull= and drawn= per boat
+//   catcher [idle|active [<kind>]]
+//                   each kind's wind catcher (#291, not saved): idle, RS's idle catcher with its mote hidden (the
+//                   default), or active, its cups and stored mote spinning, for one kind or every kind.
+//                   `op=catcher result=ok skiff=idle|active sloop= raft=`
 //   shadow [feet|circle|draped|default|reset] | shadow size <5..100> | shadow anchor [auto|hull|link] | shadow trace
 //                   Link's shadow over a boat (#267, saved; RsVehicleShadowMode): his feet shadows, vanilla's flat circle,
 //                   or draped over the drawn deck (the default); its size in percent of his shadow scale (30). reset

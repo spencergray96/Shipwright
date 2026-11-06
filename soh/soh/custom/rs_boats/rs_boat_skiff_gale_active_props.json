@@ -1,0 +1,21 @@
+{
+ "format": 2,
+ "scene": "rs_boat",
+ "list": "objects/rs_props/rs_boat_skiff_gale_active/props",
+ "kinds": {
+  "gale-catcher-59686-spin": "rs_59686_spin"
+ },
+ "props": [
+  {
+   "id": "catcher",
+   "kind": "gale-catcher-59686-spin",
+   "pos": [
+    22,
+    0,
+    60
+   ],
+   "rot": 0,
+   "flipbook": true
+  }
+ ]
+}

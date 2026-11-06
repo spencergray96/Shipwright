@@ -1,0 +1,21 @@
+{
+ "format": 2,
+ "scene": "rs_boat",
+ "list": "objects/rs_props/rs_boat_sloop_catcher_active/props",
+ "kinds": {
+  "wind-catcher-59683-spin": "rs_59683_spin"
+ },
+ "props": [
+  {
+   "id": "catcher",
+   "kind": "wind-catcher-59683-spin",
+   "pos": [
+    40,
+    0,
+    57
+   ],
+   "rot": 0,
+   "flipbook": true
+  }
+ ]
+}

@@ -16,6 +16,7 @@
 #include "soh/Enhancements/rs/boats/RsBoatFit.h"
 #include "soh/Enhancements/rs/boats/RsBoatSail.h"
 
+#include <cstdio>
 #include <map>
 #include <memory>
 #include <sstream>
@@ -162,6 +163,109 @@ extern "C" Gfx* RsBoat_ModelList(const char* listPath) {
         found = sModels.emplace(listPath, Load(listPath)).first;
     }
     return found->second != nullptr ? (Gfx*)found->second->Instructions.data() : nullptr;
+}
+
+namespace {
+
+// A list's flipbook copies (sturdy-bassoon#291): generate_props' `<list>.anim`, one line a copy, and each copy's
+// pose lists under `<listdir>/copies/<id>/`, in the list's own space (a boat list's is the kind's model space).
+// The record Rs_AnimProp reads, so RsAnimProp_PoseAt picks the pose; its arrays live beside it.
+struct BoatAnimCopy {
+    ArchivePropsAnimCopy c = {};
+    std::vector<s32> frames;
+    std::vector<s32> cycles;
+    std::unique_ptr<Gfx* [][ARCHIVE_PROPS_PASSES]> lists;
+    std::string rest; // its rest pose's list path, for the draw cull's reach
+};
+// By list path, read once: empty for a list with no table, or one that would not read (logged).
+std::map<std::string, std::vector<std::unique_ptr<BoatAnimCopy>>> sAnims;
+
+// One `.anim` line: `<id> <check> <frameStep> <startPose> <startCycle> <frame>:<cycles> ...`. The check pairs a map's
+// actor row with its archive; a boat list has no row, so it is not read.
+std::unique_ptr<BoatAnimCopy> ReadAnimLine(const std::string& listPath, const std::string& line) {
+    std::istringstream w(line);
+    std::string id, pose;
+    s32 check = 0;
+    auto copy = std::make_unique<BoatAnimCopy>();
+    ArchivePropsAnimCopy& c = copy->c;
+    if (!(w >> id >> check >> c.frameStep >> c.startPose >> c.startCycle)) {
+        return nullptr;
+    }
+    while (w >> pose) {
+        int frame = -1, cycles = 0;
+        if (sscanf(pose.c_str(), "%d:%d", &frame, &cycles) != 2 || frame < 0 || cycles < 1) {
+            return nullptr;
+        }
+        copy->frames.push_back(frame);
+        copy->cycles.push_back(cycles);
+    }
+    c.poseCount = (s32)copy->frames.size();
+    if (c.poseCount < 2 || c.poseCount > ARCHIVE_PROPS_ANIM_POSES_MAX || c.startPose < 0 || c.startPose >= c.poseCount ||
+        c.startCycle < 0 || c.startCycle >= copy->cycles[c.startPose]) {
+        return nullptr;
+    }
+    c.frames = copy->frames.data();
+    c.cycles = copy->cycles.data();
+    copy->lists.reset(new Gfx* [(size_t)c.poseCount + 1][ARCHIVE_PROPS_PASSES]());
+    c.lists = copy->lists.get();
+    const std::string dir = listPath.substr(0, listPath.rfind('/')) + "/copies/" + id + "/";
+    copy->rest = dir + "rest";
+    for (s32 k = 0; k <= c.poseCount; k++) {
+        const std::string name = dir + (k < c.poseCount ? "f" + std::to_string(copy->frames[k]) : std::string("rest"));
+        c.lists[k][ARCHIVE_PROPS_PASS_OPA] = RsBoat_ModelList(name.c_str());
+        c.lists[k][ARCHIVE_PROPS_PASS_XLU] = RsBoat_TranslucentList(name.c_str());
+        if (c.lists[k][ARCHIVE_PROPS_PASS_OPA] == nullptr) {
+            SPDLOG_ERROR("[rs_boat] {}: copy {} has no pose list {}: none of the list's copies draws", listPath, id, name);
+            return nullptr;
+        }
+    }
+    return copy;
+}
+
+std::vector<std::unique_ptr<BoatAnimCopy>> ReadAnim(const std::string& listPath) {
+    std::vector<std::unique_ptr<BoatAnimCopy>> out;
+    auto archives = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
+    const std::string path = listPath + ".anim";
+    if (!archives->HasFile(path)) {
+        return out;
+    }
+    auto file = archives->LoadFile(path);
+    if (file == nullptr || file->Buffer == nullptr) {
+        SPDLOG_WARN("[rs_boat] {} would not load: its flipbook copies draw nothing", path);
+        return out;
+    }
+    std::istringstream text(std::string(file->Buffer->begin() + file->BufferOffset, file->Buffer->end()));
+    std::string line;
+    while (std::getline(text, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        if (line.empty() || line[0] == '#') {
+            continue;
+        }
+        auto copy = ReadAnimLine(listPath, line);
+        if (copy == nullptr) {
+            SPDLOG_ERROR("[rs_boat] {}: '{}' does not read: none of the list's flipbook copies draws", path, line);
+            return {};
+        }
+        out.push_back(std::move(copy));
+    }
+    SPDLOG_INFO("[rs_boat] {}: {} flipbook copies", path, out.size());
+    return out;
+}
+
+} // namespace
+
+extern "C" const ArchivePropsAnimCopy* RsBoat_AnimCopy(const char* listPath, s32 copy) {
+    auto found = sAnims.find(listPath);
+    if (found == sAnims.end()) {
+        found = sAnims.emplace(listPath, ReadAnim(listPath)).first;
+    }
+    return copy >= 0 && copy < (s32)found->second.size() ? &found->second[copy]->c : nullptr;
+}
+
+extern "C" const char* RsBoat_AnimRestPath(const char* listPath, s32 copy) {
+    return RsBoat_AnimCopy(listPath, copy) != nullptr ? sAnims[listPath][copy]->rest.c_str() : nullptr;
 }
 
 extern "C" Gfx* RsBoat_TranslucentList(const char* listPath) {

@@ -1,0 +1,20 @@
+{
+ "format": 2,
+ "scene": "rs_boat",
+ "list": "objects/rs_props/rs_boat_skiff_gale_mote/props",
+ "kinds": {
+  "gale-catcher-59686-mote": "rs_59686_mote"
+ },
+ "props": [
+  {
+   "id": "mote",
+   "kind": "gale-catcher-59686-mote",
+   "pos": [
+    22,
+    0,
+    60
+   ],
+   "rot": 0
+  }
+ ]
+}

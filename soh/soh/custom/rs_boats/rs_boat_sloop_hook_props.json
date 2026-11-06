@@ -3,12 +3,12 @@
  "scene": "rs_boat",
  "list": "objects/rs_props/rs_boat_sloop_hook/props",
  "kinds": {
-  "bronze-salvaging-hook-60497": "rs_60497"
+  "bronze-salvaging-hook-60497-stand": "rs_60497_stand"
  },
  "props": [
   {
    "id": "hook",
-   "kind": "bronze-salvaging-hook-60497",
+   "kind": "bronze-salvaging-hook-60497-stand",
    "pos": [
     -40,
     -2,
