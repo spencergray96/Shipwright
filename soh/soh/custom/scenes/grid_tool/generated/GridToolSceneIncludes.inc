@@ -55,4 +55,6 @@
 #include "../kind_bench/CustomKindBenchScene.h" // project be4c0217-0000-4000-8000-00000000be4c name kind_bench
 #include "../sounds_276/CustomSounds276Scene.h" // project 52760276-0276-4000-8000-000000000276 name sounds_276
 #include "../boat_docks_282/CustomBoatDocks282Scene.h" // project 8a0dd776-0163-40b3-b9fe-a6176850128e name boat_docks_282
+#include "../lumbridge_roofs_265_agent_copy/CustomLumbridgeRoofs265AgentCopyScene.h" // project 163ff2b7-4f0c-4809-907f-7d5a4751a30d name lumbridge_roofs_265_agent_copy
+#include "../rimmington_church_265_agent/CustomRimmingtonChurch265AgentScene.h" // project 38192d81-12aa-4153-a35b-2beed72541a1 name rimmington_church_265_agent
 // END GRID TOOL EXPORTS

@@ -56,4 +56,6 @@
     { SCENE_KIND_BENCH, CustomKindBenchScene_TrySpawn, CustomKindBenchScene_InitRoom }, // project be4c0217-0000-4000-8000-00000000be4c name kind_bench
     { SCENE_SOUNDS_276, CustomSounds276Scene_TrySpawn, CustomSounds276Scene_InitRoom }, // project 52760276-0276-4000-8000-000000000276 name sounds_276
     { SCENE_BOAT_DOCKS_282, CustomBoatDocks282Scene_TrySpawn, CustomBoatDocks282Scene_InitRoom }, // project 8a0dd776-0163-40b3-b9fe-a6176850128e name boat_docks_282
+    { SCENE_LUMBRIDGE_ROOFS_265_AGENT_COPY, CustomLumbridgeRoofs265AgentCopyScene_TrySpawn, CustomLumbridgeRoofs265AgentCopyScene_InitRoom }, // project 163ff2b7-4f0c-4809-907f-7d5a4751a30d name lumbridge_roofs_265_agent_copy
+    { SCENE_RIMMINGTON_CHURCH_265_AGENT, CustomRimmingtonChurch265AgentScene_TrySpawn, CustomRimmingtonChurch265AgentScene_InitRoom }, // project 38192d81-12aa-4153-a35b-2beed72541a1 name rimmington_church_265_agent
 // END GRID TOOL EXPORTS
