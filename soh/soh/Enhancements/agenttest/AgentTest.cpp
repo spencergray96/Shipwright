@@ -608,6 +608,9 @@
  *                                          runs for minutes. `tracks`/`testplay`/`teststop` are the
  *                                          imported-RS-track probe (sturdy-bassoon#91) and bypass the
  *                                          director; MusicConsole.h documents them
+ *   agenttest worldmap [status]|storey ground|all|current|debug off|whole|link|block <w> <h>|pixel <x> <z>
+ *                                          the world map image (sturdy-bassoon#298): one
+ *                                          `rs_worldmap op=...` marker a line, as WorldMapConsole.h lists
  *   agenttest region get|set <uk|us>|toggle|expand <text...>|overlay [on|off]
  *                                          the save file's FLOOR CONVENTION (sturdy-bassoon#94), which
  *                                          decides whether rs/ prose calls the storey at ground level
@@ -798,6 +801,7 @@
 #include "soh/Enhancements/lights/LightsConsole.h"
 #include "soh/Enhancements/graph/GraphConsole.h"
 #include "soh/Enhancements/rs/maps/WorldConsole.h"
+#include "soh/Enhancements/rs/maps/WorldMapConsole.h"
 #include "soh/Enhancements/rs/swim/SwimConsole.h"
 #include "soh/Enhancements/rs/stairs/StairConsole.h"
 #include "soh/Enhancements/rs/interactions/InteractionConsole.h"
@@ -3192,6 +3196,12 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(RsRegionConsole_Run, sub, "rs_region ", output, WriteMarker);
     }
+    // The world map image (sturdy-bassoon#298): its size, the storey layer drawn and Link's pixel. `>= 2`, so a
+    // bare `agenttest worldmap` is the status read.
+    if (args.size() >= 2 && args[1] == "worldmap") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(RsWorldMapConsole_Run, sub, "rs_worldmap ", output, WriteMarker);
+    }
     // The world context and the scene picker (sturdy-bassoon#173 F5). The same prefix as the context's
     // own event markers: `rs_worldctx op=...` answers a question, `rs_worldctx event=...` is a change.
     if (args.size() >= 3 && args[1] == "worldctx") {
@@ -3340,6 +3350,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
               "worldctx get|set <unset|solo|0xNN>|pick <map>|scenes <map> | "
+              "worldmap [status]|storey ground|all|current|debug off|whole|link|block <w> <h>|pixel <x> <z> | "
               "swim status|on|off|length <s>|default|budget <ticks>|drown|refuge here|clear|points | "
               "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|"
               "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
@@ -3465,6 +3476,7 @@ quest =quest             the quest command's options
 npc =npc                 the npc command's options
 region =region          the region command's options
 worldctx =worldctx       the worldctx command's options
+worldmap =worldmap       the world map image: size, storey, Link's pixel
 swim =swim               the swim command's options
 stairs =stairs           the stairs command's options
 warps =warps             the warps command's options
@@ -3529,6 +3541,7 @@ void RegisterAgentTest() {
               "npc list|dump <id>|resolve <id>|actors|badcheck | "
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
               "worldctx get|set <unset|solo|0xNN>|pick <map>|scenes <map> | "
+              "worldmap [status]|storey ground|all|current|debug off|whole|link|block <w> <h>|pixel <x> <z> | "
               "swim status|on|off|length <s>|default|budget <ticks>|drown|refuge here|clear|points | "
               "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|"
               "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
