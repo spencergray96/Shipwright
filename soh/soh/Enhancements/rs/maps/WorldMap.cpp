@@ -45,6 +45,11 @@ struct WorldScene {
 #define RS_WORLD_CHUNK(scene_, squareX_, squareY_, title_, nodeTitle_, nodeRsX_, nodeRsY_, nodeX_, nodeZ_)
 const WorldScene kScenes[] = {
 #include "soh/custom/scenes/grid_tool/f2p_overworld/f2p_overworld_world.inc"
+// The #298 test fixture world (sturdy-bassoon world/agent_298_storeys.json: storeys of mixed height
+// classes), opted in only in a tree it was exported into, so every other tree builds without it.
+#if __has_include("soh/custom/scenes/grid_tool/agent298_storeys/agent298_storeys_world.inc")
+#include "soh/custom/scenes/grid_tool/agent298_storeys/agent298_storeys_world.inc"
+#endif
 };
 #undef RS_WORLD_SCENE
 #undef RS_WORLD_CHUNK
