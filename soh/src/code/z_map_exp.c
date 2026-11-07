@@ -38,6 +38,14 @@ void Map_SavePlayerInitialInfo(PlayState* play) {
     sPlayerInitialDirection = (s16)((0x7FFF - player->actor.shape.rot.y) / 0x400);
 }
 
+// [sturdy-bassoon#306] The red entrance arrow's inputs, for the RS minimap: where Link came in, and vanilla's
+// direction (1/64 turns, (0x7FFF - yaw) / 0x400).
+void Minimap_GetPlayerInitial(s16* x, s16* z, s16* direction) {
+    *x = sPlayerInitialPosX;
+    *z = sPlayerInitialPosZ;
+    *direction = sPlayerInitialDirection;
+}
+
 void Map_SetPaletteData(PlayState* play, s16 room) {
     s32 mapIndex = gSaveContext.mapIndex;
     InterfaceContext* interfaceCtx = &play->interfaceCtx;

@@ -20,6 +20,8 @@ extern "C" {
 #include "macros.h"
 #include "objects/gameplay_keep/gameplay_keep.h"
 extern PlayState* gPlayState;
+// z_map_exp.c (sturdy-bassoon#306): where and which way Link came into the scene, as the red arrow uses it.
+void Minimap_GetPlayerInitial(s16* x, s16* z, s16* direction);
 // OTRGlobals.h declares these for C only.
 float OTRGetDimensionFromLeftEdge(float v);
 float OTRGetDimensionFromRightEdge(float v);
@@ -50,11 +52,18 @@ struct Frame {
     float rimPx = 0;           // RS_MINIMAP_SCREEN_RADIUS
     std::vector<Gfx>* dl = nullptr;
     GraphicsContext* gfxCtx = nullptr;
+    Mtx* mapMtx = nullptr;     // the map's modelview this frame: the map-space arrows draw under it
 };
 Frame sFrame;
 RsMinimapStats sStats = {};
 float sRotUnwrapped = 0.0f;     // the map's turn, kept continuous so interpolation never spins it the long way
 float sLinkArrowUnwrapped = 0.0f;
+bool sBilerp = true;            // `minimap filter`: bilinear (default) or point sampling, for the #306 flicker A/B
+bool sLastArrowOut = false;     // the last RsMinimap_DrawArrow left nothing inside the circle
+// The arrow's silhouette, measured off vanilla's gCompassArrowDL at its 0.4 scale: a triangle 7.6 N64 px from
+// tip to base and 3.8 across the base, its origin in the middle of that length.
+constexpr float kArrowHalfLen = 3.8f;
+constexpr float kArrowHalfWidth = 1.9f;
 
 std::vector<Gfx>& Dl() {
     static std::vector<Gfx> dl; // the interpreter walks it after the frame is built; cleared at the next draw
@@ -90,7 +99,8 @@ void PixelDeltaToScreen(float dx, float dy, float* sx, float* sy) {
     *sy = ry;
 }
 
-// World position -> screen, pinned to the rim. False with no map.
+// World position -> screen, where it really is (no pin: the owner, 2026-11-07, "arrows belong to the map").
+// *inside: the point is within the circle. False with no map.
 bool ToScreen(float x, float z, float* sx, float* sy, bool* inside) {
     float px = 0, py = 0;
     if (!RsWorldMap_WorldToPixel(sFrame.scene, x, z, &px, &py)) {
@@ -98,17 +108,10 @@ bool ToScreen(float x, float z, float* sx, float* sy, bool* inside) {
     }
     float dx = 0, dy = 0;
     PixelDeltaToScreen(px - sFrame.lpx, py - sFrame.lpy, &dx, &dy);
-    const float d = std::sqrt(dx * dx + dy * dy);
-    const float rim = sFrame.rimPx - 4.0f; // an arrow is about 8 px long: its centre this far in keeps it inside
-    const bool in = d <= rim;
-    if (!in && d > 0) {
-        dx *= rim / d;
-        dy *= rim / d;
-    }
     *sx = sFrame.cx + dx;
     *sy = sFrame.cy + dy;
     if (inside != nullptr) {
-        *inside = in;
+        *inside = std::sqrt(dx * dx + dy * dy) <= sFrame.rimPx;
     }
     return true;
 }
@@ -201,6 +204,75 @@ void PushFan(std::vector<Gfx>& dl, const std::vector<P>& poly, float loadX, floa
             dl.push_back(gsSP1Triangle(0, i, i + 1, 0));
         }
     }
+}
+
+// Keeps the part of convex `in` on the inside of every edge of the convex polygon `clip` (the side its centre
+// (cx, cy) is on). Sutherland-Hodgman again, against arbitrary edges.
+void ClipConvex(std::vector<P>& in, std::vector<P>& out, const std::vector<P>& clip, float cx, float cy) {
+    const size_t m = clip.size();
+    for (size_t e = 0; e < m && in.size() >= 3; e++) {
+        const P& a = clip[e];
+        const P& b = clip[(e + 1) % m];
+        const float ex = b.x - a.x, ey = b.y - a.y;
+        const float sideC = ex * (cy - a.y) - ey * (cx - a.x);
+        auto side = [&](const P& q) { return (ex * (q.y - a.y) - ey * (q.x - a.x)) * sideC; };
+        out.clear();
+        const size_t n = in.size();
+        for (size_t i = 0; i < n; i++) {
+            const P& p = in[i];
+            const P& q = in[(i + 1) % n];
+            const float sp = side(p), sq = side(q);
+            if (sp >= 0) {
+                out.push_back(p);
+            }
+            if ((sp >= 0) != (sq >= 0)) {
+                const float t = sp / (sp - sq);
+                out.push_back({ p.x + (q.x - p.x) * t, p.y + (q.y - p.y) * t });
+            }
+        }
+        in.swap(out);
+    }
+}
+
+// An arrow printed on the map (the owner, 2026-11-07): a flat triangle in image pixels at (px, py), pointing along
+// the image-space unit vector (ux, uy), drawn under the map's own matrix so it scrolls and turns with the map, and
+// clipped to the circle like the map under it. Each call sets its own state, so it can come from any hook.
+// Answers whether any of it is inside the circle.
+bool DrawMapArrow(float px, float py, float ux, float uy, Color_RGB8 color) {
+    const float len = kArrowHalfLen / sFrame.scale;
+    const float wid = kArrowHalfWidth / sFrame.scale;
+    const float nx = -uy, ny = ux;
+    const float bx = px - ux * len, by = py - uy * len;
+    sPoly.assign({ { px + ux * len, py + uy * len }, { bx + nx * wid, by + ny * wid }, { bx - nx * wid, by - ny * wid } });
+    ClipConvex(sPoly, sScratch, sCircle, sFrame.lpx, sFrame.lpy);
+    if (sPoly.size() < 3) {
+        return false;
+    }
+    std::vector<Gfx>& dl = *sFrame.dl;
+    dl.push_back(gsDPPipeSync());
+    dl.push_back(gsSPMatrix(sFrame.mapMtx, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
+    dl.push_back(gsSPTexture(0, 0, 0, G_TX_RENDERTILE, G_OFF));
+    dl.push_back(gsSPLoadGeometryMode(G_SHADING_SMOOTH));
+    dl.push_back(gsDPSetOtherMode(G_AD_NOTPATTERN | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | G_TF_POINT | G_TT_NONE |
+                                      G_TL_TILE | G_TD_CLAMP | G_TP_PERSP | G_CYC_1CYCLE | G_PM_NPRIMITIVE,
+                                  G_AC_NONE | G_ZS_PIXEL | G_RM_XLU_SURF | G_RM_XLU_SURF2));
+    dl.push_back(gsDPSetCombineMode(G_CC_PRIMITIVE, G_CC_PRIMITIVE));
+    dl.push_back(gsDPSetPrimColor(0, 0, color.r, color.g, color.b, 255));
+    PushFan(dl, sPoly, 0.0f, 0.0f);
+    sStats.arrows++;
+    return true;
+}
+
+// A world position and yaw -> its image pixel and the image-space unit vector it points along.
+void MapPose(float x, float z, s16 yaw, float* px, float* py, float* ux, float* uy) {
+    const float yr = yaw * (kPi / 32768.0f);
+    float qx = 0, qy = 0;
+    RsWorldMap_WorldToPixel(sFrame.scene, x, z, px, py);
+    RsWorldMap_WorldToPixel(sFrame.scene, x + std::sin(yr) * 100.0f, z + std::cos(yr) * 100.0f, &qx, &qy);
+    const float dx = qx - *px, dy = qy - *py;
+    const float d = std::sqrt(dx * dx + dy * dy);
+    *ux = d > 0 ? dx / d : 0.0f;
+    *uy = d > 0 ? dy / d : -1.0f;
 }
 
 void OnBlock(Gfx** gfx, int16_t bx, int16_t by, int16_t bw, int16_t bh, int16_t loadX, int16_t loadY, void* user) {
@@ -308,10 +380,22 @@ extern "C" bool RsMinimap_DrawArrow(PlayState* play, f32 x, f32 z, s16 yaw, Colo
     if (!sFrame.drawing || play == nullptr) {
         return false;
     }
-    float sx = 0, sy = 0;
-    ToScreen(x, z, &sx, &sy, nullptr);
-    PushArrow(sx, sy, ArrowAngle(x, z, yaw), color, sFrame.visible);
+    float px = 0, py = 0, ux = 0, uy = 0;
+    MapPose(x, z, yaw, &px, &py, &ux, &uy);
+    sLastArrowOut = !DrawMapArrow(px, py, ux, uy, color);
     return true;
+}
+
+extern "C" bool RsMinimap_LastArrowOutOfView(void) {
+    return sFrame.drawing && sLastArrowOut;
+}
+
+extern "C" bool RsMinimap_Bilerp(void) {
+    return sBilerp;
+}
+
+extern "C" void RsMinimap_SetBilerp(bool bilerp) {
+    sBilerp = bilerp;
 }
 
 // File-static, not in the anonymous namespace: OPEN_DISPS redeclares FrameInterpolation_RecordOpenChild at block
@@ -369,6 +453,7 @@ extern "C" void RsMinimap_Draw(PlayState* play, bool visible) {
     Matrix_Scale(sFrame.scale / kFix, sFrame.scale / kFix, 1.0f, MTXMODE_APPLY);
     Matrix_Translate(-sFrame.lpx * kFix, sFrame.lpy * kFix, 0.0f, MTXMODE_APPLY);
     Mtx* mapMtx = Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__);
+    sFrame.mapMtx = mapMtx;
 
     if (sFrame.visible) {
         // The circle in image pixels, around Link.
@@ -381,9 +466,9 @@ extern "C" void RsMinimap_Draw(PlayState* play, bool visible) {
         dl.push_back(gsDPPipeSync());
         dl.push_back(gsSPMatrix(mapMtx, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
         dl.push_back(gsSPLoadGeometryMode(G_SHADING_SMOOTH));
-        dl.push_back(gsDPSetOtherMode(G_AD_NOTPATTERN | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | G_TF_POINT |
-                                          G_TT_NONE | G_TL_TILE | G_TD_CLAMP | G_TP_PERSP | G_CYC_1CYCLE |
-                                          G_PM_NPRIMITIVE,
+        dl.push_back(gsDPSetOtherMode(G_AD_NOTPATTERN | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT |
+                                          (sBilerp ? G_TF_BILERP : G_TF_POINT) | G_TT_NONE | G_TL_TILE |
+                                          G_TD_CLAMP | G_TP_PERSP | G_CYC_1CYCLE | G_PM_NPRIMITIVE,
                                       G_AC_NONE | G_ZS_PIXEL | G_RM_XLU_SURF | G_RM_XLU_SURF2));
         // The disc under the map, a pixel wider on screen: the rim, and dark wherever the circle is off the image.
         {
@@ -413,9 +498,13 @@ extern "C" void RsMinimap_Draw(PlayState* play, bool visible) {
         dl.push_back(gsSPTexture(0, 0, 0, G_TX_RENDERTILE, G_OFF));
     }
 
-    // The arrows, in vanilla's order and behind vanilla's gate: the vehicles (and #307's icons) under Link's.
+    // The arrows, behind vanilla's gate (minimapAlpha >= 0xAA). The vehicles' (and #307's icons) are printed on the
+    // map under Link's; Link's is vanilla's own arrow at the centre; the red entrance arrow, printed on the map, goes
+    // on top as vanilla's does.
     const bool arrows = sFrame.visible && alpha >= 0xAA;
+    sFrame.drawing = true;
     if (arrows) {
+        GameInteractor_ExecuteOnMinimapDrawCompassIconsUnderPlayer();
         Gfx setup[2];
         Gfx_SetupDL(setup, SETUPDL_42);
         dl.push_back(gsDPPipeSync());
@@ -424,10 +513,6 @@ extern "C" void RsMinimap_Draw(PlayState* play, bool visible) {
                                         PRIMITIVE, ENVIRONMENT, TEXEL0, ENVIRONMENT, TEXEL0, 0, PRIMITIVE, 0));
         dl.push_back(gsDPSetEnvColor(0, 0, 0, 255));
         dl.push_back(gsDPSetCombineMode(G_CC_PRIMITIVE, G_CC_PRIMITIVE));
-    }
-    sFrame.drawing = true;
-    if (arrows) {
-        GameInteractor_ExecuteOnMinimapDrawCompassIconsUnderPlayer();
     }
     // Link's arrow, at the centre: recorded every frame, emitted only when shown.
     Color_RGB8 linkColor = { 200, 255, 0 };
@@ -439,7 +524,20 @@ extern "C" void RsMinimap_Draw(PlayState* play, bool visible) {
                                                player->actor.shape.rot.y));
     PushArrow(sFrame.cx, sFrame.cy, sLinkArrowUnwrapped, linkColor, arrows);
     if (arrows) {
+        // The red entrance arrow: where Link came into the scene, facing the way he faced (vanilla's
+        // sPlayerInitial*, its direction kept in vanilla's 1/64-turn steps).
+        s16 ex = 0, ez = 0, edir = 0;
+        Minimap_GetPlayerInitial(&ex, &ez, &edir);
+        Color_RGB8 entranceColor = { 200, 0, 0 };
+        if (CVarGetInteger(CVAR_COSMETIC("HUD.MinimapEntrance.Changed"), 0)) {
+            entranceColor = CVarGetColor24(CVAR_COSMETIC("HUD.MinimapEntrance.Value"), entranceColor);
+        }
+        float px = 0, py = 0, ux = 0, uy = 0;
+        MapPose(ex, ez, (s16)(0x7FFF - edir * 0x400), &px, &py, &ux, &uy);
+        sStats.entranceShown = DrawMapArrow(px, py, ux, uy, entranceColor);
         GameInteractor_ExecuteOnMinimapDrawCompassIcons();
+    } else {
+        sStats.entranceShown = false;
     }
     sFrame.drawing = false;
 

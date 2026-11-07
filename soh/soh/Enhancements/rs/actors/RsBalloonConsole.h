@@ -16,7 +16,7 @@
 //   list            one `balloon idx=<i> x= y= z= yaw=<binang> alt=<x100> vy=<x100> speed=<x100> throttle=<x100>
 //                   lift=<x100> tiller=<x100> controls=0|1 landed=0|1 on_water=0|1 ground=<y> height=<over the
 //                   ground> ceiling=<y> blocked=<none|wall|ground|overhead|ceiling> blocks=<n> link_on=0|1
-//                   away=<ticks> abandoned=0|1 stand_dist=<n> cam=0|1 map_arrow=<drawn|controls|no_minimap>` line
+//                   away=<ticks> abandoned=0|1 stand_dist=<n> cam=0|1 map_arrow=<drawn|controls|out_of_view|no_minimap>`
 //                   per live balloon, then `op=list
 //                   result=ok count=<n> link_x= link_y= link_z= link_yaw= link_floor_bg=<n> link_ground=0|1
 //                   link_input_disabled=0|1 link_can_take=0|1 controls_in_reach=0|1 a_label=<DO_ACTION_*>

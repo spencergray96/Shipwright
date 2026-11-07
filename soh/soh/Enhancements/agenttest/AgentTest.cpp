@@ -611,7 +611,7 @@
  *   agenttest worldmap [status]|storey ground|all|current|below|debug off|whole|link|block <w> <h>|pixel <x> <z>
  *                                          the world map image (sturdy-bassoon#298): one
  *                                          `rs_worldmap op=...` marker a line, as WorldMapConsole.h lists
- *   agenttest minimap [status]|mode north|rotate|radius <tiles>|default
+ *   agenttest minimap [status]|mode north|rotate|radius <tiles>|default|filter bilerp|point
  *                                          the round HUD minimap in RS scenes (sturdy-bassoon#306): one
  *                                          `rs_minimap op=...` marker a line, as RsMinimapConsole.h lists
  *   agenttest region get|set <uk|us>|toggle|expand <text...>|overlay [on|off]
@@ -3360,7 +3360,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
               "worldctx get|set <unset|solo|0xNN>|pick <map>|scenes <map> | "
               "worldmap [status]|storey ground|all|current|below|debug off|whole|link|block <w> <h>|pixel <x> <z> | "
-              "minimap [status]|mode north|rotate|radius <tiles>|default | "
+              "minimap [status]|mode north|rotate|radius <tiles>|default|filter bilerp|point | "
               "swim status|on|off|length <s>|default|budget <ticks>|drown|refuge here|clear|points | "
               "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|"
               "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
@@ -3553,7 +3553,7 @@ void RegisterAgentTest() {
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
               "worldctx get|set <unset|solo|0xNN>|pick <map>|scenes <map> | "
               "worldmap [status]|storey ground|all|current|below|debug off|whole|link|block <w> <h>|pixel <x> <z> | "
-              "minimap [status]|mode north|rotate|radius <tiles>|default | "
+              "minimap [status]|mode north|rotate|radius <tiles>|default|filter bilerp|point | "
               "swim status|on|off|length <s>|default|budget <ticks>|drown|refuge here|clear|points | "
               "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|"
               "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
