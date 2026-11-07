@@ -11,8 +11,9 @@
 // makes the boat's alerts presentable.
 //
 // The save's boats (sturdy-bassoon#263), a debug readout at the left under the magic bar: a block per kind, owned or
-// not, then its parts, facilities and looks one a line (RsBoatFit_Summary), a blank line between kinds. `boat fitout
-// hud off` (CVAR_RS_BOAT_FIT_HUD) hides it alone.
+// not, then its parts, facilities and looks one a line (RsBoatFit_Summary), a blank line between kinds. Off unless
+// `boat fitout hud on` (CVAR_RS_BOAT_FIT_HUD, default RS_BOAT_FIT_HUD_DEFAULT: the owner turned it off by default,
+// 2026-11-06); `boat fitout hud off` hides it again.
 //
 // RegionOverlay.cpp's pattern: an ImGui window drawn over the game, with Draw() overridden so no titled,
 // saved-settings window opens and the gate is here rather than on the GuiWindow's visibility flag.
@@ -129,7 +130,7 @@ class RsBoatHudWindow final : public Ship::GuiWindow {
         ImGui::End();
         // The readout, a box of its own: at the left, its edge in line with the hearts and its top under the magic
         // bar (which ends about 0.18 of the way down), so it covers neither the bar nor the C buttons.
-        if (CVarGetInteger(CVAR_RS_BOAT_FIT_HUD, 1)) {
+        if (CVarGetInteger(CVAR_RS_BOAT_FIT_HUD, RS_BOAT_FIT_HUD_DEFAULT)) {
             ImGui::SetNextWindowViewport(vp->ID);
             ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.053f, vp->Pos.y + vp->Size.y * 0.20f),
                                     ImGuiCond_Always, ImVec2(0.0f, 0.0f));
