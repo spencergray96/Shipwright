@@ -81,7 +81,7 @@ int32_t Fitout(const std::vector<std::string>& args, std::vector<std::string>& l
         } else if (args.size() != 2) {
             return Usage(lines);
         }
-        Addf(lines, "op=fitout result=ok hud=%d", CVarGetInteger(CVAR_RS_BOAT_FIT_HUD, 1) ? 1 : 0);
+        Addf(lines, "op=fitout result=ok hud=%d", CVarGetInteger(CVAR_RS_BOAT_FIT_HUD, RS_BOAT_FIT_HUD_DEFAULT) ? 1 : 0);
         return 0;
     }
     if (args.size() == 2 && args[1] == "reset") {

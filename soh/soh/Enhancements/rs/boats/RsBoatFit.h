@@ -39,9 +39,11 @@
 
 #include "soh/Enhancements/rs/quest/QuestPredicate.h"
 
-// The debug readout under the steering label (RsBoatHud.cpp): one line per kind from the save. On by default;
-// `boat fitout hud off`. CVAR_ENHANCEMENT is soh/cvar_prefixes.h's; it expands where this is used.
+// The debug readout at the left of the screen (RsBoatHud.cpp): a block per kind from the save. Off by default
+// (the owner, 2026-11-06); `boat fitout hud on` shows it. CVAR_ENHANCEMENT is soh/cvar_prefixes.h's; it expands
+// where this is used.
 #define CVAR_RS_BOAT_FIT_HUD CVAR_ENHANCEMENT("RsBoatFitHud")
+#define RS_BOAT_FIT_HUD_DEFAULT 0 // the owner's pick, 2026-11-06: hidden until `boat fitout hud on`
 
 #ifdef __cplusplus
 extern "C" {
