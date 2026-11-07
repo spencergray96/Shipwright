@@ -9,6 +9,8 @@
 #include <ship/Context.h>
 #include <ship/debug/Console.h>
 
+#include "MapPage.h"
+#include "MapReveal.h"
 #include "NamePanel.h"
 #include "PauseLink.h"
 #include "QuestPage.h"
@@ -511,6 +513,80 @@ int32_t Probe(const std::vector<std::string>& args, std::vector<std::string>& li
     return 0;
 }
 
+// #303: the World Map page. One line, the fields `section=map` carries, so `menu map` and `dump` agree.
+std::string DescribeMap() {
+    const RsMenuMapPageStatus st = RsMenuMapPage_Status();
+    char buf[640];
+    std::snprintf(buf, sizeof(buf),
+                  "page=%d current=%d map=%d scene=0x%X source=%s reason=%s layer=%d storey_mode=%s fog=%s icons=%d "
+                  "chunks=%d revealed=%d frame=%d dst=%.1f,%.1f,%.1f,%.1f blocks=%d fog_quads=%d dl_words=%d "
+                  "link=%d arrow=%d link_px=%.1f,%.1f link_square=%d,%d link_flag=%d link_revealed=%d",
+                  st.pageIndex + 1, st.current ? 1 : 0, st.map ? 1 : 0, st.scene >= 0 ? st.scene : 0xFFFF, st.source,
+                  st.reason[0] != '\0' ? st.reason : "-", st.layer, st.storeyMode,
+                  RsMenuMapPage_FogName(RsMenuMapPage_Fog()), RsMenuMapPage_Icons() ? 1 : 0, st.chunks, st.revealed,
+                  st.frame, st.dstX, st.dstY, st.dstW, st.dstH, st.blocks, st.fogQuads, st.words, st.link ? 1 : 0,
+                  st.arrowDrawn, st.linkPx, st.linkPy, st.linkSx, st.linkSy, st.linkFlag, st.linkRevealed ? 1 : 0);
+    return buf;
+}
+
+// Two strict non-negative numbers: a square.
+bool ParseSquare(const std::vector<std::string>& args, size_t at, int32_t* sx, int32_t* sy) {
+    return args.size() == at + 2 && ParseIndex(args[at], sx) && ParseIndex(args[at + 1], sy);
+}
+
+// `menu map`: the page's state, and the test surface for the fog (reveal, node, hide, fog, icons).
+int32_t MapCmd(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    const std::string word = args.size() >= 2 ? args[1] : "";
+    int32_t sx = 0;
+    int32_t sy = 0;
+    int32_t rc = 0;
+    if (word.empty()) {
+        Addf(lines, "op=map result=ok %s %s", DescribeMap().c_str(), Describe().c_str());
+        return 0;
+    }
+    if (word == "reveal" && args.size() == 3 && (args[2] == "all" || args[2] == "none")) {
+        const RsMenuMapPageStatus st = RsMenuMapPage_Status();
+        const int32_t n = args[2] == "all" ? RsMapReveal_RevealAll(st.scene) : RsMapReveal_HideAll();
+        Addf(lines, "op=map result=ok action=reveal_%s changed=%d %s %s", args[2].c_str(), n, DescribeMap().c_str(),
+             Describe().c_str());
+        return 0;
+    }
+    if (word == "reveal" || word == "node" || word == "hide") {
+        if (!ParseSquare(args, 2, &sx, &sy)) {
+            Addf(lines, "op=map result=error error=arg action=%s %s", word.c_str(), Describe().c_str());
+            return 1;
+        }
+        if (word == "reveal") {
+            rc = RsMapReveal_RevealChunk(sx, sy, "console");
+        } else if (word == "node") {
+            rc = RsMapReveal_RevealNode(sx, sy, "console");
+        } else {
+            rc = RsMapReveal_Hide(sx, sy);
+        }
+        if (rc < 0) {
+            Addf(lines, "op=map result=error error=%s action=%s square=%d,%d %s", word == "node" ? "no_chunk" : "no_flag",
+                 word.c_str(), sx, sy, Describe().c_str());
+            return 1;
+        }
+        Addf(lines, "op=map result=ok action=%s square=%d,%d flag=%d changed=%d now_revealed=%d %s %s", word.c_str(), sx,
+             sy, RsMapReveal_Flag(sx, sy), rc, RsMapReveal_IsRevealed(sx, sy) ? 1 : 0, DescribeMap().c_str(),
+             Describe().c_str());
+        return 0;
+    }
+    if (word == "fog" && args.size() == 3 && (args[2] == "hide" || args[2] == "dim")) {
+        RsMenuMapPage_SetFog(args[2] == "dim" ? RS_MENU_MAP_FOG_DIM : RS_MENU_MAP_FOG_HIDE);
+        Addf(lines, "op=map result=ok action=fog %s %s", DescribeMap().c_str(), Describe().c_str());
+        return 0;
+    }
+    if (word == "icons" && args.size() == 3 && (args[2] == "on" || args[2] == "off")) {
+        RsMenuMapPage_SetIcons(args[2] == "on");
+        Addf(lines, "op=map result=ok action=icons %s %s", DescribeMap().c_str(), Describe().c_str());
+        return 0;
+    }
+    Addf(lines, "op=map result=error error=arg %s", Describe().c_str());
+    return 1;
+}
+
 int32_t Dump(std::vector<std::string>& lines) {
     const RsMenuStatus status = RsMenu_Status();
     const RsMenuTriggerInfo trigger = RsMenu_TriggerInfo();
@@ -659,6 +735,15 @@ int32_t Dump(std::vector<std::string>& lines) {
         }
         Addf(lines, "op=dump section=page page=%d current=%d id=%s title=\"%s\"", i + 1, i == status.page ? 1 : 0,
              page->id.c_str(), page->title.c_str());
+    }
+    // #303: the World Map page, and the fog's revealed set (the map scene's chunks, as sx:sy).
+    Addf(lines, "op=dump section=map %s", DescribeMap().c_str());
+    {
+        const RsMenuMapPageStatus st = RsMenuMapPage_Status();
+        const RsMapRevealStats rv = RsMapReveal_Stats();
+        Addf(lines, "op=dump section=map_reveal scene=0x%X entry_reveals=%d last=%d,%d last_cause=%s revealed=%s",
+             st.scene >= 0 ? st.scene : 0xFFFF, rv.entryReveals, rv.lastSx, rv.lastSy,
+             rv.lastCause[0] != '\0' ? rv.lastCause : "-", st.revealedList.empty() ? "-" : st.revealedList.c_str());
     }
     // One line per cursor node, so the whole graph is readable from a marker - including its
     // ADJACENCY, which is the thing no screenshot can show and the thing the settled design is
@@ -911,7 +996,9 @@ const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custo
                      "stress [<n> [same]|off|memo <on|off>] | "
                      "cursor [left|right|up|down|select|<id>] | probe [on|off] | kaleido | equips | hud | "
                      "flight hold <n>|release | song | "
-                     "inv <kind> <a> <b> | namepanel custom <item>|off | timer <seconds>|off | dump";
+                     "inv <kind> <a> <b> | namepanel custom <item>|off | timer <seconds>|off | "
+                     "map [reveal <sx> <sy>|reveal all|reveal none|node <sx> <sy>|hide <sx> <sy>|fog hide|dim|"
+                     "icons on|off] | dump";
 
 } // namespace
 
@@ -976,6 +1063,9 @@ int32_t RsMenuConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "timer") {
         return Timer(args, lines);
     }
+    if (sub == "map") {
+        return MapCmd(args, lines);
+    }
     if (sub == "dump") {
         return Dump(lines);
     }
@@ -997,7 +1087,8 @@ const ConsoleSink::Command menuCommand(
     "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
     "stress [<n> [same]|off|memo <on|off>] | cursor [left|right|up|down|select|<id>] | "
     "probe [on|off] | kaleido | equips | hud | flight hold <n>|release | song | inv <kind> <a> <b> | "
-    "namepanel custom <item>|off | dump. "
+    "namepanel custom <item>|off | map [reveal|node|hide <sx> <sy>|reveal all|none|fog hide|dim|icons on|off] | "
+    "dump. "
     "The scroll opens on START when primary is custom (N64 L is the minimap's) "
     "and hard-freezes the world; primary decides which menu START opens, and is a subcommand because "
     "there is no console `set`. sweep rolls the scroll one page the way a shoulder press does, and "
@@ -1016,9 +1107,12 @@ const ConsoleSink::Command menuCommand(
     "reads vanilla pause's live cursor and equips the save's equip fields plus what Link in the world "
     "is wearing - the two halves of the stage-8 differential tests; inv (test-only) writes a sparse "
     "inventory for them, and can set the Biggoron flags or switch Link's age. namepanel (test-only) names an item "
-    "through the custom-name hook rando uses, so the name panel's hook path can be tested without a seed.",
+    "through the custom-name hook rando uses, so the name panel's hook path can be tested without a seed. map "
+    "reports the World Map page (#303) and drives its fog of war by RS map square: reveal or hide one square, reveal "
+    "the node a square belongs to, reveal every chunk of the world on show or clear the whole band, and pick hidden "
+    "or dimmed fog and the icons toggle.",
     { { "open|close|page|primary|sweep|level|filler|stress|cursor|probe|kaleido|equips|hud|flight|song|inv|namepanel|"
-        "dump",
+        "map|dump",
         Ship::ArgumentType::TEXT },
       { "argument", Ship::ArgumentType::TEXT, true } });
 
@@ -1086,6 +1180,19 @@ namepanel                     the name panel's custom-name hook (test only)
 timer                         the main countdown timer (test only)
   off                         stop it
   <seconds>                   start it at this many seconds
+map                           the World Map page and its fog of war
+  reveal                      show one map square, or all of them
+    <sx> <sy>                 one RS map square, e.g. 50 50 (Lumbridge)
+    all                       every chunk of the world on show
+    none                      clear the whole fog band (test only)
+  node <sx> <sy>              show every square of that square's node
+  hide <sx> <sy>              fog one square again (test only)
+  fog                         how unexplored squares draw
+    hide                      opaque, nothing shows through
+    dim                       darkened, the map shows through
+  icons                       the map icons toggle (#307 draws them)
+    on                        icons on
+    off                       icons off
 dump                          everything the menu knows, one line each
 )");
 

@@ -155,6 +155,8 @@
 #include "NamePanel.h"
 #include "PauseLink.h"
 #include "QuestPage.h"
+#include "MapPage.h"
+#include "RsMenuRaw.h"
 #include "VanillaPages.h"
 #include "VanillaPagesInternal.h"
 
@@ -1951,6 +1953,17 @@ static void DrawCursorOutline(const RsMenuCursorNode& node) {
     }
 }
 
+// #303: RsMenuRaw.h. sInView is true exactly while a page body (or a detail view) is being drawn.
+bool RsMenu_BeginRawDraw(GraphicsContext** gfxCtx, std::vector<Gfx>** dl) {
+    if (sDrawGfxCtx == nullptr || !sInView) {
+        return false;
+    }
+    sListState = RS_LIST_OTHER;
+    *gfxCtx = sDrawGfxCtx;
+    *dl = &MenuDl();
+    return true;
+}
+
 void RsMenu_DrawBar(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t r, uint8_t g, uint8_t b) {
     if (sDrawGfxCtx == nullptr) {
         return;
@@ -3434,6 +3447,8 @@ static void RegisterRsMenu() {
     // in different translation units run in no promised order, and the ring's order is what L/R walks.
     RsMenuQuestPage_Register();
     RsMenuVanillaPages_Register();
+    // #303: the World Map, fifth, after Quest Status - appended, so every earlier page keeps its index.
+    RsMenuMapPage_Register();
     // So `menu cursor` answers before the menu has ever been opened. The graph reads no PlayState,
     // so it is safe this early.
     RebuildCursorGraph();
