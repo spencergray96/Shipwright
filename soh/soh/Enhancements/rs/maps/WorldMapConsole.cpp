@@ -158,7 +158,7 @@ storey                  which storeys the map draws (saved)
   ground                the ground floor only
   all                   every storey, upper floors hiding lower
   current               the storey Link stands on, alone
-  below                 Link's storey and every storey under it
+  below                 his storey and those under it (default)
 debug                   draw the map on screen
   off                   no debug view
   whole                 the whole image in the top-right corner

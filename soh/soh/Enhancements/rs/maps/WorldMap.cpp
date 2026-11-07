@@ -497,8 +497,8 @@ extern "C" int8_t RsWorldMap_LinkStorey(void) {
 }
 
 extern "C" RsWorldMapStoreyMode RsWorldMap_StoreyMode(void) {
-    const int32_t v = CVarGetInteger(CVAR_RS_WORLD_MAP_STOREY, RS_WORLD_MAP_STOREY_GROUND);
-    return v >= 0 && v < RS_WORLD_MAP_STOREY_MODE_COUNT ? (RsWorldMapStoreyMode)v : RS_WORLD_MAP_STOREY_GROUND;
+    const int32_t v = CVarGetInteger(CVAR_RS_WORLD_MAP_STOREY, RS_WORLD_MAP_STOREY_DEFAULT);
+    return v >= 0 && v < RS_WORLD_MAP_STOREY_MODE_COUNT ? (RsWorldMapStoreyMode)v : RS_WORLD_MAP_STOREY_DEFAULT;
 }
 
 extern "C" void RsWorldMap_SetStoreyMode(RsWorldMapStoreyMode mode) {

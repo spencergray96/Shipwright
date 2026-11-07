@@ -14,7 +14,7 @@
  * view's thumbnail greys). Two sets of LAYERS, both precomputed: each storey ALONE (0..S-1), then the
  * STACKS 0..k for k = 1..S-1 (S..2S-2), in painter's order from the bottom up, so an upper floor hides
  * the walls under it and open sky still shows the storey below. The storey CVar picks the layer every
- * draw uses: ground (storey 0 alone), current (Link's storey alone), below (Link's storey and everything
+ * draw uses (default below, the owner's pick 2026-11-06): ground (storey 0 alone), current (Link's storey alone), below (Link's storey and everything
  * under it, stacked) or all (the top stack).
  *
  * TWO SPACES:
@@ -61,6 +61,9 @@ typedef enum {
     RS_WORLD_MAP_STOREY_BELOW = 3,
     RS_WORLD_MAP_STOREY_MODE_COUNT
 } RsWorldMapStoreyMode;
+
+// The mode with no CVar saved: Link's storey and everything under it (the owner, 2026-11-06).
+#define RS_WORLD_MAP_STOREY_DEFAULT RS_WORLD_MAP_STOREY_BELOW
 
 typedef struct {
     int16_t sceneId;
