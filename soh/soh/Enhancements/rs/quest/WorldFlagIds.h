@@ -41,8 +41,32 @@
     (((flag) >= WORLD_FLAG_PLACEMENT_FIRST && (flag) < WORLD_FLAG_DEBUG_FIRST) ||                      \
      ((flag) >= WORLD_FLAG_PLACEMENT_DEBUG_FIRST && (flag) < WORLD_FLAG_MAX))
 
+// MAP REVEAL FLAGS (sturdy-bassoon#303): the pause map's fog of war, one flag per RS map square, in the
+// top half of the production band's named part. So the production tier reads:
+//   named [0, WORLD_FLAG_MAP_FIRST), map reveal [WORLD_FLAG_MAP_FIRST, WORLD_FLAG_PLACEMENT_FIRST),
+//   placements [WORLD_FLAG_PLACEMENT_FIRST, DEBUG_FIRST)
+// A square's flag is keyed on its ABSOLUTE RS coordinates, never on a world matrix's origin: a second
+// matrix with its own origin (Ardougne, #173) must not alias onto the same flags, and "square 50,50 has been
+// seen" is a fact about RS geography that every world sharing that square shares. The window is fixed:
+// squares WORLD_FLAG_MAP_SQ_X0 .. +31 by WORLD_FLAG_MAP_SQ_Y0 .. +31 (33-64 by 36-67, most of the mainland;
+// F2P is 44-53 by 47-56). A square outside it has no flag and the map draws it revealed (MapReveal.h).
+// Production band on purpose: "I have been to Varrock" is durable player progress, and `quest debugwipe`
+// must not take it.
+#define WORLD_FLAG_MAP_FIRST 1024
+#define WORLD_FLAG_MAP_SQ_X0 33
+#define WORLD_FLAG_MAP_SQ_Y0 36
+#define WORLD_FLAG_MAP_SQ_SPAN 32
+#define WORLD_FLAG_MAP_COUNT (WORLD_FLAG_MAP_SQ_SPAN * WORLD_FLAG_MAP_SQ_SPAN)
+// The flag of RS map square (sx, sy), or -1 outside the window.
+#define WORLD_FLAG_MAP_SQUARE(sx, sy)                                                                     \
+    (((sx) >= WORLD_FLAG_MAP_SQ_X0 && (sx) < WORLD_FLAG_MAP_SQ_X0 + WORLD_FLAG_MAP_SQ_SPAN &&            \
+      (sy) >= WORLD_FLAG_MAP_SQ_Y0 && (sy) < WORLD_FLAG_MAP_SQ_Y0 + WORLD_FLAG_MAP_SQ_SPAN)              \
+         ? WORLD_FLAG_MAP_FIRST + ((sx) - WORLD_FLAG_MAP_SQ_X0) + WORLD_FLAG_MAP_SQ_SPAN * ((sy) - WORLD_FLAG_MAP_SQ_Y0) \
+         : -1)
+#define WORLD_FLAG_IS_MAP(flag) ((flag) >= WORLD_FLAG_MAP_FIRST && (flag) < WORLD_FLAG_MAP_FIRST + WORLD_FLAG_MAP_COUNT)
+
 typedef enum WorldFlagId {
-    // --- production band, named: [0, WORLD_FLAG_PLACEMENT_FIRST) -------------------------------------
+    // --- production band, named: [0, WORLD_FLAG_MAP_FIRST) -------------------------------------------
     WORLD_FLAG_COOK_RANGE_OPEN = 0, // QUEST_COOKS_ASSISTANT's reward, and the first production flag
                                     // there has ever been (P4). It is an UNLOCK: a durable
                                     // permission bit that anything may read, deliberately separate
@@ -130,14 +154,19 @@ RS_STATIC_ASSERT(WORLD_FLAG_PLACEMENT_DEBUG_FIRST > WORLD_FLAG_DEBUG_FIRST &&
                      WORLD_FLAG_PLACEMENT_DEBUG_FIRST < WORLD_FLAG_MAX,
                  "the debug placement band must sit inside the debug band");
 
-RS_STATIC_ASSERT(WORLD_FLAG_COOK_RANGE_OPEN >= 0 && WORLD_FLAG_COOK_RANGE_OPEN < WORLD_FLAG_PLACEMENT_FIRST,
+RS_STATIC_ASSERT(WORLD_FLAG_MAP_FIRST + WORLD_FLAG_MAP_COUNT == WORLD_FLAG_PLACEMENT_FIRST,
+                 "the map reveal band must fill [WORLD_FLAG_MAP_FIRST, WORLD_FLAG_PLACEMENT_FIRST) exactly");
+RS_STATIC_ASSERT(WORLD_FLAG_MAP_SQUARE(44, 47) >= WORLD_FLAG_MAP_FIRST && WORLD_FLAG_MAP_SQUARE(53, 56) >= 0,
+                 "F2P's squares must fall inside the map reveal window");
+
+RS_STATIC_ASSERT(WORLD_FLAG_COOK_RANGE_OPEN >= 0 && WORLD_FLAG_COOK_RANGE_OPEN < WORLD_FLAG_MAP_FIRST,
                  "WORLD_FLAG_COOK_RANGE_OPEN must sit in the production band");
 RS_STATIC_ASSERT(WORLD_FLAG_BOAT_UNLOCK_RAFT > WORLD_FLAG_COOK_RANGE_OPEN &&
-                     WORLD_FLAG_BOAT_UNLOCK_SLOOP_CANNON_BRONZE < WORLD_FLAG_PLACEMENT_FIRST,
+                     WORLD_FLAG_BOAT_UNLOCK_SLOOP_CANNON_BRONZE < WORLD_FLAG_MAP_FIRST,
                  "the boat upgrades' unlocks must sit in the production band's named part");
 
 RS_STATIC_ASSERT(WORLD_FLAG_KEY_HAMMER > WORLD_FLAG_BOAT_UNLOCK_SLOOP_CANNON_BRONZE &&
-                     WORLD_FLAG_KEY_SKIFF_SCHEMATIC < WORLD_FLAG_PLACEMENT_FIRST,
+                     WORLD_FLAG_KEY_SKIFF_SCHEMATIC < WORLD_FLAG_MAP_FIRST,
                  "the key items' flags must sit in the production band's named part");
 RS_STATIC_ASSERT(WORLD_FLAG_DEBUG_KEY_ITEM >= WORLD_FLAG_DEBUG_FIRST &&
                      WORLD_FLAG_DEBUG_KEY_ITEM < WORLD_FLAG_PLACEMENT_DEBUG_FIRST,
