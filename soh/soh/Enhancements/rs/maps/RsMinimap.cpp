@@ -1,0 +1,470 @@
+// The HUD minimap in RS scenes (sturdy-bassoon#306): see RsMinimap.h.
+#include "RsMinimap.h"
+
+#include <algorithm>
+#include <cmath>
+#include <vector>
+
+#include <libultraship/bridge/consolevariablebridge.h>
+
+#include "WorldMap.h"
+#include "soh/Enhancements/cosmetics/cosmeticsTypes.h"
+#include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
+#include "soh/cvar_prefixes.h"
+#include "soh/frame_interpolation.h"
+
+extern "C" {
+#include <z64.h>
+#include "global.h"
+#include "functions.h"
+#include "macros.h"
+#include "objects/gameplay_keep/gameplay_keep.h"
+extern PlayState* gPlayState;
+// OTRGlobals.h declares these for C only.
+float OTRGetDimensionFromLeftEdge(float v);
+float OTRGetDimensionFromRightEdge(float v);
+}
+
+namespace {
+
+constexpr float kPi = 3.14159265358979f;
+constexpr int32_t kSides = 64;  // the circle's polygon
+constexpr float kFix = 4.0f;    // vertex units an image pixel: sub-pixel circle edges, the whole image in s16
+// Where the circle's bounding box sits by default, in N64 top-left pixels: vanilla's overworld map corner
+// (R_OW_MINIMAP_X/Y's 238/164 start, nudged so a 64 px circle sits inside 248..312 x 164..228).
+constexpr float kBoxLeft = 248.0f;
+constexpr float kBoxTop = 164.0f;
+// The map's background colour (TLUT entry 0, #101114), for the disc under it.
+constexpr uint8_t kBg[3] = { 0x10, 0x11, 0x14 };
+
+// This frame's mapping, set by RsMinimap_Draw and read by the arrow redirect and WorldToScreen.
+struct Frame {
+    bool drawing = false; // inside RsMinimap_Draw's arrow section
+    bool visible = false;
+    int16_t scene = -1;
+    float lpx = 0, lpy = 0;    // Link's pixel
+    float scale = 1;           // screen px an image px
+    float rot = 0;             // radians, applied to geometry space (y up)
+    bool mirror = false;
+    float cx = 0, cy = 0;      // the centre, centre-origin y-up N64 px
+    float rimPx = 0;           // RS_MINIMAP_SCREEN_RADIUS
+    std::vector<Gfx>* dl = nullptr;
+    GraphicsContext* gfxCtx = nullptr;
+};
+Frame sFrame;
+RsMinimapStats sStats = {};
+float sRotUnwrapped = 0.0f;     // the map's turn, kept continuous so interpolation never spins it the long way
+float sLinkArrowUnwrapped = 0.0f;
+
+std::vector<Gfx>& Dl() {
+    static std::vector<Gfx> dl; // the interpreter walks it after the frame is built; cleared at the next draw
+    return dl;
+}
+
+float WrapPi(float a) {
+    while (a > kPi) {
+        a -= 2 * kPi;
+    }
+    while (a < -kPi) {
+        a += 2 * kPi;
+    }
+    return a;
+}
+
+// The nearest value to `prev` that is `target` modulo 2 pi.
+float Unwrap(float prev, float target) {
+    return prev + WrapPi(target - prev);
+}
+
+// Image pixel delta -> screen delta (centre-origin, y up): y flipped, scaled, rotated, mirrored.
+void PixelDeltaToScreen(float dx, float dy, float* sx, float* sy) {
+    const float gx = dx * sFrame.scale;
+    const float gy = -dy * sFrame.scale;
+    const float c = std::cos(sFrame.rot), s = std::sin(sFrame.rot);
+    float rx = gx * c - gy * s;
+    const float ry = gx * s + gy * c;
+    if (sFrame.mirror) {
+        rx = -rx;
+    }
+    *sx = rx;
+    *sy = ry;
+}
+
+// World position -> screen, pinned to the rim. False with no map.
+bool ToScreen(float x, float z, float* sx, float* sy, bool* inside) {
+    float px = 0, py = 0;
+    if (!RsWorldMap_WorldToPixel(sFrame.scene, x, z, &px, &py)) {
+        return false;
+    }
+    float dx = 0, dy = 0;
+    PixelDeltaToScreen(px - sFrame.lpx, py - sFrame.lpy, &dx, &dy);
+    const float d = std::sqrt(dx * dx + dy * dy);
+    const float rim = sFrame.rimPx - 4.0f; // an arrow is about 8 px long: its centre this far in keeps it inside
+    const bool in = d <= rim;
+    if (!in && d > 0) {
+        dx *= rim / d;
+        dy *= rim / d;
+    }
+    *sx = sFrame.cx + dx;
+    *sy = sFrame.cy + dy;
+    if (inside != nullptr) {
+        *inside = in;
+    }
+    return true;
+}
+
+// A world heading (yaw, the way Link's own faces: sin/cos on x/z) -> its direction on this minimap's screen,
+// as the angle vanilla's arrow rotation takes. Vanilla maps world x to screen right and z to screen down, and turns
+// gCompassArrowDL by (0x7FFF - yaw) / 0x400 / 10 radians; this finds the yaw that would point the same way on
+// screen and uses the same formula (unquantized).
+float ArrowAngle(float x, float z, s16 yaw) {
+    const float yr = yaw * (kPi / 32768.0f);
+    float p0x = 0, p0y = 0, p1x = 0, p1y = 0;
+    RsWorldMap_WorldToPixel(sFrame.scene, x, z, &p0x, &p0y);
+    RsWorldMap_WorldToPixel(sFrame.scene, x + std::sin(yr) * 100.0f, z + std::cos(yr) * 100.0f, &p1x, &p1y);
+    float ux = 0, uy = 0;
+    PixelDeltaToScreen(p1x - p0x, p1y - p0y, &ux, &uy);
+    const float screenYaw = std::atan2(ux, -uy); // vanilla's: (sin, -cos) is (right, up)
+    return (32767.0f - screenYaw * (32768.0f / kPi)) / 10240.0f;
+}
+
+void PushArrow(float sx, float sy, float angle, Color_RGB8 color, bool emit) {
+    std::vector<Gfx>& dl = *sFrame.dl;
+    // (sx, sy) is already in the HUD ortho's own (widened, centre-origin) space: Centre() applied the anchor.
+    Matrix_Translate(sx, sy, 0.0f, MTXMODE_NEW);
+    Matrix_Scale(0.4f, 0.4f, 0.4f, MTXMODE_APPLY);
+    Matrix_RotateX(-1.6f, MTXMODE_APPLY);
+    Matrix_RotateY(angle, MTXMODE_APPLY);
+    Mtx* m = Matrix_NewMtx(sFrame.gfxCtx, (char*)__FILE__, __LINE__);
+    if (!emit) {
+        return;
+    }
+    dl.push_back(gsSPMatrix(m, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
+    dl.push_back(gsDPSetPrimColor(0, 0xFF, color.r, color.g, color.b, 255));
+    dl.push_back(gsSPDisplayListOTRFilePath(gCompassArrowDL)); // an OTR path: the gs form does not resolve it
+    sStats.arrows++;
+}
+
+// The circle's polygon in image pixels, clipped to a rect (Sutherland-Hodgman). Convex in, convex out.
+struct P {
+    float x, y;
+};
+void ClipEdge(std::vector<P>& in, std::vector<P>& out, int axis, float bound, bool keepGreater) {
+    out.clear();
+    const size_t n = in.size();
+    for (size_t i = 0; i < n; i++) {
+        const P& a = in[i];
+        const P& b = in[(i + 1) % n];
+        const float av = axis == 0 ? a.x : a.y;
+        const float bv = axis == 0 ? b.x : b.y;
+        const bool ain = keepGreater ? av >= bound : av <= bound;
+        const bool bin = keepGreater ? bv >= bound : bv <= bound;
+        if (ain) {
+            out.push_back(a);
+        }
+        if (ain != bin) {
+            const float t = (bound - av) / (bv - av);
+            out.push_back({ a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t });
+        }
+    }
+    in.swap(out);
+}
+
+std::vector<P> sCircle;
+std::vector<P> sPoly, sScratch;
+
+void SetVtx(Vtx* v, float px, float py, float loadX, float loadY) {
+    v->v.ob[0] = (int16_t)std::lround(px * kFix);
+    v->v.ob[1] = (int16_t)std::lround(-py * kFix);
+    v->v.ob[2] = 0;
+    v->v.flag = 0;
+    v->v.tc[0] = (int16_t)std::lround((px - loadX) * 32.0f);
+    v->v.tc[1] = (int16_t)std::lround((py - loadY) * 32.0f);
+    v->v.cn[0] = v->v.cn[1] = v->v.cn[2] = v->v.cn[3] = 255;
+}
+
+// A convex polygon as a fan, in gSPVertex loads of at most 32: each load repeats the fan's first vertex.
+void PushFan(std::vector<Gfx>& dl, const std::vector<P>& poly, float loadX, float loadY) {
+    const int32_t n = (int32_t)poly.size();
+    if (n < 3) {
+        return;
+    }
+    for (int32_t start = 1; start < n - 1; start += 30) {
+        const int32_t count = std::min(31, n - start); // vertices start..start+count-1, plus the first
+        Vtx* v = (Vtx*)Graph_Alloc(sFrame.gfxCtx, (size_t)(count + 1) * sizeof(Vtx));
+        SetVtx(&v[0], poly[0].x, poly[0].y, loadX, loadY);
+        for (int32_t i = 0; i < count; i++) {
+            SetVtx(&v[i + 1], poly[start + i].x, poly[start + i].y, loadX, loadY);
+        }
+        dl.push_back(gsSPVertex(v, count + 1, 0));
+        for (int32_t i = 1; i < count; i++) {
+            dl.push_back(gsSP1Triangle(0, i, i + 1, 0));
+        }
+    }
+}
+
+void OnBlock(Gfx** gfx, int16_t bx, int16_t by, int16_t bw, int16_t bh, int16_t loadX, int16_t loadY, void* user) {
+    std::vector<Gfx>& dl = *sFrame.dl;
+    // ForEachBlock wrote this block's load at *gfx, inside dl's spare room; take it into dl's length.
+    dl.resize((size_t)(*gfx - dl.data()));
+    sPoly = sCircle;
+    ClipEdge(sPoly, sScratch, 0, (float)bx, true);
+    ClipEdge(sPoly, sScratch, 0, (float)(bx + bw), false);
+    ClipEdge(sPoly, sScratch, 1, (float)by, true);
+    ClipEdge(sPoly, sScratch, 1, (float)(by + bh), false);
+    PushFan(dl, sPoly, loadX, loadY);
+    // Room for the next block's load, which ForEachBlock writes through *gfx.
+    const size_t at = dl.size();
+    dl.resize(at + 32);
+    *gfx = &dl[at];
+    (*(int32_t*)user)++;
+}
+
+// The circle's centre on screen (centre-origin, y up), following vanilla's minimap cosmetics: the anchor, PosX/Y
+// and the HUD margins, the way Minimap_Draw places its overworld map.
+void Centre(float* cx, float* cy) {
+    const int32_t posType = CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosType"), 0);
+    const bool margins = CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.UseMargins"), 0) != 0;
+    const float posX = (float)CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosX"), 0);
+    const float posY = (float)CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosY"), 0);
+    const float mL = margins ? (float)CVarGetInteger(CVAR_COSMETIC("HUD.Margin.L"), 0) : 0.0f;
+    const float mR = margins ? (float)CVarGetInteger(CVAR_COSMETIC("HUD.Margin.R"), 0) : 0.0f;
+    const float mB = margins ? (float)CVarGetInteger(CVAR_COSMETIC("HUD.Margin.B"), 0) : 0.0f;
+    const float r = (float)RS_MINIMAP_SCREEN_RADIUS;
+    float left = 0.0f; // the box's left edge, in the HUD's widened top-left pixels
+    float top = kBoxTop + mB;
+    if (posType == ANCHOR_LEFT) {
+        left = OTRGetDimensionFromLeftEdge(kBoxLeft + posX + mL);
+        top += posY;
+    } else if (posType == ANCHOR_RIGHT) {
+        left = OTRGetDimensionFromRightEdge(kBoxLeft + posX + mR);
+        top += posY;
+    } else if (posType == ANCHOR_NONE) {
+        left = posX;
+        top += posY;
+    } else {
+        left = OTRGetDimensionFromRightEdge(kBoxLeft + mR);
+    }
+    *cx = left + r - SCREEN_WIDTH / 2;
+    *cy = SCREEN_HEIGHT / 2 - (top + r);
+}
+
+} // namespace
+
+extern "C" bool RsMinimap_Handles(PlayState* play) {
+    return play != nullptr && RsWorldMap_Info(play->sceneNum, nullptr);
+}
+
+extern "C" bool RsMinimap_Rotate(void) {
+    return CVarGetInteger(CVAR_RS_MINIMAP_ROTATE, 0) != 0;
+}
+
+extern "C" void RsMinimap_SetRotate(bool rotate) {
+    CVarSetInteger(CVAR_RS_MINIMAP_ROTATE, rotate ? 1 : 0);
+    CVarSave();
+}
+
+extern "C" int32_t RsMinimap_RadiusTiles(void) {
+    return std::clamp(CVarGetInteger(CVAR_RS_MINIMAP_RADIUS, RS_MINIMAP_RADIUS_DEFAULT), RS_MINIMAP_RADIUS_MIN,
+                      RS_MINIMAP_RADIUS_MAX);
+}
+
+extern "C" void RsMinimap_SetRadiusTiles(int32_t tiles) {
+    CVarSetInteger(CVAR_RS_MINIMAP_RADIUS, std::clamp(tiles, RS_MINIMAP_RADIUS_MIN, RS_MINIMAP_RADIUS_MAX));
+    CVarSave();
+}
+
+extern "C" void RsMinimap_GetStats(RsMinimapStats* out) {
+    if (out == nullptr) {
+        return;
+    }
+    *out = sStats;
+    // Stale when the minimap has not run for a frame (a vanilla scene, the pause).
+    if (gPlayState == nullptr || gPlayState->state.frames - sStats.frame > 1) {
+        out->handled = RsMinimap_Handles(gPlayState);
+        out->drawn = false;
+        out->blocks = out->arrows = out->words = 0;
+    }
+}
+
+extern "C" bool RsMinimap_WorldToScreen(f32 x, f32 z, f32* sx, f32* sy, bool* inside) {
+    if (!sFrame.drawing) {
+        return false;
+    }
+    float a = 0, b = 0;
+    if (!ToScreen(x, z, &a, &b, inside)) {
+        return false;
+    }
+    if (sx != nullptr) {
+        *sx = a;
+    }
+    if (sy != nullptr) {
+        *sy = b;
+    }
+    return true;
+}
+
+extern "C" bool RsMinimap_DrawArrow(PlayState* play, f32 x, f32 z, s16 yaw, Color_RGB8 color) {
+    if (!sFrame.drawing || play == nullptr) {
+        return false;
+    }
+    float sx = 0, sy = 0;
+    ToScreen(x, z, &sx, &sy, nullptr);
+    PushArrow(sx, sy, ArrowAngle(x, z, yaw), color, sFrame.visible);
+    return true;
+}
+
+// File-static, not in the anonymous namespace: OPEN_DISPS redeclares FrameInterpolation_RecordOpenChild at block
+// scope, and inside an anonymous namespace MSVC gives that C++ linkage (RsMenu.cpp says the same).
+extern "C" void RsMinimap_Draw(PlayState* play, bool visible) {
+    RsWorldMapInfo info;
+    if (play == nullptr || !RsWorldMap_Info(play->sceneNum, &info)) {
+        return;
+    }
+    GraphicsContext* gfxCtx = play->state.gfxCtx;
+    Player* player = GET_PLAYER(play);
+    std::vector<Gfx>& dl = Dl();
+    dl.clear();
+
+    const uint8_t alpha = (uint8_t)play->interfaceCtx.minimapAlpha;
+    const bool rotate = RsMinimap_Rotate();
+    const int32_t radiusTiles = RsMinimap_RadiusTiles();
+    const float radiusPx = (float)(radiusTiles * info.pxPerTile);
+
+    sFrame.scene = play->sceneNum;
+    sFrame.gfxCtx = gfxCtx;
+    sFrame.dl = &dl;
+    sFrame.visible = visible && alpha > 0;
+    sFrame.mirror = CVarGetInteger(CVAR_ENHANCEMENT("MirroredWorld"), 0) != 0;
+    sFrame.rimPx = (float)RS_MINIMAP_SCREEN_RADIUS;
+    sFrame.scale = sFrame.rimPx / radiusPx;
+    RsWorldMap_WorldToPixel(play->sceneNum, player->actor.world.pos.x, player->actor.world.pos.z, &sFrame.lpx,
+                            &sFrame.lpy);
+    Centre(&sFrame.cx, &sFrame.cy);
+
+    // The turn: rotate mode points the camera's forward direction up the screen. Measured through WorldToPixel so
+    // the grid frame's own turn never has to be derived by hand.
+    float rotTarget = 0.0f;
+    if (rotate) {
+        const float cy = Camera_GetCamDirYaw(GET_ACTIVE_CAM(play)) * (kPi / 32768.0f);
+        float fx = 0, fy = 0;
+        RsWorldMap_WorldToPixel(play->sceneNum, player->actor.world.pos.x + std::sin(cy) * 100.0f,
+                                player->actor.world.pos.z + std::cos(cy) * 100.0f, &fx, &fy);
+        const float gx = fx - sFrame.lpx, gy = -(fy - sFrame.lpy); // geometry space, y up
+        rotTarget = kPi / 2 - std::atan2(gy, gx);
+    }
+    sRotUnwrapped = Unwrap(sRotUnwrapped, rotTarget);
+    sFrame.rot = sRotUnwrapped;
+
+    sStats.blocks = 0;
+    sStats.arrows = 0;
+
+    FrameInterpolation_RecordOpenChild(&sFrame, 0);
+
+    // The map's matrix, recorded every frame whether or not it draws (interpolation matches ops by position).
+    // Geometry (px * 4, -py * 4) -> screen: Link's pixel to the origin, scale, turn, mirror, then the centre.
+    Matrix_Translate(sFrame.cx, sFrame.cy, 0.0f, MTXMODE_NEW);
+    Matrix_Scale(sFrame.mirror ? -1.0f : 1.0f, 1.0f, 1.0f, MTXMODE_APPLY);
+    Matrix_RotateZ(sFrame.rot, MTXMODE_APPLY);
+    Matrix_Scale(sFrame.scale / kFix, sFrame.scale / kFix, 1.0f, MTXMODE_APPLY);
+    Matrix_Translate(-sFrame.lpx * kFix, sFrame.lpy * kFix, 0.0f, MTXMODE_APPLY);
+    Mtx* mapMtx = Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__);
+
+    if (sFrame.visible) {
+        // The circle in image pixels, around Link.
+        sCircle.resize(kSides);
+        for (int32_t i = 0; i < kSides; i++) {
+            const float a = (2 * kPi * i) / kSides;
+            sCircle[i] = { sFrame.lpx + std::cos(a) * radiusPx, sFrame.lpy - std::sin(a) * radiusPx };
+        }
+        dl.reserve(1024);
+        dl.push_back(gsDPPipeSync());
+        dl.push_back(gsSPMatrix(mapMtx, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
+        dl.push_back(gsSPLoadGeometryMode(G_SHADING_SMOOTH));
+        dl.push_back(gsDPSetOtherMode(G_AD_NOTPATTERN | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | G_TF_POINT |
+                                          G_TT_NONE | G_TL_TILE | G_TD_CLAMP | G_TP_PERSP | G_CYC_1CYCLE |
+                                          G_PM_NPRIMITIVE,
+                                      G_AC_NONE | G_ZS_PIXEL | G_RM_XLU_SURF | G_RM_XLU_SURF2));
+        // The disc under the map, a pixel wider on screen: the rim, and dark wherever the circle is off the image.
+        {
+            dl.push_back(gsSPTexture(0, 0, 0, G_TX_RENDERTILE, G_OFF));
+            dl.push_back(gsDPSetCombineMode(G_CC_PRIMITIVE, G_CC_PRIMITIVE));
+            dl.push_back(gsDPSetPrimColor(0, 0, kBg[0], kBg[1], kBg[2], alpha));
+            const float k = (sFrame.rimPx + 1.0f) / sFrame.rimPx;
+            std::vector<P> disc(kSides);
+            for (int32_t i = 0; i < kSides; i++) {
+                disc[i] = { sFrame.lpx + (sCircle[i].x - sFrame.lpx) * k, sFrame.lpy + (sCircle[i].y - sFrame.lpy) * k };
+            }
+            PushFan(dl, disc, 0.0f, 0.0f);
+        }
+        // The map, block by block.
+        dl.push_back(gsDPPipeSync());
+        dl.push_back(gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON));
+        dl.push_back(gsDPSetCombineMode(G_CC_MODULATERGBA_PRIM, G_CC_MODULATERGBA_PRIM));
+        dl.push_back(gsDPSetPrimColor(0, 0, 255, 255, 255, alpha));
+        int32_t blocks = 0;
+        const size_t at = dl.size();
+        dl.resize(at + 32);
+        Gfx* p = &dl[at];
+        RsWorldMap_ForEachBlock(&p, play->sceneNum, sFrame.lpx - radiusPx, sFrame.lpy - radiusPx, 2 * radiusPx,
+                                2 * radiusPx, OnBlock, &blocks);
+        dl.resize((size_t)(p - dl.data()));
+        sStats.blocks = blocks;
+        dl.push_back(gsSPTexture(0, 0, 0, G_TX_RENDERTILE, G_OFF));
+    }
+
+    // The arrows, in vanilla's order and behind vanilla's gate: the vehicles (and #307's icons) under Link's.
+    const bool arrows = sFrame.visible && alpha >= 0xAA;
+    if (arrows) {
+        Gfx setup[2];
+        Gfx_SetupDL(setup, SETUPDL_42);
+        dl.push_back(gsDPPipeSync());
+        dl.push_back(setup[0]);
+        dl.push_back(gsDPSetCombineLERP(PRIMITIVE, ENVIRONMENT, TEXEL0, ENVIRONMENT, TEXEL0, 0, PRIMITIVE, 0,
+                                        PRIMITIVE, ENVIRONMENT, TEXEL0, ENVIRONMENT, TEXEL0, 0, PRIMITIVE, 0));
+        dl.push_back(gsDPSetEnvColor(0, 0, 0, 255));
+        dl.push_back(gsDPSetCombineMode(G_CC_PRIMITIVE, G_CC_PRIMITIVE));
+    }
+    sFrame.drawing = true;
+    if (arrows) {
+        GameInteractor_ExecuteOnMinimapDrawCompassIconsUnderPlayer();
+    }
+    // Link's arrow, at the centre: recorded every frame, emitted only when shown.
+    Color_RGB8 linkColor = { 200, 255, 0 };
+    if (CVarGetInteger(CVAR_COSMETIC("HUD.MinimapPosition.Changed"), 0)) {
+        linkColor = CVarGetColor24(CVAR_COSMETIC("HUD.MinimapPosition.Value"), linkColor);
+    }
+    sLinkArrowUnwrapped =
+        Unwrap(sLinkArrowUnwrapped, ArrowAngle(player->actor.world.pos.x, player->actor.world.pos.z,
+                                               player->actor.shape.rot.y));
+    PushArrow(sFrame.cx, sFrame.cy, sLinkArrowUnwrapped, linkColor, arrows);
+    if (arrows) {
+        GameInteractor_ExecuteOnMinimapDrawCompassIcons();
+    }
+    sFrame.drawing = false;
+
+    FrameInterpolation_RecordCloseChild();
+
+    sStats.handled = true;
+    sStats.drawn = sFrame.visible;
+    sStats.rotate = rotate;
+    sStats.radiusTiles = radiusTiles;
+    sStats.linkPx = sFrame.lpx;
+    sStats.linkPy = sFrame.lpy;
+    sStats.rotDeg = WrapPi(sFrame.rot) * (180.0f / kPi);
+    sStats.centerX = sFrame.cx;
+    sStats.centerY = sFrame.cy;
+    sStats.alpha = alpha;
+    sStats.frame = play->state.frames;
+
+    if (dl.empty()) {
+        sStats.words = 0;
+        return;
+    }
+    dl.push_back(gsDPPipeSync());
+    dl.push_back(gsSPEndDisplayList());
+    sStats.words = (int32_t)dl.size();
+    OPEN_DISPS(gfxCtx);
+    gSPDisplayList(OVERLAY_DISP++, dl.data());
+    CLOSE_DISPS(gfxCtx);
+}
