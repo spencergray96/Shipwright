@@ -551,7 +551,7 @@ std::string DescribeMap() {
                   "drawn_view=%.1f,%.1f,%.1f,%.1f link_arrow=%s scissor=%d arrows=%d",
                   st.pageIndex + 1, st.current ? 1 : 0, st.map ? 1 : 0, st.scene >= 0 ? st.scene : 0xFFFF, st.source,
                   st.reason[0] != '\0' ? st.reason : "-", st.layer, st.storeyMode,
-                  RsMenuMapPage_FogName(RsMenuMapPage_Fog()), RsMenuMapPage_IconsName(RsMenuMapPage_Icons()), st.iconsShown, st.chunks, st.revealed,
+                  RsMenuMapPage_FogName(RsMenuMapPage_Fog()), RsMenuMapPage_Icons() ? "on" : "off", st.iconsShown, st.chunks, st.revealed,
                   st.frame, st.dstX, st.dstY, st.dstW, st.dstH, st.blocks, st.fogQuads, st.words, st.link ? 1 : 0,
                   st.arrowDrawn, st.linkPx, st.linkPy, st.linkSx, st.linkSy, st.linkFlag, st.linkRevealed ? 1 : 0,
                   st.arrow, st.viewCx, st.viewCy, st.viewZoom, st.zoomStep, st.zoomSteps, st.pans, st.drawnView[0],
@@ -688,10 +688,8 @@ int32_t MapCmd(const std::vector<std::string>& args, std::vector<std::string>& l
         Addf(lines, "op=map result=ok action=pan %s %s", DescribeMap().c_str(), Describe().c_str());
         return 0;
     }
-    if (word == "icons" && args.size() == 3 && (args[2] == "on" || args[2] == "off" || args[2] == "zoomed")) {
-        RsMenuMapPage_SetIcons(args[2] == "on"       ? RS_MENU_MAP_ICONS_ON
-                               : args[2] == "zoomed" ? RS_MENU_MAP_ICONS_ZOOMED
-                                                     : RS_MENU_MAP_ICONS_OFF);
+    if (word == "icons" && args.size() == 3 && (args[2] == "on" || args[2] == "off")) {
+        RsMenuMapPage_SetIcons(args[2] == "on");
         Addf(lines, "op=map result=ok action=icons %s %s", DescribeMap().c_str(), Describe().c_str());
         return 0;
     }
@@ -1126,7 +1124,7 @@ const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custo
                      "flight hold <n>|release | song | "
                      "inv <kind> <a> <b> | namepanel custom <item>|off | timer <seconds>|off | "
                      "map [reveal <sx> <sy>|reveal all|reveal none|node <sx> <sy>|hide <sx> <sy>|fog hide|dim|"
-                     "icons off|zoomed|on|arrow vanilla|custom|zoom in|out|pan <dx> <dy>] | "
+                     "icons on|off|arrow vanilla|custom|zoom in|out|pan <dx> <dy>] | "
                      "focus [in|out|loop|hold <in|out> <tick>|stop] | dump";
 
 } // namespace
@@ -1223,7 +1221,7 @@ const ConsoleSink::Command menuCommand(
     "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
     "stress [<n> [same]|off|memo <on|off>] | cursor [left|right|up|down|select|<id>] | "
     "probe [on|off] | kaleido | equips | hud | flight hold <n>|release | song | inv <kind> <a> <b> | "
-    "namepanel custom <item>|off | map [reveal|node|hide <sx> <sy>|reveal all|none|fog hide|dim|icons off|zoomed|on|"
+    "namepanel custom <item>|off | map [reveal|node|hide <sx> <sy>|reveal all|none|fog hide|dim|icons on|off|"
     "arrow vanilla|custom|zoom in|out|pan <dx> <dy>] | focus [in|out|loop|hold <in|out> <tick>|stop] | dump. "
     "The scroll opens on START when primary is custom (N64 L is the minimap's) "
     "and hard-freezes the world; primary decides which menu START opens, and is a subcommand because "
@@ -1335,9 +1333,8 @@ map                           the World Map page and its fog of war
     hide                      opaque, nothing shows through
     dim                       darkened, the map shows through
   icons                       the map icons (#307; saved)
-    on                        at every zoom (default)
-    zoomed                    only zoomed in, 1.5x and up
-    off                       never
+    on                        shown at every zoom
+    off                       hidden (default)
   arrow                       Link's arrow on the map
     vanilla                   vanilla's compass arrow, as on the minimap
     custom                    the page's own two-triangle arrow

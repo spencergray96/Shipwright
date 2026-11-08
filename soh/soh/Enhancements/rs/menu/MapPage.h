@@ -8,7 +8,7 @@
 #include <vector>
 
 #define CVAR_RS_MENU_MAP_FOG CVAR_ENHANCEMENT("RsMenuMapFog")     // 0 hide (default), 1 dim
-#define CVAR_RS_MENU_MAP_ICONS CVAR_ENHANCEMENT("RsMenuMapIcons") // 0 off, 1 zoomed, 2 on (default) (#307)
+#define CVAR_RS_MENU_MAP_ICONS CVAR_ENHANCEMENT("RsMenuMapIcons") // 0 off (default), anything else on (#307)
 #define CVAR_RS_MENU_MAP_ARROW CVAR_ENHANCEMENT("RsMenuMapArrow") // 0 vanilla compass (default), 1 custom
 
 enum RsMenuMapFog {
@@ -23,24 +23,15 @@ enum RsMenuMapArrow {
     RS_MENU_MAP_ARROW_CUSTOM = 1,
 };
 
-// The map icons (#307, RsMapIcons.h): never, only in a zoomed-in view (1.5x and up, faded in over the first step),
-// or at every zoom, the whole world included (the default: the owner, 2026-11-07). A player-facing option comes
-// later; the CVar and `menu map icons` are the knob for now.
-enum RsMenuMapIcons {
-    RS_MENU_MAP_ICONS_OFF = 0,
-    RS_MENU_MAP_ICONS_ZOOMED = 1,
-    RS_MENU_MAP_ICONS_ON = 2,
-};
-#define RS_MENU_MAP_ICONS_DEFAULT RS_MENU_MAP_ICONS_ON
-
 void RsMenuMapPage_Register();
 
 RsMenuMapFog RsMenuMapPage_Fog();
 void RsMenuMapPage_SetFog(RsMenuMapFog fog);
 const char* RsMenuMapPage_FogName(RsMenuMapFog fog);
-RsMenuMapIcons RsMenuMapPage_Icons();
-void RsMenuMapPage_SetIcons(RsMenuMapIcons mode);
-const char* RsMenuMapPage_IconsName(RsMenuMapIcons mode);
+// The map icons (#307, RsMapIcons.h) on this page: on at every zoom or off, OFF by default (the owner, 2026-11-07).
+// In-page controls for this and the other map options come later; the CVar and `menu map icons` are the knob now.
+bool RsMenuMapPage_Icons();
+void RsMenuMapPage_SetIcons(bool on);
 RsMenuMapArrow RsMenuMapPage_Arrow();
 void RsMenuMapPage_SetArrow(RsMenuMapArrow arrow);
 const char* RsMenuMapPage_ArrowName(RsMenuMapArrow arrow);
@@ -95,8 +86,8 @@ struct RsMenuMapPageStatus {
     };
     std::vector<Arrow> arrows;
     // #307: every table icon on the map's scene, and what the last frame did with it. state: in | edge | out (the
-    // view), fog (its chunk is hidden), storey (its plane is not on the layer drawn), zoom (`zoomed` mode at the
-    // whole-world view), off (the toggle is off), no_sprite. alpha: the fade in over the first zoom step (255 settled).
+    // view), fog (its chunk is hidden), storey (its plane is not on the layer drawn), off (the toggle is off),
+    // no_sprite. alpha: the prim alpha it drew with (255).
     // size: its width in game units on the page (constant at every zoom step).
     int32_t iconsShown; // icons drawn last frame with any part showing
     float iconUnits;    // an icon's width in game units

@@ -48,7 +48,7 @@
  * so they stay readable. Their vertices are image pixels x4 under a nested scale of the placement (Push, Scale,
  * NewMtx, Pop, NewMtx, recorded every frame), so a corner is never rounded to a whole image pixel: at the whole-world
  * view an image pixel is most of a screen pixel, and rounded corners would make the 15 texels uneven. RsMenuMapIcons:
- * off | zoomed (1.5x and up, faded in over the first step) | on (every zoom, the default).
+ * on (every zoom) or off, OFF by default.
  *
  * THE CUSTOM ARROW (296d1d210, kept behind RsMenuMapArrow `custom`): two triangles, a fill of 255,226,88 over an
  * edge of 40,24,8 drawn 1.35x larger, kArrowUnits (7) game units long, rotated in software.
@@ -123,7 +123,6 @@ constexpr float kArrowUnits = 7.0f;  // the custom arrow's length, game units
 // is the same size on both maps before the focus zoom scales the scroll.
 constexpr float kIconTexelUnits = RS_MINIMAP_ICON_TEXEL;
 constexpr float kIconFix = 4.0f;     // icon vertex units an image pixel (the nested scale is 1 / kIconFix)
-constexpr float kIconZoomFull = 1.5f; // `zoomed`: fully shown from this zoom, faded in from 1x
 constexpr float kCompassScale = 0.4f; // vanilla's minimap arrow scale (Minimap_DrawCompassIcons), as #306 draws it
 constexpr float kViewMarginPx = 2.0f;
 constexpr float kScissorSlack = 1.5f; // game units the scissor sits outside the box, half the masks' depth // image pixels drawn past the view on every side, under the masks
@@ -623,13 +622,9 @@ void DrawIcons(GraphicsContext* gfxCtx, std::vector<Gfx>& dl, int16_t scene, flo
                const float emit[4]) {
     RsMapIcon icons[32];
     const int32_t n = RsMapIcons_ForScene(scene, icons, 32);
-    const RsMenuMapIcons mode = RsMenuMapPage_Icons();
-    // `zoomed` fades in over the first zoom step, so the icons never pop in at the end of it.
-    float fade = 1.0f;
-    if (mode == RS_MENU_MAP_ICONS_ZOOMED) {
-        fade = std::min(1.0f, std::max(0.0f, (zoom - 1.0f) / (kIconZoomFull - 1.0f)));
-    }
-    const uint8_t alpha = (uint8_t)std::lround(fade * 255.0f);
+    const bool on = RsMenuMapPage_Icons();
+    (void)zoom;
+    const uint8_t alpha = 255;
     bool stateSet = false;
     for (int32_t i = 0; i < n; i++) {
         const RsMapIconDef* d = icons[i].def;
@@ -639,10 +634,8 @@ void DrawIcons(GraphicsContext* gfxCtx, std::vector<Gfx>& dl, int16_t scene, flo
         IconInfo info = { d->name, d->token, "in", px, py, alpha };
         RsSpriteInfo sprite = {};
         const char* path = RsSprites_Path(d->token);
-        if (mode == RS_MENU_MAP_ICONS_OFF) {
+        if (!on) {
             info.state = "off";
-        } else if (alpha == 0) {
-            info.state = "zoom";
         } else if (!icons[i].onLayer) {
             info.state = "storey";
         } else if (!RsMapReveal_IsRevealed(d->rsX >> 6, d->rsY >> 6)) {
@@ -1095,25 +1088,13 @@ const char* RsMenuMapPage_FogName(RsMenuMapFog fog) {
     return fog == RS_MENU_MAP_FOG_DIM ? "dim" : "hide";
 }
 
-RsMenuMapIcons RsMenuMapPage_Icons() {
-    const int32_t v = CVarGetInteger(CVAR_RS_MENU_MAP_ICONS, RS_MENU_MAP_ICONS_DEFAULT);
-    return v >= RS_MENU_MAP_ICONS_OFF && v <= RS_MENU_MAP_ICONS_ON ? (RsMenuMapIcons)v : RS_MENU_MAP_ICONS_DEFAULT;
+bool RsMenuMapPage_Icons() {
+    return CVarGetInteger(CVAR_RS_MENU_MAP_ICONS, 0) != 0;
 }
 
-void RsMenuMapPage_SetIcons(RsMenuMapIcons mode) {
-    CVarSetInteger(CVAR_RS_MENU_MAP_ICONS, (int32_t)mode);
+void RsMenuMapPage_SetIcons(bool on) {
+    CVarSetInteger(CVAR_RS_MENU_MAP_ICONS, on ? 1 : 0);
     CVarSave();
-}
-
-const char* RsMenuMapPage_IconsName(RsMenuMapIcons mode) {
-    switch (mode) {
-        case RS_MENU_MAP_ICONS_OFF:
-            return "off";
-        case RS_MENU_MAP_ICONS_ZOOMED:
-            return "zoomed";
-        default:
-            return "on";
-    }
 }
 
 RsMenuMapArrow RsMenuMapPage_Arrow() {

@@ -9,8 +9,8 @@
  *
  * WHO DRAWS THEM. The HUD minimap (RsMinimap.h): this file hooks OnMinimapDrawCompassIconsUnderPlayer and prints each
  * icon on the map with RsMinimap_DrawIcon (under Link's arrow, clipped to the circle). The pause map page (#303,
- * rs/menu/MapPage.cpp) reads the same table through RsMapIcons_ForScene, behind RsMenuMapIcons (off | zoomed | on,
- * default on), and hides an icon whose chunk is still fogged.
+ * rs/menu/MapPage.cpp) reads the same table through RsMapIcons_ForScene, behind RsMenuMapIcons (on | off, default
+ * off), and hides an icon whose chunk is still fogged.
  *
  * STOREYS. An icon shows when its plane is in the layer the storey CVar draws: alone k shows plane k, a stack 0..k
  * shows planes 0..k. So with the default (`below`) a ground-floor icon is always there.
