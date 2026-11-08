@@ -108,6 +108,21 @@ RegisterShipInitFunc rsVehicleMinimapInitFunc(RegisterRsVehicleMinimap);
 
 } // namespace
 
+void RsVehicleMinimap_MapArrows(std::vector<RsVehicleMapArrow>& out) {
+    out.clear();
+    if (gPlayState == nullptr) {
+        return;
+    }
+    for (Actor* a = gPlayState->actorCtx.actorLists[ACTORCAT_BG].head; a != nullptr; a = a->next) {
+        if (a->update == nullptr || !ShowsOnMinimap(a)) {
+            continue;
+        }
+        const Color_RGB8 c = ArrowColor(a);
+        out.push_back({ a, a->id == ACTOR_RS_BALLOON, a->world.pos.x, a->world.pos.z, a->shape.rot.y, { c.r, c.g, c.b },
+                        LinkAtControls(a) });
+    }
+}
+
 int32_t RsVehicleMinimap_Arrow(const Actor* vehicle) {
     // The draw runs once a game frame; the console may run before or after this frame's, so the last one or this
     // one is current. Older means the minimap has not been drawn since.

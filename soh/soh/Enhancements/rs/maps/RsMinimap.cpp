@@ -65,8 +65,8 @@ float sSnapGrid = 0.0f;         // last frame's snap step in HUD ortho units (0:
 bool sLastArrowOut = false;     // the last RsMinimap_DrawArrow left nothing inside the circle
 // The arrow's silhouette, measured off vanilla's gCompassArrowDL at its 0.4 scale: a triangle 7.6 N64 px from
 // tip to base and 3.8 across the base, its origin in the middle of that length.
-constexpr float kArrowHalfLen = 3.8f;
-constexpr float kArrowHalfWidth = 1.9f;
+constexpr float kArrowHalfLen = RS_MINIMAP_ARROW_HALF_LEN;
+constexpr float kArrowHalfWidth = RS_MINIMAP_ARROW_HALF_WIDTH;
 
 std::vector<Gfx>& Dl() {
     static std::vector<Gfx> dl; // the interpreter walks it after the frame is built; cleared at the next draw
@@ -326,6 +326,31 @@ void Centre(float* cx, float* cy) {
 
 } // namespace
 
+extern "C" Color_RGB8 RsMinimap_LinkColor(void) {
+    Color_RGB8 color = { 200, 255, 0 };
+    if (CVarGetInteger(CVAR_COSMETIC("HUD.MinimapPosition.Changed"), 0)) {
+        color = CVarGetColor24(CVAR_COSMETIC("HUD.MinimapPosition.Value"), color);
+    }
+    return color;
+}
+
+extern "C" Color_RGB8 RsMinimap_EntranceColor(void) {
+    Color_RGB8 color = { 200, 0, 0 };
+    if (CVarGetInteger(CVAR_COSMETIC("HUD.MinimapEntrance.Changed"), 0)) {
+        color = CVarGetColor24(CVAR_COSMETIC("HUD.MinimapEntrance.Value"), color);
+    }
+    return color;
+}
+
+// Vanilla's sPlayerInitial*, its direction kept in vanilla's 1/64-turn steps, as a world yaw.
+extern "C" void RsMinimap_EntrancePose(f32* x, f32* z, s16* yaw) {
+    s16 ex = 0, ez = 0, edir = 0;
+    Minimap_GetPlayerInitial(&ex, &ez, &edir);
+    *x = ex;
+    *z = ez;
+    *yaw = (s16)(0x7FFF - edir * 0x400);
+}
+
 extern "C" bool RsMinimap_Handles(PlayState* play) {
     return play != nullptr && RsWorldMap_Info(play->sceneNum, nullptr);
 }
@@ -543,10 +568,7 @@ extern "C" void RsMinimap_Draw(PlayState* play, bool visible) {
         dl.push_back(gsDPSetCombineMode(G_CC_PRIMITIVE, G_CC_PRIMITIVE));
     }
     // Link's arrow, at the centre: recorded every frame, emitted only when shown.
-    Color_RGB8 linkColor = { 200, 255, 0 };
-    if (CVarGetInteger(CVAR_COSMETIC("HUD.MinimapPosition.Changed"), 0)) {
-        linkColor = CVarGetColor24(CVAR_COSMETIC("HUD.MinimapPosition.Value"), linkColor);
-    }
+    const Color_RGB8 linkColor = RsMinimap_LinkColor();
     sLinkArrowUnwrapped =
         Unwrap(sLinkArrowUnwrapped, ArrowAngle(player->actor.world.pos.x, player->actor.world.pos.z,
                                                player->actor.shape.rot.y));
@@ -554,15 +576,12 @@ extern "C" void RsMinimap_Draw(PlayState* play, bool visible) {
     if (arrows) {
         // The red entrance arrow: where Link came into the scene, facing the way he faced (vanilla's
         // sPlayerInitial*, its direction kept in vanilla's 1/64-turn steps).
-        s16 ex = 0, ez = 0, edir = 0;
-        Minimap_GetPlayerInitial(&ex, &ez, &edir);
-        Color_RGB8 entranceColor = { 200, 0, 0 };
-        if (CVarGetInteger(CVAR_COSMETIC("HUD.MinimapEntrance.Changed"), 0)) {
-            entranceColor = CVarGetColor24(CVAR_COSMETIC("HUD.MinimapEntrance.Value"), entranceColor);
-        }
+        f32 ex = 0, ez = 0;
+        s16 eyaw = 0;
+        RsMinimap_EntrancePose(&ex, &ez, &eyaw);
         float px = 0, py = 0, ux = 0, uy = 0;
-        MapPose(ex, ez, (s16)(0x7FFF - edir * 0x400), &px, &py, &ux, &uy);
-        sStats.entranceShown = DrawMapArrow(px, py, ux, uy, entranceColor);
+        MapPose(ex, ez, eyaw, &px, &py, &ux, &uy);
+        sStats.entranceShown = DrawMapArrow(px, py, ux, uy, RsMinimap_EntranceColor());
         GameInteractor_ExecuteOnMinimapDrawCompassIcons();
     } else {
         sStats.entranceShown = false;

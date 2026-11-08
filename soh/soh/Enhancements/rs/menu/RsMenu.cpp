@@ -155,6 +155,8 @@
 #include "NamePanel.h"
 #include "PauseLink.h"
 #include "QuestPage.h"
+#include "MapPage.h"
+#include "RsMenuRaw.h"
 #include "VanillaPages.h"
 #include "VanillaPagesInternal.h"
 
@@ -987,6 +989,71 @@ static const char* LevelPhaseName(int32_t pose) {
 constexpr s16 kLevelBShiftX = 33;
 constexpr s16 kLevelBShiftY = -1;
 
+// --- focus (#303): the whole scroll zooms toward the screen ----------------------------------------
+//
+// RsMenu.h, "focus", has the design. The pose is the level gesture's shape on its own counter: an integer
+// 0..kFocusTicks along the way IN, played backwards on the way out, so out cannot drift from in. The HUD
+// rides it the way the level-1 HUD rides the level pose: everything but B fades out over the first half,
+// B fades out with it, moves at the swap tick while invisible (a texture rectangle cannot glide), and fades
+// back in at its level-1 spot as "Return".
+constexpr int32_t kFocusTicks = 8;
+constexpr int32_t kFocusSwapTick = kFocusTicks / 2;
+// How far the parchment's top and bottom edges end from the screen's, game units.
+constexpr float kFocusEdge = 4.0f;
+// B's focused spot: further right than the level-1 one (A's place), which lands on the focused map's top-right
+// corner. Centre to centre from B's own place: B's centre ends at game x ~288, past the zoomed map's frame
+// (~268 at 16:9). B is right-anchored and the map is centred, so on a narrower window the two close up again.
+constexpr s16 kFocusBShiftX = 60;
+constexpr s16 kFocusBShiftY = -1;
+static bool sFocused = false; // the logical answer: true once a focus-in has started, until a focus-out ends
+static bool sFocusActive = false;
+static int32_t sFocusTick = 0;
+static int32_t sFocusDir = 1;
+static bool sFocusHold = false;
+static bool sFocusLoop = false; // `menu focus loop`: in, out, in... for a burst of mid-zoom captures
+static int32_t sFocuses = 0;
+static int32_t sFocusInputTicks = 0;
+static bool sFocusLeaving = false; // B pressed while focused; the page is putting its view back (focusLeave)
+// Whether ApplyLevelHud has written the focus alphas since the scroll was last at rest.
+static bool sFocusHudTouched = false;
+
+static int32_t FocusPose() {
+    if (!sFocusActive) {
+        return sFocused ? kFocusTicks : 0;
+    }
+    return sFocusDir > 0 ? sFocusTick : kFocusTicks - sFocusTick;
+}
+
+static float FocusAmountAt(int32_t pose) {
+    return EaseInOut((float)pose / (float)kFocusTicks);
+}
+
+// The scale that puts the parchment's edges kFocusEdge from the screen's.
+static float FocusTargetScale() {
+    return ((float)SCREEN_HEIGHT - 2.0f * kFocusEdge) / (float)(kPanelY1 - kPanelY0);
+}
+
+// Everything but B: 1 at rest, 0 from the swap tick on.
+static float FocusHudShown() {
+    const int32_t pose = FocusPose();
+    if (pose >= kFocusSwapTick) {
+        return 0.0f;
+    }
+    return 1.0f - EaseInOut((float)pose / (float)kFocusSwapTick);
+}
+
+static bool FocusBMoved() {
+    return FocusPose() >= kFocusSwapTick;
+}
+
+static float FocusBShown() {
+    const int32_t pose = FocusPose();
+    if (pose < kFocusSwapTick) {
+        return FocusHudShown();
+    }
+    return EaseInOut((float)(pose - kFocusSwapTick) / (float)(kFocusTicks - kFocusSwapTick));
+}
+
 // START's and A's share of their full alpha: 1 at level 0, 0 from the swap tick on.
 static float LevelHudShown() {
     const int32_t pose = LevelPose();
@@ -1000,12 +1067,17 @@ static float LevelHudShown() {
 // opened over a HUD something else had hidden. The page stepper (#128) draws at exactly this, so the two
 // cannot part company.
 static float StartShown() {
-    return sHudShown ? HudEntryShown() * LevelHudShown() : 0.0f;
+    return sHudShown ? HudEntryShown() * LevelHudShown() * FocusHudShown() : 0.0f;
 }
 
 // Whether B is at its level-1 spot: from the swap tick on, when it is invisible.
 static bool LevelBMoved() {
     return LevelPose() >= kLevelSwapTick;
+}
+
+// #303: B moves to the same spot, labelled "Return", for a focus too.
+static bool BMoved() {
+    return LevelBMoved() || FocusBMoved();
 }
 
 // B's share of its full alpha: out with START and A, then back in at the new spot.
@@ -1036,6 +1108,33 @@ static void ApplyLevelHud(PlayState* play) {
     sLevelHudTouched = offFlat;
 }
 
+// #303: the focus pose's HUD - ALL of it, not only A and B (the owner, 2026-11-07: hearts, magic, rupees and
+// the button cluster go; only B stays, as "Return" at the top right). Written directly, on the level HUD's
+// terms: each element at the alpha it settles at under HUD_VISIBILITY_ALL (255, or 70 for a disabled button),
+// scaled by the pose. The rupee counter draws at `magicAlpha`. START and the page stepper ride StartShown. At
+// rest after a focus it writes the full alphas once and hands the HUD back.
+static void ApplyFocusHud(PlayState* play) {
+    const bool offRest = FocusPose() > 0;
+    if (!sHudShown || (!offRest && !sFocusHudTouched)) {
+        return;
+    }
+    InterfaceContext* ic = &play->interfaceCtx;
+    const float shown = FocusHudShown();
+    auto full = [](int32_t button) { return gSaveContext.buttonStatus[button] == BTN_DISABLED ? 70.0f : 255.0f; };
+    ic->healthAlpha = (s16)(255.0f * shown);
+    ic->magicAlpha = (s16)(255.0f * shown);
+    ic->cLeftAlpha = (s16)(full(1) * shown);
+    ic->cDownAlpha = (s16)(full(2) * shown);
+    ic->cRightAlpha = (s16)(full(3) * shown);
+    ic->aAlpha = (s16)(full(4) * shown);
+    ic->dpadUpAlpha = (s16)(full(5) * shown);
+    ic->dpadDownAlpha = (s16)(full(6) * shown);
+    ic->dpadLeftAlpha = (s16)(full(7) * shown);
+    ic->dpadRightAlpha = (s16)(full(8) * shown);
+    ic->bAlpha = (s16)(full(0) * FocusBShown());
+    sFocusHudTouched = offRest;
+}
+
 // B's label, the one place it is set while the menu is up: "Save" as #125 set it, and "Return" at level
 // 1, where B goes back up - the stock DO_ACTION_RETURN texture, the one the START button carries. The
 // swap happens while B is invisible (LevelBMoved flips at the swap tick, where B's alpha is 0). Only once
@@ -1050,7 +1149,7 @@ static void ApplyLevelBLabel(PlayState* play) {
     if (ic->unk_1EC != 0) {
         return;
     }
-    const u16 want = LevelBMoved() ? DO_ACTION_RETURN : DO_ACTION_SAVE;
+    const u16 want = BMoved() ? DO_ACTION_RETURN : DO_ACTION_SAVE;
     if (sBLabelPending || ic->unk_1FC != want) {
         Interface_LoadActionLabelB(play, want);
         sBLabelPending = false;
@@ -1678,7 +1777,20 @@ static void ApplyBaseMatrix() {
     // chain, so the whole assembly rises and falls as one piece and the probe's four-channel
     // measurement still means what it meant at stage 5 (the drop is a constant, so it cancels out of
     // every probe difference).
-    Matrix_Translate(0.0f, -RsMenu_ScreenDy(), 0.0f, MTXMODE_NEW);
+    //
+    // #303's focus zoom is three more ops IN FRONT of it, on every chain, every frame: translate the parchment's
+    // centre to where the zoom puts it, scale, translate the centre back to the origin. At rest the scale is 1
+    // and the two translates cancel, so the chain is the identity it always was; the op count never changes, so
+    // positional matching holds (the stage-5 rule). The pivot is the panel's centre as drawn (after the drop),
+    // and focused it lands on the screen's centre.
+    const float amount = FocusAmountAt(FocusPose());
+    const float scale = 1.0f + (FocusTargetScale() - 1.0f) * amount;
+    const float pivotX = (float)kPanelCentreX - (float)(SCREEN_WIDTH / 2);
+    const float pivotY = (float)(SCREEN_HEIGHT / 2) - ((float)(kPanelY0 + kPanelY1) / 2.0f + RsMenu_ScreenDy());
+    Matrix_Translate(pivotX * (1.0f - amount), pivotY * (1.0f - amount), 0.0f, MTXMODE_NEW);
+    Matrix_Scale(scale, scale, 1.0f, MTXMODE_APPLY);
+    Matrix_Translate(-pivotX, -pivotY, 0.0f, MTXMODE_APPLY);
+    Matrix_Translate(0.0f, -RsMenu_ScreenDy(), 0.0f, MTXMODE_APPLY);
 }
 
 // THE TURN, and the rule it obeys (stage 6): the rotation about the pivot is in EVERY chain that
@@ -1949,6 +2061,17 @@ static void DrawCursorOutline(const RsMenuCursorNode& node) {
         dl.push_back(gsSP1Quadrangle(b + 0, b + 2, b + 3, b + 1, 0));
         sDrawQuads++;
     }
+}
+
+// #303: RsMenuRaw.h. sInView is true exactly while a page body (or a detail view) is being drawn.
+bool RsMenu_BeginRawDraw(GraphicsContext** gfxCtx, std::vector<Gfx>** dl) {
+    if (sDrawGfxCtx == nullptr || !sInView) {
+        return false;
+    }
+    sListState = RS_LIST_OTHER;
+    *gfxCtx = sDrawGfxCtx;
+    *dl = &MenuDl();
+    return true;
 }
 
 void RsMenu_DrawBar(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t r, uint8_t g, uint8_t b) {
@@ -2492,6 +2615,8 @@ const char* RsMenu_SelectResultName(RsMenuSelectResult result) {
             return "item";
         case RS_MENU_SELECT_DESCEND:
             return "descend";
+        case RS_MENU_SELECT_FOCUS:
+            return "focus";
     }
     return "unknown";
 }
@@ -2501,8 +2626,19 @@ RsMenuSelectResult RsMenu_SelectCursor() {
     if (node == nullptr) {
         return RS_MENU_SELECT_NONE;
     }
-    if (sSweepActive || sLevelActive) {
+    if (sSweepActive || sLevelActive || sFocusActive || sFocused) {
         return RS_MENU_SELECT_BUSY;
+    }
+    // #303: an item on a page that focuses rather than descends. The page's `select` still says yes or no.
+    if (node->hand < 0) {
+        const RsMenuPage* page = RsMenu_PageAt(sPage);
+        if (page != nullptr && page->selectFocus) {
+            if (page->select == nullptr || !page->select(sPage, node, page->userData) || !RsMenu_StartFocus(1)) {
+                return RS_MENU_SELECT_ITEM;
+            }
+            sCursorSelects++;
+            return RS_MENU_SELECT_FOCUS;
+        }
     }
     if (node->hand < 0) {
         // An item leads down a level if its page has a detail view for it - and only then.
@@ -2690,6 +2826,137 @@ static void ResetLevel() {
     sLevelTick = 0;
     sLevelLoop = false;
     sLevelHold = false;
+}
+
+// #303: the focus pose. In from rest only, out from focused only; refused while anything else animates.
+bool RsMenu_StartFocus(int32_t dir) {
+    if (sFocusActive || sSweepActive || sLevelActive || sLevel != 0) {
+        return false;
+    }
+    if ((dir > 0 && sFocused) || (dir < 0 && !sFocused)) {
+        return false;
+    }
+    sFocusActive = true;
+    sFocusTick = 0;
+    sFocusDir = dir > 0 ? 1 : -1;
+    sFocused = true; // true for the whole of the way in AND the way out; AdvanceFocus clears it at the end
+    if (dir > 0) {
+        sFocuses++;
+    }
+    return true;
+}
+
+static void AdvanceFocus() {
+    if (!sFocusActive || sFocusHold) {
+        return;
+    }
+    sFocusTick++;
+    if (sFocusTick >= kFocusTicks) {
+        sFocusActive = false;
+        sFocusTick = 0;
+        sFocused = sFocusDir > 0;
+        if (sFocusLoop) {
+            RsMenu_StartFocus(-sFocusDir);
+        }
+    }
+}
+
+// Straight back to rest with nothing moving: opening, closing, an instant page change.
+static void ResetFocus() {
+    sFocused = false;
+    sFocusActive = false;
+    sFocusTick = 0;
+    sFocusHold = false;
+    sFocusLoop = false;
+    sFocusLeaving = false;
+}
+
+bool RsMenu_FocusLeaving() {
+    return sFocusLeaving;
+}
+
+// B while focused: out, unless the page wants a moment to put its view back first.
+static void LeaveFocus() {
+    const RsMenuPage* page = RsMenu_PageAt(sPage);
+    if (page != nullptr && page->focusLeave != nullptr && !page->focusLeave(sPage, page->userData)) {
+        sFocusLeaving = true;
+        return;
+    }
+    sFocusLeaving = false;
+    RsMenu_StartFocus(-1);
+}
+
+bool RsMenu_IsFocused() {
+    return sFocused || sFocusActive;
+}
+
+float RsMenu_FocusAmount() {
+    return FocusAmountAt(FocusPose());
+}
+
+bool RsMenu_HoldFocus(int32_t dir, int32_t tick) {
+    if (sSweepActive || sLevelActive || sLevel != 0 || tick < 0 || tick > kFocusTicks) {
+        return false;
+    }
+    sFocusActive = true;
+    sFocusHold = true;
+    sFocusDir = dir > 0 ? 1 : -1;
+    sFocusTick = tick;
+    sFocused = true;
+    return true;
+}
+
+bool RsMenu_StartFocusLoop() {
+    if (!sFocusActive && !RsMenu_StartFocus(sFocused ? -1 : 1)) {
+        return false;
+    }
+    sFocusLoop = true;
+    return true;
+}
+
+void RsMenu_StopFocusHold() {
+    sFocusLoop = false;
+    if (!sFocusHold) {
+        return;
+    }
+    // Land where the held pose is nearer: focused past the middle of the way in, at rest otherwise.
+    const bool in = FocusPose() * 2 >= kFocusTicks;
+    sFocusHold = false;
+    sFocusActive = false;
+    sFocusTick = 0;
+    sFocused = in;
+}
+
+RsMenuFocusState RsMenu_FocusState() {
+    RsMenuFocusState st = {};
+    st.focused = RsMenu_IsFocused();
+    st.active = sFocusActive;
+    st.tick = sFocusTick;
+    st.ticks = kFocusTicks;
+    st.dir = sFocusDir;
+    st.pose = FocusPose();
+    st.hold = sFocusHold;
+    st.loop = sFocusLoop;
+    st.amount = RsMenu_FocusAmount();
+    st.target = FocusTargetScale();
+    st.scale = 1.0f + (st.target - 1.0f) * st.amount;
+    st.pivotY = (float)(kPanelY0 + kPanelY1) / 2.0f + RsMenu_ScreenDy();
+    st.hudShown = FocusHudShown();
+    st.bShown = FocusBShown();
+    st.bMoved = FocusBMoved();
+    st.focuses = sFocuses;
+    st.inputTicks = sFocusInputTicks;
+    return st;
+}
+
+bool RsMenu_ScrollStill() {
+    return sPhase == RS_MENU_PHASE_OPEN && !sProbe && !sSweepActive && !sLevelActive && !sFocusActive;
+}
+
+void RsMenu_PanelColour(uint8_t rgb[3]) {
+    rgb[0] = kPanelBodyColour[0];
+    rgb[1] = kPanelBodyColour[1];
+    rgb[2] = kPanelBodyColour[2];
 }
 
 // #127: tells a page it is no longer the one on show, or that the menu is closing (RsMenu.h, `reset`).
@@ -2905,6 +3172,19 @@ static void UpdateNavigation(const Input* input) {
     if (sLevelActive || sSweepActive || RsVanilla_EquipFlightActive() || (sPageHold & RS_MENU_HOLD_CURSOR)) {
         return;
     }
+    // #303: focused, the stick and the D-pad do not walk the graph; the page's own focused controls get the
+    // held and pressed buttons instead, once the zoom has settled.
+    if (sFocusActive) {
+        return;
+    }
+    if (sFocused) {
+        if (page != nullptr && page->focusTick != nullptr) {
+            // While leaving, the page's animations run on but it gets no buttons.
+            page->focusTick(sPage, sFocusLeaving ? 0 : input->cur.button, sFocusLeaving ? 0 : press, page->userData);
+            sFocusInputTicks++;
+        }
+        return;
+    }
 
     if (sLevel != 0) {
         const int32_t dy = navY != 0 ? navY : stickY;
@@ -3018,6 +3298,7 @@ static void RsMenu_OnGameFrameUpdate() {
             // The START button fades with the entry slide, as kaleido fades it over its open and close.
             play->interfaceCtx.startAlpha = (s16)(255.0f * StartShown());
             ApplyLevelHud(play);
+            ApplyFocusHud(play);
             ApplyLevelBLabel(play);
         }
         // The flying equip icon moves on the game tick, before any input: kaleido's UpdateItemEquip runs
@@ -3060,6 +3341,10 @@ static void RsMenu_OnGameFrameUpdate() {
 
         AdvanceSweep();
         AdvanceLevel();
+        AdvanceFocus();
+        if (sFocusLeaving && sFocused && !sFocusActive) {
+            LeaveFocus(); // asked again each tick until the page's view is back
+        }
 
         // #125: while an equipped icon is flying to its button nothing else is taken - kaleido is in its
         // sub-state 3 then, and its cursor, L/R, B and START all wait for 0 (z_kaleido_scope_PAL.c:4261).
@@ -3076,7 +3361,8 @@ static void RsMenu_OnGameFrameUpdate() {
         // kaleido moves its cursor before its song logic looks at it.
         sPageHold = RS_MENU_HOLD_NONE;
         const RsMenuPage* holdPage = RsMenu_PageAt(sPage);
-        const bool pageSettled = holdPage != nullptr && sLevel == 0 && !sSweepActive && !sLevelActive;
+        const bool pageSettled =
+            holdPage != nullptr && sLevel == 0 && !sSweepActive && !sLevelActive && !RsMenu_IsFocused();
         if (pageSettled && holdPage->hold != nullptr) {
             sPageHold = holdPage->hold(sPage, holdPage->userData);
         }
@@ -3087,11 +3373,12 @@ static void RsMenu_OnGameFrameUpdate() {
         // off halfway (Spencer, 2026-09-23). The entry slides already drop it: the update returns before
         // input while they run. Each drop has its own witness: `close_dropped=` mid-animation,
         // `start_level_dropped=` at level 1.
-        const bool animating = sSweepActive || sLevelActive;
+        const bool animating = sSweepActive || sLevelActive || sFocusActive;
         if (startEdge && !(sPageHold & RS_MENU_HOLD_START)) {
             if (animating) {
                 sCloseDropped++;
-            } else if (sLevel != 0) {
+            } else if (sLevel != 0 || sFocused) {
+                // #303: focused, START does nothing either - B is the only way out (the owner, 2026-11-07).
                 sStartLevelDropped++;
             } else {
                 sStartConsumed++;
@@ -3106,6 +3393,10 @@ static void RsMenu_OnGameFrameUpdate() {
         if (CHECK_BTN_ALL(input->press.button, BTN_B) && !(sPageHold & RS_MENU_HOLD_B)) {
             if (animating) {
                 sCloseDropped++;
+            } else if (sFocused) {
+                if (!sFocusLeaving) {
+                    LeaveFocus(); // #303: B zooms back out, the cursor still on the item it focused
+                }
             } else if (sLevel != 0) {
                 RsMenu_Ascend();
             } else {
@@ -3122,7 +3413,7 @@ static void RsMenu_OnGameFrameUpdate() {
         // GC pad has), so without this a GC player could roll right and never left. Vanilla kaleido
         // pages with exactly this pair - Z left, R right - and never reads N64 L at all. Z has no
         // other job while the scroll is up: the world, and Z-targeting with it, is frozen.
-        if (sLevel == 0 && !sLevelActive && !(sPageHold & RS_MENU_HOLD_ROLL)) {
+        if (sLevel == 0 && !sLevelActive && !RsMenu_IsFocused() && !(sPageHold & RS_MENU_HOLD_ROLL)) {
             if (CHECK_BTN_ALL(input->press.button, BTN_L) || CHECK_BTN_ALL(input->press.button, BTN_Z)) {
                 RsMenu_StartSweep(-1);
             } else if (CHECK_BTN_ALL(input->press.button, BTN_R)) {
@@ -3247,7 +3538,8 @@ static void RsMenu_OnPlayDrawEnd() {
     // where the paper is still fully open. It comes back once the gesture is over, on whichever node
     // the gesture left it - the hand, after a roll.
     const bool contentShown = SweepWidth() > 0.999f && !sLevelActive;
-    const bool cursorShown = contentShown && !sSweepActive;
+    // #303: and none while focusing or focused - the focused view is the whole of what is selected.
+    const bool cursorShown = contentShown && !sSweepActive && FocusPose() == 0;
     if (contentShown) {
         sInView = true;
         if (sLevel != 0) {
@@ -3434,6 +3726,8 @@ static void RegisterRsMenu() {
     // in different translation units run in no promised order, and the ring's order is what L/R walks.
     RsMenuQuestPage_Register();
     RsMenuVanillaPages_Register();
+    // #303: the World Map, fifth, after Quest Status - appended, so every earlier page keeps its index.
+    RsMenuMapPage_Register();
     // So `menu cursor` answers before the menu has ever been opened. The graph reads no PlayState,
     // so it is safe this early.
     RebuildCursorGraph();
@@ -3503,11 +3797,11 @@ static void RegisterRsMenu() {
     // #130: B stands clear of the upright top hand from the level swap on (LevelBMoved), invisible when it
     // moves either way.
     COND_VB_SHOULD(VB_SHIFT_HUD_B_BUTTON, true, {
-        if (MenuIsUp() && sHudShown && LevelBMoved()) {
+        if (MenuIsUp() && sHudShown && BMoved()) {
             s16* dx = va_arg(args, s16*);
             s16* dy = va_arg(args, s16*);
-            *dx = kLevelBShiftX;
-            *dy = kLevelBShiftY;
+            *dx = LevelBMoved() ? kLevelBShiftX : kFocusBShiftX;
+            *dy = LevelBMoved() ? kLevelBShiftY : kFocusBShiftY;
             *should = true;
         }
     });
@@ -3739,6 +4033,7 @@ RsMenuOpenResult RsMenu_Open() {
     // rather than on whatever node it was left on. An empty id is one no node carries, so the
     // rebuild's not-found rule places it.
     ResetLevel();
+    ResetFocus();
     sCursorId.clear();
     sCursorIndex = 0;
     RebuildCursorGraph();
@@ -3824,6 +4119,7 @@ static bool CloseMenu(bool syncPlayer) {
     // what arriving on a hand costs everywhere else.
     ArmPageSwitchTimer();
     ResetLevel();
+    ResetFocus();
     if (gPlayState != nullptr) {
         gPlayState->haltAllActors = sHaltPrev;
     }
@@ -3893,6 +4189,7 @@ bool RsMenu_SetPage(int32_t index) {
     sSweepHold = false;
     // And back to the top level: a detail view belongs to the page it was entered from.
     ResetLevel();
+    ResetFocus();
     // The graph belongs to the visible page, and `menu page` works while the menu is CLOSED - so
     // without this a cursor line read after a closed page change would describe the previous page.
     RebuildCursorGraph();
@@ -3902,7 +4199,7 @@ bool RsMenu_SetPage(int32_t index) {
 bool RsMenu_StartSweep(int32_t delta) {
     // The ring is the top level's; a detail view is below it, and a roll never starts on top of the
     // level gesture.
-    if (sSweepActive || sLevelActive || sLevel != 0) {
+    if (sSweepActive || sLevelActive || sLevel != 0 || RsMenu_IsFocused()) { // #303: not while focused
         return false;
     }
     const int32_t count = RsMenu_PageCount();
@@ -3973,7 +4270,7 @@ int32_t RsMenu_Level() {
 }
 
 bool RsMenu_Descend() {
-    if (!MenuIsSettled() || sSweepActive || sLevelActive || sLevel != 0) {
+    if (!MenuIsSettled() || sSweepActive || sLevelActive || sLevel != 0 || RsMenu_IsFocused()) {
         return false;
     }
     const RsMenuPage* page = RsMenu_PageAt(sPage);

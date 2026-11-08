@@ -91,6 +91,17 @@ typedef struct {
 } RsMinimapStats;
 void RsMinimap_GetStats(RsMinimapStats* out);
 
+// The arrows' look, shared with the pause scroll's World Map (#303) so both maps match: Link's colour and the red
+// entrance arrow's, each with its cosmetic override applied, and where the entrance arrow points from (vanilla's
+// sPlayerInitial: where Link came into the scene, its heading as a world yaw). The printed arrows' silhouette is
+// vanilla's arrow measured at its 0.4 scale: RS_MINIMAP_ARROW_HALF_LEN tip to middle, HALF_WIDTH middle to corner,
+// in N64 pixels (game units).
+#define RS_MINIMAP_ARROW_HALF_LEN 3.8f
+#define RS_MINIMAP_ARROW_HALF_WIDTH 1.9f
+Color_RGB8 RsMinimap_LinkColor(void);
+Color_RGB8 RsMinimap_EntranceColor(void);
+void RsMinimap_EntrancePose(f32* x, f32* z, s16* yaw);
+
 bool RsMinimap_Rotate(void);
 void RsMinimap_SetRotate(bool rotate);
 int32_t RsMinimap_RadiusTiles(void);

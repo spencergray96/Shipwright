@@ -222,6 +222,25 @@
 //                         item, so the name panel's hook path can be tested without a seed; `off` removes
 //                         it, and so does the menu closing. `op=namepanel result=ok custom_item=<n>`
 //                         (-1 for off); rc=1 `error=arg`, or `error=closed` while the menu is not open
+//   map [reveal <sx> <sy>|reveal all|reveal none|node <sx> <sy>|hide <sx> <sy>|fog hide|dim|icons on|off]
+//                         #303. The World Map page (MapPage.h) and its fog of war (MapReveal.h), by RS map
+//                         square. Bare: one `op=map result=ok` line with the `section=map` fields. `reveal`
+//                         and `hide` set or clear one square's flag (`changed=` 1 or 0, `now_revealed=`;
+//                         rc=1 `error=no_flag` outside the band's window); `node` reveals every square of
+//                         that square's node (rc=1 `error=no_chunk` when no world lists it); `reveal all`
+//                         reveals every chunk of the world on show, `reveal none` clears the WHOLE band
+//                         (TEST-ONLY: it writes save state). `fog` and `icons` set and save their CVars.
+//                         A reveal that sets a flag also writes `rs_menu op=map event=reveal square= flag=
+//                         cause=entry|quest|console node="..."` - the entry hook writes it unprompted.
+//                         `arrow vanilla|custom` picks Link's arrow (saved). `zoom in|out` and `pan <dx> <dy>`
+//                         (signed, in view widths) are what D-pad up/down and the C buttons do in the focused
+//                         view; both rc=1 `error=refused` unless focused, and a zoom past either end
+//   focus [in|out|loop|hold <in|out> <tick>|stop]
+//                         #303. The focus zoom (RsMenu.h, "focus"): `in` is what A on the world map does, `out`
+//                         what B does there; rc=1 `error=refused` when the scroll cannot start it (busy, at
+//                         level 1, already there). `loop` zooms in and out until `stop`, for a burst of
+//                         mid-zoom captures; `hold` parks the pose at a tick. One `op=focus` line: focused=,
+//                         pose=, scale=, target=, hud_shown=, b_shown=, b_moved=, focuses=, input_ticks=
 //   dump                  EVERYTHING a marker can carry: open/closed, current page, page count,
 //                         which menu `primary` selects, the live freeze and HUD state, the
 //                         trigger's binding count, the counters, and one line per registered page.
@@ -234,6 +253,15 @@
 //                         for the rest of the frame - and `pause_mode=`, the register that would
 //                         have exempted it. `section=draw` is what the last drawn frame cost in
 //                         glyphs, quads and Gfx words, and one `section=cursor` line per node.
+//                         #303 adds `section=focus` (the `focus` line's fields), `section=map` (map=, scene=, source=scene|context|none, reason=,
+//                         layer=, storey_mode=, fog=, icons=, chunks=, revealed=, the last drawn frame's
+//                         dst=/blocks=/fog_quads=/dl_words=/arrow=, and Link's link_px=/link_square=/
+//                         link_flag=/link_revealed=, arrow_mode=, the focused view's view=/zoom=/zoom_step=/
+//                         pans= and the drawn_view= rect; since round 3 link_arrow=in|edge|out|none,
+//                         scissor= and arrows=), one `section=map_arrow kind=link|entrance|boat|balloon
+//                         state=in|edge|out px= controls=` line per arrow the last frame considered, and
+//                         `section=map_reveal` (entry_reveals=, the last
+//                         reveal, and revealed= the map scene's revealed squares as sx:sy,...).
 //                         Stage 6 adds `section=level` (the `level` line's fields),
 //                         `section=quests` (rows, visible, top, `cursor_row=`, `debug_tier=`), one
 //                         `section=row` line per row THE LAST FRAME DREW - screen position, quest,
