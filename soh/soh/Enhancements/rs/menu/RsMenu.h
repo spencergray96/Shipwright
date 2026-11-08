@@ -720,6 +720,31 @@ const char* RsMenu_PrimaryName(int32_t primary);
 // Parses "vanilla"/"custom"; false on anything else.
 bool RsMenu_ParsePrimary(const std::string& word, int32_t* primary);
 
+// #300 TRIAL: which art the parchment and the roll ends draw. `flat` is the look before #300 (flat
+// colours, no texture); the others draw RS art from mods/rs-sprites.o2r (#297) by token. A CVar, flipped
+// live by `menu parchment <name>`, so the owner can compare all four in one session. A source whose
+// textures are missing from the archive draws flat and says so (`loaded=0`).
+enum RsMenuParchment {
+    RS_MENU_PARCHMENT_FLAT = 0,
+    RS_MENU_PARCHMENT_QUEST_COMPLETE = 1, // model 3032, the quest-complete scroll, rolls left and right
+    RS_MENU_PARCHMENT_JOURNAL = 2,        // model 21821, the older journal scroll, rolls left and right as rendered
+    RS_MENU_PARCHMENT_WEB = 3,            // the homepage scroll: top roll, middle, bottom roll
+    RS_MENU_PARCHMENT_COUNT = 4,
+};
+int32_t RsMenu_GetParchment();
+void RsMenu_SetParchment(int32_t parchment);
+const char* RsMenu_ParchmentName(int32_t parchment);
+// Parses flat/quest_complete/journal/web; false on anything else.
+bool RsMenu_ParseParchment(const std::string& word, int32_t* parchment);
+// Whether every texture the source draws is in a mounted archive (flat: always).
+bool RsMenu_ParchmentLoaded(int32_t parchment);
+// Textured pieces the last drawn frame emitted: parchment, left roll, right roll. 0 each when flat.
+struct RsMenuParchmentDrawn {
+    int32_t paper;
+    int32_t rolls[2];
+};
+RsMenuParchmentDrawn RsMenu_ParchmentDrawn();
+
 // The trigger's binding state on port 0, read from the control deck.
 //
 // START since #138. Until then it was N64 L, on the belief that L was the one bit vanilla never

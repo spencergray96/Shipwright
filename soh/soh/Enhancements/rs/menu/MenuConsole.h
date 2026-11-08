@@ -57,6 +57,14 @@
 //                         pause is reachable only through `primary vanilla` - but a value already
 //                         SAVED in the config beats the default, so a config that ever stored 0
 //                         still reads `primary=vanilla` until `primary custom` is run once
+//   parchment [flat|quest_complete|journal|web]
+//                         #300 TRIAL: which art the parchment and the roll ends draw, written to a CVar
+//                         (RsMenuParchment) so it survives the session. `flat` (the default) is the
+//                         look before #300; the others draw from mods/rs-sprites.o2r. With no
+//                         argument it only reports. The line carries `loaded=` (a source whose textures
+//                         are missing draws flat), `drawn_paper=`/`drawn_rolls=` (textured pieces the
+//                         last frame emitted) and `available=` (q, j, w or - for each source).
+//                         `dump`'s `section=parchment` carries the same fields
 //   sweep [l|r|loop|hold <l|r> <tick>|stop]
 //                         STAGE 5. Rolls the scroll one page, the way a shoulder press does: the
 //                         side on that shoulder - roll end and hand - travels in until the hands

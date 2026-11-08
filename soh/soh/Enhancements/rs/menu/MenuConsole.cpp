@@ -111,6 +111,32 @@ int32_t Primary(const std::vector<std::string>& args, std::vector<std::string>& 
     return 0;
 }
 
+// #300 trial: which art the parchment and roll ends draw. A CVar, so it survives the session the owner compares in.
+std::string DescribeParchment() {
+    const int32_t live = RsMenu_GetParchment();
+    const RsMenuParchmentDrawn drawn = RsMenu_ParchmentDrawn();
+    char buf[200];
+    std::snprintf(buf, sizeof(buf), "parchment=%s value=%d loaded=%d drawn_paper=%d drawn_rolls=%d,%d available=%s%s%s",
+                  RsMenu_ParchmentName(live), live, RsMenu_ParchmentLoaded(live) ? 1 : 0, drawn.paper, drawn.rolls[0],
+                  drawn.rolls[1], RsMenu_ParchmentLoaded(RS_MENU_PARCHMENT_QUEST_COMPLETE) ? "q" : "-",
+                  RsMenu_ParchmentLoaded(RS_MENU_PARCHMENT_JOURNAL) ? "j" : "-",
+                  RsMenu_ParchmentLoaded(RS_MENU_PARCHMENT_WEB) ? "w" : "-");
+    return buf;
+}
+
+int32_t Parchment(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    if (args.size() >= 2) {
+        int32_t parchment = 0;
+        if (!RsMenu_ParseParchment(args[1], &parchment)) {
+            Addf(lines, "op=parchment result=error error=arg %s", Describe().c_str());
+            return 1;
+        }
+        RsMenu_SetParchment(parchment);
+    }
+    Addf(lines, "op=parchment result=ok %s %s", DescribeParchment().c_str(), Describe().c_str());
+    return 0;
+}
+
 // Stage 5's two surfaces, and neither writes a CVar - see RsMenu.h - so a session that wedges
 // cannot leave the owner's config on a debug setting the way `primary` can.
 //
@@ -719,6 +745,7 @@ int32_t Dump(std::vector<std::string>& lines) {
     Addf(lines, "op=dump section=sweep %s", DescribeSweep(RsMenu_SweepState()).c_str());
     Addf(lines, "op=dump section=level %s", DescribeLevel(RsMenu_LevelState()).c_str());
     Addf(lines, "op=dump section=focus %s", DescribeFocus().c_str());
+    Addf(lines, "op=dump section=parchment %s", DescribeParchment().c_str());
     // The probe's lattice, plus `epoch` - the one number that says whether something has quietly
     // switched interpolation off for the rest of the frame - and `pause_mode`, the register that
     // would have exempted a View bracket from bumping it and which this menu must never set.
@@ -1081,6 +1108,7 @@ int32_t Timer(const std::vector<std::string>& args, std::vector<std::string>& li
 }
 
 const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custom|vanilla] | "
+                     "parchment [flat|quest_complete|journal|web] | "
                      "sweep [l|r|loop|hold <l|r> <tick>|stop] | "
                      "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
                      "stress [<n> [same]|off|memo <on|off>] | "
@@ -1111,6 +1139,9 @@ int32_t RsMenuConsole_Run(const std::vector<std::string>& args, std::vector<std:
     }
     if (sub == "primary") {
         return Primary(args, lines);
+    }
+    if (sub == "parchment") {
+        return Parchment(args, lines);
     }
     if (sub == "sweep") {
         return Sweep(args, lines);
@@ -1177,7 +1208,8 @@ namespace {
 const ConsoleSink::Command menuCommand(
     "menu", RsMenuConsole_Run,
     "The mod-owned pause interface (sturdy-bassoon#111): open | close [now] | page <n> | "
-    "primary [custom|vanilla] | sweep [l|r|loop|hold <l|r> <tick>|stop] | "
+    "primary [custom|vanilla] | parchment [flat|quest_complete|journal|web] | "
+    "sweep [l|r|loop|hold <l|r> <tick>|stop] | "
     "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
     "stress [<n> [same]|off|memo <on|off>] | cursor [left|right|up|down|select|<id>] | "
     "probe [on|off] | kaleido | equips | hud | flight hold <n>|release | song | inv <kind> <a> <b> | "
@@ -1205,8 +1237,10 @@ const ConsoleSink::Command menuCommand(
     "reports the World Map page (#303) and drives its fog of war by RS map square: reveal or hide one square, reveal "
     "the node a square belongs to, reveal every chunk of the world on show or clear the whole band, and pick hidden "
     "or dimmed fog, the icons toggle and Link's arrow; zoom and pan move the focused view. focus zooms the "
-    "whole scroll in on the page's item, as A on the world map does, and back out, as B does.",
-    { { "open|close|page|primary|sweep|level|filler|stress|cursor|probe|kaleido|equips|hud|flight|song|inv|namepanel|"
+    "whole scroll in on the page's item, as A on the world map does, and back out, as B does. parchment picks "
+    "the art the parchment and roll ends draw (#300 trial), saved, so the sources can be compared in one session.",
+    { { "open|close|page|primary|parchment|sweep|level|filler|stress|cursor|probe|kaleido|equips|hud|flight|song|inv|"
+        "namepanel|"
         "map|focus|dump",
         Ship::ArgumentType::TEXT },
       { "argument", Ship::ArgumentType::TEXT, true } });
@@ -1221,6 +1255,11 @@ page <n>                      go to page n, counting from 1
 primary                       which menu START opens
   custom                      the scroll
   vanilla                     the original pause screen
+parchment                     the parchment's art (#300 trial)
+  flat                        flat colours, the look before #300
+  quest_complete              the quest-complete scroll, model 3032
+  journal                     the older journal scroll, model 21821
+  web                         the homepage scroll, middle stretched across
 sweep                         roll the scroll one page, as a shoulder press does
   l                           roll left
   r                           roll right
