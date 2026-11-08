@@ -256,17 +256,25 @@ static void ItemsPageNodes(int32_t pageIndex, void* userData) {
 // offset inside that canvas) Scale2x'd to 64 x 64 texels.
 //
 // ONE RS PIXEL TO ONE GAME UNIT, which is what makes a row tile with no cropping: a piece is 16 units, half the
-// slot pitch, so a notched piece centred under each slot and a plain one centred on each boundary between two
-// slots fill the row exactly, and the end caps' art (the outer half of their canvas, 8 units) closes it 2 units
-// outside the edge icons - x 64..256 in game space, inside the page rect's 52..268 and clear of the hands. The
-// track's band is the canvas's middle 14 rows, centred on the icons' centre line; a 28-unit icon covers its
-// socket and overhangs the band by 7 above and below.
+// slot pitch, so 11 pieces from slot 0's socket to slot 5's fill the row exactly, and the end caps' art (the
+// outer half of their canvas, 8 units) closes it 2 units outside the edge icons - x 64..256 in game space, inside
+// the page rect's 52..268 and clear of the hands. The track's band is the canvas's middle 14 rows, centred on the
+// icons' centre line; a 28-unit icon covers its socket and overhangs the band by 7 above and below.
+//
+// THE SEAMS (the owner's first look). The segments are windows on one continuous stone texture, so two pieces
+// meet cleanly only where RS cut them next to each other: end_left -> notch -> plain do, plain -> anything does
+// not (its right edge is ~15 levels lighter than the notched piece's left, ~8 than its own left). Alternating
+// notched and plain pieces showed a line left of every notch but the first. So a row is RS's own opening (end cap,
+// notched piece under slot 0), then the plain piece MIRRORED on every other step - each join then meets an
+// identical column - with the lone notch dot (2863, the same pixels as the notched piece's dot) on top under slots
+// 1..5. The one join left is the last plain piece's left edge against the right cap, ~8 levels apart, the better
+// of the two orientations.
 //
 // Drawn first, so the equipped outlines, the icons, the ammo and the menu's cursor box all draw over it. Vtx
 // quads through RsSprites_EmitRect, in the modelview the page already has: no matrix ops of its own.
 constexpr int16_t kPiece = 16;
-constexpr int32_t kRowPieces = 2 * kCols + 1; // end, notch, (plain, notch) x 5, end
-// The tokens, left to right, for one row.
+constexpr int32_t kRowPieces = 2 * kCols + 1; // end, notch, plain x 10, end
+// The tokens, left to right, for one row (the dots are drawn after the row).
 static const char* TrackToken(int32_t piece) {
     if (piece == 0) {
         return "slider_end_left";
@@ -274,7 +282,12 @@ static const char* TrackToken(int32_t piece) {
     if (piece == kRowPieces - 1) {
         return "slider_end_right";
     }
-    return (piece % 2) == 1 ? "slider_track_notch" : "slider_track";
+    return piece == 1 ? "slider_track_notch" : "slider_track";
+}
+// The plain pieces after the first run normal, mirrored, normal...: piece 2 meets the notched piece with its own
+// left edge, as RS cut them.
+static bool TrackMirrored(int32_t piece) {
+    return piece >= 2 && piece < kRowPieces - 1 && (piece % 2) == 1;
 }
 // A piece's canvas left edge, in game space: the first notch is centred under column 0's icon.
 static int16_t TrackPieceLeft(int32_t piece) {
@@ -317,7 +330,18 @@ static void DrawTracks() {
         const float top = (float)(SCREEN_HEIGHT / 2 - TrackRowTop(row));
         for (int32_t piece = 0; piece < kRowPieces; piece++) {
             const float left = (float)(TrackPieceLeft(piece) - SCREEN_WIDTH / 2);
-            const int32_t n = RsSprites_EmitRect(gfxCtx, *dl, TrackToken(piece), left, top, kPiece, kPiece);
+            // A mirrored piece: its right edge as x and a negative width, which EmitRect maps texel column 0 to the
+            // right. No culling in this state, so the flipped winding still draws.
+            const bool mirror = TrackMirrored(piece);
+            const int32_t n = RsSprites_EmitRect(gfxCtx, *dl, TrackToken(piece), mirror ? left + kPiece : left, top,
+                                                 mirror ? -(float)kPiece : (float)kPiece, kPiece);
+            sTrackQuads += n;
+            sTrackMissing += n == 0 ? 1 : 0;
+        }
+        // The sockets under slots 1..5; slot 0's is the notched piece's own.
+        for (int32_t col = 1; col < kCols; col++) {
+            const float left = (float)(TrackPieceLeft(1 + 2 * col) - SCREEN_WIDTH / 2);
+            const int32_t n = RsSprites_EmitRect(gfxCtx, *dl, "slider_notch", left, top, kPiece, kPiece);
             sTrackQuads += n;
             sTrackMissing += n == 0 ? 1 : 0;
         }
@@ -336,7 +360,7 @@ static void DescribeTracks(RsMenuPortInfo* info) {
         r.x1 = (int16_t)(TrackPieceLeft(kRowPieces - 1) + kPiece / 2);
         r.y0 = (int16_t)(TrackRowTop(row) + 1); // the band: canvas rows 1..14
         r.y1 = (int16_t)(TrackRowTop(row) + kPiece - 1);
-        r.pieces = kRowPieces;
+        r.pieces = kRowPieces + (kCols - 1); // the row's segments and the five dots on it
         for (int32_t col = 0; col < kCols; col++) {
             const int32_t slot = row * kCols + col;
             RsMenuSocketInfo s;
