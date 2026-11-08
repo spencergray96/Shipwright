@@ -159,6 +159,7 @@
 #include "RsMenuRaw.h"
 #include "VanillaPages.h"
 #include "VanillaPagesInternal.h"
+#include "soh/Enhancements/rs/sprites/RsSprites.h"
 
 #include <algorithm>
 #include <cmath>
@@ -196,6 +197,7 @@ float OTRGetAspectRatio(void);
 
 #define CVAR_RS_MENU_ON CVAR_ENHANCEMENT("RsMenu")
 #define CVAR_RS_MENU_PRIMARY CVAR_ENHANCEMENT("RsMenuPrimary")
+#define CVAR_RS_MENU_PARCHMENT CVAR_ENHANCEMENT("RsMenuParchment") // #300: RsMenuParchment, default journal
 
 // File-static rather than an anonymous namespace, and that is not a style choice. OPEN_DISPS
 // expands to a BLOCK-SCOPE redeclaration of FrameInterpolation_RecordOpenChild (macros.h:206-222);
@@ -1947,7 +1949,153 @@ static void PushCurrentMatrix() {
 // gDPFillRectangles, which cannot interpolate - so the moment the rolls started sweeping the paper
 // they are supposed to be holding would have stepped behind them. Four more vertices, and the
 // stage-4 probe photograph of that split stops being reproducible.
+// --- #300 TRIAL: RS art on the parchment and the roll ends --------------------------------------
+//
+// Each source maps onto the scroll in two parts, measured on the packed pictures (render-scale 4 for the
+// two models; the web files as fetched) by their alpha: where a roll's columns run taller than the paper's.
+//   - THE PAPER: the source between the two rolls' inner edges, cropped to the paper's own top and bottom
+//     (the torn edges' deepest bites stay transparent), onto x 26-294, y 48-192 - the parchment less the
+//     inner half of each roll. The parchment's edge sits on the roll's centre (the stage-5 identity), so
+//     the half under the roll is never seen and is not drawn: the art's paper starts at the roll's edge.
+//   - EACH ROLL: the source roll's bounding box onto the roll end's rectangle (x 6-26 / 294-314, y 43-196),
+//     under the side's own matrix, so it travels and turns with its hand. The web scroll's rolls run top
+//     and bottom; they are TURNED 90 degrees counter-clockwise (the roll's paper side faces the paper), the
+//     middle is not: it is stretched across, the owner's first idea (#300, 2026-11-07).
+// Everything rides the matrices that already move the flat parchment, and draws nothing that is not Vtx, so
+// the L/R roll's x-scale, the level turn and #303's focus zoom move the art exactly as they moved the flat
+// colours - including the x-scale SQUEEZING the paper mid-roll (the warning at the sweep's constants).
+// The whole-picture size each rect was measured at is kept beside it, so a repack at another render scale
+// scales the rect rather than breaking it.
+struct RsParchmentPart {
+    const char* token;
+    float refW, refH;   // the picture the rect was measured on
+    float u0, v0, u1, v1;
+};
+struct RsParchmentSource {
+    RsParchmentPart paper;
+    RsParchmentPart rolls[2];
+    bool rollsTurned; // the source's rolls are horizontal: turn each 90 degrees onto the vertical roll end
+};
+static const RsParchmentSource kParchmentSources[RS_MENU_PARCHMENT_COUNT] = {
+    {}, // flat
+    // 3032: rolls x 4-162 and 1757-1909 (with their knobs, y 4-1252); paper between them, y 150-1090.
+    { { "scroll_quest_complete", 1914, 1255, 163, 150, 1757, 1090 },
+      { { "scroll_quest_complete", 1914, 1255, 4, 4, 163, 1252 },
+        { "scroll_quest_complete", 1914, 1255, 1757, 4, 1910, 1250 } },
+      false },
+    // 21821 at its interface view renders with its rolls LEFT AND RIGHT, not top and bottom: rolls x 4-128 and
+    // 1787-1913, y 4-1164; paper y 45-1118.
+    { { "scroll_journal_old", 1918, 1168, 129, 45, 1787, 1118 },
+      { { "scroll_journal_old", 1918, 1168, 4, 4, 129, 1164 },
+        { "scroll_journal_old", 1918, 1168, 1787, 8, 1914, 1164 } },
+      false },
+    // The homepage: the whole middle (745 x 164, torn sides a few px deep), the whole top and bottom rolls.
+    { { "scroll_homepage/middle", 745, 164, 0, 0, 745, 164 },
+      { { "scroll_homepage/top", 765, 50, 0, 0, 765, 50 }, { "scroll_homepage/bottom", 765, 50, 0, 0, 765, 50 } },
+      true },
+};
+constexpr int16_t kPaperArtX0 = kRollX[0][2]; // 26: the left roll's inner edge
+constexpr int16_t kPaperArtX1 = kRollX[1][0]; // 294
+
+static RsMenuParchmentDrawn sParchmentDrawn = {};
+
+int32_t RsMenu_GetParchment() {
+    // The owner's pick (#300, 2026-11-07): the older journal scroll. A value already saved in the config wins.
+    const int32_t v = CVarGetInteger(CVAR_RS_MENU_PARCHMENT, RS_MENU_PARCHMENT_JOURNAL);
+    return v >= RS_MENU_PARCHMENT_FLAT && v < RS_MENU_PARCHMENT_COUNT ? v : RS_MENU_PARCHMENT_JOURNAL;
+}
+
+void RsMenu_SetParchment(int32_t parchment) {
+    CVarSetInteger(CVAR_RS_MENU_PARCHMENT, parchment >= RS_MENU_PARCHMENT_FLAT && parchment < RS_MENU_PARCHMENT_COUNT
+                                               ? parchment
+                                               : RS_MENU_PARCHMENT_JOURNAL);
+    CVarSave();
+}
+
+static const char* const kParchmentNames[RS_MENU_PARCHMENT_COUNT] = { "flat", "quest_complete", "journal", "web" };
+
+const char* RsMenu_ParchmentName(int32_t parchment) {
+    return parchment >= 0 && parchment < RS_MENU_PARCHMENT_COUNT ? kParchmentNames[parchment] : "flat";
+}
+
+bool RsMenu_ParseParchment(const std::string& word, int32_t* parchment) {
+    for (int32_t i = 0; i < RS_MENU_PARCHMENT_COUNT; i++) {
+        if (word == kParchmentNames[i]) {
+            *parchment = i;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool RsMenu_ParchmentLoaded(int32_t parchment) {
+    if (parchment <= RS_MENU_PARCHMENT_FLAT || parchment >= RS_MENU_PARCHMENT_COUNT) {
+        return true;
+    }
+    const RsParchmentSource& src = kParchmentSources[parchment];
+    return RsSprites_Info(src.paper.token, nullptr) && RsSprites_Info(src.rolls[0].token, nullptr) &&
+           RsSprites_Info(src.rolls[1].token, nullptr);
+}
+
+RsMenuParchmentDrawn RsMenu_ParchmentDrawn() {
+    return sParchmentDrawn;
+}
+
+bool RsMenu_ParchmentIsArt() {
+    const int32_t p = RsMenu_GetParchment();
+    return p != RS_MENU_PARCHMENT_FLAT && !sProbe && RsMenu_ParchmentLoaded(p);
+}
+
+// The source this frame draws, or null for the flat look (flat chosen, its textures missing, or the probe on:
+// the probe's colours are a measuring instrument and stay flat).
+static const RsParchmentSource* LiveParchment() {
+    return RsMenu_ParchmentIsArt() ? &kParchmentSources[RsMenu_GetParchment()] : nullptr;
+}
+
+// Art as it is: texel times a white prim, alpha the texel's, blended (the bleed round each edge makes the
+// bilinear edge blend to its own colour, RsSprites.h). The icon preset with an RGBA combiner.
+static void PushSpriteState() {
+    sListState = RS_LIST_OTHER;
+    std::vector<Gfx>& dl = MenuDl();
+    dl.push_back(gsDPPipeSync());
+    dl.push_back(gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON));
+    dl.push_back(gsDPSetCombineMode(G_CC_MODULATERGBA_PRIM, G_CC_MODULATERGBA_PRIM));
+    dl.push_back(gsDPSetPrimColor(0, 0, 255, 255, 255, 255));
+    dl.push_back(gsDPSetOtherMode(G_AD_NOTPATTERN | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | G_TF_BILERP | G_TT_NONE |
+                                      G_TL_TILE | G_TD_CLAMP | G_TP_PERSP | G_CYC_1CYCLE | G_PM_NPRIMITIVE,
+                                  G_AC_NONE | G_ZS_PIXEL | G_RM_XLU_SURF | G_RM_XLU_SURF2));
+    dl.push_back(gsSPLoadGeometryMode(G_SHADING_SMOOTH));
+}
+
+// One part onto the game-space rectangle (x0, y0)-(x1, y1), y down; `turned` turns it 90 degrees
+// counter-clockwise (its top edge becomes the rectangle's left). Returns the pieces drawn.
+static int32_t DrawParchmentPart(const RsParchmentPart& part, int16_t x0, int16_t y0, int16_t x1, int16_t y1,
+                                 bool turned) {
+    RsSpriteInfo info{};
+    if (!RsSprites_Info(part.token, &info)) {
+        return 0;
+    }
+    const float kx = (float)info.width / part.refW;
+    const float ky = (float)info.height / part.refH;
+    const float l = (float)(x0 - SCREEN_WIDTH / 2), r = (float)(x1 - SCREEN_WIDTH / 2);
+    const float t = (float)(SCREEN_HEIGHT / 2 - y0), b = (float)(SCREEN_HEIGHT / 2 - y1);
+    // Where the source's TL, TR, BL, BR land. Turned counter-clockwise: TL -> bottom-left, TR -> top-left,
+    // BL -> bottom-right, BR -> top-right.
+    const float upright[4][2] = { { l, t }, { r, t }, { l, b }, { r, b } };
+    const float ccw[4][2] = { { l, b }, { l, t }, { r, b }, { r, t } };
+    return RsSprites_EmitQuadUV(sDrawGfxCtx, MenuDl(), part.token, turned ? ccw : upright, part.u0 * kx,
+                                part.v0 * ky, part.u1 * kx, part.v1 * ky);
+}
+
 static void DrawPanel() {
+    if (const RsParchmentSource* src = LiveParchment()) {
+        PushSpriteState();
+        sParchmentDrawn.paper = DrawParchmentPart(src->paper, kPaperArtX0, kPanelY0, kPaperArtX1, kPanelY1, false);
+        sDrawQuads += sParchmentDrawn.paper;
+        PushFlatState();
+        return;
+    }
+    sParchmentDrawn.paper = 0;
     Vtx* vtx = (Vtx*)Graph_Alloc(sDrawGfxCtx, 8 * sizeof(Vtx));
     SetFlatQuad(&vtx[0], kPanelX0, kPanelY0, kPanelX1, kPanelY1, sProbe ? kProbeFrameColour : kPanelFrameColour);
     SetFlatQuad(&vtx[4], (int16_t)(kPanelX0 + kPanelBorder), (int16_t)(kPanelY0 + kPanelBorder),
@@ -1964,6 +2112,16 @@ static void DrawPanel() {
 // reads as a cylinder rather than a stripe. Drawn per SIDE rather than both at once, because the
 // two sides no longer share a transform - one of them travels and the other does not.
 static void DrawRoll(int32_t side) {
+    if (const RsParchmentSource* src = LiveParchment()) {
+        // #300: the source's roll on the same rectangle the flat roll fills, under the same side matrix.
+        PushSpriteState();
+        sParchmentDrawn.rolls[side] = DrawParchmentPart(src->rolls[side], kRollX[side][0], kRollTopY,
+                                                        kRollX[side][2], kRollBottomY, src->rollsTurned);
+        sDrawQuads += sParchmentDrawn.rolls[side];
+        PushFlatState(); // the hand, drawn next under this side's matrix, is flat colour
+        return;
+    }
+    sParchmentDrawn.rolls[side] = 0;
     const u8* light = sProbe ? kProbeLightColour : kRollLightColour;
     Vtx* vtx = (Vtx*)Graph_Alloc(sDrawGfxCtx, kVtxPerRoll * sizeof(Vtx));
     for (int32_t row = 0; row < kRollRows; row++) {

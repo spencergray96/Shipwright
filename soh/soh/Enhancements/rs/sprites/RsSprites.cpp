@@ -2,6 +2,7 @@
 
 #include "RsSprites.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -217,6 +218,59 @@ extern "C" int32_t RsSprites_EmitRect(GraphicsContext* gfxCtx, Gfx** gfx, const 
     }
     *gfx = p;
     return (int32_t)e->tiles.size();
+}
+
+int32_t RsSprites_EmitQuadUV(GraphicsContext* gfxCtx, std::vector<Gfx>& dl, const char* token,
+                             const float corners[4][2], float u0, float v0, float u1, float v1) {
+    if (!TokenClean(token) || !(u1 > u0) || !(v1 > v0)) {
+        return 0;
+    }
+    Entry* e = Resolve(token);
+    if (!e->found) {
+        return 0;
+    }
+    // The point at fractions (a across, b down) of the source, as a modelview position.
+    auto at = [&](float a, float b, int32_t axis) {
+        return corners[0][axis] + a * (corners[1][axis] - corners[0][axis]) +
+               b * (corners[2][axis] - corners[0][axis]);
+    };
+    auto round16 = [](float f) { return (int16_t)(f < 0 ? f - 0.5f : f + 0.5f); };
+    const size_t start = dl.size();
+    dl.reserve(start + e->tiles.size() * kWordsPerTile);
+    int32_t pieces = 0;
+    for (const Tile& t : e->tiles) {
+        const float cu0 = std::max(u0, (float)t.x0), cu1 = std::min(u1, (float)(t.x0 + t.w));
+        const float cv0 = std::max(v0, (float)t.y0), cv1 = std::min(v1, (float)(t.y0 + t.h));
+        if (!(cu1 > cu0) || !(cv1 > cv0)) {
+            continue;
+        }
+        Gfx load[16];
+        Gfx* p = load;
+        gDPPipeSync(p++);
+        gDPLoadTextureTile(p++, (u8*)t.path, G_IM_FMT_RGBA, G_IM_SIZ_32b, t.w, t.h, 0, 0, t.w - 1, t.h - 1, 0,
+                           G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOMASK,
+                           G_TX_NOLOD, G_TX_NOLOD);
+        dl.insert(dl.end(), load, p);
+        const float as[2] = { (cu0 - u0) / (u1 - u0), (cu1 - u0) / (u1 - u0) };
+        const float bs[2] = { (cv0 - v0) / (v1 - v0), (cv1 - v0) / (v1 - v0) };
+        const float ss[2] = { (cu0 - t.x0) * 32.0f, (cu1 - t.x0) * 32.0f };
+        const float ts[2] = { (cv0 - t.y0) * 32.0f, (cv1 - t.y0) * 32.0f };
+        Vtx* v = (Vtx*)Graph_Alloc(gfxCtx, 4 * sizeof(Vtx));
+        for (int32_t c = 0; c < 4; c++) {
+            const int32_t i = c & 1, j = c >> 1; // TL, TR, BL, BR
+            v[c].v.ob[0] = round16(at(as[i], bs[j], 0));
+            v[c].v.ob[1] = round16(at(as[i], bs[j], 1));
+            v[c].v.ob[2] = 0;
+            v[c].v.flag = 0;
+            v[c].v.tc[0] = round16(ss[i]);
+            v[c].v.tc[1] = round16(ts[j]);
+            v[c].v.cn[0] = v[c].v.cn[1] = v[c].v.cn[2] = v[c].v.cn[3] = 255;
+        }
+        dl.push_back(gsSPVertex(v, 4, 0));
+        dl.push_back(gsSP2Triangles(0, 2, 3, 0, 0, 3, 1, 0));
+        pieces++;
+    }
+    return pieces;
 }
 
 int32_t RsSprites_EmitRect(GraphicsContext* gfxCtx, std::vector<Gfx>& dl, const char* token, float x, float y, float w,
