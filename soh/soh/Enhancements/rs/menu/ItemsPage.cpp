@@ -20,6 +20,8 @@
 
 #include "VanillaPagesInternal.h"
 #include "RsMenu.h"
+#include "RsMenuRaw.h"
+#include "soh/Enhancements/rs/sprites/RsSprites.h"
 
 #include <cstdio>
 #include <string>
@@ -246,6 +248,108 @@ static void ItemsPageNodes(int32_t pageIndex, void* userData) {
     RsMenu_SetCursorGrid(entry >= 0 ? nodeOf[entry] : -1);
 }
 
+// --- slot tracks (sturdy-bassoon#301, a proof of concept) -------------------------------------------
+//
+// One row of RS's settings-slider track under each row of slots, so the parchment shows where the cursor can
+// land: a notch circle (a socket) under every slot, owned or not, and no knob (the owner, 2026-11-07). The
+// pieces are tools/sprites/rs-sprites.json's `settings_slider` rows, each a 16 x 16 RS sprite (the art keeps its
+// offset inside that canvas) Scale2x'd to 64 x 64 texels.
+//
+// ONE RS PIXEL TO ONE GAME UNIT, which is what makes a row tile with no cropping: a piece is 16 units, half the
+// slot pitch, so a notched piece centred under each slot and a plain one centred on each boundary between two
+// slots fill the row exactly, and the end caps' art (the outer half of their canvas, 8 units) closes it 2 units
+// outside the edge icons - x 64..256 in game space, inside the page rect's 52..268 and clear of the hands. The
+// track's band is the canvas's middle 14 rows, centred on the icons' centre line; a 28-unit icon covers its
+// socket and overhangs the band by 7 above and below.
+//
+// Drawn first, so the equipped outlines, the icons, the ammo and the menu's cursor box all draw over it. Vtx
+// quads through RsSprites_EmitRect, in the modelview the page already has: no matrix ops of its own.
+constexpr int16_t kPiece = 16;
+constexpr int32_t kRowPieces = 2 * kCols + 1; // end, notch, (plain, notch) x 5, end
+// The tokens, left to right, for one row.
+static const char* TrackToken(int32_t piece) {
+    if (piece == 0) {
+        return "slider_end_left";
+    }
+    if (piece == kRowPieces - 1) {
+        return "slider_end_right";
+    }
+    return (piece % 2) == 1 ? "slider_track_notch" : "slider_track";
+}
+// A piece's canvas left edge, in game space: the first notch is centred under column 0's icon.
+static int16_t TrackPieceLeft(int32_t piece) {
+    const int16_t firstNotch = (int16_t)(kMap.X(SlotLeft(0)) + kIcon / 2 - kPiece / 2);
+    return (int16_t)(firstNotch + (piece - 1) * kPiece);
+}
+// A row's canvas top edge: the canvas centred on the row's icons.
+static int16_t TrackRowTop(int32_t row) {
+    return (int16_t)(kMap.Y(SlotTop(row * kCols)) + kIcon / 2 - kPiece / 2);
+}
+
+// What the last draw did, for `menu dump`.
+static int32_t sTrackQuads = 0;
+static int32_t sTrackMissing = 0;
+static uint32_t sTrackDraws = 0;
+
+static void DrawTracks() {
+    sTrackQuads = 0;
+    sTrackMissing = 0;
+    sTrackDraws++;
+    GraphicsContext* gfxCtx = nullptr;
+    std::vector<Gfx>* dl = nullptr;
+    if (!RsMenu_BeginRawDraw(&gfxCtx, &dl)) {
+        return;
+    }
+    // RsMenu.cpp's icon preset with the RGBA combiner: the texel times a white prim, so the art draws as it is;
+    // XLU_SURF so the binary alpha's bled edge blends rather than cuts. Bilinear: a piece is magnified only
+    // 1.1x (1080p) to 2.25x (4K) a texel, and the Scale2x art already carries its hard edges.
+    dl->push_back(gsDPPipeSync());
+    dl->push_back(gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON));
+    dl->push_back(gsDPSetCombineMode(G_CC_MODULATERGBA_PRIM, G_CC_MODULATERGBA_PRIM));
+    dl->push_back(gsDPSetOtherMode(G_AD_NOTPATTERN | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | G_TF_BILERP |
+                                       G_TT_NONE | G_TL_TILE | G_TD_CLAMP | G_TP_PERSP | G_CYC_1CYCLE |
+                                       G_PM_NPRIMITIVE,
+                                   G_AC_NONE | G_ZS_PIXEL | G_RM_XLU_SURF | G_RM_XLU_SURF2));
+    dl->push_back(gsSPLoadGeometryMode(G_SHADING_SMOOTH));
+    dl->push_back(gsDPSetPrimColor(0, 0, 255, 255, 255, 255));
+    for (int32_t row = 0; row < kRows; row++) {
+        // EmitRect takes the ortho's centred, y-up space; the page's is 320 x 240, y down.
+        const float top = (float)(SCREEN_HEIGHT / 2 - TrackRowTop(row));
+        for (int32_t piece = 0; piece < kRowPieces; piece++) {
+            const float left = (float)(TrackPieceLeft(piece) - SCREEN_WIDTH / 2);
+            const int32_t n = RsSprites_EmitRect(gfxCtx, *dl, TrackToken(piece), left, top, kPiece, kPiece);
+            sTrackQuads += n;
+            sTrackMissing += n == 0 ? 1 : 0;
+        }
+    }
+}
+
+static void DescribeTracks(RsMenuPortInfo* info) {
+    info->trackRows.clear();
+    info->trackQuads = sTrackQuads;
+    info->trackMissing = sTrackMissing;
+    info->trackDraws = sTrackDraws;
+    for (int32_t row = 0; row < kRows; row++) {
+        RsMenuTrackRowInfo r;
+        r.row = row;
+        r.x0 = (int16_t)(TrackPieceLeft(0) + kPiece / 2); // the end caps' art is their canvas's inner half
+        r.x1 = (int16_t)(TrackPieceLeft(kRowPieces - 1) + kPiece / 2);
+        r.y0 = (int16_t)(TrackRowTop(row) + 1); // the band: canvas rows 1..14
+        r.y1 = (int16_t)(TrackRowTop(row) + kPiece - 1);
+        r.pieces = kRowPieces;
+        for (int32_t col = 0; col < kCols; col++) {
+            const int32_t slot = row * kCols + col;
+            RsMenuSocketInfo s;
+            s.slot = slot;
+            s.x = (int16_t)(TrackPieceLeft(1 + 2 * col) + kPiece / 2);
+            s.y = (int16_t)(TrackRowTop(row) + kPiece / 2);
+            s.owned = Occupied(slot);
+            r.sockets.push_back(s);
+        }
+        info->trackRows.push_back(r);
+    }
+}
+
 // --- drawing: KaleidoScope_DrawItemSelect, z_kaleido_item.c:736-818 --------------------------------
 
 // The equipped outline sits 2 units outside the icon, 32 square (:3145-3182).
@@ -305,6 +409,7 @@ static void ItemsPageDraw(struct PlayState* play, int32_t pageIndex, void* userD
     (void)play;
     (void)pageIndex;
     (void)userData;
+    DrawTracks();
     DrawEquippedOutlines();
     for (int32_t slot = 0; slot < kSlots; slot++) {
         const int32_t item = gSaveContext.inventory.items[slot];
@@ -426,4 +531,5 @@ void RsMenuItemsPage_Describe(RsMenuPortInfo* info) {
         s.grey = item != ITEM_NONE && !CHECK_AGE_REQ_ITEM(item);
         info->slots.push_back(s);
     }
+    DescribeTracks(info);
 }

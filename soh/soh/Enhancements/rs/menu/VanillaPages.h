@@ -49,6 +49,21 @@ struct RsMenuSlotInfo {
     bool grey;
 };
 
+// #301: the slot tracks, the Items page's only (a proof of concept). One row of RS slider track per row of
+// slots; a socket is a notch circle, one under every slot, owned or not. `x0..x1, y0..y1` is the track's
+// drawn band and a socket's `x, y` its circle's centre, both in the menu's 320x240 space.
+struct RsMenuSocketInfo {
+    int32_t slot;
+    int16_t x, y;
+    bool owned;
+};
+struct RsMenuTrackRowInfo {
+    int32_t row;
+    int16_t x0, y0, x1, y1;
+    int32_t pieces; // sprite pieces the row is built from
+    std::vector<RsMenuSocketInfo> sockets;
+};
+
 struct RsMenuPortInfo {
     std::string pageId;
     int32_t pageIndex; // 0-based ring index, -1 before registration
@@ -56,6 +71,12 @@ struct RsMenuPortInfo {
     int16_t offsetX, offsetY;
     int16_t x0, y0, x1, y1; // the page's drawn extent after mapping
     std::vector<RsMenuSlotInfo> slots;
+    // #301, empty on a page without tracks. The three counts are the page's LAST draw: quads emitted, pieces
+    // whose sprite was missing (no mods/rs-sprites.o2r), and how many draws there have been.
+    std::vector<RsMenuTrackRowInfo> trackRows;
+    int32_t trackQuads = 0;
+    int32_t trackMissing = 0;
+    uint32_t trackDraws = 0;
 };
 
 // Registers the three pages at the end of the ring, in vanilla's order after the Quest Journal.
