@@ -66,6 +66,8 @@
 
 #include "soh/cvar_prefixes.h"
 #include "soh/Enhancements/rs/maps/WorldContext.h"
+#include "soh/Enhancements/rs/actors/RsVehicleMinimap.h"
+#include "soh/Enhancements/rs/maps/RsMinimap.h"
 #include "soh/Enhancements/rs/maps/WorldMap.h"
 
 extern "C" {
@@ -74,6 +76,7 @@ extern "C" {
 #include "variables.h"
 #include "objects/gameplay_keep/gameplay_keep.h"
 extern PlayState* gPlayState;
+float OTRGetAspectRatio(void); // OTRGlobals.cpp, declared for C only in OTRGlobals.h
 }
 
 namespace {
@@ -109,7 +112,8 @@ constexpr float kMargin = 3.0f;      // game units between the map's frame and t
 constexpr float kFrameUnits = 1.0f;  // the frame's width, game units
 constexpr float kArrowUnits = 7.0f;  // the custom arrow's length, game units
 constexpr float kCompassScale = 0.4f; // vanilla's minimap arrow scale (Minimap_DrawCompassIcons), as #306 draws it
-constexpr float kViewMarginPx = 2.0f; // image pixels drawn past the view on every side, under the masks
+constexpr float kViewMarginPx = 2.0f;
+constexpr float kScissorSlack = 1.5f; // game units the scissor sits outside the box, half the masks' depth // image pixels drawn past the view on every side, under the masks
 
 // The focused view's zoom steps: 1 is the whole world.
 constexpr float kZooms[] = { 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f };
@@ -402,30 +406,189 @@ int32_t DrawFog(GraphicsContext* gfxCtx, std::vector<Gfx>& dl, int16_t scene, co
     return (int32_t)runs.size();
 }
 
-// The custom arrow at image pixel (px, py), pointing where he faces. `len` is its length in image pixels.
-void DrawCustomArrow(GraphicsContext* gfxCtx, std::vector<Gfx>& dl, float px, float py, int16_t yaw, float len) {
-    // Facing, in the image's y-DOWN pixel space: OoT +x is east (+px) and +z is south (+py).
+// --- the arrows -------------------------------------------------------------------------------------------------
+//
+// Every arrow is clipped to the VIEW, like the map under it (the owner, 2026-11-07: cut at the edge, then gone).
+// The vehicles' and the entrance's are PRINTED on the map as #306's minimap prints them - a flat triangle, the
+// silhouette of vanilla's arrow at its 0.4 scale, in the minimap's colours (RsMinimap.h, RsVehicleMinimap.h) - at
+// their world position under the placement matrix, so they glide with the map, and their polygons are clipped
+// to the view (Sutherland-Hodgman). Link's vanilla arrow is a 3D display list that cannot be clipped as geometry;
+// the scissor clips it (and everything else in the view) while the scroll stands still, which is whenever the
+// view can pan or zoom.
+
+enum ArrowState { ARROW_NONE = 0, ARROW_IN, ARROW_EDGE, ARROW_OUT };
+
+const char* ArrowStateName(int32_t s) {
+    switch (s) {
+        case ARROW_IN:
+            return "in";
+        case ARROW_EDGE:
+            return "edge";
+        case ARROW_OUT:
+            return "out";
+        default:
+            return "none";
+    }
+}
+
+struct Pt {
+    float x, y;
+};
+
+// One axis-aligned edge of Sutherland-Hodgman: keep the side >= (keepGreater) or <= `bound` on `axis`.
+void ClipEdge(std::vector<Pt>& poly, int axis, float bound, bool keepGreater) {
+    std::vector<Pt> out;
+    const size_t n = poly.size();
+    for (size_t i = 0; i < n; i++) {
+        const Pt& a = poly[i];
+        const Pt& b = poly[(i + 1) % n];
+        const float av = axis == 0 ? a.x : a.y;
+        const float bv = axis == 0 ? b.x : b.y;
+        const bool ain = keepGreater ? av >= bound : av <= bound;
+        const bool bin = keepGreater ? bv >= bound : bv <= bound;
+        if (ain) {
+            out.push_back(a);
+        }
+        if (ain != bin) {
+            const float t = (bound - av) / (bv - av);
+            out.push_back({ a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t });
+        }
+    }
+    poly.swap(out);
+}
+
+// A convex polygon clipped to rect r (x0, y0, x1, y1).
+std::vector<Pt> ClipToRect(std::vector<Pt> poly, const float r[4]) {
+    ClipEdge(poly, 0, r[0], true);
+    ClipEdge(poly, 0, r[2], false);
+    ClipEdge(poly, 1, r[1], true);
+    ClipEdge(poly, 1, r[3], false);
+    return poly;
+}
+
+// In, on the edge of, or out of rect r, for a convex polygon.
+int32_t StateIn(const std::vector<Pt>& poly, const float r[4]) {
+    bool all = true;
+    for (const Pt& p : poly) {
+        if (p.x < r[0] || p.x > r[2] || p.y < r[1] || p.y > r[3]) {
+            all = false;
+        }
+    }
+    if (all) {
+        return ARROW_IN;
+    }
+    return ClipToRect(poly, r).size() >= 3 ? ARROW_EDGE : ARROW_OUT;
+}
+
+// Flat primitive colour, untextured, translucent render mode: the printed arrows' state.
+void PushPrim(std::vector<Gfx>& dl) {
+    dl.push_back(gsDPPipeSync());
+    dl.push_back(gsSPTexture(0, 0, 0, G_TX_RENDERTILE, G_OFF));
+    dl.push_back(gsDPSetCombineMode(G_CC_PRIMITIVE, G_CC_PRIMITIVE));
+    dl.push_back(gsDPSetOtherMode(G_AD_DISABLE | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | G_TF_POINT | G_TT_NONE |
+                                      G_TL_TILE | G_TD_CLAMP | G_TP_NONE | G_CYC_1CYCLE | G_PM_NPRIMITIVE,
+                                  G_AC_NONE | G_ZS_PIXEL | G_RM_XLU_SURF | G_RM_XLU_SURF2));
+    dl.push_back(gsSPLoadGeometryMode(G_SHADING_SMOOTH));
+}
+
+// A convex polygon in image pixels, clipped to `clip`, as a fan in the prim colour. False if nothing is left.
+bool DrawConvex(GraphicsContext* gfxCtx, std::vector<Gfx>& dl, const std::vector<Pt>& poly, const uint8_t* rgb,
+                const float clip[4]) {
+    const std::vector<Pt> c = ClipToRect(poly, clip);
+    if (c.size() < 3 || c.size() > 32) {
+        return false;
+    }
+    const uint8_t white[4] = { 255, 255, 255, 255 };
+    Vtx* v = (Vtx*)Graph_Alloc(gfxCtx, c.size() * sizeof(Vtx));
+    for (size_t i = 0; i < c.size(); i++) {
+        SetV(&v[i], c[i].x, c[i].y, white);
+    }
+    dl.push_back(gsDPSetPrimColor(0, 0, rgb[0], rgb[1], rgb[2], 255));
+    dl.push_back(gsSPVertex(v, (uint32_t)c.size(), 0));
+    for (uint8_t i = 1; i + 1 < (uint8_t)c.size(); i++) {
+        dl.push_back(gsSP1Triangle(0, i, (uint8_t)(i + 1), 0));
+    }
+    return true;
+}
+
+// A world position and heading -> its image pixel and the image-space unit vector it points along (#306's MapPose).
+void Pose(int16_t scene, float x, float z, int16_t yaw, float* px, float* py, float* ux, float* uy) {
+    const float yr = (float)yaw * (kPi / 32768.0f);
+    float qx = 0.0f;
+    float qy = 0.0f;
+    RsWorldMap_WorldToPixel(scene, x, z, px, py);
+    RsWorldMap_WorldToPixel(scene, x + std::sin(yr) * 100.0f, z + std::cos(yr) * 100.0f, &qx, &qy);
+    const float dx = qx - *px;
+    const float dy = qy - *py;
+    const float d = std::sqrt(dx * dx + dy * dy);
+    *ux = d > 0.0f ? dx / d : 0.0f;
+    *uy = d > 0.0f ? dy / d : -1.0f;
+}
+
+// The printed arrow's silhouette at (px, py) along (ux, uy): `k` game units an image pixel, so it is the
+// minimap's size in game units whatever the zoom.
+std::vector<Pt> ArrowPoly(float px, float py, float ux, float uy, float k) {
+    const float len = RS_MINIMAP_ARROW_HALF_LEN / k;
+    const float wid = RS_MINIMAP_ARROW_HALF_WIDTH / k;
+    const float nx = -uy;
+    const float ny = ux;
+    const float bx = px - ux * len;
+    const float by = py - uy * len;
+    return { { px + ux * len, py + uy * len }, { bx + nx * wid, by + ny * wid }, { bx - nx * wid, by - ny * wid } };
+}
+
+// The custom arrow (296d1d210) as four convex triangles - outline then fill - so it clips like the printed ones.
+void DrawCustomArrow(GraphicsContext* gfxCtx, std::vector<Gfx>& dl, float px, float py, int16_t yaw, float len,
+                     const float clip[4]) {
     const float a = (float)yaw * kPi / 32768.0f;
     const float dx = std::sin(a);
     const float dy = std::cos(a);
-    // Right of facing, in y-down: facing north (0, -1) has east (1, 0) on its right.
     const float rx = -dy;
     const float ry = dx;
-    // Outline (a size up) then fill: tip, back-left, notch, back-right, as (across, along) in arrow units.
     const float shape[4][2] = { { 0.0f, 0.55f }, { -0.40f, -0.45f }, { 0.0f, -0.20f }, { 0.40f, -0.45f } };
-    Vtx* vtx = (Vtx*)Graph_Alloc(gfxCtx, 8 * sizeof(Vtx));
     for (int32_t pass = 0; pass < 2; pass++) {
         const float k = len * (pass == 0 ? 1.35f : 1.0f);
-        const uint8_t* c = pass == 0 ? kArrowEdge : kArrowFill;
+        Pt p[4];
         for (int32_t i = 0; i < 4; i++) {
             const float u = shape[i][0] * k;
             const float v = shape[i][1] * k;
-            SetV(&vtx[pass * 4 + i], px + u * rx + v * dx, py + u * ry + v * dy, c);
+            p[i] = { px + u * rx + v * dx, py + u * ry + v * dy };
         }
+        const uint8_t* c = pass == 0 ? kArrowEdge : kArrowFill;
+        DrawConvex(gfxCtx, dl, { p[0], p[1], p[2] }, c, clip);
+        DrawConvex(gfxCtx, dl, { p[0], p[2], p[3] }, c, clip);
     }
-    dl.push_back(gsSPVertex(vtx, 8, 0));
-    dl.push_back(gsSP2Triangles(0, 1, 2, 0, 0, 2, 3, 0));
-    dl.push_back(gsSP2Triangles(4, 5, 6, 0, 4, 6, 7, 0));
+}
+
+// What the last drawn frame did with each arrow, for the dump.
+struct ArrowInfo {
+    const char* kind; // link, entrance, boat, balloon
+    int32_t state;    // ArrowState
+    float px, py;     // image pixel
+    bool controls;    // a vehicle Link holds the controls of: not drawn, his arrow stands for both
+};
+std::vector<ArrowInfo> sArrows;
+int32_t sLinkArrow = ARROW_NONE;
+bool sScissored = false;
+
+// The view rect of the frame drawn one tick before, and when: the map's frames between two ticks show a view
+// INTERPOLATED between that one and this one, so a tick must emit both (the trailing-edge holes, 2026-11-07).
+float sPrevView[4] = {};
+uint32_t sPrevViewFrame = 0;
+bool sPrevViewValid = false;
+
+// One placement push: image pixel (px, py), drawn at (px, -py), lands on game (gx + (px - vx0) k, gy + (py - vy0) k).
+void PushPlacement(GraphicsContext* gfxCtx, std::vector<Gfx>& dl, float gx, float gy, float vx0, float vy0, float k) {
+    Matrix_Push();
+    Matrix_Translate(gx - (float)(SCREEN_WIDTH / 2) - vx0 * k, (float)(SCREEN_HEIGHT / 2) - gy + vy0 * k, 0.0f,
+                     MTXMODE_APPLY);
+    Matrix_Scale(k, k, 1.0f, MTXMODE_APPLY);
+    dl.push_back(gsSPMatrix(Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
+}
+
+void PopPlacement(GraphicsContext* gfxCtx, std::vector<Gfx>& dl) {
+    Matrix_Pop();
+    dl.push_back(gsSPMatrix(Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
 }
 
 void MapPageDraw(PlayState* play, int32_t pageIndex, void* userData) {
@@ -442,6 +605,9 @@ void MapPageDraw(PlayState* play, int32_t pageIndex, void* userData) {
     sBlocks = 0;
     sFogQuads = 0;
     sArrowDrawn = 0;
+    sArrows.clear();
+    sLinkArrow = ARROW_NONE;
+    sScissored = false;
 
     const Layout l = PageLayout();
     const float imgW = l.map ? (float)l.info.widthPx : 1.0f;
@@ -453,62 +619,192 @@ void MapPageDraw(PlayState* play, int32_t pageIndex, void* userData) {
         sViewReset = false;
     }
     const MapView v = l.map ? DrawnView(imgW, imgH) : MapView{ 0.5f, 0.5f, 1.0f };
-    const float k = l.s * v.zoom;              // game units an image pixel, this view
-    const float vx0 = v.cx - imgW / (2.0f * v.zoom); // the view's rect, image pixels
-    const float vy0 = v.cy - imgH / (2.0f * v.zoom);
+    const float k = l.s * v.zoom; // game units an image pixel, this view
+    const float vw = imgW / v.zoom;
+    const float vh = imgH / v.zoom;
+    const float vx0 = v.cx - vw / 2.0f; // the view's rect, image pixels
+    const float vy0 = v.cy - vh / 2.0f;
+    const float view[4] = { vx0, vy0, vx0 + vw, vy0 + vh };
     sDst[0] = l.gx;
     sDst[1] = l.gy;
     sDst[2] = l.w;
     sDst[3] = l.h;
     sDrawView[0] = vx0;
     sDrawView[1] = vy0;
-    sDrawView[2] = imgW / v.zoom;
-    sDrawView[3] = imgH / v.zoom;
+    sDrawView[2] = vw;
+    sDrawView[3] = vh;
 
-    // THE PLACEMENT: image pixel (px, py), drawn at (px, -py), lands on game (gx + (px - vx0) k, gy + (py - vy0) k).
-    // In the menu's centred y-up modelview that is a translate and a uniform scale. Recorded every frame.
-    Matrix_Push();
-    Matrix_Translate(l.gx - (float)(SCREEN_WIDTH / 2) - vx0 * k, (float)(SCREEN_HEIGHT / 2) - l.gy + vy0 * k, 0.0f,
-                     MTXMODE_APPLY);
-    Matrix_Scale(k, k, 1.0f, MTXMODE_APPLY);
-    dl.push_back(gsSPMatrix(Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
+    // What this tick emits: its own view and the last tick's (the frames between them show a view interpolated
+    // between the two), a margin round both, clipped to the image.
+    float emit[4] = { view[0], view[1], view[2], view[3] };
+    const uint32_t frames = play != nullptr ? play->state.frames : 0;
+    if (sPrevViewValid && frames == sPrevViewFrame + 1) {
+        emit[0] = std::min(emit[0], sPrevView[0]);
+        emit[1] = std::min(emit[1], sPrevView[1]);
+        emit[2] = std::max(emit[2], sPrevView[2]);
+        emit[3] = std::max(emit[3], sPrevView[3]);
+    }
+    for (int32_t i = 0; i < 4; i++) {
+        sPrevView[i] = view[i];
+    }
+    sPrevViewFrame = frames;
+    sPrevViewValid = l.map;
+    emit[0] = std::max(0.0f, emit[0] - kViewMarginPx);
+    emit[1] = std::max(0.0f, emit[1] - kViewMarginPx);
+    emit[2] = std::min(imgW, emit[2] + kViewMarginPx);
+    emit[3] = std::min(imgH, emit[3] + kViewMarginPx);
+
+    // THE SCISSOR, while the scroll stands still: the map's box on screen, through the base matrix this page draws
+    // under (Matrix_MultVec3f reads it and records no op). Everything inside - the map, the fog, every arrow - is
+    // cut exactly at the box, the emitted margin and last tick's strip included.
+    // It is set kScissorSlack OUTSIDE the box, inside the masks: the scissor's own placement lands within a few
+    // screen pixels of the geometry's (measured 2026-11-07: up to 5 px short at 1808 x 996), so a scissor ON the box
+    // left a strip inside it empty. Slack outside, the masks (kMargin deep, drawn after everything) cover the band
+    // between, and nothing past them can show.
+    if (l.map && RsMenu_ScrollStill()) {
+        const float sl = kScissorSlack;
+        Vec3f c0 = { l.gx - sl - (float)(SCREEN_WIDTH / 2), (float)(SCREEN_HEIGHT / 2) - (l.gy - sl), 0.0f };
+        Vec3f c1 = { l.gx + l.w + sl - (float)(SCREEN_WIDTH / 2), (float)(SCREEN_HEIGHT / 2) - (l.gy + l.h + sl), 0.0f };
+        Vec3f s0;
+        Vec3f s1;
+        Matrix_MultVec3f(&c0, &s0);
+        Matrix_MultVec3f(&c1, &s1);
+        // Fast3D stretches a scissor's x across the whole window (the frame's own full-screen one is 0..320 and still
+        // reaches the widescreen sides), while this ortho's geometry is aspect-corrected about the centre: so x goes
+        // into scissor space by the ratio of the 4:3 aspect to the window's. The first build of this missed it and
+        // cut nothing (2026-11-07).
+        const float toScissor = ((float)SCREEN_WIDTH / (float)SCREEN_HEIGHT) / OTRGetAspectRatio();
+        const float ulx = std::max(0.0f, (float)(SCREEN_WIDTH / 2) + std::min(s0.x, s1.x) * toScissor);
+        const float lrx = std::min((float)SCREEN_WIDTH, (float)(SCREEN_WIDTH / 2) + std::max(s0.x, s1.x) * toScissor);
+        const float uly = std::max(0.0f, (float)(SCREEN_HEIGHT / 2) - std::max(s0.y, s1.y));
+        const float lry = std::min((float)SCREEN_HEIGHT, (float)(SCREEN_HEIGHT / 2) - std::min(s0.y, s1.y));
+        dl.push_back(gsDPPipeSync());
+        dl.push_back(gsDPSetScissor(G_SC_NON_INTERLACE, ulx, uly, lrx, lry));
+        sScissored = true;
+    }
 
     float lpx = 0.0f;
     float lpy = 0.0f;
     const bool link = l.map && LinkPixel(l.scene, &lpx, &lpy);
-    // Link is on the visible part of the map (the arrow is drawn only there).
-    const bool linkShown = link && lpx >= vx0 && lpy >= vy0 && lpx <= vx0 + imgW / v.zoom && lpy <= vy0 + imgH / v.zoom;
+    const int16_t linkYaw = link ? GET_PLAYER(play)->actor.shape.rot.y : 0;
     const bool customArrow = RsMenuMapPage_Arrow() == RS_MENU_MAP_ARROW_CUSTOM;
+    if (link) {
+        // Link's arrow against the view: the silhouette's own extent, centred on him.
+        float ux = 0.0f;
+        float uy = 0.0f;
+        float px = 0.0f;
+        float py = 0.0f;
+        Pose(l.scene, GET_PLAYER(play)->actor.world.pos.x, GET_PLAYER(play)->actor.world.pos.z, linkYaw, &px, &py, &ux,
+             &uy);
+        sLinkArrow = StateIn(ArrowPoly(lpx, lpy, ux, uy, k), view);
+        sArrows.push_back({ "link", sLinkArrow, lpx, lpy, false });
+    }
 
+    // THE MAP LAYER, under the placement matrix: map, fog, the vehicles' arrows, the custom Link arrow.
+    PushPlacement(gfxCtx, dl, l.gx, l.gy, vx0, vy0, k);
     if (l.map) {
-        // 1. the map, the view's rect and a margin, clipped to the image
         PushMap(dl);
-        const float sx0 = std::max(0.0f, vx0 - kViewMarginPx);
-        const float sy0 = std::max(0.0f, vy0 - kViewMarginPx);
-        const float sx1 = std::min(imgW, vx0 + imgW / v.zoom + kViewMarginPx);
-        const float sy1 = std::min(imgH, vy0 + imgH / v.zoom + kViewMarginPx);
         const size_t at = dl.size();
-        dl.resize(at + (size_t)RsWorldMap_GfxWords(sx1 - sx0, sy1 - sy0) + 2);
+        dl.resize(at + (size_t)RsWorldMap_GfxWords(emit[2] - emit[0], emit[3] - emit[1]) + 2);
         Gfx* p = &dl[at];
-        sBlocks = RsWorldMap_EmitBlocks(gfxCtx, &p, l.scene, sx0, sy0, sx1 - sx0, sy1 - sy0);
+        sBlocks = RsWorldMap_EmitBlocks(gfxCtx, &p, l.scene, emit[0], emit[1], emit[2] - emit[0], emit[3] - emit[1]);
         dl.resize((size_t)(p - dl.data()));
 
-        // 2. the fog, 3. the custom arrow
         PushFlat(dl);
-        const float clip[4] = { sx0, sy0, sx1, sy1 };
-        sFogQuads = DrawFog(gfxCtx, dl, l.scene, l.info, clip);
-        if (customArrow && linkShown) {
-            DrawCustomArrow(gfxCtx, dl, lpx, lpy, GET_PLAYER(play)->actor.shape.rot.y, kArrowUnits / l.s);
+        sFogQuads = DrawFog(gfxCtx, dl, l.scene, l.info, emit);
+
+        // The vehicles' arrows, under Link's (the minimap's order), in the scene they are in only.
+        if (play != nullptr && l.scene == play->sceneNum) {
+            std::vector<RsVehicleMapArrow> vehicles;
+            RsVehicleMinimap_MapArrows(vehicles);
+            PushPrim(dl);
+            for (const RsVehicleMapArrow& a : vehicles) {
+                float px = 0.0f;
+                float py = 0.0f;
+                float ux = 0.0f;
+                float uy = 0.0f;
+                Pose(l.scene, a.x, a.z, a.yaw, &px, &py, &ux, &uy);
+                const std::vector<Pt> poly = ArrowPoly(px, py, ux, uy, k);
+                const int32_t state = StateIn(poly, view);
+                if (!a.controls && state != ARROW_OUT) {
+                    DrawConvex(gfxCtx, dl, poly, a.rgb, emit);
+                }
+                sArrows.push_back({ a.balloon ? "balloon" : "boat", state, px, py, a.controls });
+            }
+        }
+        if (customArrow && link && sLinkArrow != ARROW_OUT) {
+            PushPrim(dl);
+            DrawCustomArrow(gfxCtx, dl, lpx, lpy, linkYaw, kArrowUnits / l.s, emit);
             sArrowDrawn = 1;
         }
         // #307 draws its icons here when RsMenuMapPage_Icons() is on.
     }
+    PopPlacement(gfxCtx, dl);
 
-    Matrix_Pop();
-    dl.push_back(gsSPMatrix(Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
+    // Link's vanilla arrow, in game units under the base matrix; its ops are recorded every frame. The scissor
+    // cuts it at the box while the scroll is still.
+    {
+        const bool shown = link && !customArrow && sLinkArrow != ARROW_OUT;
+        const float ax = link ? l.gx + (lpx - vx0) * k : -1000.0f;
+        const float ay = link ? l.gy + (lpy - vy0) * k : -1000.0f;
+        // Vanilla's own turn for a north-up map with world x right and z down (Minimap_DrawCompassIcons).
+        const float angle = (32767.0f - (float)linkYaw) / 10240.0f;
+        Matrix_Push();
+        Matrix_Translate(ax - (float)(SCREEN_WIDTH / 2), (float)(SCREEN_HEIGHT / 2) - ay, 0.0f, MTXMODE_APPLY);
+        Matrix_Scale(kCompassScale, kCompassScale, kCompassScale, MTXMODE_APPLY);
+        Matrix_RotateX(-1.6f, MTXMODE_APPLY);
+        Matrix_RotateY(angle, MTXMODE_APPLY);
+        Mtx* arrow = Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__);
+        Matrix_Pop();
+        Mtx* restored = Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__);
+        if (shown) {
+            const Color_RGB8 c = RsMinimap_LinkColor();
+            Gfx setup[2];
+            Gfx_SetupDL(setup, SETUPDL_42);
+            dl.push_back(gsDPPipeSync());
+            dl.push_back(setup[0]);
+            dl.push_back(gsDPSetCombineMode(G_CC_PRIMITIVE, G_CC_PRIMITIVE));
+            dl.push_back(gsSPMatrix(arrow, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
+            dl.push_back(gsDPSetPrimColor(0, 0xFF, c.r, c.g, c.b, 255));
+            dl.push_back(gsSPDisplayListOTRFilePath(gCompassArrowDL));
+            dl.push_back(gsSPMatrix(restored, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
+            sArrowDrawn = 1;
+        }
+    }
+
+    // THE TOP LAYER, under the placement again: the red entrance arrow goes over Link's, as on the minimap.
+    PushPlacement(gfxCtx, dl, l.gx, l.gy, vx0, vy0, k);
+    if (link) {
+        f32 ex = 0.0f;
+        f32 ez = 0.0f;
+        s16 eyaw = 0;
+        RsMinimap_EntrancePose(&ex, &ez, &eyaw);
+        float px = 0.0f;
+        float py = 0.0f;
+        float ux = 0.0f;
+        float uy = 0.0f;
+        Pose(l.scene, ex, ez, eyaw, &px, &py, &ux, &uy);
+        const std::vector<Pt> poly = ArrowPoly(px, py, ux, uy, k);
+        const int32_t state = StateIn(poly, view);
+        if (state != ARROW_OUT) {
+            const Color_RGB8 c = RsMinimap_EntranceColor();
+            const uint8_t rgb[3] = { c.r, c.g, c.b };
+            PushPrim(dl);
+            DrawConvex(gfxCtx, dl, poly, rgb, emit);
+        }
+        sArrows.push_back({ "entrance", state, px, py, false });
+    }
+    PopPlacement(gfxCtx, dl);
+
+    if (sScissored) {
+        // Back to the frame's own (z_rcp.c sets OVERLAY_DISP's to the whole screen each frame).
+        dl.push_back(gsDPPipeSync());
+        dl.push_back(gsDPSetScissor(G_SC_NON_INTERLACE, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT));
+    }
 
     if (l.map) {
-        // 4. the masks, 5. the frame: game units, under the base matrix
+        // The masks and the frame, game units, under the base matrix. With the scissor on they cover nothing the
+        // scissor has not already cut; while the scroll moves (no scissor) they cover the emitted margin.
         uint8_t panel[4] = { 0, 0, 0, 255 };
         RsMenu_PanelColour(panel);
         const float x0 = l.gx;
@@ -528,35 +824,6 @@ void MapPageDraw(PlayState* play, int32_t pageIndex, void* userData) {
         QuadGame(&vtx[28], x1, y0, x1 + f, y1, kFrame);
         PushFlat(dl);
         EmitQuads(dl, vtx, 8);
-    }
-
-    // 6. vanilla's compass arrow, in game units under the base matrix. Its ops are recorded every frame.
-    {
-        const float ax = linkShown ? l.gx + (lpx - vx0) * k : -1000.0f;
-        const float ay = linkShown ? l.gy + (lpy - vy0) * k : -1000.0f;
-        const int16_t yaw = link ? GET_PLAYER(play)->actor.shape.rot.y : 0;
-        // Vanilla's own turn for a north-up map with world x right and z down (Minimap_DrawCompassIcons).
-        const float angle = (32767.0f - (float)yaw) / 10240.0f;
-        Matrix_Push();
-        Matrix_Translate(ax - (float)(SCREEN_WIDTH / 2), (float)(SCREEN_HEIGHT / 2) - ay, 0.0f, MTXMODE_APPLY);
-        Matrix_Scale(kCompassScale, kCompassScale, kCompassScale, MTXMODE_APPLY);
-        Matrix_RotateX(-1.6f, MTXMODE_APPLY);
-        Matrix_RotateY(angle, MTXMODE_APPLY);
-        Mtx* arrow = Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__);
-        Matrix_Pop();
-        Mtx* restored = Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__);
-        if (!customArrow && linkShown) {
-            Gfx setup[2];
-            Gfx_SetupDL(setup, SETUPDL_42);
-            dl.push_back(gsDPPipeSync());
-            dl.push_back(setup[0]);
-            dl.push_back(gsDPSetCombineMode(G_CC_PRIMITIVE, G_CC_PRIMITIVE));
-            dl.push_back(gsSPMatrix(arrow, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
-            dl.push_back(gsDPSetPrimColor(0, 0xFF, kCompassLink[0], kCompassLink[1], kCompassLink[2], 255));
-            dl.push_back(gsSPDisplayListOTRFilePath(gCompassArrowDL));
-            dl.push_back(gsSPMatrix(restored, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
-            sArrowDrawn = 1;
-        }
     }
     sWords = (int32_t)(dl.size() - wordsBefore);
 
@@ -618,6 +885,32 @@ void MapPageFocusTick(int32_t pageIndex, uint16_t held, uint16_t press, void* us
     }
 }
 
+// B in the focused view: out at once if the view is the whole world, else ease it there first (kZoomTicks, the
+// zoom step's own ease) while the scroll still stands still, so the scissor holds the edges the whole way; the menu
+// asks again each tick (RsMenuPage::focusLeave), and focusTick runs the ease.
+bool MapPageFocusLeave(int32_t pageIndex, void* userData) {
+    (void)pageIndex;
+    (void)userData;
+    if (sZoomIdx == 0 && sZoomTick >= kZoomTicks) {
+        return true;
+    }
+    const char* source = "none";
+    const int16_t scene = MapScene(&source);
+    RsWorldMapInfo info = {};
+    if (scene < 0 || !RsWorldMap_Info(scene, &info)) {
+        return true;
+    }
+    if (sZoomIdx != 0) {
+        const float w = (float)info.widthPx;
+        const float h = (float)info.heightPx;
+        sFrom = CurrentView(w, h);
+        sTo = { w / 2.0f, h / 2.0f, 1.0f };
+        sZoomIdx = 0;
+        sZoomTick = 0;
+    }
+    return false;
+}
+
 // #125: B closes (or, focused, comes back out); A focuses the map. Nothing else is live.
 void MapPageHud(int32_t pageIndex, uint8_t status[9], void* userData) {
     (void)pageIndex;
@@ -644,6 +937,7 @@ void RsMenuMapPage_Register() {
     page.select = MapPageSelect;
     page.selectFocus = true;
     page.focusTick = MapPageFocusTick;
+    page.focusLeave = MapPageFocusLeave;
     page.hud = MapPageHud;
     page.toText = "To World Map";
     sPageIndex = RsMenu_RegisterPageStruct(page);
@@ -752,5 +1046,10 @@ RsMenuMapPageStatus RsMenuMapPage_Status() {
     st.fogQuads = sFogQuads;
     st.words = sWords;
     st.arrowDrawn = sArrowDrawn;
+    st.linkArrow = ArrowStateName(sLinkArrow);
+    st.scissored = sScissored;
+    for (const ArrowInfo& a : sArrows) {
+        st.arrows.push_back({ a.kind, ArrowStateName(a.state), a.px, a.py, a.controls });
+    }
     return st;
 }

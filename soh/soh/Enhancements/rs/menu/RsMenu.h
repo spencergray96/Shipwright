@@ -251,6 +251,10 @@ struct RsMenuPage {
     // with the held and newly pressed buttons - the page's own controls in the focused view.
     bool selectFocus = false;
     void (*focusTick)(int32_t pageIndex, uint16_t held, uint16_t press, void* userData) = nullptr;
+    // #303, optional: asked when B would start the zoom-out. False holds the zoom-out back - the page is putting
+    // its view back first (the map eases to the whole world while the scroll is still, so its scissor holds) -
+    // and the menu asks again each tick, feeding `focusTick` no buttons meanwhile, until it answers true.
+    bool (*focusLeave)(int32_t pageIndex, void* userData) = nullptr;
 };
 
 // Registers a page at the end of the ring and returns its 0-based index, or -1 if `id` is empty or
@@ -604,6 +608,13 @@ struct RsMenuFocusState {
     int32_t inputTicks; // focusTick calls
 };
 RsMenuFocusState RsMenu_FocusState();
+// #303: whether the whole scroll stands still on screen this frame - open and settled, nothing rolling, turning,
+// zooming or probing - so a page may clip to a screen rectangle (a scissor is an immediate value: it neither
+// follows a moving matrix nor interpolates).
+bool RsMenu_ScrollStill();
+// Whether B has asked to leave the focus and the page is still putting its view back (`focusLeave`).
+bool RsMenu_FocusLeaving();
+
 // The panel's flat body colour, for a page that has to paint over its own geometry with parchment (the map's
 // edge masks).
 void RsMenu_PanelColour(uint8_t rgb[3]);

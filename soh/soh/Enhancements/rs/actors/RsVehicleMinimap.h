@@ -24,4 +24,20 @@ enum {
 int32_t RsVehicleMinimap_Arrow(const Actor* vehicle);
 const char* RsVehicleMinimap_ArrowName(int32_t arrow);
 
+#ifdef __cplusplus
+#include <vector>
+// The same arrows as data, for another map to draw (the pause scroll's World Map, #303): every boat and balloon
+// the minimap would show, the same filter and colours (cosmetic overrides applied). `controls` is the minimap's
+// rule - Link holds that vehicle's controls, so his arrow stands for both and this one is not drawn.
+struct RsVehicleMapArrow {
+    const Actor* vehicle;
+    bool balloon; // else a boat
+    float x, z;   // world position
+    int16_t yaw;  // the hull's or basket's heading
+    uint8_t rgb[3];
+    bool controls;
+};
+void RsVehicleMinimap_MapArrows(std::vector<RsVehicleMapArrow>& out);
+#endif
+
 #endif // SOH_RS_VEHICLE_MINIMAP_H

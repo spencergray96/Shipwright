@@ -257,7 +257,10 @@
 //                         layer=, storey_mode=, fog=, icons=, chunks=, revealed=, the last drawn frame's
 //                         dst=/blocks=/fog_quads=/dl_words=/arrow=, and Link's link_px=/link_square=/
 //                         link_flag=/link_revealed=, arrow_mode=, the focused view's view=/zoom=/zoom_step=/
-//                         pans= and the drawn_view= rect) and `section=map_reveal` (entry_reveals=, the last
+//                         pans= and the drawn_view= rect; since round 3 link_arrow=in|edge|out|none,
+//                         scissor= and arrows=), one `section=map_arrow kind=link|entrance|boat|balloon
+//                         state=in|edge|out px= controls=` line per arrow the last frame considered, and
+//                         `section=map_reveal` (entry_reveals=, the last
 //                         reveal, and revealed= the map scene's revealed squares as sx:sy,...).
 //                         Stage 6 adds `section=level` (the `level` line's fields),
 //                         `section=quests` (rows, visible, top, `cursor_row=`, `debug_tier=`), one

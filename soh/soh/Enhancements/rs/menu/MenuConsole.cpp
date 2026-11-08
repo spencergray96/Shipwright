@@ -522,14 +522,15 @@ std::string DescribeMap() {
                   "chunks=%d revealed=%d frame=%d dst=%.1f,%.1f,%.1f,%.1f blocks=%d fog_quads=%d dl_words=%d "
                   "link=%d arrow=%d link_px=%.1f,%.1f link_square=%d,%d link_flag=%d link_revealed=%d "
                   "arrow_mode=%s view=%.1f,%.1f zoom=%.2f zoom_step=%d zoom_steps=%d pans=%d "
-                  "drawn_view=%.1f,%.1f,%.1f,%.1f",
+                  "drawn_view=%.1f,%.1f,%.1f,%.1f link_arrow=%s scissor=%d arrows=%d",
                   st.pageIndex + 1, st.current ? 1 : 0, st.map ? 1 : 0, st.scene >= 0 ? st.scene : 0xFFFF, st.source,
                   st.reason[0] != '\0' ? st.reason : "-", st.layer, st.storeyMode,
                   RsMenuMapPage_FogName(RsMenuMapPage_Fog()), RsMenuMapPage_Icons() ? 1 : 0, st.chunks, st.revealed,
                   st.frame, st.dstX, st.dstY, st.dstW, st.dstH, st.blocks, st.fogQuads, st.words, st.link ? 1 : 0,
                   st.arrowDrawn, st.linkPx, st.linkPy, st.linkSx, st.linkSy, st.linkFlag, st.linkRevealed ? 1 : 0,
                   st.arrow, st.viewCx, st.viewCy, st.viewZoom, st.zoomStep, st.zoomSteps, st.pans, st.drawnView[0],
-                  st.drawnView[1], st.drawnView[2], st.drawnView[3]);
+                  st.drawnView[1], st.drawnView[2], st.drawnView[3], st.linkArrow, st.scissored ? 1 : 0,
+                  (int32_t)st.arrows.size());
     return buf;
 }
 
@@ -822,6 +823,11 @@ int32_t Dump(std::vector<std::string>& lines) {
     }
     // #303: the World Map page, and the fog's revealed set (the map scene's chunks, as sx:sy).
     Addf(lines, "op=dump section=map %s", DescribeMap().c_str());
+    // One line per arrow the last frame considered: which, where (image pixel), and in, edge or out of the view.
+    for (const auto& a : RsMenuMapPage_Status().arrows) {
+        Addf(lines, "op=dump section=map_arrow kind=%s state=%s px=%.1f,%.1f controls=%d", a.kind, a.state, a.px,
+             a.py, a.controls ? 1 : 0);
+    }
     {
         const RsMenuMapPageStatus st = RsMenuMapPage_Status();
         const RsMapRevealStats rv = RsMapReveal_Stats();

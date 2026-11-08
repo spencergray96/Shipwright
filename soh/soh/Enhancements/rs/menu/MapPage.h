@@ -5,6 +5,7 @@
 // carries the why.
 #include <stdint.h>
 #include <string>
+#include <vector>
 
 #define CVAR_RS_MENU_MAP_FOG CVAR_ENHANCEMENT("RsMenuMapFog")     // 0 hide (default), 1 dim
 #define CVAR_RS_MENU_MAP_ICONS CVAR_ENHANCEMENT("RsMenuMapIcons") // 0 off (default), 1 on; #307 draws them
@@ -70,6 +71,18 @@ struct RsMenuMapPageStatus {
     int32_t fogQuads;
     int32_t words;
     int32_t arrowDrawn;
+    // #303 round 3: every arrow the last frame considered - Link's, the red entrance's, each boat's and balloon's -
+    // and whether it was in the view, cut by its edge, or out. `controls`: a vehicle Link holds the controls of (not
+    // drawn; his arrow stands for both). `scissored`: the frame clipped to the box with a scissor (the scroll still).
+    const char* linkArrow;
+    bool scissored;
+    struct Arrow {
+        const char* kind;
+        const char* state;
+        float px, py;
+        bool controls;
+    };
+    std::vector<Arrow> arrows;
     std::string revealedList; // "sx:sy,..." of the map scene's revealed chunks
 };
 RsMenuMapPageStatus RsMenuMapPage_Status();

@@ -1013,6 +1013,7 @@ static bool sFocusHold = false;
 static bool sFocusLoop = false; // `menu focus loop`: in, out, in... for a burst of mid-zoom captures
 static int32_t sFocuses = 0;
 static int32_t sFocusInputTicks = 0;
+static bool sFocusLeaving = false; // B pressed while focused; the page is putting its view back (focusLeave)
 // Whether ApplyLevelHud has written the focus alphas since the scroll was last at rest.
 static bool sFocusHudTouched = false;
 
@@ -2867,6 +2868,22 @@ static void ResetFocus() {
     sFocusTick = 0;
     sFocusHold = false;
     sFocusLoop = false;
+    sFocusLeaving = false;
+}
+
+bool RsMenu_FocusLeaving() {
+    return sFocusLeaving;
+}
+
+// B while focused: out, unless the page wants a moment to put its view back first.
+static void LeaveFocus() {
+    const RsMenuPage* page = RsMenu_PageAt(sPage);
+    if (page != nullptr && page->focusLeave != nullptr && !page->focusLeave(sPage, page->userData)) {
+        sFocusLeaving = true;
+        return;
+    }
+    sFocusLeaving = false;
+    RsMenu_StartFocus(-1);
 }
 
 bool RsMenu_IsFocused() {
@@ -2930,6 +2947,10 @@ RsMenuFocusState RsMenu_FocusState() {
     st.focuses = sFocuses;
     st.inputTicks = sFocusInputTicks;
     return st;
+}
+
+bool RsMenu_ScrollStill() {
+    return sPhase == RS_MENU_PHASE_OPEN && !sProbe && !sSweepActive && !sLevelActive && !sFocusActive;
 }
 
 void RsMenu_PanelColour(uint8_t rgb[3]) {
@@ -3158,7 +3179,8 @@ static void UpdateNavigation(const Input* input) {
     }
     if (sFocused) {
         if (page != nullptr && page->focusTick != nullptr) {
-            page->focusTick(sPage, input->cur.button, press, page->userData);
+            // While leaving, the page's animations run on but it gets no buttons.
+            page->focusTick(sPage, sFocusLeaving ? 0 : input->cur.button, sFocusLeaving ? 0 : press, page->userData);
             sFocusInputTicks++;
         }
         return;
@@ -3320,6 +3342,9 @@ static void RsMenu_OnGameFrameUpdate() {
         AdvanceSweep();
         AdvanceLevel();
         AdvanceFocus();
+        if (sFocusLeaving && sFocused && !sFocusActive) {
+            LeaveFocus(); // asked again each tick until the page's view is back
+        }
 
         // #125: while an equipped icon is flying to its button nothing else is taken - kaleido is in its
         // sub-state 3 then, and its cursor, L/R, B and START all wait for 0 (z_kaleido_scope_PAL.c:4261).
@@ -3369,7 +3394,9 @@ static void RsMenu_OnGameFrameUpdate() {
             if (animating) {
                 sCloseDropped++;
             } else if (sFocused) {
-                RsMenu_StartFocus(-1); // #303: B zooms back out, the cursor still on the item it focused
+                if (!sFocusLeaving) {
+                    LeaveFocus(); // #303: B zooms back out, the cursor still on the item it focused
+                }
             } else if (sLevel != 0) {
                 RsMenu_Ascend();
             } else {
