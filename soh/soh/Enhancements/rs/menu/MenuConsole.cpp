@@ -929,6 +929,30 @@ int32_t Dump(std::vector<std::string>& lines) {
                      slot.itemName.c_str(), slot.owned ? 1 : 0, slot.isNode ? 1 : 0, slot.grey ? 1 : 0,
                      visible && slot.node == cursorId ? 1 : 0);
             }
+            // #301: the slot tracks, on the Items page only. One `section=track` line for the page, then one
+            // `section=track_row` per row with its band and its sockets (`slot@x,y` and whether that slot is
+            // owned). `quads=`/`missing=`/`draws=` are the last draw's, so `missing=52` is a tree without
+            // mods/rs-sprites.o2r and a `draws=` that moves between two dumps says the page is drawing.
+            if (!port.trackRows.empty()) {
+                int32_t sockets = 0;
+                for (const RsMenuTrackRowInfo& row : port.trackRows) {
+                    sockets += (int32_t)row.sockets.size();
+                }
+                Addf(lines, "op=dump section=track page=%d id=%s rows=%d sockets=%d quads=%d missing=%d draws=%u",
+                     port.pageIndex + 1, port.pageId.c_str(), (int32_t)port.trackRows.size(), sockets,
+                     port.trackQuads, port.trackMissing, port.trackDraws);
+                for (const RsMenuTrackRowInfo& row : port.trackRows) {
+                    std::string list;
+                    for (const RsMenuSocketInfo& s : row.sockets) {
+                        char one[40];
+                        std::snprintf(one, sizeof(one), "%s%d@%d,%d:%d", list.empty() ? "" : ";", s.slot, s.x, s.y,
+                                      s.owned ? 1 : 0);
+                        list += one;
+                    }
+                    Addf(lines, "op=dump section=track_row page=%d row=%d band=%d,%d,%d,%d pieces=%d sockets=%s",
+                         port.pageIndex + 1, row.row, row.x0, row.y0, row.x1, row.y1, row.pieces, list.c_str());
+                }
+            }
         }
         const RsPauseLinkStatus link = RsPauseLink_Status();
         Addf(lines,

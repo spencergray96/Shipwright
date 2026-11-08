@@ -75,6 +75,31 @@ const void* const* RsVanilla_ToPageLabel(int32_t kaleidoPage);
 // an equipped icon is flying, kaleido's item-equip state, else 0.
 int32_t RsVanilla_EquipSubState();
 
+// #301 (a proof of concept): rows of RS's settings-slider track under a page's slots, a notch circle (socket)
+// under every slot, owned or not, no knob. VanillaPages.cpp has the assembly and why it is seam-free.
+//
+// A block of `rows` x `sockets`: the first row's first socket centred at (`firstX`, `firstY`) in the menu's
+// 320x240 space (y down), sockets 32 apart (RsVanilla_kTrackPitch, the ports' slot pitch: the pieces are 16 units),
+// rows `rowPitch` apart. Draw only from a page's draw callback, BEFORE its icons; it goes through
+// RsMenu_BeginRawDraw, so the next RsMenu_Draw* call pushes its own state again.
+constexpr int16_t RsVanilla_kTrackPitch = 32;
+struct RsVanillaTracks {
+    int16_t firstX;
+    int16_t firstY;
+    int16_t rowPitch;
+    int32_t rows;
+    int32_t sockets;
+    // What the last draw did, for `menu dump`.
+    int32_t quads = 0;
+    int32_t missing = 0;
+    uint32_t draws = 0;
+};
+void RsVanilla_DrawTracks(RsVanillaTracks* tracks);
+// Fills `info`'s track lines; `slotOf(row, socket)` is the page's slot (cursor point) under that socket and
+// `owned(slot)` whether it holds something.
+void RsVanilla_DescribeTracks(const RsVanillaTracks& tracks, int32_t (*slotOf)(int32_t row, int32_t socket),
+                              bool (*owned)(int32_t slot), RsMenuPortInfo* info);
+
 // The pages, one file each. Register returns the ring index; Describe fills one port line.
 int32_t RsMenuItemsPage_Register();
 int32_t RsMenuEquipmentPage_Register();

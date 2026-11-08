@@ -294,12 +294,28 @@ static void EquipmentPageNodes(int32_t pageIndex, void* userData) {
     RsMenu_SetCursorGrid(entry);
 }
 
+// --- slot tracks (sturdy-bassoon#301, a proof of concept) -------------------------------------------
+//
+// A 3-socket track under each row's equipment cells (swords, shields, tunics, boots), a socket under every cell,
+// owned or not; the upgrades column has none. VanillaPages.cpp has the assembly. Columns 1-3 are 32 apart, so the
+// sockets sit under their centres and the row spans x 175..271: 12 units clear of Link's portrait (99..163) and 9
+// of the right hand (280). Drawn first, so the outlines, the icons, the portrait and the cursor draw over it.
+static RsVanillaTracks sTracks = { (int16_t)(kMap.X(SlotLeft(1)) + kIcon / 2), (int16_t)(kMap.Y(SlotTop(1)) + kIcon / 2),
+                                   32, kRows, kCols - 1 };
+static_assert(kColX[2] - kColX[1] == RsVanilla_kTrackPitch && kColX[3] - kColX[2] == RsVanilla_kTrackPitch,
+              "the track's pieces assume the 32-unit column pitch");
+
+static int32_t TrackSlot(int32_t row, int32_t socket) {
+    return row * kCols + socket + 1;
+}
+
 // --- drawing: z_kaleido_equipment.c:194-201, :769-858 -----------------------------------------------
 
 static void EquipmentPageDraw(struct PlayState* play, int32_t pageIndex, void* userData) {
     (void)play;
     (void)pageIndex;
     (void)userData;
+    RsVanilla_DrawTracks(&sTracks);
     // The equipped outlines: around the current sword, shield, tunic and boots, 2 outside the icon.
     for (int32_t row = 0; row < kRows; row++) {
         const int32_t value = CUR_EQUIP_VALUE(row);
@@ -634,4 +650,5 @@ void RsMenuEquipmentPage_Describe(RsMenuPortInfo* info) {
     link.isNode = false;
     link.grey = false;
     info->slots.push_back(link);
+    RsVanilla_DescribeTracks(sTracks, TrackSlot, OwnsCell, info);
 }

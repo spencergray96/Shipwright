@@ -246,6 +246,20 @@ static void ItemsPageNodes(int32_t pageIndex, void* userData) {
     RsMenu_SetCursorGrid(entry >= 0 ? nodeOf[entry] : -1);
 }
 
+// --- slot tracks (sturdy-bassoon#301, a proof of concept) -------------------------------------------
+//
+// One row of RS's settings-slider track under each row of slots, a socket under every slot, owned or not, so the
+// parchment shows where the cursor can land. The assembly is VanillaPages.cpp's (RsVanilla_DrawTracks). The six
+// sockets sit under the six columns' centres, so the row spans x 64..256, inside the page rect and clear of the
+// hands. Drawn first: the equipped outlines, the icons, the ammo and the menu's cursor box all draw over it.
+static RsVanillaTracks sTracks = { (int16_t)(kMap.X(SlotLeft(0)) + kIcon / 2), (int16_t)(kMap.Y(SlotTop(0)) + kIcon / 2),
+                                   kPitch, kRows, kCols };
+static_assert(kPitch == RsVanilla_kTrackPitch, "the track's pieces assume the 32-unit slot pitch");
+
+static int32_t TrackSlot(int32_t row, int32_t socket) {
+    return row * kCols + socket;
+}
+
 // --- drawing: KaleidoScope_DrawItemSelect, z_kaleido_item.c:736-818 --------------------------------
 
 // The equipped outline sits 2 units outside the icon, 32 square (:3145-3182).
@@ -305,6 +319,7 @@ static void ItemsPageDraw(struct PlayState* play, int32_t pageIndex, void* userD
     (void)play;
     (void)pageIndex;
     (void)userData;
+    RsVanilla_DrawTracks(&sTracks);
     DrawEquippedOutlines();
     for (int32_t slot = 0; slot < kSlots; slot++) {
         const int32_t item = gSaveContext.inventory.items[slot];
@@ -426,4 +441,5 @@ void RsMenuItemsPage_Describe(RsMenuPortInfo* info) {
         s.grey = item != ITEM_NONE && !CHECK_AGE_REQ_ITEM(item);
         info->slots.push_back(s);
     }
+    RsVanilla_DescribeTracks(sTracks, TrackSlot, Occupied, info);
 }
