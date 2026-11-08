@@ -9,6 +9,8 @@
 #include <ship/Context.h>
 #include <ship/debug/Console.h>
 
+#include "MapPage.h"
+#include "MapReveal.h"
 #include "NamePanel.h"
 #include "PauseLink.h"
 #include "QuestPage.h"
@@ -511,6 +513,164 @@ int32_t Probe(const std::vector<std::string>& args, std::vector<std::string>& li
     return 0;
 }
 
+// #303: the World Map page. One line, the fields `section=map` carries, so `menu map` and `dump` agree.
+std::string DescribeMap() {
+    const RsMenuMapPageStatus st = RsMenuMapPage_Status();
+    char buf[900];
+    std::snprintf(buf, sizeof(buf),
+                  "page=%d current=%d map=%d scene=0x%X source=%s reason=%s layer=%d storey_mode=%s fog=%s icons=%d "
+                  "chunks=%d revealed=%d frame=%d dst=%.1f,%.1f,%.1f,%.1f blocks=%d fog_quads=%d dl_words=%d "
+                  "link=%d arrow=%d link_px=%.1f,%.1f link_square=%d,%d link_flag=%d link_revealed=%d "
+                  "arrow_mode=%s view=%.1f,%.1f zoom=%.2f zoom_step=%d zoom_steps=%d pans=%d "
+                  "drawn_view=%.1f,%.1f,%.1f,%.1f link_arrow=%s scissor=%d arrows=%d",
+                  st.pageIndex + 1, st.current ? 1 : 0, st.map ? 1 : 0, st.scene >= 0 ? st.scene : 0xFFFF, st.source,
+                  st.reason[0] != '\0' ? st.reason : "-", st.layer, st.storeyMode,
+                  RsMenuMapPage_FogName(RsMenuMapPage_Fog()), RsMenuMapPage_Icons() ? 1 : 0, st.chunks, st.revealed,
+                  st.frame, st.dstX, st.dstY, st.dstW, st.dstH, st.blocks, st.fogQuads, st.words, st.link ? 1 : 0,
+                  st.arrowDrawn, st.linkPx, st.linkPy, st.linkSx, st.linkSy, st.linkFlag, st.linkRevealed ? 1 : 0,
+                  st.arrow, st.viewCx, st.viewCy, st.viewZoom, st.zoomStep, st.zoomSteps, st.pans, st.drawnView[0],
+                  st.drawnView[1], st.drawnView[2], st.drawnView[3], st.linkArrow, st.scissored ? 1 : 0,
+                  (int32_t)st.arrows.size());
+    return buf;
+}
+
+// #303: the focus zoom. One line, the fields `section=focus` carries.
+std::string DescribeFocus() {
+    const RsMenuFocusState f = RsMenu_FocusState();
+    char buf[400];
+    std::snprintf(buf, sizeof(buf),
+                  "focused=%d active=%d tick=%d of=%d dir=%d pose=%d hold=%d amount=%.3f scale=%.3f target=%.3f "
+                  "pivot_y=%.1f hud_shown=%.3f b_shown=%.3f b_moved=%d focuses=%d input_ticks=%d loop=%d",
+                  f.focused ? 1 : 0, f.active ? 1 : 0, f.tick, f.ticks, f.dir, f.pose, f.hold ? 1 : 0, f.amount, f.scale,
+                  f.target, f.pivotY, f.hudShown, f.bShown, f.bMoved ? 1 : 0, f.focuses, f.inputTicks, f.loop ? 1 : 0);
+    return buf;
+}
+
+// `menu focus [in|out|hold <in|out> <tick>|stop]`: the focus zoom, the way A and B drive it, plus a hold.
+int32_t Focus(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    bool ok = true;
+    if (args.size() == 2 && (args[1] == "in" || args[1] == "out")) {
+        ok = RsMenu_StartFocus(args[1] == "in" ? 1 : -1);
+    } else if (args.size() == 4 && args[1] == "hold" && (args[2] == "in" || args[2] == "out")) {
+        int32_t tick = 0;
+        ok = ParseIndex(args[3], &tick) && RsMenu_HoldFocus(args[2] == "in" ? 1 : -1, tick);
+    } else if (args.size() == 2 && args[1] == "loop") {
+        ok = RsMenu_StartFocusLoop();
+    } else if (args.size() == 2 && args[1] == "stop") {
+        RsMenu_StopFocusHold();
+    } else if (args.size() != 1) {
+        Addf(lines, "op=focus result=error error=arg %s", Describe().c_str());
+        return 1;
+    }
+    if (!ok) {
+        Addf(lines, "op=focus result=error error=refused %s %s", DescribeFocus().c_str(), Describe().c_str());
+        return 1;
+    }
+    Addf(lines, "op=focus result=ok %s %s", DescribeFocus().c_str(), Describe().c_str());
+    return 0;
+}
+
+// A strict signed decimal, for `map pan`.
+bool ParseSignedFloat(const std::string& word, float* value) {
+    if (word.empty()) {
+        return false;
+    }
+    char* end = nullptr;
+    const float v = std::strtof(word.c_str(), &end);
+    if (end == nullptr || *end != '\0' || end == word.c_str()) {
+        return false;
+    }
+    *value = v;
+    return true;
+}
+
+// Two strict non-negative numbers: a square.
+bool ParseSquare(const std::vector<std::string>& args, size_t at, int32_t* sx, int32_t* sy) {
+    return args.size() == at + 2 && ParseIndex(args[at], sx) && ParseIndex(args[at + 1], sy);
+}
+
+// `menu map`: the page's state, and the test surface for the fog (reveal, node, hide, fog, icons).
+int32_t MapCmd(const std::vector<std::string>& args, std::vector<std::string>& lines) {
+    const std::string word = args.size() >= 2 ? args[1] : "";
+    int32_t sx = 0;
+    int32_t sy = 0;
+    int32_t rc = 0;
+    if (word.empty()) {
+        Addf(lines, "op=map result=ok %s %s", DescribeMap().c_str(), Describe().c_str());
+        return 0;
+    }
+    if (word == "reveal" && args.size() == 3 && (args[2] == "all" || args[2] == "none")) {
+        const RsMenuMapPageStatus st = RsMenuMapPage_Status();
+        const int32_t n = args[2] == "all" ? RsMapReveal_RevealAll(st.scene) : RsMapReveal_HideAll();
+        Addf(lines, "op=map result=ok action=reveal_%s changed=%d %s %s", args[2].c_str(), n, DescribeMap().c_str(),
+             Describe().c_str());
+        return 0;
+    }
+    if (word == "reveal" || word == "node" || word == "hide") {
+        if (!ParseSquare(args, 2, &sx, &sy)) {
+            Addf(lines, "op=map result=error error=arg action=%s %s", word.c_str(), Describe().c_str());
+            return 1;
+        }
+        if (word == "reveal") {
+            rc = RsMapReveal_RevealChunk(sx, sy, "console");
+        } else if (word == "node") {
+            rc = RsMapReveal_RevealNode(sx, sy, "console");
+        } else {
+            rc = RsMapReveal_Hide(sx, sy);
+        }
+        if (rc < 0) {
+            Addf(lines, "op=map result=error error=%s action=%s square=%d,%d %s", word == "node" ? "no_chunk" : "no_flag",
+                 word.c_str(), sx, sy, Describe().c_str());
+            return 1;
+        }
+        Addf(lines, "op=map result=ok action=%s square=%d,%d flag=%d changed=%d now_revealed=%d %s %s", word.c_str(), sx,
+             sy, RsMapReveal_Flag(sx, sy), rc, RsMapReveal_IsRevealed(sx, sy) ? 1 : 0, DescribeMap().c_str(),
+             Describe().c_str());
+        return 0;
+    }
+    if (word == "fog" && args.size() == 3 && (args[2] == "hide" || args[2] == "dim")) {
+        RsMenuMapPage_SetFog(args[2] == "dim" ? RS_MENU_MAP_FOG_DIM : RS_MENU_MAP_FOG_HIDE);
+        Addf(lines, "op=map result=ok action=fog %s %s", DescribeMap().c_str(), Describe().c_str());
+        return 0;
+    }
+    if (word == "arrow" && args.size() == 3 && (args[2] == "vanilla" || args[2] == "custom")) {
+        RsMenuMapPage_SetArrow(args[2] == "custom" ? RS_MENU_MAP_ARROW_CUSTOM : RS_MENU_MAP_ARROW_VANILLA);
+        Addf(lines, "op=map result=ok action=arrow %s %s", DescribeMap().c_str(), Describe().c_str());
+        return 0;
+    }
+    if (word == "zoom" && args.size() == 3 && (args[2] == "in" || args[2] == "out")) {
+        if (!RsMenuMapPage_StepZoom(args[2] == "in" ? 1 : -1)) {
+            Addf(lines, "op=map result=error error=refused action=zoom %s %s", DescribeMap().c_str(),
+                 Describe().c_str());
+            return 1;
+        }
+        Addf(lines, "op=map result=ok action=zoom %s %s", DescribeMap().c_str(), Describe().c_str());
+        return 0;
+    }
+    if (word == "pan") {
+        float dx = 0.0f;
+        float dy = 0.0f;
+        if (args.size() != 4 || !ParseSignedFloat(args[2], &dx) || !ParseSignedFloat(args[3], &dy)) {
+            Addf(lines, "op=map result=error error=arg action=pan %s", Describe().c_str());
+            return 1;
+        }
+        if (!RsMenuMapPage_Pan(dx, dy)) {
+            Addf(lines, "op=map result=error error=refused action=pan %s %s", DescribeMap().c_str(),
+                 Describe().c_str());
+            return 1;
+        }
+        Addf(lines, "op=map result=ok action=pan %s %s", DescribeMap().c_str(), Describe().c_str());
+        return 0;
+    }
+    if (word == "icons" && args.size() == 3 && (args[2] == "on" || args[2] == "off")) {
+        RsMenuMapPage_SetIcons(args[2] == "on");
+        Addf(lines, "op=map result=ok action=icons %s %s", DescribeMap().c_str(), Describe().c_str());
+        return 0;
+    }
+    Addf(lines, "op=map result=error error=arg %s", Describe().c_str());
+    return 1;
+}
+
 int32_t Dump(std::vector<std::string>& lines) {
     const RsMenuStatus status = RsMenu_Status();
     const RsMenuTriggerInfo trigger = RsMenu_TriggerInfo();
@@ -558,6 +718,7 @@ int32_t Dump(std::vector<std::string>& lines) {
     // shoulder pressed" that a screenshot alone cannot prove it MEANT to do.
     Addf(lines, "op=dump section=sweep %s", DescribeSweep(RsMenu_SweepState()).c_str());
     Addf(lines, "op=dump section=level %s", DescribeLevel(RsMenu_LevelState()).c_str());
+    Addf(lines, "op=dump section=focus %s", DescribeFocus().c_str());
     // The probe's lattice, plus `epoch` - the one number that says whether something has quietly
     // switched interpolation off for the rest of the frame - and `pause_mode`, the register that
     // would have exempted a View bracket from bumping it and which this menu must never set.
@@ -659,6 +820,20 @@ int32_t Dump(std::vector<std::string>& lines) {
         }
         Addf(lines, "op=dump section=page page=%d current=%d id=%s title=\"%s\"", i + 1, i == status.page ? 1 : 0,
              page->id.c_str(), page->title.c_str());
+    }
+    // #303: the World Map page, and the fog's revealed set (the map scene's chunks, as sx:sy).
+    Addf(lines, "op=dump section=map %s", DescribeMap().c_str());
+    // One line per arrow the last frame considered: which, where (image pixel), and in, edge or out of the view.
+    for (const auto& a : RsMenuMapPage_Status().arrows) {
+        Addf(lines, "op=dump section=map_arrow kind=%s state=%s px=%.1f,%.1f controls=%d", a.kind, a.state, a.px,
+             a.py, a.controls ? 1 : 0);
+    }
+    {
+        const RsMenuMapPageStatus st = RsMenuMapPage_Status();
+        const RsMapRevealStats rv = RsMapReveal_Stats();
+        Addf(lines, "op=dump section=map_reveal scene=0x%X entry_reveals=%d last=%d,%d last_cause=%s revealed=%s",
+             st.scene >= 0 ? st.scene : 0xFFFF, rv.entryReveals, rv.lastSx, rv.lastSy,
+             rv.lastCause[0] != '\0' ? rv.lastCause : "-", st.revealedList.empty() ? "-" : st.revealedList.c_str());
     }
     // One line per cursor node, so the whole graph is readable from a marker - including its
     // ADJACENCY, which is the thing no screenshot can show and the thing the settled design is
@@ -911,7 +1086,10 @@ const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custo
                      "stress [<n> [same]|off|memo <on|off>] | "
                      "cursor [left|right|up|down|select|<id>] | probe [on|off] | kaleido | equips | hud | "
                      "flight hold <n>|release | song | "
-                     "inv <kind> <a> <b> | namepanel custom <item>|off | timer <seconds>|off | dump";
+                     "inv <kind> <a> <b> | namepanel custom <item>|off | timer <seconds>|off | "
+                     "map [reveal <sx> <sy>|reveal all|reveal none|node <sx> <sy>|hide <sx> <sy>|fog hide|dim|"
+                     "icons on|off|arrow vanilla|custom|zoom in|out|pan <dx> <dy>] | "
+                     "focus [in|out|loop|hold <in|out> <tick>|stop] | dump";
 
 } // namespace
 
@@ -976,6 +1154,12 @@ int32_t RsMenuConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "timer") {
         return Timer(args, lines);
     }
+    if (sub == "map") {
+        return MapCmd(args, lines);
+    }
+    if (sub == "focus") {
+        return Focus(args, lines);
+    }
     if (sub == "dump") {
         return Dump(lines);
     }
@@ -997,7 +1181,8 @@ const ConsoleSink::Command menuCommand(
     "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
     "stress [<n> [same]|off|memo <on|off>] | cursor [left|right|up|down|select|<id>] | "
     "probe [on|off] | kaleido | equips | hud | flight hold <n>|release | song | inv <kind> <a> <b> | "
-    "namepanel custom <item>|off | dump. "
+    "namepanel custom <item>|off | map [reveal|node|hide <sx> <sy>|reveal all|none|fog hide|dim|icons on|off|"
+    "arrow vanilla|custom|zoom in|out|pan <dx> <dy>] | focus [in|out|loop|hold <in|out> <tick>|stop] | dump. "
     "The scroll opens on START when primary is custom (N64 L is the minimap's) "
     "and hard-freezes the world; primary decides which menu START opens, and is a subcommand because "
     "there is no console `set`. sweep rolls the scroll one page the way a shoulder press does, and "
@@ -1016,9 +1201,13 @@ const ConsoleSink::Command menuCommand(
     "reads vanilla pause's live cursor and equips the save's equip fields plus what Link in the world "
     "is wearing - the two halves of the stage-8 differential tests; inv (test-only) writes a sparse "
     "inventory for them, and can set the Biggoron flags or switch Link's age. namepanel (test-only) names an item "
-    "through the custom-name hook rando uses, so the name panel's hook path can be tested without a seed.",
+    "through the custom-name hook rando uses, so the name panel's hook path can be tested without a seed. map "
+    "reports the World Map page (#303) and drives its fog of war by RS map square: reveal or hide one square, reveal "
+    "the node a square belongs to, reveal every chunk of the world on show or clear the whole band, and pick hidden "
+    "or dimmed fog, the icons toggle and Link's arrow; zoom and pan move the focused view. focus zooms the "
+    "whole scroll in on the page's item, as A on the world map does, and back out, as B does.",
     { { "open|close|page|primary|sweep|level|filler|stress|cursor|probe|kaleido|equips|hud|flight|song|inv|namepanel|"
-        "dump",
+        "map|focus|dump",
         Ship::ArgumentType::TEXT },
       { "argument", Ship::ArgumentType::TEXT, true } });
 
@@ -1086,6 +1275,32 @@ namepanel                     the name panel's custom-name hook (test only)
 timer                         the main countdown timer (test only)
   off                         stop it
   <seconds>                   start it at this many seconds
+map                           the World Map page and its fog of war
+  reveal                      show one map square, or all of them
+    <sx> <sy>                 one RS map square, e.g. 50 50 (Lumbridge)
+    all                       every chunk of the world on show
+    none                      clear the whole fog band (test only)
+  node <sx> <sy>              show every square of that square's node
+  hide <sx> <sy>              fog one square again (test only)
+  fog                         how unexplored squares draw
+    hide                      opaque, nothing shows through
+    dim                       darkened, the map shows through
+  icons                       the map icons toggle (#307 draws them)
+    on                        icons on
+    off                       icons off
+  arrow                       Link's arrow on the map
+    vanilla                   vanilla's compass arrow, as on the minimap
+    custom                    the page's own two-triangle arrow
+  zoom                        step the focused view's zoom
+    in                        one step closer
+    out                       one step back
+  pan <dx> <dy>               move the focused view, in view widths
+focus                         zoom the whole scroll in on the page's item
+  in                          zoom in, as A on the map does
+  out                         zoom back out, as B does
+  loop                        keep zooming in and out
+  hold <in|out> <tick>        park the zoom at a tick
+  stop                        end the loop or hold
 dump                          everything the menu knows, one line each
 )");
 
