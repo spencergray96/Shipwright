@@ -720,10 +720,11 @@ const char* RsMenu_PrimaryName(int32_t primary);
 // Parses "vanilla"/"custom"; false on anything else.
 bool RsMenu_ParsePrimary(const std::string& word, int32_t* primary);
 
-// #300 TRIAL: which art the parchment and the roll ends draw. `flat` is the look before #300 (flat
-// colours, no texture); the others draw RS art from mods/rs-sprites.o2r (#297) by token. A CVar, flipped
-// live by `menu parchment <name>`, so the owner can compare all four in one session. A source whose
-// textures are missing from the archive draws flat and says so (`loaded=0`).
+// #300: which art the parchment and the roll ends draw. THE DEFAULT IS `journal`, the owner's pick of
+// 2026-11-07 (cache-only art); a value already saved in the config wins. `flat` is the look before #300
+// (flat colours, no texture); the others draw RS art from mods/rs-sprites.o2r (#297) by token. A CVar,
+// flipped live by `menu parchment <name>`. A source whose textures are missing from the archive draws flat
+// and says so (`loaded=0`). `web` is parked: kept working, not the pick (RS_SPRITES.md section 8).
 enum RsMenuParchment {
     RS_MENU_PARCHMENT_FLAT = 0,
     RS_MENU_PARCHMENT_QUEST_COMPLETE = 1, // model 3032, the quest-complete scroll, rolls left and right
@@ -744,6 +745,10 @@ struct RsMenuParchmentDrawn {
     int32_t rolls[2];
 };
 RsMenuParchmentDrawn RsMenu_ParchmentDrawn();
+// True when this frame's parchment is RS art rather than the flat dark body (an art source chosen, its
+// textures loaded, the probe off). A page picks its text colours by this: the colours chosen for the dark
+// body are weak or unreadable on beige.
+bool RsMenu_ParchmentIsArt();
 
 // The trigger's binding state on port 0, read from the control deck.
 //

@@ -197,7 +197,7 @@ float OTRGetAspectRatio(void);
 
 #define CVAR_RS_MENU_ON CVAR_ENHANCEMENT("RsMenu")
 #define CVAR_RS_MENU_PRIMARY CVAR_ENHANCEMENT("RsMenuPrimary")
-#define CVAR_RS_MENU_PARCHMENT CVAR_ENHANCEMENT("RsMenuParchment") // #300 trial: RsMenuParchment, 0 flat (default)
+#define CVAR_RS_MENU_PARCHMENT CVAR_ENHANCEMENT("RsMenuParchment") // #300: RsMenuParchment, default journal
 
 // File-static rather than an anonymous namespace, and that is not a style choice. OPEN_DISPS
 // expands to a BLOCK-SCOPE redeclaration of FrameInterpolation_RecordOpenChild (macros.h:206-222);
@@ -2000,13 +2000,15 @@ constexpr int16_t kPaperArtX1 = kRollX[1][0]; // 294
 static RsMenuParchmentDrawn sParchmentDrawn = {};
 
 int32_t RsMenu_GetParchment() {
-    const int32_t v = CVarGetInteger(CVAR_RS_MENU_PARCHMENT, RS_MENU_PARCHMENT_FLAT);
-    return v > RS_MENU_PARCHMENT_FLAT && v < RS_MENU_PARCHMENT_COUNT ? v : RS_MENU_PARCHMENT_FLAT;
+    // The owner's pick (#300, 2026-11-07): the older journal scroll. A value already saved in the config wins.
+    const int32_t v = CVarGetInteger(CVAR_RS_MENU_PARCHMENT, RS_MENU_PARCHMENT_JOURNAL);
+    return v >= RS_MENU_PARCHMENT_FLAT && v < RS_MENU_PARCHMENT_COUNT ? v : RS_MENU_PARCHMENT_JOURNAL;
 }
 
 void RsMenu_SetParchment(int32_t parchment) {
-    CVarSetInteger(CVAR_RS_MENU_PARCHMENT,
-                   parchment > RS_MENU_PARCHMENT_FLAT && parchment < RS_MENU_PARCHMENT_COUNT ? parchment : 0);
+    CVarSetInteger(CVAR_RS_MENU_PARCHMENT, parchment >= RS_MENU_PARCHMENT_FLAT && parchment < RS_MENU_PARCHMENT_COUNT
+                                               ? parchment
+                                               : RS_MENU_PARCHMENT_JOURNAL);
     CVarSave();
 }
 
@@ -2039,14 +2041,15 @@ RsMenuParchmentDrawn RsMenu_ParchmentDrawn() {
     return sParchmentDrawn;
 }
 
+bool RsMenu_ParchmentIsArt() {
+    const int32_t p = RsMenu_GetParchment();
+    return p != RS_MENU_PARCHMENT_FLAT && !sProbe && RsMenu_ParchmentLoaded(p);
+}
+
 // The source this frame draws, or null for the flat look (flat chosen, its textures missing, or the probe on:
 // the probe's colours are a measuring instrument and stay flat).
 static const RsParchmentSource* LiveParchment() {
-    const int32_t p = RsMenu_GetParchment();
-    if (p == RS_MENU_PARCHMENT_FLAT || sProbe || !RsMenu_ParchmentLoaded(p)) {
-        return nullptr;
-    }
-    return &kParchmentSources[p];
+    return RsMenu_ParchmentIsArt() ? &kParchmentSources[RsMenu_GetParchment()] : nullptr;
 }
 
 // Art as it is: texel times a white prim, alpha the texel's, blended (the bleed round each edge makes the

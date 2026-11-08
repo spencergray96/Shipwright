@@ -111,7 +111,7 @@ int32_t Primary(const std::vector<std::string>& args, std::vector<std::string>& 
     return 0;
 }
 
-// #300 trial: which art the parchment and roll ends draw. A CVar, so it survives the session the owner compares in.
+// #300: which art the parchment and roll ends draw (journal by default). A CVar, so a pick survives the session.
 std::string DescribeParchment() {
     const int32_t live = RsMenu_GetParchment();
     const RsMenuParchmentDrawn drawn = RsMenu_ParchmentDrawn();
@@ -1108,7 +1108,7 @@ int32_t Timer(const std::vector<std::string>& args, std::vector<std::string>& li
 }
 
 const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custom|vanilla] | "
-                     "parchment [flat|quest_complete|journal|web] | "
+                     "parchment [journal|quest_complete|web|flat] | "
                      "sweep [l|r|loop|hold <l|r> <tick>|stop] | "
                      "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
                      "stress [<n> [same]|off|memo <on|off>] | "
@@ -1208,7 +1208,7 @@ namespace {
 const ConsoleSink::Command menuCommand(
     "menu", RsMenuConsole_Run,
     "The mod-owned pause interface (sturdy-bassoon#111): open | close [now] | page <n> | "
-    "primary [custom|vanilla] | parchment [flat|quest_complete|journal|web] | "
+    "primary [custom|vanilla] | parchment [journal|quest_complete|web|flat] | "
     "sweep [l|r|loop|hold <l|r> <tick>|stop] | "
     "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
     "stress [<n> [same]|off|memo <on|off>] | cursor [left|right|up|down|select|<id>] | "
@@ -1238,7 +1238,7 @@ const ConsoleSink::Command menuCommand(
     "the node a square belongs to, reveal every chunk of the world on show or clear the whole band, and pick hidden "
     "or dimmed fog, the icons toggle and Link's arrow; zoom and pan move the focused view. focus zooms the "
     "whole scroll in on the page's item, as A on the world map does, and back out, as B does. parchment picks "
-    "the art the parchment and roll ends draw (#300 trial), saved, so the sources can be compared in one session.",
+    "the art the parchment and roll ends draw (#300; journal by default), saved, and switchable live.",
     { { "open|close|page|primary|parchment|sweep|level|filler|stress|cursor|probe|kaleido|equips|hud|flight|song|inv|"
         "namepanel|"
         "map|focus|dump",
@@ -1255,11 +1255,11 @@ page <n>                      go to page n, counting from 1
 primary                       which menu START opens
   custom                      the scroll
   vanilla                     the original pause screen
-parchment                     the parchment's art (#300 trial)
-  flat                        flat colours, the look before #300
+parchment                     the parchment's art (#300)
+  journal                     the older journal scroll, model 21821 (default)
   quest_complete              the quest-complete scroll, model 3032
-  journal                     the older journal scroll, model 21821
-  web                         the homepage scroll, middle stretched across
+  web                         the homepage scroll (parked: gaps at rest)
+  flat                        flat colours, the look before #300
 sweep                         roll the scroll one page, as a shoulder press does
   l                           roll left
   r                           roll right
