@@ -61,6 +61,16 @@ int32_t RsSprites_EmitRect(GraphicsContext* gfxCtx, Gfx** gfx, const char* token
 // Appends to a heap display list: reserves RsSprites_GfxWords, draws, trims to what was written.
 int32_t RsSprites_EmitRect(GraphicsContext* gfxCtx, std::vector<Gfx>& dl, const char* token, float x, float y, float w,
                            float h);
+
+// A PART of the picture onto any parallelogram (#300: a parchment's middle, a roll end, a roll turned 90 degrees).
+// The source is [u0, u1] x [v0, v1] in the picture's texels, origin top-left, y down; `corners` are where the
+// source's top-left, top-right, bottom-left and bottom-right land, in the current modelview (y up). Turning the
+// part is a matter of which corner goes where. A source straddling the grid's tiles is drawn as one piece per
+// tile; the shared edge is computed once, so the pieces meet. Positions round to whole modelview units (the
+// Vtx's s16), and each piece's texture coordinates stay exact, so a seam is at most half a unit off true.
+// Returns the pieces drawn, 0 when the token is missing or the source is empty.
+int32_t RsSprites_EmitQuadUV(GraphicsContext* gfxCtx, std::vector<Gfx>& dl, const char* token,
+                             const float corners[4][2], float u0, float v0, float u1, float v1);
 #endif
 
 #endif // SOH_RS_SPRITES_H
