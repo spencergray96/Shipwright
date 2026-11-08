@@ -23,6 +23,7 @@ extern PlayState* gPlayState;
 // z_map_exp.c (sturdy-bassoon#306): where and which way Link came into the scene, as the red arrow uses it.
 void Minimap_GetPlayerInitial(s16* x, s16* z, s16* direction);
 // OTRGlobals.h declares these for C only.
+uint32_t OTRGetGameRenderHeight();
 float OTRGetDimensionFromLeftEdge(float v);
 float OTRGetDimensionFromRightEdge(float v);
 }
@@ -59,6 +60,8 @@ RsMinimapStats sStats = {};
 float sRotUnwrapped = 0.0f;     // the map's turn, kept continuous so interpolation never spins it the long way
 float sLinkArrowUnwrapped = 0.0f;
 bool sBilerp = true;            // `minimap filter`: bilinear (default) or point sampling, for the #306 flicker A/B
+bool sSnap = true;              // `minimap snap`: north-up scroll on whole screen pixels (default), for the A/B
+float sSnapGrid = 0.0f;         // last frame's snap step in HUD ortho units (0: none), for the status line
 bool sLastArrowOut = false;     // the last RsMinimap_DrawArrow left nothing inside the circle
 // The arrow's silhouette, measured off vanilla's gCompassArrowDL at its 0.4 scale: a triangle 7.6 N64 px from
 // tip to base and 3.8 across the base, its origin in the middle of that length.
@@ -390,6 +393,18 @@ extern "C" bool RsMinimap_LastArrowOutOfView(void) {
     return sFrame.drawing && sLastArrowOut;
 }
 
+extern "C" bool RsMinimap_Snap(void) {
+    return sSnap;
+}
+
+extern "C" void RsMinimap_SetSnap(bool snap) {
+    sSnap = snap;
+}
+
+extern "C" float RsMinimap_SnapGrid(void) {
+    return sSnapGrid;
+}
+
 extern "C" bool RsMinimap_Bilerp(void) {
     return sBilerp;
 }
@@ -452,6 +467,17 @@ extern "C" void RsMinimap_Draw(PlayState* play, bool visible) {
     Matrix_RotateZ(sFrame.rot, MTXMODE_APPLY);
     Matrix_Scale(sFrame.scale / kFix, sFrame.scale / kFix, 1.0f, MTXMODE_APPLY);
     Matrix_Translate(-sFrame.lpx * kFix, sFrame.lpy * kFix, 0.0f, MTXMODE_APPLY);
+    // The disc's matrix is that, unsnapped: the circle stays put on screen.
+    Mtx* discMtx = Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__);
+    // North-up, the map's scroll lands on whole SCREEN pixels (the owner, round 3): with the scale fixed, every
+    // texel then keeps the same place in the pixel grid frame to frame, so a wall line keeps its width. The step is
+    // one output pixel in the HUD ortho's units (240 of them span the render height). Recorded every frame, a zero
+    // step in rotate mode, and snapped again on every interpolated frame (FrameInterpolation_MatrixSnapTranslation),
+    // so 60 fps snaps the in-between positions too. Only the map and what is printed on it ride it: the disc, the
+    // circle's position and Link's arrow do not move.
+    const uint32_t renderH = OTRGetGameRenderHeight();
+    sSnapGrid = (sSnap && !rotate && renderH > 0) ? (float)SCREEN_HEIGHT / (float)renderH : 0.0f;
+    FrameInterpolation_MatrixSnapTranslation(sSnapGrid, sSnapGrid);
     Mtx* mapMtx = Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__);
     sFrame.mapMtx = mapMtx;
 
@@ -464,7 +490,7 @@ extern "C" void RsMinimap_Draw(PlayState* play, bool visible) {
         }
         dl.reserve(1024);
         dl.push_back(gsDPPipeSync());
-        dl.push_back(gsSPMatrix(mapMtx, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
+        dl.push_back(gsSPMatrix(discMtx, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
         dl.push_back(gsSPLoadGeometryMode(G_SHADING_SMOOTH));
         dl.push_back(gsDPSetOtherMode(G_AD_NOTPATTERN | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT |
                                           (sBilerp ? G_TF_BILERP : G_TF_POINT) | G_TT_NONE | G_TL_TILE |
@@ -482,8 +508,10 @@ extern "C" void RsMinimap_Draw(PlayState* play, bool visible) {
             }
             PushFan(dl, disc, 0.0f, 0.0f);
         }
-        // The map, block by block.
+        // The map, block by block, under the snapped matrix. Its clip edge can sit up to a pixel off the disc's; both
+        // are the background colour there, so it never shows.
         dl.push_back(gsDPPipeSync());
+        dl.push_back(gsSPMatrix(mapMtx, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
         dl.push_back(gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON));
         dl.push_back(gsDPSetCombineMode(G_CC_MODULATERGBA_PRIM, G_CC_MODULATERGBA_PRIM));
         dl.push_back(gsDPSetPrimColor(0, 0, 255, 255, 255, alpha));

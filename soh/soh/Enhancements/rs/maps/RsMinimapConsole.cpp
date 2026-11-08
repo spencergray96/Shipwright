@@ -33,11 +33,12 @@ std::string Status() {
     RsMinimap_GetStats(&s);
     std::snprintf(buf, sizeof(buf),
                   "op=status scene=0x%X handled=1 drawn=%d mode=%s radius=%d link_px=%.1f,%.1f rot_deg=%.1f blocks=%d "
-                  "words=%d arrows=%d entrance=%d alpha=%u minimap_off=%d filter=%s centre=%.1f,%.1f storey_mode=%s "
-                  "link_storey=%d",
+                  "words=%d arrows=%d entrance=%d alpha=%u minimap_off=%d filter=%s snap=%s snap_px=%.4f centre=%.1f,%.1f "
+                  "storey_mode=%s link_storey=%d",
                   (unsigned)(uint16_t)scene, s.drawn ? 1 : 0, mode, RsMinimap_RadiusTiles(), s.linkPx, s.linkPy,
                   s.rotDeg, s.blocks, s.words, s.arrows, s.entranceShown ? 1 : 0, (unsigned)s.alpha,
-                  (int)R_MINIMAP_DISABLED, RsMinimap_Bilerp() ? "bilerp" : "point", s.centerX, s.centerY,
+                  (int)R_MINIMAP_DISABLED, RsMinimap_Bilerp() ? "bilerp" : "point", RsMinimap_Snap() ? "on" : "off",
+                  RsMinimap_SnapGrid(), s.centerX, s.centerY,
                   RsWorldMap_StoreyModeName(RsWorldMap_StoreyMode()), RsWorldMap_LinkStorey());
     return buf;
 }
@@ -85,7 +86,17 @@ int32_t RsMinimapConsole_Run(const std::vector<std::string>& args, std::vector<s
         lines.push_back("op=filter result=error error=bad_filter want=bilerp|point");
         return 1;
     }
-    lines.push_back("usage: minimap [status] | mode north|rotate | radius <tiles>|default | filter bilerp|point");
+    if (sub == "snap") {
+        if (args.size() >= 2 && (args[1] == "on" || args[1] == "off")) {
+            RsMinimap_SetSnap(args[1] == "on");
+            lines.push_back(Status());
+            return 0;
+        }
+        lines.push_back("op=snap result=error error=bad_snap want=on|off");
+        return 1;
+    }
+    lines.push_back(
+        "usage: minimap [status] | mode north|rotate | radius <tiles>|default | filter bilerp|point | snap on|off");
     return 1;
 }
 
@@ -94,8 +105,8 @@ namespace {
 const ConsoleSink::Command minimapCommand(
     "minimap", RsMinimapConsole_Run,
     "The round HUD minimap in RS scenes (sturdy-bassoon#306): status | mode north|rotate | radius <tiles>|default | "
-    "filter bilerp|point. What it drew, Link's map pixel, and its settings; radius is the zoom.",
-    { { "status|mode|radius|filter", Ship::ArgumentType::TEXT, true },
+    "filter bilerp|point | snap on|off. What it drew, Link's map pixel, and its settings; radius is the zoom.",
+    { { "status|mode|radius|filter|snap", Ship::ArgumentType::TEXT, true },
       { "argument", Ship::ArgumentType::TEXT, true } });
 
 const ConsoleSink::Hints minimapHints("minimap", R"(
@@ -109,6 +120,9 @@ radius                  the zoom: how far it reaches, in RS tiles (saved)
 filter                  the map's texture filter (not saved)
   bilerp                bilinear, steady lines (default)
   point                 nearest texel, the flicker A/B
+snap                    north-up scroll on whole screen pixels (not saved)
+  on                    lines keep their width as the map moves (default)
+  off                   sub-pixel scroll, the shimmer A/B
 )");
 
 } // namespace

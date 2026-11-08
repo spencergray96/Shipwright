@@ -67,6 +67,13 @@ bool RsMinimap_WorldToScreen(f32 x, f32 z, f32* sx, f32* sy, bool* inside);
 bool RsMinimap_Bilerp(void);
 void RsMinimap_SetBilerp(bool bilerp);
 
+// North-up, the map's scroll is snapped to whole screen pixels (default on; round 3 of #306), interpolated frames
+// included. Not saved; `minimap snap` switches it for the A/B. SnapGrid: last frame's step in HUD ortho units
+// (240 / the render height), 0 when nothing was snapped (rotate mode, or snap off).
+bool RsMinimap_Snap(void);
+void RsMinimap_SetSnap(bool snap);
+float RsMinimap_SnapGrid(void);
+
 typedef struct {
     bool handled;     // the scene has a world map
     bool drawn;       // the map was visible last frame
