@@ -19,8 +19,9 @@
  * clipped to the circle like the map: one crossing the edge is cut off there, one past it is gone (out_of_view).
  * Link's arrow is vanilla's own, at the centre. Nothing is pinned to the rim.
  *
- * MAP ICONS (#307). Draw in OnMinimapDrawCompassIconsUnderPlayer (under Link's arrow) by the same rule, placing
- * each with RsMinimap_WorldToScreen. Anything drawn through Minimap_DrawCompassArrow is placed and clipped here.
+ * MAP ICONS (#307) are printed by the same rule: RsMinimap_DrawIcon, from OnMinimapDrawCompassIconsUnderPlayer (under
+ * Link's arrow). The table of icons is RsMapIcons.h. Anything drawn through Minimap_DrawCompassArrow is placed and
+ * clipped here.
  */
 #include <stdbool.h>
 #include <stdint.h>
@@ -62,6 +63,23 @@ bool RsMinimap_LastArrowOutOfView(void);
 // point is within the circle. False when the minimap is not drawn this frame.
 bool RsMinimap_WorldToScreen(f32 x, f32 z, f32* sx, f32* sy, bool* inside);
 
+// MAP ICONS (#307): an RS sprite (RsSprites.h token) printed on the map at world (x, z), centred there, upright on
+// screen whichever way the map turns, under the map's own matrix (so it scrolls, turns and rides the north-up snap
+// with the map) and clipped to the circle. Call it from OnMinimapDrawCompassIconsUnderPlayer; RsMapIcons.cpp does,
+// for its table. Size: RS_MINIMAP_ICON_TEXEL N64 px a texel - 4/9, which is exactly 2 screen px a texel at 1080p and
+// 4 at 4K (a 15 x 15 RS map icon is 6.7 N64 px, 30 / 60 screen px).
+#define RS_MINIMAP_ICON_TEXEL (4.0f / 9.0f)
+typedef enum {
+    RS_MINIMAP_ICON_NOT_DRAWING = 0, // called outside the minimap's draw (no minimap this frame)
+    RS_MINIMAP_ICON_DRAWN,           // wholly inside the circle
+    RS_MINIMAP_ICON_CLIPPED,         // crossing the circle's edge: the part inside shows
+    RS_MINIMAP_ICON_OUT_OF_VIEW,     // wholly past the edge: nothing shows
+    RS_MINIMAP_ICON_NO_SPRITE,       // the token is not in a mounted archive (or is a grid), nothing drawn
+} RsMinimapIconState;
+// *sx, *sy (optional): the icon centre in centre-origin, y-up N64 px, as RsMinimap_WorldToScreen.
+RsMinimapIconState RsMinimap_DrawIcon(const char* token, f32 x, f32 z, f32* sx, f32* sy);
+const char* RsMinimap_IconStateName(RsMinimapIconState state);
+
 // The map's texture filter: bilinear (true, the default) or point. Not saved; `minimap filter` switches it, for
 // the north-up flicker A/B (#306).
 bool RsMinimap_Bilerp(void);
@@ -84,6 +102,7 @@ typedef struct {
     int32_t blocks;       // blocks drawn last frame
     int32_t words;        // Gfx words of last frame's list
     int32_t arrows;       // arrows drawn last frame with any part showing (Link's included)
+    int32_t icons;        // map icons drawn last frame with any part showing (#307)
     bool entranceShown;   // the red entrance arrow showed last frame
     float centerX, centerY; // the circle's centre, centre-origin y-up N64 pixels
     uint8_t alpha;          // minimapAlpha last frame
