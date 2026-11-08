@@ -543,10 +543,11 @@ int32_t Probe(const std::vector<std::string>& args, std::vector<std::string>& li
 // #303: the World Map page. One line, the fields `section=map` carries, so `menu map` and `dump` agree.
 std::string DescribeMap() {
     const RsMenuMapPageStatus st = RsMenuMapPage_Status();
-    char buf[1100];
+    char buf[1300];
     std::snprintf(buf, sizeof(buf),
                   "page=%d current=%d map=%d scene=0x%X source=%s reason=%s layer=%d storey_mode=%s fog=%s icons=%s icons_shown=%d "
-                  "walls=%s walls_drawn=%d edgeless=%d edges=%d edge_words=%d wall_width=%.2f wall_half_px=%.3f wall_screen_px=%.2f "
+                  "walls=%s walls_drawn=%d edgeless=%d edges=%d joins=%d edge_words=%d wall_tiles=%.2f wall_floor=%.2f wall_snap=%d "
+                  "wall_snapped=%d wall_nominal_px=%.2f wall_screen_px=%.2f wall_half_px=%.3f "
                   "chunks=%d revealed=%d frame=%d dst=%.1f,%.1f,%.1f,%.1f blocks=%d fog_quads=%d dl_words=%d "
                   "link=%d arrow=%d link_px=%.1f,%.1f link_square=%d,%d link_flag=%d link_revealed=%d "
                   "arrow_mode=%s view=%.1f,%.1f zoom=%.2f zoom_step=%d zoom_steps=%d pans=%d "
@@ -554,8 +555,9 @@ std::string DescribeMap() {
                   st.pageIndex + 1, st.current ? 1 : 0, st.map ? 1 : 0, st.scene >= 0 ? st.scene : 0xFFFF, st.source,
                   st.reason[0] != '\0' ? st.reason : "-", st.layer, st.storeyMode,
                   RsMenuMapPage_FogName(RsMenuMapPage_Fog()), RsMenuMapPage_Icons() ? "on" : "off", st.iconsShown,
-                  st.walls, st.wallsDrawn ? 1 : 0, st.edgeless ? 1 : 0, st.edges, st.edgeWords, st.wallWidth, st.wallHalfPx,
-                  st.wallScreenPx, st.chunks, st.revealed,
+                  st.walls, st.wallsDrawn ? 1 : 0, st.edgeless ? 1 : 0, st.edges, st.joins, st.edgeWords, st.wallTiles,
+                  st.wallFloor, st.wallSnap ? 1 : 0, st.wallSnapped ? 1 : 0, st.wallNominalPx, st.wallScreenPx, st.wallHalfPx,
+                  st.chunks, st.revealed,
                   st.frame, st.dstX, st.dstY, st.dstW, st.dstH, st.blocks, st.fogQuads, st.words, st.link ? 1 : 0,
                   st.arrowDrawn, st.linkPx, st.linkPy, st.linkSx, st.linkSy, st.linkFlag, st.linkRevealed ? 1 : 0,
                   st.arrow, st.viewCx, st.viewCy, st.viewZoom, st.zoomStep, st.zoomSteps, st.pans, st.drawnView[0],
@@ -697,7 +699,7 @@ int32_t MapCmd(const std::vector<std::string>& args, std::vector<std::string>& l
         Addf(lines, "op=map result=ok action=icons %s %s", DescribeMap().c_str(), Describe().c_str());
         return 0;
     }
-    // #309: how the walls draw, and the lines' width in N64 screen pixels. Both saved.
+    // #309: how the walls draw, and the lines' width: in RS tiles, a floor in render pixels, whole-pixel snap. Saved.
     if (word == "walls" && args.size() == 3 && (args[2] == "image" || args[2] == "lines" || args[2] == "zoomed")) {
         RsMenuMapPage_SetWalls(args[2] == "image"   ? RS_MENU_MAP_WALLS_IMAGE
                                : args[2] == "zoomed" ? RS_MENU_MAP_WALLS_ZOOMED
@@ -705,19 +707,37 @@ int32_t MapCmd(const std::vector<std::string>& args, std::vector<std::string>& l
         Addf(lines, "op=map result=ok action=walls %s %s", DescribeMap().c_str(), Describe().c_str());
         return 0;
     }
-    if (word == "wallwidth" && args.size() == 3) {
-        float w = 0.0f;
-        int32_t hundredths = RS_MENU_MAP_WALL_WIDTH_DEFAULT;
-        if (args[2] != "default") {
-            if (!ParseSignedFloat(args[2], &w)) {
-                Addf(lines, "op=map result=error error=arg action=wallwidth %s", Describe().c_str());
+    if (word == "wallwidth" && (args.size() == 3 || args.size() == 4)) {
+        // wallwidth <tiles>|default | floor <px>|default | snap on|off
+        const bool isFloor = args.size() == 4 && args[2] == "floor";
+        const bool isSnap = args.size() == 4 && args[2] == "snap";
+        const std::string& value = args.back();
+        if (isSnap) {
+            if (value != "on" && value != "off") {
+                Addf(lines, "op=map result=error error=arg action=wallwidth want=snap_on|off %s", Describe().c_str());
                 return 1;
             }
-            hundredths = (int32_t)std::lround(w * 100.0f);
-        }
-        if (!RsMenuMapPage_SetWallWidth(hundredths)) {
-            Addf(lines, "op=map result=error error=bad_width action=wallwidth min=%.2f max=%.2f %s",
-                 RS_MENU_MAP_WALL_WIDTH_MIN / 100.0f, RS_MENU_MAP_WALL_WIDTH_MAX / 100.0f, Describe().c_str());
+            RsMenuMapPage_SetWallSnap(value == "on");
+        } else if (args.size() == 3 || isFloor) {
+            int32_t hundredths = isFloor ? RS_MENU_MAP_WALL_FLOOR_DEFAULT : RS_MENU_MAP_WALL_TILES_DEFAULT;
+            if (value != "default") {
+                float w = 0.0f;
+                if (!ParseSignedFloat(value, &w)) {
+                    Addf(lines, "op=map result=error error=arg action=wallwidth %s", Describe().c_str());
+                    return 1;
+                }
+                hundredths = (int32_t)std::lround(w * 100.0f);
+            }
+            const bool ok = isFloor ? RsMenuMapPage_SetWallFloor(hundredths) : RsMenuMapPage_SetWallTiles(hundredths);
+            if (!ok) {
+                Addf(lines, "op=map result=error error=bad_width action=wallwidth min=%.2f max=%.2f %s",
+                     (isFloor ? RS_MENU_MAP_WALL_FLOOR_MIN : RS_MENU_MAP_WALL_TILES_MIN) / 100.0f,
+                     (isFloor ? RS_MENU_MAP_WALL_FLOOR_MAX : RS_MENU_MAP_WALL_TILES_MAX) / 100.0f, Describe().c_str());
+                return 1;
+            }
+        } else {
+            Addf(lines, "op=map result=error error=arg action=wallwidth want=<tiles>|floor_<px>|snap_on|off %s",
+                 Describe().c_str());
             return 1;
         }
         Addf(lines, "op=map result=ok action=wallwidth %s %s", DescribeMap().c_str(), Describe().c_str());
@@ -1178,7 +1198,8 @@ const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custo
                      "flight hold <n>|release | song | "
                      "inv <kind> <a> <b> | namepanel custom <item>|off | timer <seconds>|off | "
                      "map [reveal <sx> <sy>|reveal all|reveal none|node <sx> <sy>|hide <sx> <sy>|fog hide|dim|"
-                     "icons on|off|walls image|lines|zoomed|wallwidth <n64px>|default|arrow vanilla|custom|zoom in|out|"
+                     "icons on|off|walls image|lines|zoomed|wallwidth <tiles>|floor <px>|snap on|off|default|arrow vanilla|custom|"
+                     "zoom in|out|"
                      "pan <dx> <dy>] | "
                      "focus [in|out|loop|hold <in|out> <tick>|stop] | dump";
 
@@ -1277,7 +1298,8 @@ const ConsoleSink::Command menuCommand(
     "stress [<n> [same]|off|memo <on|off>] | cursor [left|right|up|down|select|<id>] | "
     "probe [on|off] | kaleido | equips | hud | flight hold <n>|release | song | inv <kind> <a> <b> | "
     "namepanel custom <item>|off | map [reveal|node|hide <sx> <sy>|reveal all|none|fog hide|dim|icons on|off|"
-    "walls image|lines|zoomed|wallwidth <n64px>|default|arrow vanilla|custom|zoom in|out|pan <dx> <dy>] | focus [in|out|loop|hold <in|out> <tick>|stop] | dump. "
+    "walls image|lines|zoomed|wallwidth <tiles>|floor <px>|snap on|off|default|arrow vanilla|custom|zoom in|out|"
+    "pan <dx> <dy>] | focus [in|out|loop|hold <in|out> <tick>|stop] | dump. "
     "The scroll opens on START when primary is custom (N64 L is the minimap's) "
     "and hard-freezes the world; primary decides which menu START opens, and is a subcommand because "
     "there is no console `set`. sweep rolls the scroll one page the way a shoulder press does, and "
@@ -1395,8 +1417,14 @@ map                           the World Map page and its fog of war
     lines                     thin lines at every zoom (default)
     zoomed                    the picture's at the whole world, lines from 2x
   wallwidth                   the wall lines' width (#309; saved)
-    <n64px>                   in N64 screen pixels, 0.10 to 4.00
-    default                   0.40
+    <tiles>                   in RS tiles, 0.02 to 1.00 (default 0.20)
+    default                   0.20 of a tile
+    floor                     the thinnest it draws, in render pixels
+      <px>                    0.25 to 6.00 (default 1.00)
+      default                 1.00
+    snap                      whole render pixels on the pixel grid
+      on                      equal walls, equal pixels (default)
+      off                     the exact width, wherever it falls
   arrow                       Link's arrow on the map
     vanilla                   vanilla's compass arrow, as on the minimap
     custom                    the page's own two-triangle arrow

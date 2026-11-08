@@ -26,6 +26,8 @@ extern "C" {
 #include "variables.h"
 #include "macros.h"
 extern PlayState* gPlayState;
+uint32_t OTRGetGameRenderWidth();
+uint32_t OTRGetGameRenderHeight();
 }
 
 namespace {
@@ -85,6 +87,26 @@ struct LoadedMap {
     uint32_t edgeOffset = 0;
     std::vector<uint32_t> edgeFirst; // each layer's first segment index, plus one past the last
     float edgeFix = 1.0f;            // EmitEdges' vertex units an image pixel (fixed for the map)
+
+    // EmitEdges' JOINS (#309 look 1), worked out per layer from its segments alone, on the layer's first draw.
+    // butt[2 i + end]: that end meets another segment, so it ends flat at the point instead of square-capped.
+    // A join is a point where two or more segments END and no segment runs through: EmitEdges fills its outside
+    // with a mitre (or a bevel past 90 degrees of turn). Where a segment runs through the point, its own quad
+    // covers the joint and there is no join.
+    struct EdgeJoin {
+        uint16_t x, y;
+        uint8_t n;
+        uint16_t seg[8];
+        uint8_t end[8];
+    };
+    struct EdgeTopo {
+        bool built = false;
+        std::vector<uint8_t> butt;
+        std::vector<EdgeJoin> joins;
+        int32_t vtxBound = 0;  // the most vertices EmitEdges puts down on this layer
+        int32_t wordBound = 0; // the most Gfx words, the two matrix loads included
+    };
+    mutable std::vector<EdgeTopo> topo;
 
     const uint8_t* Tlut() const { return bytes.data() + kHeaderBytes; }
     const uint8_t* EdgelessTlut() const { return bytes.data() + edgeOffset; }
@@ -573,6 +595,73 @@ bool ClipSegment(float& x0, float& y0, float& x1, float& y1, float rx0, float ry
     return true;
 }
 
+// Layer k's joins (LoadedMap::EdgeTopo), built on first use.
+const LoadedMap::EdgeTopo& TopoOf(const LoadedMap& m, int32_t k) {
+    if ((int32_t)m.topo.size() < (int32_t)m.info.layers) {
+        m.topo.resize(m.info.layers);
+    }
+    LoadedMap::EdgeTopo& t = m.topo[k];
+    if (t.built) {
+        return t;
+    }
+    t.built = true;
+    const int32_t n = m.EdgeCount(k);
+    std::vector<int32_t> s((size_t)n * 4);
+    for (int32_t i = 0; i < n; i++) {
+        uint16_t e[4];
+        m.Edge(k, i, e);
+        for (int32_t c = 0; c < 4; c++) {
+            s[(size_t)i * 4 + c] = e[c];
+        }
+    }
+    t.butt.assign((size_t)n * 2, 0);
+    std::map<uint32_t, std::vector<std::pair<uint16_t, uint8_t>>> ends;
+    for (int32_t i = 0; i < n; i++) {
+        for (uint8_t end = 0; end < 2; end++) {
+            const uint32_t key = ((uint32_t)s[(size_t)i * 4 + 2 * end] << 16) | (uint32_t)s[(size_t)i * 4 + 2 * end + 1];
+            ends[key].push_back({ (uint16_t)i, end });
+        }
+    }
+    int32_t armSum = 0;
+    for (const auto& [key, list] : ends) {
+        const int32_t px = (int32_t)(key >> 16);
+        const int32_t py = (int32_t)(key & 0xFFFF);
+        bool through = false; // a segment runs through the point (not ending there)
+        for (int32_t j = 0; j < n && !through; j++) {
+            const int32_t* e = &s[(size_t)j * 4];
+            const int32_t dx = e[2] - e[0], dy = e[3] - e[1], wx = px - e[0], wy = py - e[1];
+            const int32_t dot = dx * wx + dy * wy;
+            through = dx * wy - dy * wx == 0 && dot > 0 && dot < dx * dx + dy * dy;
+        }
+        if (list.size() == 1 && !through) {
+            continue; // a free end: square cap
+        }
+        for (const auto& e : list) {
+            t.butt[(size_t)e.first * 2 + e.second] = 1;
+        }
+        if (through || list.size() < 2) {
+            continue;
+        }
+        LoadedMap::EdgeJoin j{};
+        j.x = (uint16_t)px;
+        j.y = (uint16_t)py;
+        j.n = (uint8_t)std::min<size_t>(list.size(), 8);
+        for (int32_t a = 0; a < j.n; a++) {
+            j.seg[a] = list[a].first;
+            j.end[a] = list[a].second;
+        }
+        t.joins.push_back(j);
+        t.vtxBound += 1 + 3 * j.n; // the point, two corners an arm, a mitre tip a gap
+        armSum += 3 * j.n;         // its fan's triangles (hull - 2) are fewer than this
+    }
+    t.vtxBound += 4 * n;
+    const int32_t tris = 2 * n + armSum;
+    const int32_t primitives = n + (int32_t)t.joins.size();
+    // Triangles go two a word; a vertex load per primitive at worst; the two matrix loads.
+    t.wordBound = tris / 2 + 1 + primitives + 4;
+    return t;
+}
+
 // Calls fn(x0, y0, x1, y1) for every segment of the current layer touching the rect, clipped to it.
 template <typename F>
 int32_t VisitEdges(const LoadedMap& m, float srcX, float srcY, float srcW, float srcH, F&& fn) {
@@ -625,66 +714,255 @@ extern "C" int32_t RsWorldMap_EdgeGfxWords(int16_t sceneId) {
     if (m == nullptr) {
         return 0;
     }
-    const int32_t n = m->EdgeCount(LayerOf(*m));
-    // A quad each, a vertex load per sixteen, and the two matrix loads.
-    return n + (n + 15) / 16 + 4;
+    return TopoOf(*m, LayerOf(*m)).wordBound;
+}
+
+namespace {
+RsWorldMapEdgeStats sEdgeStats{};
+} // namespace
+
+extern "C" RsWorldMapEdgeStats RsWorldMap_EdgeStats(void) {
+    return sEdgeStats;
 }
 
 extern "C" int32_t RsWorldMap_EmitEdges(GraphicsContext* gfxCtx, Gfx** gfx, int16_t sceneId, float srcX, float srcY,
                                         float srcW, float srcH, float halfWidthPx) {
+    return RsWorldMap_EmitEdgesEx(gfxCtx, gfx, sceneId, srcX, srcY, srcW, srcH, halfWidthPx, 0u);
+}
+
+extern "C" int32_t RsWorldMap_EmitEdgesEx(GraphicsContext* gfxCtx, Gfx** gfx, int16_t sceneId, float srcX, float srcY,
+                                          float srcW, float srcH, float halfWidthPx, uint32_t flags) {
+    sEdgeStats = {};
     const LoadedMap* m = UsableMap(sceneId);
     const float fix = m != nullptr ? m->edgeFix : 1.0f;
+
+    // RS_WORLD_MAP_EDGES_SNAP: where the modelview takes an image pixel to the render target. Read off the caller's
+    // matrix (the Matrix_* top, which is the loaded modelview) with Matrix_MultVec3f, which records no op. The
+    // modelview's output is N64 screen units about the centre; Fast3D widens x for the window's aspect about the
+    // centre, so both axes land at H / 240 render pixels an N64 unit: rx = W/2 + x H/240, ry = H/2 - y H/240.
+    bool snap = false;
+    bool odd = false;
+    float sx = 0.0f, sy = 0.0f, ox = 0.0f, oy = 0.0f;
+    if ((flags & RS_WORLD_MAP_EDGES_SNAP) != 0 && m != nullptr && halfWidthPx > 0.0f) {
+        Vec3f g0 = { 0.0f, 0.0f, 0.0f };
+        Vec3f gx = { 1.0f, 0.0f, 0.0f };
+        Vec3f gy = { 0.0f, -1.0f, 0.0f }; // image y + 1: the geometry space is y-up
+        Vec3f r0, rx, ry;
+        Matrix_MultVec3f(&g0, &r0);
+        Matrix_MultVec3f(&gx, &rx);
+        Matrix_MultVec3f(&gy, &ry);
+        const float u = (float)OTRGetGameRenderHeight() / (float)SCREEN_HEIGHT;
+        sx = (rx.x - r0.x) * u;
+        sy = -(ry.y - r0.y) * u;
+        const bool aligned = std::fabs(sx) > 1e-4f && std::fabs(sy) > 1e-4f &&
+                             std::fabs((rx.y - r0.y) * u) < 1e-3f * std::fabs(sx) &&
+                             std::fabs((ry.x - r0.x) * u) < 1e-3f * std::fabs(sy);
+        if (aligned) {
+            snap = true;
+            ox = (float)OTRGetGameRenderWidth() * 0.5f + r0.x * u;
+            oy = (float)OTRGetGameRenderHeight() * 0.5f - r0.y * u;
+            const long w = std::lround(2.0f * halfWidthPx * std::fabs(sx));
+            odd = (w & 1) != 0;
+        }
+    }
+    // A line a whole number of pixels wide covers the same pixels everywhere when its centre sits on a pixel centre
+    // (odd widths) or a pixel edge (even ones). Every endpoint moves there, so the lines and their joins move as one.
+    auto snapTo = [&](float v, float o, float sc) {
+        if (!snap) {
+            return v;
+        }
+        const float r = o + v * sc;
+        const float r2 = odd ? std::floor(r) + 0.5f : std::round(r);
+        return (r2 - o) / sc;
+    };
+
     // The same Matrix_* ops every call (WorldMap.h): the vertices are image pixels x fix under 1/fix.
     Matrix_Push();
     Matrix_Scale(1.0f / fix, 1.0f / fix, 1.0f, MTXMODE_APPLY);
     Mtx* fine = Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__);
     Matrix_Pop();
     Mtx* restored = Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__);
-    if (m == nullptr || gfx == nullptr || halfWidthPx <= 0.0f) {
+    if (m == nullptr || gfx == nullptr || halfWidthPx <= 0.0f || srcW <= 0.0f || srcH <= 0.0f) {
         return 0;
     }
-    struct Seg {
-        float x0, y0, x1, y1;
-    };
-    std::vector<Seg> segs;
-    segs.reserve((size_t)m->EdgeCount(LayerOf(*m)));
-    VisitEdges(*m, srcX, srcY, srcW, srcH, [&](float x0, float y0, float x1, float y1) { segs.push_back({ x0, y0, x1, y1 }); });
-    const int32_t count = (int32_t)segs.size();
-    if (count == 0) {
+    const int32_t k = LayerOf(*m);
+    const int32_t n = m->EdgeCount(k);
+    if (n == 0) {
         return 0;
     }
-    Vtx* vtx = (Vtx*)Graph_Alloc(gfxCtx, (size_t)count * 4 * sizeof(Vtx));
-    for (int32_t i = 0; i < count; i++) {
-        const Seg& s = segs[i];
-        const float len = std::sqrt((s.x1 - s.x0) * (s.x1 - s.x0) + (s.y1 - s.y0) * (s.y1 - s.y0));
-        const float ux = (s.x1 - s.x0) / len * halfWidthPx; // along, half a width long
-        const float uy = (s.y1 - s.y0) / len * halfWidthPx;
-        // Square caps: each end pushed out by the half width, then the two sides either side of the line.
-        const float ax = s.x0 - ux, ay = s.y0 - uy, bx = s.x1 + ux, by = s.y1 + uy;
-        const float cx[4] = { ax - uy, ax + uy, bx - uy, bx + uy };
-        const float cy[4] = { ay + ux, ay - ux, by + ux, by - ux };
-        for (int32_t c = 0; c < 4; c++) {
-            Vtx* v = &vtx[i * 4 + c];
-            v->v.ob[0] = (int16_t)std::lround(cx[c] * fix);
-            v->v.ob[1] = (int16_t)-std::lround(cy[c] * fix); // the geometry space is y-up
-            v->v.ob[2] = 0;
-            v->v.flag = 0;
-            v->v.tc[0] = v->v.tc[1] = 0;
-            v->v.cn[0] = v->v.cn[1] = v->v.cn[2] = v->v.cn[3] = 255;
-        }
+    const LoadedMap::EdgeTopo& topo = TopoOf(*m, k);
+    sEdgeStats.snapped = snap;
+    sEdgeStats.widthPx = snap ? 2.0f * halfWidthPx * std::fabs(sx) : 0.0f;
+
+    std::vector<float> pt((size_t)n * 4);
+    for (int32_t i = 0; i < n; i++) {
+        uint16_t e[4];
+        m->Edge(k, i, e);
+        pt[(size_t)i * 4 + 0] = snapTo(e[0], ox, sx);
+        pt[(size_t)i * 4 + 1] = snapTo(e[1], oy, sy);
+        pt[(size_t)i * 4 + 2] = snapTo(e[2], ox, sx);
+        pt[(size_t)i * 4 + 3] = snapTo(e[3], oy, sy);
     }
+    const float hw = halfWidthPx;
+    const float rx0 = srcX, ry0 = srcY, rx1 = srcX + srcW, ry1 = srcY + srcH;
+
+    Vtx* vtx = (Vtx*)Graph_Alloc(gfxCtx, (size_t)topo.vtxBound * sizeof(Vtx));
+    int32_t nv = 0;
+    int32_t batch = 0;        // the current vertex load's first vertex
+    std::vector<int32_t> pend; // its triangles, three absolute vertex indices each
     Gfx* p = *gfx;
     gSPMatrix(p++, fine, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
-    for (int32_t i = 0; i < count; i++) {
-        if ((i % 16) == 0) {
-            gSPVertex(p++, (uintptr_t)&vtx[i * 4], std::min(count - i, 16) * 4, 0);
+    auto flush = [&]() {
+        if (nv == batch) {
+            return;
         }
-        const int16_t b = (int16_t)(4 * (i % 16));
-        gSP1Quadrangle(p++, b, b + 1, b + 3, b + 2, 0);
+        gSPVertex(p++, (uintptr_t)&vtx[batch], nv - batch, 0);
+        size_t t = 0;
+        for (; t + 6 <= pend.size(); t += 6) {
+            gSP2Triangles(p++, pend[t] - batch, pend[t + 1] - batch, pend[t + 2] - batch, 0, pend[t + 3] - batch,
+                          pend[t + 4] - batch, pend[t + 5] - batch, 0);
+        }
+        if (t < pend.size()) {
+            gSP1Triangle(p++, pend[t] - batch, pend[t + 1] - batch, pend[t + 2] - batch, 0);
+        }
+        pend.clear();
+        batch = nv;
+    };
+    auto reserve = [&](int32_t count) {
+        if (nv - batch + count > 64) { // Fast3D's vertex buffer (MAX_VERTICES)
+            flush();
+        }
+    };
+    auto put = [&](float x, float y) {
+        Vtx* v = &vtx[nv++];
+        v->v.ob[0] = (int16_t)std::lround(x * fix);
+        v->v.ob[1] = (int16_t)-std::lround(y * fix); // the geometry space is y-up
+        v->v.ob[2] = 0;
+        v->v.flag = 0;
+        v->v.tc[0] = v->v.tc[1] = 0;
+        v->v.cn[0] = v->v.cn[1] = v->v.cn[2] = v->v.cn[3] = 255;
+    };
+
+    // The segments: a quad each, clipped to the rect. An end square-caps (pushed out by the half width) only where
+    // it is free; an end that meets another segment, or that the clip cut, stops flat at its point.
+    for (int32_t i = 0; i < n; i++) {
+        const float* e = &pt[(size_t)i * 4];
+        float x0 = e[0], y0 = e[1], x1 = e[2], y1 = e[3];
+        if (!ClipSegment(x0, y0, x1, y1, rx0, ry0, rx1, ry1) || (x0 == x1 && y0 == y1)) {
+            continue;
+        }
+        const bool cap0 = x0 == e[0] && y0 == e[1] && topo.butt[(size_t)i * 2] == 0;
+        const bool cap1 = x1 == e[2] && y1 == e[3] && topo.butt[(size_t)i * 2 + 1] == 0;
+        const float len = std::sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0));
+        const float ux = (x1 - x0) / len * hw; // along, half a width long
+        const float uy = (y1 - y0) / len * hw;
+        const float ax = cap0 ? x0 - ux : x0, ay = cap0 ? y0 - uy : y0;
+        const float bx = cap1 ? x1 + ux : x1, by = cap1 ? y1 + uy : y1;
+        reserve(4);
+        const int32_t b = nv;
+        put(ax - uy, ay + ux);
+        put(ax + uy, ay - ux);
+        put(bx - uy, by + ux);
+        put(bx + uy, by - ux);
+        pend.insert(pend.end(), { b, b + 1, b + 3, b, b + 3, b + 2 });
+        sEdgeStats.quads++;
     }
+
+    // The joins: where segments end together, the flat ends leave a wedge open on the outside of each turn. Fill
+    // the convex hull of the point, every arm's two corners and, for a turn of 90 degrees or less (the gap
+    // between two arms 180-270 degrees), the mitre tip where their outer sides meet. Sharper turns stay bevelled:
+    // a 45-degree turn's mitre would reach 2.6 half widths out.
+    for (const LoadedMap::EdgeJoin& j : topo.joins) {
+        const float px = snapTo(j.x, ox, sx), py = snapTo(j.y, oy, sy);
+        if (px < rx0 || px > rx1 || py < ry0 || py > ry1) {
+            continue;
+        }
+        struct Arm {
+            float a, dx, dy;
+        };
+        Arm arms[8];
+        int32_t c = 0;
+        for (int32_t a = 0; a < j.n; a++) {
+            const float* e = &pt[(size_t)j.seg[a] * 4];
+            const float hx = j.end[a] == 0 ? e[0] : e[2], hy = j.end[a] == 0 ? e[1] : e[3];
+            const float tx = j.end[a] == 0 ? e[2] : e[0], ty = j.end[a] == 0 ? e[3] : e[1];
+            const float len = std::sqrt((tx - hx) * (tx - hx) + (ty - hy) * (ty - hy));
+            if (len > 0.0f) {
+                arms[c++] = { std::atan2(ty - hy, tx - hx), (tx - hx) / len, (ty - hy) / len };
+            }
+        }
+        if (c < 2) {
+            continue;
+        }
+        std::sort(arms, arms + c, [](const Arm& l, const Arm& r) { return l.a < r.a; });
+        float hp[2 * 26];
+        int32_t h = 0;
+        auto add = [&](float x, float y) {
+            hp[2 * h] = x;
+            hp[2 * h + 1] = y;
+            h++;
+        };
+        add(px, py);
+        for (int32_t a = 0; a < c; a++) {
+            add(px - arms[a].dy * hw, py + arms[a].dx * hw);
+            add(px + arms[a].dy * hw, py - arms[a].dx * hw);
+        }
+        constexpr float kPi = 3.14159265f;
+        for (int32_t a = 0; a < c; a++) {
+            float gap = arms[(a + 1) % c].a - arms[a].a;
+            if (a == c - 1) {
+                gap += 2.0f * kPi;
+            }
+            if (gap > kPi + 1e-3f && gap <= 1.5f * kPi + 1e-3f) {
+                const float mid = arms[a].a + gap * 0.5f;
+                const float dist = hw / std::cos((gap - kPi) * 0.5f);
+                add(px + std::cos(mid) * dist, py + std::sin(mid) * dist);
+            }
+        }
+        // Andrew's monotone chain over the (at most 25) points.
+        int32_t idx[26];
+        for (int32_t a = 0; a < h; a++) {
+            idx[a] = a;
+        }
+        std::sort(idx, idx + h, [&](int32_t l, int32_t r) {
+            return hp[2 * l] < hp[2 * r] || (hp[2 * l] == hp[2 * r] && hp[2 * l + 1] < hp[2 * r + 1]);
+        });
+        auto cross = [&](int32_t o, int32_t a, int32_t b) {
+            return (hp[2 * a] - hp[2 * o]) * (hp[2 * b + 1] - hp[2 * o + 1]) -
+                   (hp[2 * a + 1] - hp[2 * o + 1]) * (hp[2 * b] - hp[2 * o]);
+        };
+        int32_t hull[52];
+        int32_t hn = 0;
+        for (int32_t a = 0; a < h; a++) {
+            while (hn >= 2 && cross(hull[hn - 2], hull[hn - 1], idx[a]) <= 1e-9f) {
+                hn--;
+            }
+            hull[hn++] = idx[a];
+        }
+        for (int32_t a = h - 2, lower = hn + 1; a >= 0; a--) {
+            while (hn >= lower && cross(hull[hn - 2], hull[hn - 1], idx[a]) <= 1e-9f) {
+                hn--;
+            }
+            hull[hn++] = idx[a];
+        }
+        hn--; // the last point repeats the first
+        if (hn < 3) {
+            continue;
+        }
+        reserve(hn);
+        const int32_t b = nv;
+        for (int32_t a = 0; a < hn; a++) {
+            put(hp[2 * hull[a]], hp[2 * hull[a] + 1]);
+        }
+        for (int32_t a = 1; a + 1 < hn; a++) {
+            pend.insert(pend.end(), { b, b + a, b + a + 1 });
+        }
+        sEdgeStats.joins++;
+    }
+    flush();
     gSPMatrix(p++, restored, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
     *gfx = p;
-    return count;
+    return sEdgeStats.quads;
 }
 
 extern "C" int8_t RsWorldMap_LinkStorey(void) {

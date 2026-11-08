@@ -150,8 +150,12 @@ typedef void (*RsWorldMapEdgeFn)(float x0, float y0, float x1, float y1, void* u
 int32_t RsWorldMap_ForEachEdge(int16_t sceneId, float srcX, float srcY, float srcW, float srcH, RsWorldMapEdgeFn fn,
                                void* user);
 
-// Draws those segments as quads `halfWidthPx` IMAGE pixels either side of the line, square-capped (each end
-// pushed out by the half width, so corners close), in the GEOMETRY SPACE under the modelview loaded now. The
+// Draws those segments as quads `halfWidthPx` IMAGE pixels either side of the line, in the GEOMETRY SPACE under
+// the modelview loaded now. ENDS AND JOINS (#309's first look): a FREE end is square-capped (pushed out by the
+// half width); an end that meets another segment stops flat at its point, and where two or more segments end
+// together the outside of the turn is filled - mitred for a turn of 90 degrees or less, bevelled past that - so
+// nothing pokes out past the wall it meets. An end landing on another segment's run needs no fill: that run's
+// quad covers it. Which ends meet is worked out from the layer's segments on its first draw. The
 // caller turns its line width in SCREEN terms into image pixels at its own zoom (MapPage.cpp does), which is
 // what keeps a wall the same width on screen at 1x and 6x. Untextured: the caller sets the combiner (e.g.
 // G_CC_PRIMITIVE with RsWorldMap_WallColour), the render mode and gSPTexture off.
@@ -163,6 +167,21 @@ int32_t RsWorldMap_ForEachEdge(int16_t sceneId, float srcX, float srcY, float sr
 // this frame passes halfWidthPx 0 and still calls. Returns the quads drawn.
 int32_t RsWorldMap_EmitEdges(GraphicsContext* gfxCtx, Gfx** gfx, int16_t sceneId, float srcX, float srcY, float srcW,
                              float srcH, float halfWidthPx);
+// RS_WORLD_MAP_EDGES_SNAP: every endpoint moves onto the render target's pixel grid - a pixel centre for a line an
+// odd number of pixels wide, a pixel edge for an even one - so equal walls cover equal pixels. The caller passes a
+// half width that comes to a whole number of render pixels (MapPage.cpp rounds it). Read off the modelview with
+// Matrix_MultVec3f (no op recorded); ignored when the modelview is not axis-aligned (a rolling scroll).
+#define RS_WORLD_MAP_EDGES_SNAP 2u
+int32_t RsWorldMap_EmitEdgesEx(GraphicsContext* gfxCtx, Gfx** gfx, int16_t sceneId, float srcX, float srcY,
+                               float srcW, float srcH, float halfWidthPx, uint32_t flags);
+// What the last EmitEdges call drew: quads, joins filled, whether it snapped and the width in render px it snapped.
+typedef struct {
+    int32_t quads;
+    int32_t joins;
+    bool snapped;
+    float widthPx;
+} RsWorldMapEdgeStats;
+RsWorldMapEdgeStats RsWorldMap_EdgeStats(void);
 // The most Gfx words EmitEdges writes on the current layer, whatever the rect.
 int32_t RsWorldMap_EdgeGfxWords(int16_t sceneId);
 

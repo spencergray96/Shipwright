@@ -14,9 +14,10 @@
  *        world, 484 blocks for F2P, at zoom 1 - the worst case #298 measured);
  *     1b. the WALLS as geometry (#309, RsMenuMapWalls): RsWorldMap_EmitEdges over the same rect, thin quads at the
  *        output resolution, with the blocks drawn edgeless under them - so a diagonal is a line at 6x, not the
- *        picture's two-pixels-a-tile staircase. The width is set in N64 screen pixels (RsMenuMapWallWidth) and
- *        turned into image pixels at this frame's zoom, so a wall is as wide on screen at 6x as at 1x. Under the
- *        fog, so a hidden square hides its walls too;
+ *        picture's two-pixels-a-tile staircase. The width is a fraction of an RS tile (RsMenuMapWallTiles), so a
+ *        wall thickens as the map zooms, with a floor in render pixels (RsMenuMapWallFloor) under which it never
+ *        thins, rounded to whole pixels and snapped onto the pixel grid (RsMenuMapWallSnap). Under the fog, so a
+ *        hidden square hides its walls too;
  *     2. the fog: one flat quad per run of hidden chunks along a chunk row;
  *     3. Link's custom arrow, when RsMenuMapArrow is `custom`;
  *   then under the base matrix, in game units:
@@ -111,7 +112,10 @@ float sDrawView[4] = {}; // the view rect the last frame drew: x0, y0, w, h in i
 bool sWallsDrawn = false;
 bool sEdgeless = false;
 int32_t sEdges = 0;
+int32_t sEdgeJoins = 0;
 int32_t sEdgeWords = 0;
+bool sWallSnapped = false;
+float sWallNominalPx = 0.0f;
 float sWallHalfPx = 0.0f;
 float sWallScreenPx = 0.0f;
 
@@ -736,7 +740,10 @@ void MapPageDraw(PlayState* play, int32_t pageIndex, void* userData) {
     sWallsDrawn = false;
     sEdgeless = false;
     sEdges = 0;
+    sEdgeJoins = 0;
     sEdgeWords = 0;
+    sWallSnapped = false;
+    sWallNominalPx = 0.0f;
     sWallHalfPx = 0.0f;
     sWallScreenPx = 0.0f;
 
@@ -834,6 +841,10 @@ void MapPageDraw(PlayState* play, int32_t pageIndex, void* userData) {
     // #309: the walls' width in image pixels at this zoom. The base matrix (the scroll's roll, x-scale and focus
     // zoom) is the Matrix_* top here, so a game unit's height through it is N64 screen pixels a game unit; k is game
     // units an image pixel. Read with Matrix_MultVec3f, which records no op.
+    // The width is a fraction of an RS tile, so it grows with the map as it zooms (the first look: walls heavier
+    // than the picture at the whole-world view); under the floor (render px) it stops thinning, since a line under
+    // a pixel drops out and shimmers as it pans. With snap on it is then rounded to whole render pixels, and
+    // EmitEdges puts the endpoints on the pixel grid, so equal walls cover equal pixels.
     const RsMenuMapWalls wallsMode = RsMenuMapPage_Walls();
     const bool lines = l.map && l.info.version >= 4 &&
                        (wallsMode == RS_MENU_MAP_WALLS_LINES ||
@@ -847,10 +858,15 @@ void MapPageDraw(PlayState* play, int32_t pageIndex, void* userData) {
         Matrix_MultVec3f(&a0, &b0);
         Matrix_MultVec3f(&a1, &b1);
         const float n64PerGame = std::fabs(b1.y - b0.y) / 100.0f;
-        const float n64PerPx = n64PerGame * k;
-        if (n64PerPx > 0.0f) {
-            wallHalfPx = RsMenuMapPage_WallWidth() * 0.5f / n64PerPx;
-            sWallScreenPx = RsMenuMapPage_WallWidth() * (float)OTRGetGameRenderHeight() / (float)SCREEN_HEIGHT;
+        const float renderPerPx = n64PerGame * k * (float)OTRGetGameRenderHeight() / (float)SCREEN_HEIGHT;
+        if (renderPerPx > 0.0f) {
+            sWallNominalPx = RsMenuMapPage_WallTiles() * (float)l.info.pxPerTile * renderPerPx;
+            float w = std::max(RsMenuMapPage_WallFloor(), sWallNominalPx);
+            if (RsMenuMapPage_WallSnap()) {
+                w = std::max(1.0f, std::round(w));
+            }
+            sWallScreenPx = w;
+            wallHalfPx = w * 0.5f / renderPerPx;
         }
     }
 
@@ -879,9 +895,12 @@ void MapPageDraw(PlayState* play, int32_t pageIndex, void* userData) {
         const size_t at = dl.size();
         dl.resize(at + (size_t)RsWorldMap_EdgeGfxWords(l.scene) + 2);
         Gfx* p = &dl[at];
-        sEdges = RsWorldMap_EmitEdges(gfxCtx, &p, l.scene, emit[0], emit[1], emit[2] - emit[0], emit[3] - emit[1],
-                                      wallHalfPx);
+        sEdges = RsWorldMap_EmitEdgesEx(gfxCtx, &p, l.scene, emit[0], emit[1], emit[2] - emit[0], emit[3] - emit[1],
+                                        wallHalfPx, RsMenuMapPage_WallSnap() ? RS_WORLD_MAP_EDGES_SNAP : 0u);
         dl.resize((size_t)(p - dl.data()));
+        const RsWorldMapEdgeStats es = RsWorldMap_EdgeStats();
+        sEdgeJoins = es.joins;
+        sWallSnapped = es.snapped;
         if (sEdges == 0) {
             dl.resize(before); // nothing drawn: drop the state too
         }
@@ -1201,18 +1220,41 @@ const char* RsMenuMapPage_WallsName(RsMenuMapWalls walls) {
     }
 }
 
-float RsMenuMapPage_WallWidth() {
-    const int32_t v = CVarGetInteger(CVAR_RS_MENU_MAP_WALL_WIDTH, RS_MENU_MAP_WALL_WIDTH_DEFAULT);
-    return (float)std::clamp<int32_t>(v, RS_MENU_MAP_WALL_WIDTH_MIN, RS_MENU_MAP_WALL_WIDTH_MAX) / 100.0f;
+float RsMenuMapPage_WallTiles() {
+    const int32_t v = CVarGetInteger(CVAR_RS_MENU_MAP_WALL_TILES, RS_MENU_MAP_WALL_TILES_DEFAULT);
+    return (float)std::clamp<int32_t>(v, RS_MENU_MAP_WALL_TILES_MIN, RS_MENU_MAP_WALL_TILES_MAX) / 100.0f;
 }
 
-bool RsMenuMapPage_SetWallWidth(int32_t hundredths) {
-    if (hundredths < RS_MENU_MAP_WALL_WIDTH_MIN || hundredths > RS_MENU_MAP_WALL_WIDTH_MAX) {
+bool RsMenuMapPage_SetWallTiles(int32_t hundredths) {
+    if (hundredths < RS_MENU_MAP_WALL_TILES_MIN || hundredths > RS_MENU_MAP_WALL_TILES_MAX) {
         return false;
     }
-    CVarSetInteger(CVAR_RS_MENU_MAP_WALL_WIDTH, hundredths);
+    CVarSetInteger(CVAR_RS_MENU_MAP_WALL_TILES, hundredths);
     CVarSave();
     return true;
+}
+
+float RsMenuMapPage_WallFloor() {
+    const int32_t v = CVarGetInteger(CVAR_RS_MENU_MAP_WALL_FLOOR, RS_MENU_MAP_WALL_FLOOR_DEFAULT);
+    return (float)std::clamp<int32_t>(v, RS_MENU_MAP_WALL_FLOOR_MIN, RS_MENU_MAP_WALL_FLOOR_MAX) / 100.0f;
+}
+
+bool RsMenuMapPage_SetWallFloor(int32_t hundredths) {
+    if (hundredths < RS_MENU_MAP_WALL_FLOOR_MIN || hundredths > RS_MENU_MAP_WALL_FLOOR_MAX) {
+        return false;
+    }
+    CVarSetInteger(CVAR_RS_MENU_MAP_WALL_FLOOR, hundredths);
+    CVarSave();
+    return true;
+}
+
+bool RsMenuMapPage_WallSnap() {
+    return CVarGetInteger(CVAR_RS_MENU_MAP_WALL_SNAP, 1) != 0;
+}
+
+void RsMenuMapPage_SetWallSnap(bool on) {
+    CVarSetInteger(CVAR_RS_MENU_MAP_WALL_SNAP, on ? 1 : 0);
+    CVarSave();
 }
 
 bool RsMenuMapPage_StepZoom(int32_t dir) {
@@ -1289,8 +1331,13 @@ RsMenuMapPageStatus RsMenuMapPage_Status() {
     st.wallsDrawn = sWallsDrawn;
     st.edgeless = sEdgeless;
     st.edges = sEdges;
+    st.joins = sEdgeJoins;
     st.edgeWords = sEdgeWords;
-    st.wallWidth = RsMenuMapPage_WallWidth();
+    st.wallTiles = RsMenuMapPage_WallTiles();
+    st.wallFloor = RsMenuMapPage_WallFloor();
+    st.wallSnap = RsMenuMapPage_WallSnap();
+    st.wallSnapped = sWallSnapped;
+    st.wallNominalPx = sWallNominalPx;
     st.wallHalfPx = sWallHalfPx;
     st.wallScreenPx = sWallScreenPx;
     st.iconsShown = sIconsShown;
