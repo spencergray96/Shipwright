@@ -1148,7 +1148,7 @@ const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custo
                      "sweep [l|r|loop|hold <l|r> <tick>|stop] | "
                      "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
                      "stress [<n> [same]|off|memo <on|off>] | "
-                     "cursor [left|right|up|down|select|<id>] | probe [on|off] | kaleido | equips | hud | "
+                     "cursor [left|right|up|down|select|<id>] | probe [on|off] | backdrop green|off | kaleido | equips | hud | "
                      "flight hold <n>|release | song | "
                      "inv <kind> <a> <b> | namepanel custom <item>|off | timer <seconds>|off | "
                      "map [reveal <sx> <sy>|reveal all|reveal none|node <sx> <sy>|hide <sx> <sy>|fog hide|dim|"
@@ -1199,6 +1199,16 @@ int32_t RsMenuConsole_Run(const std::vector<std::string>& args, std::vector<std:
     }
     if (sub == "probe") {
         return Probe(args, lines);
+    }
+    if (sub == "backdrop") {
+        // TEST-ONLY (#299): a flat chroma-green backdrop for frame-by-frame captures.
+        if (args.size() != 2 || (args[1] != "green" && args[1] != "off")) {
+            Addf(lines, "op=backdrop result=error error=usage backdrop=%s", RsMenu_Backdrop() ? "green" : "off");
+            return 1;
+        }
+        RsMenu_SetBackdrop(args[1] == "green");
+        Addf(lines, "op=backdrop result=ok backdrop=%s", RsMenu_Backdrop() ? "green" : "off");
+        return 0;
     }
     if (sub == "kaleido") {
         return Kaleido(lines);
@@ -1254,7 +1264,7 @@ const ConsoleSink::Command menuCommand(
     "sweep [l|r|loop|hold <l|r> <tick>|stop] | "
     "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
     "stress [<n> [same]|off|memo <on|off>] | cursor [left|right|up|down|select|<id>] | "
-    "probe [on|off] | kaleido | equips | hud | flight hold <n>|release | song | inv <kind> <a> <b> | "
+    "probe [on|off] | backdrop green|off | kaleido | equips | hud | flight hold <n>|release | song | inv <kind> <a> <b> | "
     "namepanel custom <item>|off | map [reveal|node|hide <sx> <sy>|reveal all|none|fog hide|dim|icons on|off|"
     "arrow vanilla|custom|zoom in|out|pan <dx> <dy>] | focus [in|out|loop|hold <in|out> <tick>|stop] | "
     "hand [set|grip|upper|scale|rot|wrist|offset|elbow|vturn|light|occlude|cut|paper|trim|reset] | dump. "
@@ -1284,7 +1294,7 @@ const ConsoleSink::Command menuCommand(
     "scroll's hands - Link's own arms (#299) - live: the grip, each side's angles, the scale, the light; saved. "
     "parchment picks "
     "the art the parchment and roll ends draw (#300; journal by default), saved, and switchable live.",
-    { { "open|close|page|primary|parchment|sweep|level|filler|stress|cursor|probe|kaleido|equips|hud|flight|song|inv|"
+    { { "open|close|page|primary|parchment|sweep|level|filler|stress|cursor|probe|backdrop|kaleido|equips|hud|flight|song|inv|"
         "namepanel|"
         "map|focus|hand|dump",
         Ship::ArgumentType::TEXT },
@@ -1332,6 +1342,9 @@ cursor                        walk the node graph the cursor moves on
   select                      press the node under the cursor
   <id>                        jump to a node by its id
 probe                         stepped offset to test frame interpolation
+backdrop                      a flat chroma backdrop for captures (test only)
+  green                       opaque green behind the scroll
+  off                         the dim as usual
   on                          start the probe
   off                         stop the probe
 kaleido                       vanilla pause's live cursor

@@ -1528,6 +1528,8 @@ static void PushDimState() {
 // pre-widening x by the inverse is the documented fix, and overshoot clips for free
 // (SOH_2D_DRAWING.md "The widescreen squeeze"). Everything inside the parchment is inside the 4:3
 // band by construction and needs none of this - this quad is the exception, not the pattern.
+static bool sBackdrop = false; // `menu backdrop green` (#299), test only
+
 static void DrawDim() {
     const float halfW = (float)(SCREEN_HEIGHT / 2) * OTRGetAspectRatio() + kDimMargin;
     const float halfH = (float)(SCREEN_HEIGHT / 2) + kDimMargin;
@@ -1546,7 +1548,11 @@ static void DrawDim() {
     }
 
     std::vector<Gfx>& dl = MenuDl();
-    dl.push_back(gsDPSetPrimColor(0, 0, 0, 0, 0, DimAlpha()));
+    if (sBackdrop) {
+        dl.push_back(gsDPSetPrimColor(0, 0, 0, 255, 0, 255));
+    } else {
+        dl.push_back(gsDPSetPrimColor(0, 0, 0, 0, 0, DimAlpha()));
+    }
     dl.push_back(gsSPVertex(vtx, 4, 0));
     dl.push_back(gsSP1Quadrangle(0, 2, 3, 1, 0));
     sDrawQuads++;
@@ -4659,6 +4665,14 @@ RsMenuSweepState RsMenu_SweepState() {
 
 void RsMenu_SetProbe(bool on) {
     sProbe = on;
+}
+
+void RsMenu_SetBackdrop(bool on) {
+    sBackdrop = on;
+}
+
+bool RsMenu_Backdrop() {
+    return sBackdrop;
 }
 
 // THE DEFAULT IS `custom` SINCE STAGE 6 (#111): START opens the scroll, and vanilla pause is
