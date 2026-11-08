@@ -614,6 +614,9 @@
  *   agenttest rssprite [status]|info <token>|show <token> <x> <y> [<w> [<h>]]|layout|filter bilerp|point|blend xlu|cutout|panel on|off|clear
  *                                          the RS sprite debug draw (sturdy-bassoon#297): one
  *                                          `rs_sprite op=...` marker a line, as RsSpritesConsole.h lists
+ *   agenttest minimap [status]|mode north|rotate|radius <tiles>|default|filter bilerp|point|snap on|off
+ *                                          the round HUD minimap in RS scenes (sturdy-bassoon#306): one
+ *                                          `rs_minimap op=...` marker a line, as RsMinimapConsole.h lists
  *   agenttest region get|set <uk|us>|toggle|expand <text...>|overlay [on|off]
  *                                          the save file's FLOOR CONVENTION (sturdy-bassoon#94), which
  *                                          decides whether rs/ prose calls the storey at ground level
@@ -806,6 +809,7 @@
 #include "soh/Enhancements/rs/maps/WorldConsole.h"
 #include "soh/Enhancements/rs/maps/WorldMapConsole.h"
 #include "soh/Enhancements/rs/sprites/RsSpritesConsole.h"
+#include "soh/Enhancements/rs/maps/RsMinimapConsole.h"
 #include "soh/Enhancements/rs/swim/SwimConsole.h"
 #include "soh/Enhancements/rs/stairs/StairConsole.h"
 #include "soh/Enhancements/rs/interactions/InteractionConsole.h"
@@ -3212,6 +3216,11 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(RsSpritesConsole_Run, sub, "rs_sprite ", output, WriteMarker);
     }
+    // The round HUD minimap in RS scenes (sturdy-bassoon#306). `>= 2`: a bare `agenttest minimap` is the status.
+    if (args.size() >= 2 && args[1] == "minimap") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(RsMinimapConsole_Run, sub, "rs_minimap ", output, WriteMarker);
+    }
     // The world context and the scene picker (sturdy-bassoon#173 F5). The same prefix as the context's
     // own event markers: `rs_worldctx op=...` answers a question, `rs_worldctx event=...` is a change.
     if (args.size() >= 3 && args[1] == "worldctx") {
@@ -3363,6 +3372,7 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "worldmap [status]|storey ground|all|current|below|debug off|whole|link|block <w> <h>|pixel <x> <z> | "
               "rssprite [status]|info <token>|show <token> <x> <y> [<w> [<h>]]|layout|filter bilerp|point|"
               "blend xlu|cutout|panel on|off|clear | "
+              "minimap [status]|mode north|rotate|radius <tiles>|default|filter bilerp|point|snap on|off | "
               "swim status|on|off|length <s>|default|budget <ticks>|drown|refuge here|clear|points | "
               "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|"
               "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "
@@ -3490,6 +3500,7 @@ region =region          the region command's options
 worldctx =worldctx       the worldctx command's options
 worldmap =worldmap       the world map image: size, storey, Link's pixel
 rssprite =rssprite       draw packed RS sprites on screen by token
+minimap =minimap         the round HUD minimap: mode, radius, what it drew
 swim =swim               the swim command's options
 stairs =stairs           the stairs command's options
 warps =warps             the warps command's options
@@ -3557,6 +3568,7 @@ void RegisterAgentTest() {
               "worldmap [status]|storey ground|all|current|below|debug off|whole|link|block <w> <h>|pixel <x> <z> | "
               "rssprite [status]|info <token>|show <token> <x> <y> [<w> [<h>]]|layout|filter bilerp|point|"
               "blend xlu|cutout|panel on|off|clear | "
+              "minimap [status]|mode north|rotate|radius <tiles>|default|filter bilerp|point|snap on|off | "
               "swim status|on|off|length <s>|default|budget <ticks>|drown|refuge here|clear|points | "
               "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|"
               "bump [on|off|default|hold <ticks|default>]|actors|badcheck | "

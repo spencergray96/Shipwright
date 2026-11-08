@@ -87,6 +87,13 @@ void FrameInterpolation_RecordSkinMatrixMtxFToMtx(MtxF* src, Mtx* dest);
 // between ticks. Nests; inert at 20 fps.
 void FrameInterpolation_RecordWorldSpaceBegin(void);
 
+// sturdy-bassoon#306: snaps the current matrix's translation to a grid (gx, gy; 0 leaves that axis alone), and has
+// the NEXT Matrix_NewMtx/Matrix_ToMtx record the grid, so every interpolated frame snaps its own lerped translation
+// too - not only the 20 Hz tick (an in-between frame's matrix is a lerp of the two ticks' recorded ones, which two
+// snapped matrices do not keep snapped). Call it right before the Matrix_NewMtx it is for. The RS minimap's
+// north-up scroll uses it to land on whole screen pixels.
+void FrameInterpolation_MatrixSnapTranslation(f32 gx, f32 gy);
+
 void FrameInterpolation_RecordWorldSpaceEnd(void);
 
 // sturdy-bassoon#254: the shadow probe. Actor_Draw opens its scope round the probed actor's shadowDraw;

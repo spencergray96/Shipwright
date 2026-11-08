@@ -12,6 +12,7 @@
 
 #include "RsBalloon.h"
 #include "RsBoat.h"
+#include "soh/Enhancements/rs/maps/RsMinimap.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/ShipInit.hpp"
 #include "soh/cvar_prefixes.h"
@@ -94,7 +95,8 @@ void DrawVehicleArrows() {
         FrameInterpolation_RecordOpenChild(a, 0);
         Minimap_DrawCompassArrow(gPlayState, a->world.pos.x, a->world.pos.z, a->shape.rot.y, ArrowColor(a));
         FrameInterpolation_RecordCloseChild();
-        sDrawn.push_back({ a, RS_VEHICLE_ARROW_DRAWN });
+        // On the RS minimap an arrow past the circle's edge is clipped away entirely: `drawn` means it can be seen.
+        sDrawn.push_back({ a, RsMinimap_LastArrowOutOfView() ? RS_VEHICLE_ARROW_OUT_OF_VIEW : RS_VEHICLE_ARROW_DRAWN });
     }
 }
 
@@ -126,6 +128,8 @@ const char* RsVehicleMinimap_ArrowName(int32_t arrow) {
             return "drawn";
         case RS_VEHICLE_ARROW_CONTROLS:
             return "controls";
+        case RS_VEHICLE_ARROW_OUT_OF_VIEW:
+            return "out_of_view";
         default:
             return "no_minimap";
     }
