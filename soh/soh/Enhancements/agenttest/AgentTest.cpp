@@ -614,7 +614,7 @@
  *   agenttest rssprite [status]|info <token>|show <token> <x> <y> [<w> [<h>]]|layout|filter bilerp|point|blend xlu|cutout|panel on|off|clear
  *                                          the RS sprite debug draw (sturdy-bassoon#297): one
  *                                          `rs_sprite op=...` marker a line, as RsSpritesConsole.h lists
- *   agenttest minimap [status]|mode north|rotate|radius <tiles>|default|filter bilerp|point|snap on|off
+ *   agenttest minimap [status]|icons|mode north|rotate|radius <tiles>|default|filter bilerp|point|snap on|off
  *                                          the round HUD minimap in RS scenes (sturdy-bassoon#306): one
  *                                          `rs_minimap op=...` marker a line, as RsMinimapConsole.h lists
  *   agenttest region get|set <uk|us>|toggle|expand <text...>|overlay [on|off]

@@ -42,8 +42,13 @@
  * shows F2P, with no arrow); else a "No map here" line. The fallback is built but has not been run: no stitched
  * world with a world map is registered with the scene picker yet (#308 re-exports F2P and runs it).
  *
- * NOT YET: map icons (#307; the toggle is here, off by default, and draws nothing until #307 gives it
- * something to draw).
+ * MAP ICONS (#307): the table's icons (RsMapIcons_ForScene), printed between the fog and the vehicles' arrows under
+ * the placement, clipped to the view like the arrows, hidden while their chunk is fogged or their plane is off the
+ * layer drawn. kIconUnits game units wide at EVERY zoom step (they would be huge at 6x if they scaled with the map),
+ * so they stay readable. Their vertices are image pixels x4 under a nested scale of the placement (Push, Scale,
+ * NewMtx, Pop, NewMtx, recorded every frame), so a corner is never rounded to a whole image pixel: at the whole-world
+ * view an image pixel is most of a screen pixel, and rounded corners would make the 15 texels uneven. RsMenuMapIcons:
+ * on (every zoom) or off, OFF by default.
  *
  * THE CUSTOM ARROW (296d1d210, kept behind RsMenuMapArrow `custom`): two triangles, a fill of 255,226,88 over an
  * edge of 40,24,8 drawn 1.35x larger, kArrowUnits (7) game units long, rotated in software.
@@ -67,8 +72,10 @@
 #include "soh/cvar_prefixes.h"
 #include "soh/Enhancements/rs/maps/WorldContext.h"
 #include "soh/Enhancements/rs/actors/RsVehicleMinimap.h"
+#include "soh/Enhancements/rs/maps/RsMapIcons.h"
 #include "soh/Enhancements/rs/maps/RsMinimap.h"
 #include "soh/Enhancements/rs/maps/WorldMap.h"
+#include "soh/Enhancements/rs/sprites/RsSprites.h"
 
 extern "C" {
 #include "functions.h"
@@ -111,6 +118,11 @@ constexpr uint8_t kCompassLink[3] = { 200, 255, 0 };
 constexpr float kMargin = 3.0f;      // game units between the map's frame and the page rect; also the masks' depth
 constexpr float kFrameUnits = 1.0f;  // the frame's width, game units
 constexpr float kArrowUnits = 7.0f;  // the custom arrow's length, game units
+// A map icon's size: the minimap's (RS_MINIMAP_ICON_TEXEL game units an RS PIXEL - RsSpriteInfo.rsWidth, never the
+// packed texels, so an upscaled repack (#312) is sharper and the same size; a 15 x 15 icon is 6.7 across), so an icon
+// is the same size on both maps before the focus zoom scales the scroll.
+constexpr float kIconTexelUnits = RS_MINIMAP_ICON_TEXEL;
+constexpr float kIconFix = 4.0f;     // icon vertex units an image pixel (the nested scale is 1 / kIconFix)
 constexpr float kCompassScale = 0.4f; // vanilla's minimap arrow scale (Minimap_DrawCompassIcons), as #306 draws it
 constexpr float kViewMarginPx = 2.0f;
 constexpr float kScissorSlack = 1.5f; // game units the scissor sits outside the box, half the masks' depth // image pixels drawn past the view on every side, under the masks
@@ -591,6 +603,104 @@ void PopPlacement(GraphicsContext* gfxCtx, std::vector<Gfx>& dl) {
     dl.push_back(gsSPMatrix(Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
 }
 
+// --- the map icons (#307) ---------------------------------------------------------------------------------------
+struct IconInfo {
+    const char* name;
+    const char* token;
+    const char* state; // in | edge | out | fog | storey | zoom | off | no_sprite
+    float px, py;
+    uint8_t alpha;
+};
+std::vector<IconInfo> sIcons;
+int32_t sIconsShown = 0;
+float sIconUnits = 0.0f; // the last icon's width in game units, for the dump
+
+// The icons on `scene`'s map, under the nested icon matrix (already loaded): each an axis-aligned quad centred on its
+// tile, kIconTexelUnits game units an RS pixel whatever the zoom (`k` game units an image pixel), clipped to `emit` and
+// judged against `view` as the arrows are. Lists every icon in sIcons, drawn or not.
+void DrawIcons(GraphicsContext* gfxCtx, std::vector<Gfx>& dl, int16_t scene, float k, float zoom, const float view[4],
+               const float emit[4]) {
+    RsMapIcon icons[32];
+    const int32_t n = RsMapIcons_ForScene(scene, icons, 32);
+    const bool on = RsMenuMapPage_Icons();
+    (void)zoom;
+    const uint8_t alpha = 255;
+    bool stateSet = false;
+    for (int32_t i = 0; i < n; i++) {
+        const RsMapIconDef* d = icons[i].def;
+        float px = 0.0f;
+        float py = 0.0f;
+        RsWorldMap_WorldToPixel(scene, icons[i].x, icons[i].z, &px, &py);
+        IconInfo info = { d->name, d->token, "in", px, py, alpha };
+        RsSpriteInfo sprite = {};
+        const char* path = RsSprites_Path(d->token);
+        if (!on) {
+            info.state = "off";
+        } else if (!icons[i].onLayer) {
+            info.state = "storey";
+        } else if (!RsMapReveal_IsRevealed(d->rsX >> 6, d->rsY >> 6)) {
+            info.state = "fog";
+        } else if (path == nullptr || !RsSprites_Info(d->token, &sprite)) {
+            info.state = "no_sprite";
+        }
+        if (std::string(info.state) != "in") {
+            sIcons.push_back(info);
+            continue;
+        }
+        const float hw = (float)sprite.rsWidth * kIconTexelUnits / (2.0f * k); // image pixels
+        const float hh = (float)sprite.rsHeight * kIconTexelUnits / (2.0f * k);
+        sIconUnits = (float)sprite.rsWidth * kIconTexelUnits;
+        const float r[4] = { px - hw, py - hh, px + hw, py + hh };
+        const std::vector<Pt> quad = { { r[0], r[1] }, { r[2], r[1] }, { r[2], r[3] }, { r[0], r[3] } };
+        const int32_t st = StateIn(quad, view);
+        info.state = ArrowStateName(st);
+        sIcons.push_back(info);
+        // Clipped to the emitted rect: axis-aligned, so the texture coordinates follow linearly.
+        const float c[4] = { std::max(r[0], emit[0]), std::max(r[1], emit[1]), std::min(r[2], emit[2]),
+                             std::min(r[3], emit[3]) };
+        if (st == ARROW_OUT || c[0] >= c[2] || c[1] >= c[3]) {
+            continue;
+        }
+        if (!stateSet) {
+            dl.push_back(gsDPPipeSync());
+            dl.push_back(gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON));
+            dl.push_back(gsDPSetCombineMode(G_CC_MODULATERGBA_PRIM, G_CC_MODULATERGBA_PRIM));
+            dl.push_back(gsDPSetOtherMode(G_AD_NOTPATTERN | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | G_TF_BILERP |
+                                              G_TT_NONE | G_TL_TILE | G_TD_CLAMP | G_TP_PERSP | G_CYC_1CYCLE |
+                                              G_PM_NPRIMITIVE,
+                                          G_AC_NONE | G_ZS_PIXEL | G_RM_XLU_SURF | G_RM_XLU_SURF2));
+            dl.push_back(gsSPLoadGeometryMode(G_SHADING_SMOOTH));
+            dl.push_back(gsDPSetPrimColor(0, 0, 255, 255, 255, alpha));
+            stateSet = true;
+        }
+        dl.push_back(gsDPPipeSync());
+        Gfx load[24];
+        Gfx* p = load;
+        gDPLoadTextureTile(p++, (u8*)path, G_IM_FMT_RGBA, G_IM_SIZ_32b, sprite.width, sprite.height, 0, 0,
+                           sprite.width - 1, sprite.height - 1, 0, G_TX_NOMIRROR | G_TX_CLAMP,
+                           G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
+        dl.insert(dl.end(), load, p);
+        Vtx* v = (Vtx*)Graph_Alloc(gfxCtx, 4 * sizeof(Vtx));
+        const float xs[4] = { c[0], c[2], c[0], c[2] };
+        const float ys[4] = { c[1], c[1], c[3], c[3] };
+        for (int32_t j = 0; j < 4; j++) {
+            v[j].v.ob[0] = (int16_t)std::lround(xs[j] * kIconFix);
+            v[j].v.ob[1] = (int16_t)-std::lround(ys[j] * kIconFix);
+            v[j].v.ob[2] = 0;
+            v[j].v.flag = 0;
+            v[j].v.tc[0] = (int16_t)std::lround((xs[j] - r[0]) / (r[2] - r[0]) * sprite.width * 32.0f);
+            v[j].v.tc[1] = (int16_t)std::lround((ys[j] - r[1]) / (r[3] - r[1]) * sprite.height * 32.0f);
+            v[j].v.cn[0] = v[j].v.cn[1] = v[j].v.cn[2] = v[j].v.cn[3] = 255;
+        }
+        dl.push_back(gsSPVertex(v, 4, 0));
+        dl.push_back(gsSP2Triangles(0, 2, 3, 0, 0, 3, 1, 0));
+        sIconsShown++;
+    }
+    if (stateSet) {
+        dl.push_back(gsSPTexture(0, 0, 0, G_TX_RENDERTILE, G_OFF));
+    }
+}
+
 void MapPageDraw(PlayState* play, int32_t pageIndex, void* userData) {
     (void)pageIndex;
     (void)userData;
@@ -606,6 +716,8 @@ void MapPageDraw(PlayState* play, int32_t pageIndex, void* userData) {
     sFogQuads = 0;
     sArrowDrawn = 0;
     sArrows.clear();
+    sIcons.clear();
+    sIconsShown = 0;
     sLinkArrow = ARROW_NONE;
     sScissored = false;
 
@@ -712,7 +824,27 @@ void MapPageDraw(PlayState* play, int32_t pageIndex, void* userData) {
 
         PushFlat(dl);
         sFogQuads = DrawFog(gfxCtx, dl, l.scene, l.info, emit);
-
+    }
+    // The map icons (#307), over the fog and under every arrow, under a nested 1/kIconFix scale of the placement:
+    // its ops are recorded every frame, map or no map, icons or none.
+    {
+        Matrix_Push();
+        Matrix_Scale(1.0f / kIconFix, 1.0f / kIconFix, 1.0f, MTXMODE_APPLY);
+        Mtx* iconMtx = Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__);
+        Matrix_Pop();
+        Mtx* placement = Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__);
+        if (l.map) {
+            const size_t at = dl.size();
+            dl.push_back(gsSPMatrix(iconMtx, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
+            DrawIcons(gfxCtx, dl, l.scene, k, v.zoom, view, emit);
+            if (sIconsShown == 0) {
+                dl.resize(at); // nothing drawn: drop the matrix load too
+            } else {
+                dl.push_back(gsSPMatrix(placement, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
+            }
+        }
+    }
+    if (l.map) {
         // The vehicles' arrows, under Link's (the minimap's order), in the scene they are in only.
         if (play != nullptr && l.scene == play->sceneNum) {
             std::vector<RsVehicleMapArrow> vehicles;
@@ -737,7 +869,6 @@ void MapPageDraw(PlayState* play, int32_t pageIndex, void* userData) {
             DrawCustomArrow(gfxCtx, dl, lpx, lpy, linkYaw, kArrowUnits / l.s, emit);
             sArrowDrawn = 1;
         }
-        // #307 draws its icons here when RsMenuMapPage_Icons() is on.
     }
     PopPlacement(gfxCtx, dl);
 
@@ -1050,6 +1181,11 @@ RsMenuMapPageStatus RsMenuMapPage_Status() {
     st.scissored = sScissored;
     for (const ArrowInfo& a : sArrows) {
         st.arrows.push_back({ a.kind, ArrowStateName(a.state), a.px, a.py, a.controls });
+    }
+    st.iconsShown = sIconsShown;
+    st.iconUnits = sIconUnits;
+    for (const IconInfo& i : sIcons) {
+        st.icons.push_back({ i.name, i.token, i.state, i.px, i.py, i.alpha });
     }
     return st;
 }

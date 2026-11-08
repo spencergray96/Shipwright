@@ -9,6 +9,7 @@
 
 #include "WorldMap.h"
 #include "soh/Enhancements/cosmetics/cosmeticsTypes.h"
+#include "soh/Enhancements/rs/sprites/RsSprites.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/cvar_prefixes.h"
 #include "soh/frame_interpolation.h"
@@ -189,8 +190,9 @@ void SetVtx(Vtx* v, float px, float py, float loadX, float loadY) {
     v->v.cn[0] = v->v.cn[1] = v->v.cn[2] = v->v.cn[3] = 255;
 }
 
-// A convex polygon as a fan, in gSPVertex loads of at most 32: each load repeats the fan's first vertex.
-void PushFan(std::vector<Gfx>& dl, const std::vector<P>& poly, float loadX, float loadY) {
+// A convex polygon as a fan, in gSPVertex loads of at most 32: each load repeats the fan's first vertex. `set`
+// writes one vertex from its polygon point (position and texture coordinate).
+template <class SetFn> void PushFanWith(std::vector<Gfx>& dl, const std::vector<P>& poly, SetFn set) {
     const int32_t n = (int32_t)poly.size();
     if (n < 3) {
         return;
@@ -198,15 +200,20 @@ void PushFan(std::vector<Gfx>& dl, const std::vector<P>& poly, float loadX, floa
     for (int32_t start = 1; start < n - 1; start += 30) {
         const int32_t count = std::min(31, n - start); // vertices start..start+count-1, plus the first
         Vtx* v = (Vtx*)Graph_Alloc(sFrame.gfxCtx, (size_t)(count + 1) * sizeof(Vtx));
-        SetVtx(&v[0], poly[0].x, poly[0].y, loadX, loadY);
+        set(&v[0], poly[0]);
         for (int32_t i = 0; i < count; i++) {
-            SetVtx(&v[i + 1], poly[start + i].x, poly[start + i].y, loadX, loadY);
+            set(&v[i + 1], poly[start + i]);
         }
         dl.push_back(gsSPVertex(v, count + 1, 0));
         for (int32_t i = 1; i < count; i++) {
             dl.push_back(gsSP1Triangle(0, i, i + 1, 0));
         }
     }
+}
+
+// The map's own fan: texture coordinates are image pixels relative to the block's load.
+void PushFan(std::vector<Gfx>& dl, const std::vector<P>& poly, float loadX, float loadY) {
+    PushFanWith(dl, poly, [&](Vtx* v, const P& p) { SetVtx(v, p.x, p.y, loadX, loadY); });
 }
 
 // Keeps the part of convex `in` on the inside of every edge of the convex polygon `clip` (the side its centre
@@ -278,7 +285,84 @@ void MapPose(float x, float z, s16 yaw, float* px, float* py, float* ux, float* 
     *uy = d > 0 ? dy / d : -1.0f;
 }
 
-void OnBlock(Gfx** gfx, int16_t bx, int16_t by, int16_t bw, int16_t bh, int16_t loadX, int16_t loadY, void* user) {
+// Screen delta (centre-origin, y up, N64 px) -> image pixel delta: PixelDeltaToScreen undone.
+void ScreenDeltaToPixel(float sx, float sy, float* dx, float* dy) {
+    if (sFrame.mirror) {
+        sx = -sx;
+    }
+    const float c = std::cos(sFrame.rot), s = std::sin(sFrame.rot);
+    const float gx = sx * c + sy * s;
+    const float gy = -sx * s + sy * c;
+    *dx = gx / sFrame.scale;
+    *dy = -gy / sFrame.scale;
+}
+
+// A map icon (#307): the sprite at `path` (tw x th texels, rw x rh RS pixels) as a quad centred on image pixel
+// (px, py), upright on screen, RS_MINIMAP_ICON_TEXEL N64 px an RS PIXEL: sized by the RS picture, not the texels, so
+// an upscaled repack (#312) draws sharper at the same size. Its corners are worked out in image pixels (screen right and up
+// mapped back through the map's turn and scale), so it draws under the map's own matrix like the arrows: it scrolls
+// and turns with the map and rides the north-up snap, where its vertices are the same every frame. Clipped to the
+// circle, its texture coordinates following each clipped vertex.
+RsMinimapIconState DrawMapIcon(const char* path, int32_t tw, int32_t th, int32_t rw, int32_t rh, float px, float py) {
+    const float hw = rw * RS_MINIMAP_ICON_TEXEL * 0.5f;
+    const float hh = rh * RS_MINIMAP_ICON_TEXEL * 0.5f;
+    float rx = 0, ry = 0, ux = 0, uy = 0; // one N64 px right, and up, on screen, in image pixels
+    ScreenDeltaToPixel(1.0f, 0.0f, &rx, &ry);
+    ScreenDeltaToPixel(0.0f, 1.0f, &ux, &uy);
+    const P tl = { px - rx * hw + ux * hh, py - ry * hw + uy * hh };
+    const P across = { rx * 2 * hw, ry * 2 * hw }; // top-left -> top-right: s 0..tw
+    const P down = { -ux * 2 * hh, -uy * 2 * hh }; // top-left -> bottom-left: t 0..th
+    sPoly.assign({ tl, { tl.x + across.x, tl.y + across.y }, { tl.x + across.x + down.x, tl.y + across.y + down.y },
+                   { tl.x + down.x, tl.y + down.y } });
+    const std::vector<P> whole = sPoly;
+    ClipConvex(sPoly, sScratch, sCircle, sFrame.lpx, sFrame.lpy);
+    if (sPoly.size() < 3) {
+        return RS_MINIMAP_ICON_OUT_OF_VIEW;
+    }
+    // Sutherland-Hodgman copies a vertex that is inside every edge untouched, so an icon wholly inside comes back
+    // as the same four points.
+    bool clipped = sPoly.size() != whole.size();
+    for (size_t i = 0; !clipped && i < whole.size(); i++) {
+        clipped = sPoly[i].x != whole[i].x || sPoly[i].y != whole[i].y;
+    }
+
+    std::vector<Gfx>& dl = *sFrame.dl;
+    dl.push_back(gsDPPipeSync());
+    dl.push_back(gsSPMatrix(sFrame.mapMtx, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
+    dl.push_back(gsSPLoadGeometryMode(G_SHADING_SMOOTH));
+    dl.push_back(gsDPSetOtherMode(G_AD_NOTPATTERN | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | G_TF_BILERP | G_TT_NONE |
+                                      G_TL_TILE | G_TD_CLAMP | G_TP_PERSP | G_CYC_1CYCLE | G_PM_NPRIMITIVE,
+                                  G_AC_NONE | G_ZS_PIXEL | G_RM_XLU_SURF | G_RM_XLU_SURF2));
+    dl.push_back(gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON));
+    dl.push_back(gsDPSetCombineMode(G_CC_MODULATERGBA_PRIM, G_CC_MODULATERGBA_PRIM));
+    dl.push_back(gsDPSetPrimColor(0, 0, 255, 255, 255, 255));
+    // A tile load, clamped, as RsSprites_EmitRect's: the bilinear edge reads its own last texel.
+    Gfx load[24];
+    Gfx* p = load;
+    gDPLoadTextureTile(p++, (u8*)path, G_IM_FMT_RGBA, G_IM_SIZ_32b, tw, th, 0, 0, tw - 1, th - 1, 0,
+                       G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD,
+                       G_TX_NOLOD);
+    dl.insert(dl.end(), load, p);
+    // Texture coordinate of a point: solve q - tl = a * across + b * down.
+    const float det = across.x * down.y - across.y * down.x;
+    PushFanWith(dl, sPoly, [&](Vtx* v, const P& q) {
+        const float dx = q.x - tl.x, dy = q.y - tl.y;
+        const float a = det != 0 ? (dx * down.y - dy * down.x) / det : 0.0f;
+        const float b = det != 0 ? (across.x * dy - across.y * dx) / det : 0.0f;
+        v->v.ob[0] = (int16_t)std::lround(q.x * kFix);
+        v->v.ob[1] = (int16_t)std::lround(-q.y * kFix);
+        v->v.ob[2] = 0;
+        v->v.flag = 0;
+        v->v.tc[0] = (int16_t)std::lround(a * tw * 32.0f);
+        v->v.tc[1] = (int16_t)std::lround(b * th * 32.0f);
+        v->v.cn[0] = v->v.cn[1] = v->v.cn[2] = v->v.cn[3] = 255;
+    });
+    dl.push_back(gsSPTexture(0, 0, 0, G_TX_RENDERTILE, G_OFF));
+    sStats.icons++;
+    return clipped ? RS_MINIMAP_ICON_CLIPPED : RS_MINIMAP_ICON_DRAWN;
+}
+
+void OnBlock(Gfx** gfx,int16_t bx, int16_t by, int16_t bw, int16_t bh, int16_t loadX, int16_t loadY, void* user) {
     std::vector<Gfx>& dl = *sFrame.dl;
     // ForEachBlock wrote this block's load at *gfx, inside dl's spare room; take it into dl's length.
     dl.resize((size_t)(*gfx - dl.data()));
@@ -383,7 +467,7 @@ extern "C" void RsMinimap_GetStats(RsMinimapStats* out) {
     if (gPlayState == nullptr || gPlayState->state.frames - sStats.frame > 1) {
         out->handled = RsMinimap_Handles(gPlayState);
         out->drawn = false;
-        out->blocks = out->arrows = out->words = 0;
+        out->blocks = out->arrows = out->icons = out->words = 0;
     }
 }
 
@@ -412,6 +496,44 @@ extern "C" bool RsMinimap_DrawArrow(PlayState* play, f32 x, f32 z, s16 yaw, Colo
     MapPose(x, z, yaw, &px, &py, &ux, &uy);
     sLastArrowOut = !DrawMapArrow(px, py, ux, uy, color);
     return true;
+}
+
+extern "C" RsMinimapIconState RsMinimap_DrawIcon(const char* token, f32 x, f32 z, f32* sx, f32* sy) {
+    // The icons' hook runs only behind the arrows' gate (visible, minimapAlpha >= 0xAA), where the circle is built.
+    if (!sFrame.drawing || !sFrame.visible || sCircle.empty()) {
+        return RS_MINIMAP_ICON_NOT_DRAWING;
+    }
+    float a = 0, b = 0, px = 0, py = 0;
+    if (!ToScreen(x, z, &a, &b, nullptr) || !RsWorldMap_WorldToPixel(sFrame.scene, x, z, &px, &py)) {
+        return RS_MINIMAP_ICON_NOT_DRAWING;
+    }
+    if (sx != nullptr) {
+        *sx = a;
+    }
+    if (sy != nullptr) {
+        *sy = b;
+    }
+    RsSpriteInfo info;
+    const char* path = RsSprites_Path(token);
+    if (path == nullptr || !RsSprites_Info(token, &info)) {
+        return RS_MINIMAP_ICON_NO_SPRITE;
+    }
+    return DrawMapIcon(path, info.width, info.height, info.rsWidth, info.rsHeight, px, py);
+}
+
+extern "C" const char* RsMinimap_IconStateName(RsMinimapIconState state) {
+    switch (state) {
+        case RS_MINIMAP_ICON_DRAWN:
+            return "drawn";
+        case RS_MINIMAP_ICON_CLIPPED:
+            return "clipped";
+        case RS_MINIMAP_ICON_OUT_OF_VIEW:
+            return "out_of_view";
+        case RS_MINIMAP_ICON_NO_SPRITE:
+            return "no_sprite";
+        default:
+            return "no_minimap";
+    }
 }
 
 extern "C" bool RsMinimap_LastArrowOutOfView(void) {
@@ -482,6 +604,7 @@ extern "C" void RsMinimap_Draw(PlayState* play, bool visible) {
 
     sStats.blocks = 0;
     sStats.arrows = 0;
+    sStats.icons = 0;
 
     FrameInterpolation_RecordOpenChild(&sFrame, 0);
 

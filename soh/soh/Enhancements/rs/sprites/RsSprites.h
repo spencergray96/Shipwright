@@ -36,7 +36,17 @@ typedef struct RsSpriteInfo {
     int32_t height;
     int32_t cols;   // its texture grid: 1 x 1 for anything up to 1016 px a side
     int32_t rows;
+    // The picture's size in RS PIXELS: what the client draws it at, before the packer's upscale (`upscale:<algo>:N`)
+    // or render scale (`render-scale:N`). Size things on screen by this, never by the texels, so a repack at another
+    // upscale changes the sharpness and not the size (#307/#312). The packer writes it into the archive
+    // (RS_SPRITES_SIZES_PATH: one `<token> <w> <h>` line a texture); an archive without that file answers the texel
+    // size, which is the RS size for every row packed before it existed (no sprite row was upscaled then).
+    int32_t rsWidth;
+    int32_t rsHeight;
 } RsSpriteInfo;
+
+// The packer's sizes file inside mods/rs-sprites.o2r (pack-rs-sprites.ts writes it; '-' keeps it off every token).
+#define RS_SPRITES_SIZES_PATH "rs/sprites-meta/rs-sizes.txt"
 
 // 1 and fills `out` when the token is in a mounted archive, else 0 (and `out` is zeroed). A token outside
 // [a-z0-9_/]{1,48} is 0, never a lookup.

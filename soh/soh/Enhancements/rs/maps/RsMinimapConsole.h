@@ -10,7 +10,7 @@
 //
 //   minimap [status]
 //       op=status scene=0x<id> handled=1 drawn=<0|1> mode=<north|rotate> radius=<tiles> link_px=<x>,<y>
-//         rot_deg=<deg> blocks=<n> words=<n> arrows=<n> entrance=<0|1> alpha=<minimapAlpha>
+//         rot_deg=<deg> blocks=<n> words=<n> arrows=<n> icons=<n> entrance=<0|1> alpha=<minimapAlpha>
 //         minimap_off=<R_MINIMAP_DISABLED> filter=<bilerp|point> snap=<on|off> snap_px=<step> centre=<x>,<y>
 //         storey_mode=<mode> link_storey=<k>
 //       snap_px: last frame's north-up scroll step in HUD ortho units (240 / the render height; 0 when nothing
@@ -18,11 +18,22 @@
 //       drawn is last frame's: the map was visible (not toggled off with L, hidden, paused or faded to 0).
 //       blocks, words and arrows are what that frame drew: world map blocks, the Gfx words of the minimap's heap
 //       list (OVERLAY_DISP itself takes one), and arrows with any part inside the circle, Link's included;
-//       entrance: the red entrance arrow showed. centre is the circle's centre in the
+//       icons: map icons (#307) with any part inside the circle; entrance: the red entrance arrow showed. centre is
+//       the circle's centre in the
 //       HUD ortho's centre-origin, y-up N64 pixels; rot_deg the map's turn (0 north-up).
 //       or, in a scene without one (vanilla's minimap draws there, or none):
 //       op=status scene=0x<id> handled=0 reason=<no_play|no_scene|no_map|bad_file|stale_archive> mode=<m>
 //         radius=<tiles>
+//   minimap icons
+//       op=icons scene=0x<id> table=<rows> on_map=<n> minimap=<0|1> in_view=<n> clipped=<n> radius=<tiles>
+//         mode=<north|rotate> texel_n64=<N64 px a texel>
+//       then one line per table icon whose tile is on this scene's map (RsMapIcons.h):
+//       op=icon name=<name> token=<sprite> rs=<x>,<y> plane=<p> world=<x>,<z>
+//         state=<drawn|clipped|out_of_view|other_storey|no_sprite|no_minimap> tiles=<from Link> screen=<x>,<y>
+//       state is last frame's: drawn wholly inside the circle, clipped across its edge, out_of_view wholly past it,
+//       other_storey its plane is not in the layer drawn, no_sprite the token is not packed, no_minimap the minimap
+//       drew no icons (toggled off, hidden, paused, faded under vanilla's arrow gate). in_view counts drawn + clipped.
+//       screen is the centre in centre-origin, y-up N64 px; tiles -1 with no minimap.
 //   minimap mode north|rotate
 //       sets the mode (saved), live. Then the status line.
 //   minimap radius <tiles>|default
