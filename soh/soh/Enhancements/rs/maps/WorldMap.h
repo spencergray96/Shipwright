@@ -110,10 +110,13 @@ int32_t RsWorldMap_DrawRect(GraphicsContext* gfxCtx, Gfx** gfx, int16_t sceneId,
 
 // For custom geometry (#306's round, rotating window): every block the source rect touches, after that
 // block is loaded into G_TX_RENDERTILE. (blockX, blockY, blockW, blockH) is the block's rect in image
-// pixels; a vertex's texture coordinate for image pixel (px, py) inside it is
-// ((px - blockX + 2) << 5, (py - blockY + 1) << 5), the apron being 2 and 1. LUT mode as EmitBlocks.
+// pixels; (loadX, loadY) is the image pixel the load starts at, the texture's (0, 0). A vertex's texture
+// coordinate for image pixel (px, py) inside the block is ((px - loadX) << 5, (py - loadY) << 5). The load
+// usually starts at the apron (blockX - 2, blockY - 1), but at the image's west and north edges there is
+// no apron and it starts at the block itself (0) - so use loadX/loadY, never blockX - 2. LUT mode as
+// EmitBlocks.
 typedef void (*RsWorldMapBlockFn)(Gfx** gfx, int16_t blockX, int16_t blockY, int16_t blockW, int16_t blockH,
-                                  void* user);
+                                  int16_t loadX, int16_t loadY, void* user);
 int32_t RsWorldMap_ForEachBlock(Gfx** gfx, int16_t sceneId, float srcX, float srcY, float srcW, float srcH,
                                 RsWorldMapBlockFn fn, void* user);
 

@@ -106,6 +106,22 @@ enum class Op {
 
 typedef pair<const void*, int> label;
 
+// sturdy-bassoon#306: a matrix's translation to the nearest multiple of (gx, gy). Used on the current matrix at
+// the tick (written in place, so nothing records a MatrixPut) and on every interpolated frame's replacement for a
+// MatrixToMtx recorded with a grid: a lerp of two snapped matrices is not itself snapped.
+void snap_translation(MtxF* m, f32 gx, f32 gy) {
+    if (gx > 0.0f) {
+        m->xw = roundf(m->xw / gx) * gx;
+    }
+    if (gy > 0.0f) {
+        m->yw = roundf(m->yw / gy) * gy;
+    }
+}
+
+// sturdy-bassoon#306: the grid the next MatrixToMtx records, so its interpolated frames are snapped too.
+f32 pending_snap_gx = 0.0f;
+f32 pending_snap_gy = 0.0f;
+
 union Data {
     Data() {
     }
@@ -158,6 +174,7 @@ union Data {
         bool has_adjusted;
         bool has_anchored; // sturdy-bassoon#254: src is world-space, its translation relative to the actor's
         bool probe;        // sturdy-bassoon#254: recorded inside the shadow probe's scope
+        f32 snap_gx, snap_gy; // sturdy-bassoon#306: snap the drawn translation to this grid (0: no)
     } matrix_to_mtx;
 
     struct {
@@ -512,6 +529,12 @@ struct InterpolateCtx {
                                 interpolate_mtxf(new_replacement(new_op.matrix_to_mtx.dest), &old_op.matrix_to_mtx.src,
                                                  &new_op.matrix_to_mtx.src);
                             }
+                            // #region SOH [sturdy-bassoon#306] This frame's own translation, on the grid it asked for.
+                            if (new_op.matrix_to_mtx.snap_gx > 0.0f || new_op.matrix_to_mtx.snap_gy > 0.0f) {
+                                snap_translation(&mtx_replacements[new_op.matrix_to_mtx.dest],
+                                                 new_op.matrix_to_mtx.snap_gx, new_op.matrix_to_mtx.snap_gy);
+                            }
+                            // #endregion
                             // #region SOH [sturdy-bassoon#254] Where this frame drew the probed actor.
                             if (new_op.matrix_to_mtx.probe) {
                                 probe_actor_at[new_op.matrix_to_mtx.dest] = { actor_mtx.mf[3][0], actor_mtx.mf[3][1],
@@ -577,6 +600,7 @@ void FrameInterpolation_StartRecord(void) {
     probe_mtx.clear();
     world_space_depth = 0;
     // #endregion
+    pending_snap_gx = pending_snap_gy = 0.0f; // sturdy-bassoon#306: never carry a snap into the next tick
     previous_recording = std::move(current_recording);
     current_recording = {};
     current_path.clear();
@@ -648,6 +672,12 @@ void FrameInterpolation_RecordMatrixMult(MtxF* mf, u8 mode) {
     append(Op::MatrixMult).matrix_mult = { *mf, mode };
 }
 
+void FrameInterpolation_MatrixSnapTranslation(f32 gx, f32 gy) {
+    snap_translation(Matrix_GetCurrent(), gx, gy);
+    pending_snap_gx = gx;
+    pending_snap_gy = gy;
+}
+
 void FrameInterpolation_RecordMatrixTranslate(f32 x, f32 y, f32 z, u8 mode) {
     if (!is_recording)
         return;
@@ -704,6 +734,11 @@ void FrameInterpolation_RecordMatrixToMtx(Mtx* dest, char* file, s32 line) {
     if (!is_recording)
         return;
     auto& d = append(Op::MatrixToMtx).matrix_to_mtx = { dest };
+    // #region SOH [sturdy-bassoon#306] A snap asked for just before this matrix: keep it on every in-between frame.
+    d.snap_gx = pending_snap_gx;
+    d.snap_gy = pending_snap_gy;
+    pending_snap_gx = pending_snap_gy = 0.0f;
+    // #endregion
     if (has_inv_actor_mtx) {
         d.has_adjusted = true;
         SkinMatrix_MtxFMtxFMult(&inv_actor_mtx, Matrix_GetCurrent(), &d.src);

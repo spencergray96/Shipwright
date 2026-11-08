@@ -483,7 +483,7 @@ extern "C" int32_t RsWorldMap_ForEachBlock(Gfx** gfx, int16_t sceneId, float src
                                   (int32_t)std::ceil(srcX + srcW), (int32_t)std::ceil(srcY + srcH),
                                   [&](const Block& b) {
                                       *gfx = LoadBlock(*gfx, *m, layer, b);
-                                      fn(gfx, b.bx, b.by, b.bw, b.bh, user);
+                                      fn(gfx, b.bx, b.by, b.bw, b.bh, b.lx, b.ly, user);
                                   });
     Gfx* p = *gfx;
     gDPPipeSync(p++);

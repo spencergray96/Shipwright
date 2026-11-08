@@ -22,7 +22,7 @@
 //                   throttle=<x100>
 //                   tiller=<x100> rudder=<x100> helm=0|1 on_water=0|1 surface=<y> blocked=<none|no_water|shallow|wall|headroom>
 //                   blocks=<n> touch=<same names> touches=<n> lift=<x100> floor_low=<x100> link_on=0|1
-//                   helm_dist=<n> cam=0|1 map_arrow=<drawn|controls|no_minimap> wake_rings=<n> wake_held=<n>
+//                   helm_dist=<n> cam=0|1 map_arrow=<drawn|controls|out_of_view|no_minimap> wake_rings=<n> wake_held=<n>
 //                   facilities=<names, comma-separated|-> facility_polys=<n> owned=0|1 cull=0|1 drawn=0|1 reach=<n>
 //                   facility_poses=<name>:<pose>[/<pose>],...|- catcher=idle|active`
 //                   line per live boat, then `op=list result=ok count=<n> link_x= link_y= link_z= link_yaw=
@@ -54,7 +54,8 @@
 //                   copy's), the pose count meaning its rest pose, "-" for none drawn (culled, or every one still);
 //                   catcher: the kind's wind catcher's state (`catcher`);
 //                   map_arrow: what the last minimap draw did with that boat's blue arrow (RsVehicleMinimap.h):
-//                   drawn, or left out because Link holds its helm, or no_minimap when none was drawn;
+//                   drawn, or left out because Link holds its helm, out_of_view when drawn wholly past the RS
+//                   minimap's circle (#306), or no_minimap when none was drawn;
 //                   wake_rings: wake rings and splashes it has spawned (#268), wake_held: ones held back because the
 //                   effect pool was down to the wake's reserve
 //   spawn [<x> <z> [<yaw>]]

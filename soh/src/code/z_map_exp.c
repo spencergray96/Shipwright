@@ -10,6 +10,7 @@
 #include "soh/Enhancements/cosmetics/cosmeticsTypes.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/savestate_serialize.h"
+#include "soh/Enhancements/rs/maps/RsMinimap.h"
 
 MapData* gMapData;
 
@@ -35,6 +36,14 @@ void Map_SavePlayerInitialInfo(PlayState* play) {
     sPlayerInitialPosX = player->actor.world.pos.x;
     sPlayerInitialPosZ = player->actor.world.pos.z;
     sPlayerInitialDirection = (s16)((0x7FFF - player->actor.shape.rot.y) / 0x400);
+}
+
+// [sturdy-bassoon#306] The red entrance arrow's inputs, for the RS minimap: where Link came in, and vanilla's
+// direction (1/64 turns, (0x7FFF - yaw) / 0x400).
+void Minimap_GetPlayerInitial(s16* x, s16* z, s16* direction) {
+    *x = sPlayerInitialPosX;
+    *z = sPlayerInitialPosZ;
+    *direction = sPlayerInitialDirection;
 }
 
 void Map_SetPaletteData(PlayState* play, s16 room) {
@@ -636,6 +645,10 @@ static s16 Minimap_CompassXOffset(PlayState* play) {
 // world (x, z), turned to `yaw`, in `color`. The yellow arrow is drawn through it, and so are the rs/ boats' blue and
 // balloons' orange ones (sturdy-bassoon#270), so they always agree. Expects Gfx_SetupDL_42Overlay already applied to OVERLAY_DISP.
 void Minimap_DrawCompassArrow(PlayState* play, f32 x, f32 z, s16 yaw, Color_RGB8 color) {
+    // [sturdy-bassoon#306] While the RS minimap draws, every arrow lands on it, at its scale.
+    if (RsMinimap_DrawArrow(play, x, z, yaw, color)) {
+        return;
+    }
     s16 tempX, tempZ;
     s16 X_Margins_Minimap = 0;
     s16 Y_Margins_Minimap = 0;
@@ -814,6 +827,32 @@ void Minimap_Draw(PlayState* play) {
     if (CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.Changed"), 0)) {
         minimapColor = CVarGetColor24(CVAR_COSMETIC("HUD.Minimap.Value"), minimapColor);
     }
+
+    // #region SOH [sturdy-bassoon#306] RS scenes (a stitched world with a world map): the round minimap
+    // Every vanilla scene is a named case of the switch below, so this never takes one of theirs. Called every
+    // frame, shown or not, so its matrix ops never skip (frame interpolation matches them by position); vanilla's
+    // gates decide `visible`, and the L toggle is vanilla's own (outside OPEN_DISPS: its draw opens its own).
+    if (RsMinimap_Handles(play)) {
+        bool unpaused = GameInteractor_Should(VB_DRAW_UNPAUSED_HUD, play->pauseCtx.state < 4, play);
+        RsMinimap_Draw(play, unpaused && !R_MINIMAP_DISABLED &&
+                                 CVarGetInteger(CVAR_COSMETIC("HUD.Minimap.PosType"), 0) != HIDDEN);
+        Gfx_SetupDL_39Overlay(play->state.gfxCtx);
+        bool enableMapToggle = !(CVarGetInteger(CVAR_DEVELOPER_TOOLS("DebugEnabled"), 0) ||
+                                 CVarGetInteger(CVAR_CHEAT("MoonJumpOnL"), 0)) ||
+                               CVarGetInteger(CVAR_DEVELOPER_TOOLS("EnableMapToggle"), 0);
+        if (unpaused && CHECK_BTN_ALL(play->state.input[0].press.button, BTN_L) && !Play_InCsMode(play) &&
+            enableMapToggle) {
+            // clang-format off
+            if (!R_MINIMAP_DISABLED) { Audio_PlaySoundGeneral(NA_SE_SY_CAMERA_ZOOM_UP, &gSfxDefaultPos, 4,
+                                                              &gSfxDefaultFreqAndVolScale, &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb); }
+            else { Audio_PlaySoundGeneral(NA_SE_SY_CAMERA_ZOOM_DOWN, &gSfxDefaultPos, 4,
+                                          &gSfxDefaultFreqAndVolScale, &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb); }
+            // clang-format on
+            R_MINIMAP_DISABLED ^= 1;
+        }
+        return;
+    }
+    // #endregion
 
     OPEN_DISPS(play->state.gfxCtx);
 
