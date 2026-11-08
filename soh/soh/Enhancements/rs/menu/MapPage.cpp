@@ -118,8 +118,9 @@ constexpr uint8_t kCompassLink[3] = { 200, 255, 0 };
 constexpr float kMargin = 3.0f;      // game units between the map's frame and the page rect; also the masks' depth
 constexpr float kFrameUnits = 1.0f;  // the frame's width, game units
 constexpr float kArrowUnits = 7.0f;  // the custom arrow's length, game units
-// A map icon's width in game units: the minimap's size (RS_MINIMAP_ICON_TEXEL N64 px a texel, a 15-texel icon 6.7
-// across), so an icon is the same size on both maps before the focus zoom scales the scroll.
+// A map icon's size: the minimap's (RS_MINIMAP_ICON_TEXEL game units an RS PIXEL - RsSpriteInfo.rsWidth, never the
+// packed texels, so an upscaled repack (#312) is sharper and the same size; a 15 x 15 icon is 6.7 across), so an icon
+// is the same size on both maps before the focus zoom scales the scroll.
 constexpr float kIconTexelUnits = RS_MINIMAP_ICON_TEXEL;
 constexpr float kIconFix = 4.0f;     // icon vertex units an image pixel (the nested scale is 1 / kIconFix)
 constexpr float kIconZoomFull = 1.5f; // `zoomed`: fully shown from this zoom, faded in from 1x
@@ -613,9 +614,10 @@ struct IconInfo {
 };
 std::vector<IconInfo> sIcons;
 int32_t sIconsShown = 0;
+float sIconUnits = 0.0f; // the last icon's width in game units, for the dump
 
 // The icons on `scene`'s map, under the nested icon matrix (already loaded): each an axis-aligned quad centred on its
-// tile, kIconTexelUnits game units a texel whatever the zoom (`k` game units an image pixel), clipped to `emit` and
+// tile, kIconTexelUnits game units an RS pixel whatever the zoom (`k` game units an image pixel), clipped to `emit` and
 // judged against `view` as the arrows are. Lists every icon in sIcons, drawn or not.
 void DrawIcons(GraphicsContext* gfxCtx, std::vector<Gfx>& dl, int16_t scene, float k, float zoom, const float view[4],
                const float emit[4]) {
@@ -652,8 +654,9 @@ void DrawIcons(GraphicsContext* gfxCtx, std::vector<Gfx>& dl, int16_t scene, flo
             sIcons.push_back(info);
             continue;
         }
-        const float hw = (float)sprite.width * kIconTexelUnits / (2.0f * k); // image pixels
-        const float hh = (float)sprite.height * kIconTexelUnits / (2.0f * k);
+        const float hw = (float)sprite.rsWidth * kIconTexelUnits / (2.0f * k); // image pixels
+        const float hh = (float)sprite.rsHeight * kIconTexelUnits / (2.0f * k);
+        sIconUnits = (float)sprite.rsWidth * kIconTexelUnits;
         const float r[4] = { px - hw, py - hh, px + hw, py + hh };
         const std::vector<Pt> quad = { { r[0], r[1] }, { r[2], r[1] }, { r[2], r[3] }, { r[0], r[3] } };
         const int32_t st = StateIn(quad, view);
@@ -1199,7 +1202,7 @@ RsMenuMapPageStatus RsMenuMapPage_Status() {
         st.arrows.push_back({ a.kind, ArrowStateName(a.state), a.px, a.py, a.controls });
     }
     st.iconsShown = sIconsShown;
-    st.iconUnits = 15.0f * kIconTexelUnits;
+    st.iconUnits = sIconUnits;
     for (const IconInfo& i : sIcons) {
         st.icons.push_back({ i.name, i.token, i.state, i.px, i.py, i.alpha });
     }

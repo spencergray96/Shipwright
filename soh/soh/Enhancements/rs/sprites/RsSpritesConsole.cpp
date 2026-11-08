@@ -149,8 +149,8 @@ int32_t RsSpritesConsole_Run(const std::vector<std::string>& args, std::vector<s
             lines.push_back("op=info result=error error=missing");
             return 1;
         }
-        Addf(lines, "op=info result=ok token=%s width=%d height=%d cols=%d rows=%d", args[1].c_str(), (int)info.width,
-             (int)info.height, (int)info.cols, (int)info.rows);
+        Addf(lines, "op=info result=ok token=%s width=%d height=%d cols=%d rows=%d rs=%dx%d", args[1].c_str(),
+             (int)info.width, (int)info.height, (int)info.cols, (int)info.rows, (int)info.rsWidth, (int)info.rsHeight);
         return 0;
     }
     if (sub == "show" && args.size() >= 4 && args.size() <= 6) {

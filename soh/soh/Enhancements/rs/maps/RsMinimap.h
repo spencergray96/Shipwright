@@ -66,8 +66,9 @@ bool RsMinimap_WorldToScreen(f32 x, f32 z, f32* sx, f32* sy, bool* inside);
 // MAP ICONS (#307): an RS sprite (RsSprites.h token) printed on the map at world (x, z), centred there, upright on
 // screen whichever way the map turns, under the map's own matrix (so it scrolls, turns and rides the north-up snap
 // with the map) and clipped to the circle. Call it from OnMinimapDrawCompassIconsUnderPlayer; RsMapIcons.cpp does,
-// for its table. Size: RS_MINIMAP_ICON_TEXEL N64 px a texel - 4/9, which is exactly 2 screen px a texel at 1080p and
-// 4 at 4K (a 15 x 15 RS map icon is 6.7 N64 px, 30 / 60 screen px).
+// for its table. Size: RS_MINIMAP_ICON_TEXEL N64 px an RS PIXEL (RsSpriteInfo.rsWidth, not the packed texels, so an
+// upscaled repack draws sharper at the same size) - 4/9, which is exactly 2 screen px an RS pixel at 1080p and 4 at
+// 4K (a 15 x 15 RS map icon is 6.7 N64 px, 30 / 60 screen px). The name says texel for history: it is per RS pixel.
 #define RS_MINIMAP_ICON_TEXEL (4.0f / 9.0f)
 typedef enum {
     RS_MINIMAP_ICON_NOT_DRAWING = 0, // called outside the minimap's draw (no minimap this frame)

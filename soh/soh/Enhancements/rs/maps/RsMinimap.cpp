@@ -297,14 +297,15 @@ void ScreenDeltaToPixel(float sx, float sy, float* dx, float* dy) {
     *dy = -gy / sFrame.scale;
 }
 
-// A map icon (#307): the sprite at `path` (tw x th texels) as a quad centred on image pixel (px, py), upright on
-// screen, RS_MINIMAP_ICON_TEXEL N64 px a texel. Its corners are worked out in image pixels (screen right and up
+// A map icon (#307): the sprite at `path` (tw x th texels, rw x rh RS pixels) as a quad centred on image pixel
+// (px, py), upright on screen, RS_MINIMAP_ICON_TEXEL N64 px an RS PIXEL: sized by the RS picture, not the texels, so
+// an upscaled repack (#312) draws sharper at the same size. Its corners are worked out in image pixels (screen right and up
 // mapped back through the map's turn and scale), so it draws under the map's own matrix like the arrows: it scrolls
 // and turns with the map and rides the north-up snap, where its vertices are the same every frame. Clipped to the
 // circle, its texture coordinates following each clipped vertex.
-RsMinimapIconState DrawMapIcon(const char* path, int32_t tw, int32_t th, float px, float py) {
-    const float hw = tw * RS_MINIMAP_ICON_TEXEL * 0.5f;
-    const float hh = th * RS_MINIMAP_ICON_TEXEL * 0.5f;
+RsMinimapIconState DrawMapIcon(const char* path, int32_t tw, int32_t th, int32_t rw, int32_t rh, float px, float py) {
+    const float hw = rw * RS_MINIMAP_ICON_TEXEL * 0.5f;
+    const float hh = rh * RS_MINIMAP_ICON_TEXEL * 0.5f;
     float rx = 0, ry = 0, ux = 0, uy = 0; // one N64 px right, and up, on screen, in image pixels
     ScreenDeltaToPixel(1.0f, 0.0f, &rx, &ry);
     ScreenDeltaToPixel(0.0f, 1.0f, &ux, &uy);
@@ -517,7 +518,7 @@ extern "C" RsMinimapIconState RsMinimap_DrawIcon(const char* token, f32 x, f32 z
     if (path == nullptr || !RsSprites_Info(token, &info)) {
         return RS_MINIMAP_ICON_NO_SPRITE;
     }
-    return DrawMapIcon(path, info.width, info.height, px, py);
+    return DrawMapIcon(path, info.width, info.height, info.rsWidth, info.rsHeight, px, py);
 }
 
 extern "C" const char* RsMinimap_IconStateName(RsMinimapIconState state) {
