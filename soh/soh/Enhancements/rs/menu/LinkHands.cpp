@@ -248,6 +248,11 @@ constexpr float kDefaultPaper = 10.0f;
 static float Paper() {
     return CVarGetFloat(CVAR_RS_HAND("Paper"), kDefaultPaper);
 }
+constexpr int32_t kCutTris = 0;  // the hand split by triangle (default)
+constexpr int32_t kCutPixel = 1; // the hand cut by depth per pixel (the first holding build)
+static int32_t Cut() {
+    return std::clamp(CVarGetInteger(CVAR_RS_HAND("Cut"), kCutTris), kCutTris, kCutPixel);
+}
 static bool Trim() {
     return CVarGetInteger(CVAR_RS_HAND("Trim"), 1) != 0;
 }
@@ -512,17 +517,35 @@ void RsLinkHands_PushDepthClear(std::vector<Gfx>& dl, GraphicsContext* gfxCtx) {
     dl.push_back(gsDPSetColorImage(G_IM_FMT_RGBA, G_IM_SIZ_16b, SCREEN_WIDTH, gfxCtx->curFrameBuffer));
 }
 
+// TWO DEPTH RANGES under one x and y (owner look 2, RED). The scroll's depth-only quads and the hand's BACK triangles
+// are drawn in the far half of the depth range; the forearm, the sleeve, the bracer and the hand's FRONT triangles in
+// the near half. Each half keeps its own order, so the arm still sorts against itself - but nothing in the near half
+// can ever be hidden by the scroll, and the forearm is no longer cut by the roll it hangs past. Both are this ortho
+// with its clip z squeezed into one half ([0, 1] behind, [-1, 0] in front).
+static Mtx* HandsOrtho(GraphicsContext* gfxCtx, bool front) {
+    MtxF mf;
+    guOrthoF(mf.mf, -(f32)(SCREEN_WIDTH / 2), (f32)(SCREEN_WIDTH / 2), -(f32)(SCREEN_HEIGHT / 2),
+             (f32)(SCREEN_HEIGHT / 2), kHandsNear, kHandsFar, 1.0f);
+    // Row vectors: clip z is the third column; an ortho's w is 1, so the offset goes on the last row.
+    for (int32_t i = 0; i < 4; i++) {
+        mf.mf[i][2] *= 0.5f;
+    }
+    mf.mf[3][2] += front ? -0.5f : 0.5f;
+    Mtx* m = (Mtx*)Graph_Alloc(gfxCtx, sizeof(Mtx));
+    guMtxF2L(mf.mf, m);
+    return m;
+}
+
 void RsLinkHands_PushProjection(GraphicsContext* gfxCtx, std::vector<Gfx>& dl) {
-    Mtx* ortho = (Mtx*)Graph_Alloc(gfxCtx, sizeof(Mtx));
-    guOrtho(ortho, -(f32)(SCREEN_WIDTH / 2), (f32)(SCREEN_WIDTH / 2), -(f32)(SCREEN_HEIGHT / 2),
-            (f32)(SCREEN_HEIGHT / 2), kHandsNear, kHandsFar, 1.0f);
-    dl.push_back(gsSPMatrix(ortho, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION));
+    dl.push_back(gsSPMatrix(HandsOrtho(gfxCtx, false), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION));
 }
 
 // Depth, and no colour. The interpreter draws a surface INVISIBLE (alpha forced to 0, blended) when the second
 // cycle's blender is CLR_IN x 0 + CLR_MEM x 1-A (Interpreter's `invisible` and `use_alpha` tests read exactly these
 // bits); Z_UPD still writes its depth. The art is cut to its own alpha by the threshold, which runs before the
 // alpha is forced to 0, so the hands go behind the paper's torn edge and not behind the empty corners round it.
+// POINT sampled (owner look 2, BLUE): bilinear, the threshold kept the faint alpha fringe half a texel past the art's
+// edge - about 5 px at a 1808-wide window - and cut the fingertips short of the roll they poke past.
 #define RS_RM_HAND_OCCLUDER(clk)     Z_CMP | Z_UPD | IM_RD | CVG_DST_FULL | ZMODE_OPA | FORCE_BL | GBL_c##clk(G_BL_CLR_IN, G_BL_0, G_BL_CLR_MEM, G_BL_1MA)
 
 bool RsLinkHands_PushOccluderState(std::vector<Gfx>& dl, bool textured) {
@@ -538,12 +561,92 @@ bool RsLinkHands_PushOccluderState(std::vector<Gfx>& dl, bool textured) {
         dl.push_back(gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_OFF));
         dl.push_back(gsDPSetCombineMode(G_CC_SHADE, G_CC_SHADE));
     }
-    dl.push_back(gsDPSetOtherMode(G_AD_NOTPATTERN | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | G_TF_BILERP | G_TT_NONE |
+    dl.push_back(gsDPSetOtherMode(G_AD_NOTPATTERN | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | G_TF_POINT | G_TT_NONE |
                                       G_TL_TILE | G_TD_CLAMP | G_TP_PERSP | G_CYC_1CYCLE | G_PM_NPRIMITIVE,
                                   (textured ? G_AC_THRESHOLD : G_AC_NONE) | G_ZS_PIXEL | RS_RM_HAND_OCCLUDER(1) |
                                       RS_RM_HAND_OCCLUDER(2)));
     dl.push_back(gsSPLoadGeometryMode(G_ZBUFFER | G_SHADE | G_SHADING_SMOOTH));
     return true;
+}
+
+// THE PER-TRIANGLE SPLIT (owner look 2, GREEN). A copy of a hand list, made each frame in frame memory, keeping only
+// the triangles on one side of the scroll's plane: BACK keeps those whose centre is behind z 0 (screen space, after
+// the paper knob's step back), FRONT the rest. So the cut runs along the model's own edges - no depth-aliased
+// staircase across a finger - and is picked again from the pose every frame, so no table goes stale when the
+// owner turns a hand. Link's hand lists draw with G_TRI2 only (21 in the adult open hand); a TRI2 whose two halves
+// fall on different sides becomes the one TRI1 that stays. `count` gains the triangles kept. Null when none are.
+template <typename SlotMf>
+static const Gfx* SplitList(GraphicsContext* gfxCtx, const Gfx* src, const MtxF* own, const SlotMf& mfForSlot, bool back,
+                            int32_t* count) {
+    size_t words = 0;
+    for (const Gfx* g = src; words < 4096; g++) {
+        words++;
+        const uint8_t op = (uint8_t)(g->words.w0 >> 24);
+        if (op == (uint8_t)G_ENDDL) {
+            break;
+        }
+        if (IsWide(op)) {
+            g++;
+            words++;
+        }
+    }
+    Gfx* out = (Gfx*)Graph_Alloc(gfxCtx, words * sizeof(Gfx));
+    float z[64] = {};
+    int8_t slot = -1;
+    int32_t kept = 0;
+    auto behind = [&](uint32_t w) {
+        const int32_t a = (int32_t)((w >> 16) & 0xFF) / 2, b = (int32_t)((w >> 8) & 0xFF) / 2, c = (int32_t)(w & 0xFF) / 2;
+        return z[a & 63] + z[b & 63] + z[c & 63] < 0.0f;
+    };
+    size_t n = 0;
+    for (const Gfx* g = src; n < words; g++) {
+        const uint8_t op = (uint8_t)(g->words.w0 >> 24);
+        Gfx copy = *g;
+        if (op == (uint8_t)G_MTX) {
+            const uintptr_t addr = g->words.w1;
+            slot = (addr >> 24) == 0x0D ? (int8_t)(((addr & 0xFFFFFF) & ~(uintptr_t)1) / sizeof(Mtx)) : -1;
+        } else if (op == (uint8_t)G_VTX_OTR_HASH) {
+            const int32_t nv = (int32_t)((g->words.w0 >> 12) & 0xFF);
+            const int32_t v0 = (int32_t)((g->words.w0 >> 1) & 0x7F) - nv;
+            const Vtx* v = HashVerts(g);
+            const MtxF* mf = mfForSlot(slot, own);
+            for (int32_t k = 0; v != nullptr && k < nv; k++) {
+                Vec3f p = { (float)v[k].v.ob[0], (float)v[k].v.ob[1], (float)v[k].v.ob[2] };
+                Vec3f d;
+                SkinMatrix_Vec3fMtxFMultXYZ((MtxF*)mf, &p, &d);
+                z[(v0 + k) & 63] = d.z;
+            }
+        } else if (op == (uint8_t)G_TRI1) {
+            if (behind((uint32_t)g->words.w0) != back) {
+                copy = gsSPNoOp();
+            } else {
+                kept++;
+            }
+        } else if (op == (uint8_t)G_TRI2) {
+            const bool keepA = behind((uint32_t)g->words.w0) == back;
+            const bool keepB = behind((uint32_t)g->words.w1) == back;
+            if (keepA && !keepB) {
+                copy.words.w0 = ((uintptr_t)G_TRI1 << 24) | (g->words.w0 & 0xFFFFFF);
+                copy.words.w1 = 0;
+            } else if (!keepA && keepB) {
+                copy.words.w0 = ((uintptr_t)G_TRI1 << 24) | (g->words.w1 & 0xFFFFFF);
+                copy.words.w1 = 0;
+            } else if (!keepA && !keepB) {
+                copy = gsSPNoOp();
+            }
+            kept += (keepA ? 1 : 0) + (keepB ? 1 : 0);
+        }
+        out[n++] = copy;
+        if (op == (uint8_t)G_ENDDL) {
+            break;
+        }
+        if (IsWide(op) && n < words) {
+            g++;
+            out[n++] = *g;
+        }
+    }
+    *count += kept;
+    return kept > 0 ? out : nullptr;
 }
 
 static void ToScreen(const MtxF* mf, const Vec3s& p, float ext[4]) {
@@ -691,18 +794,47 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
     }
     sStatus.variant = variant.empty() ? "none" : variant;
 
-    // TINTS first: the environment colour the limbs are drawn in.
+    // The draw, as a list of items in two passes (owner look 2). A HAND item is a list under the hand's own matrix
+    // - the hand and its gauntlet plate - and is split by triangle; every other item (sleeve, forearm, bracer,
+    // bracelet) is drawn whole in front. Items carry their environment colour (the tunic for the sleeve, the metal
+    // for a plate) because the two passes draw them in a different order from the table.
+    struct Item {
+        const char* name;
+        int32_t slot;
+        const MtxF* own;
+        bool trim;
+        bool hasColour;
+        Color_RGB8 colour;
+        bool hand;
+    };
+    std::vector<Item> items;
+    Color_RGB8 tunic{};
+    bool hasTunic = false;
     for (int32_t i = 0; i < kArmPieceCount; i++) {
-        Color_RGB8 c;
         if (worn[i] && kArmPieces[i].stage == RS_ARM_TINT && kArmPieces[i].colour != nullptr &&
-            kArmPieces[i].colour(&c)) {
-            dl.push_back(gsDPSetEnvColor(c.r, c.g, c.b, 0));
+            kArmPieces[i].colour(&tunic)) {
+            hasTunic = true;
+        }
+    }
+    if (Upper()) {
+        items.push_back({ hs.upper[side], slotUpper, &mfUpper, true, hasTunic, tunic, false });
+    }
+    items.push_back({ hs.forearm[side], slotFore, &mfFore, false, false, {}, false });
+    items.push_back({ hs.hand[side][grip], slotHand, &mfHand, false, false, {}, true });
+    for (int32_t i = 0; i < kArmPieceCount; i++) {
+        const RsArmPiece& piece = kArmPieces[i];
+        if (!worn[i] || piece.stage != RS_ARM_OVERLAY) {
+            continue;
+        }
+        Color_RGB8 c{};
+        const bool hasColour = piece.colour != nullptr && piece.colour(&c);
+        for (int32_t n = 0; n < kPieceLists; n++) {
+            if (piece.dl[side][grip][n] != nullptr) {
+                items.push_back({ piece.dl[side][grip][n], slotHand, &mfHand, false, hasColour, c, false });
+            }
         }
     }
 
-    float ext[4] = { 1e9f, 1e9f, -1e9f, -1e9f };
-    int32_t lists = 0;
-    int32_t verts = 0;
     auto mfForSlot = [&](int8_t slot, const MtxF* own) -> const MtxF* {
         if (slot < 0) {
             return own;
@@ -718,51 +850,88 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
         }
         return &mfRest;
     };
-    auto drawList = [&](const char* name, int32_t slot, const MtxF* own, bool trim) {
-        dl.push_back(gsSPMatrix(&mtx[slot], G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
-        // Resolved here: a resource name is a string, which only the OPEN_DISPS gSPDisplayList turns into a
-        // by-name load. Pushed raw into this heap list, the interpreter would run the path's bytes as commands.
-        const Gfx* list = (const Gfx*)ResourceGetDataByName(name);
+    // Resolve each item once: a resource name is a string, which only the OPEN_DISPS gSPDisplayList turns into a
+    // by-name load; pushed raw into this heap list, the interpreter would run the path's bytes as commands. A plate
+    // is a HAND item when every vertex it loads is under the hand's slot (Plate2 and Plate3; Plate1, the bracer, is
+    // under the forearm's).
+    std::vector<const Gfx*> resolved(items.size(), nullptr);
+    float ext[4] = { 1e9f, 1e9f, -1e9f, -1e9f };
+    int32_t lists = 0;
+    int32_t verts = 0;
+    for (size_t i = 0; i < items.size(); i++) {
+        const Gfx* list = (const Gfx*)ResourceGetDataByName(items[i].name);
         if (list == nullptr) {
-            return;
+            continue;
         }
-        if (trim) {
+        if (items[i].trim) {
             int32_t moved = 0;
             list = TrimmedList(list, set, side, &moved);
             sStatus.trimmed[side] += moved;
         }
-        dl.push_back(gsSPDisplayList((Gfx*)list));
+        resolved[i] = list;
         const RsListVerts& lv = ListVerts(list);
+        bool underHand = !lv.slot.empty();
         for (size_t k = 0; k < lv.pos.size(); k++) {
-            ToScreen(mfForSlot(lv.slot[k], own), lv.pos[k], ext);
+            ToScreen(mfForSlot(lv.slot[k], items[i].own), lv.pos[k], ext);
+            if (lv.slot[k] != slotHand && !(lv.slot[k] < 0 && items[i].own == &mfHand)) {
+                underHand = false;
+            }
         }
+        items[i].hand = items[i].hand || underHand;
         lists++;
         verts += (int32_t)lv.pos.size();
-    };
-    if (Upper()) {
-        drawList(hs.upper[side], slotUpper, &mfUpper, true);
     }
-    drawList(hs.forearm[side], slotFore, &mfFore, false);
-    drawList(hs.hand[side][grip], slotHand, &mfHand, false);
 
-    // OVERLAYS: over the arm, each in its own colour.
-    for (int32_t i = 0; i < kArmPieceCount; i++) {
-        const RsArmPiece& piece = kArmPieces[i];
-        if (!worn[i] || piece.stage != RS_ARM_OVERLAY) {
-            continue;
-        }
-        Color_RGB8 c;
+    const bool occlude = Occlude();
+    const bool byTris = occlude && Cut() == kCutTris;
+    int32_t front = 0;
+    int32_t back = 0;
+    auto emit = [&](size_t i, const Gfx* list) {
         dl.push_back(gsDPPipeSync());
-        if (piece.colour != nullptr && piece.colour(&c)) {
-            dl.push_back(gsDPSetEnvColor(c.r, c.g, c.b, 0));
+        if (items[i].hasColour) {
+            dl.push_back(gsDPSetEnvColor(items[i].colour.r, items[i].colour.g, items[i].colour.b, 0));
         }
-        for (int32_t n = 0; n < kPieceLists; n++) {
-            if (piece.dl[side][grip][n] != nullptr) {
-                drawList(piece.dl[side][grip][n], slotHand, &mfHand, false);
+        dl.push_back(gsSPMatrix(&mtx[items[i].slot], G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
+        dl.push_back(gsSPDisplayList((Gfx*)list));
+    };
+    // PASS 1, behind (the far half, tested against the scroll): the hand's back triangles; with `cut pixel` the whole
+    // hand, cut by depth per pixel as the first holding build did.
+    if (occlude) {
+        for (size_t i = 0; i < items.size(); i++) {
+            if (resolved[i] == nullptr || !items[i].hand) {
+                continue;
+            }
+            if (!byTris) {
+                emit(i, resolved[i]);
+                continue;
+            }
+            const Gfx* half = SplitList(gfxCtx, resolved[i], items[i].own, mfForSlot, true, &back);
+            if (half != nullptr) {
+                emit(i, half);
             }
         }
     }
+    // PASS 2, in front (the near half): the arm whole, and the hand's front triangles - or the whole hand when the
+    // scroll hides nothing.
+    dl.push_back(gsSPMatrix(HandsOrtho(gfxCtx, true), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION));
+    for (size_t i = 0; i < items.size(); i++) {
+        if (resolved[i] == nullptr) {
+            continue;
+        }
+        if (!items[i].hand || !occlude) {
+            emit(i, resolved[i]);
+        } else if (byTris) {
+            const Gfx* half = SplitList(gfxCtx, resolved[i], items[i].own, mfForSlot, false, &front);
+            if (half != nullptr) {
+                emit(i, half);
+            }
+        }
+    }
+    // The far half back, for whatever comes next under this projection: the next side's roll and its depth.
+    dl.push_back(gsSPMatrix(HandsOrtho(gfxCtx, false), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION));
 
+    sStatus.tris[side][0] = front;
+    sStatus.tris[side][1] = back;
     sStatus.dlists[side] = lists;
     sStatus.verts[side] = verts;
     for (int32_t k = 0; k < 4; k++) {
@@ -781,11 +950,13 @@ std::string RsLinkHands_Describe() {
     char buf[1024];
     int32_t n = std::snprintf(buf, sizeof(buf),
                               "set=%s drawn=%s grip=%s variant=%s upper=%d scale=%.4f slots=%d loads=%d "
-                              "light=%.0f,%.0f,%.0f ambient=%d occlude=%d paper=%.1f trim=%d trimmed=%d,%d",
+                              "light=%.0f,%.0f,%.0f ambient=%d occlude=%d cut=%s paper=%.1f trim=%d trimmed=%d,%d "
+                              "tris_front=%d,%d tris_back=%d,%d",
                               UseBoxes() ? "boxes" : kHandSets[LINK_IS_ADULT ? 0 : 1].id, s.set, kGripNames[Grip()],
                               s.variant.c_str(), Upper() ? 1 : 0,
                               s.scale, s.slots, s.loads, s.light[0], s.light[1], s.light[2], s.ambient,
-                              Occlude() ? 1 : 0, Paper(), Trim() ? 1 : 0, s.trimmed[0], s.trimmed[1]);
+                              Occlude() ? 1 : 0, Cut() == kCutTris ? "tris" : "pixel", Paper(), Trim() ? 1 : 0,
+                              s.trimmed[0], s.trimmed[1], s.tris[0][0], s.tris[1][0], s.tris[0][1], s.tris[1][1]);
     for (int32_t side = 0; side < 2 && n > 0 && n < (int32_t)sizeof(buf); side++) {
         const RsLinkHandPose p = ReadPose(side);
         const char* k = side == 0 ? "l" : "r";
@@ -878,7 +1049,8 @@ void ClearAll() {
     for (const char* name : { CVAR_RS_HAND("Grip"), CVAR_RS_HAND("Upper"), CVAR_RS_HAND("ScaleAdult"),
                               CVAR_RS_HAND("ScaleChild"), CVAR_RS_HAND("LightX"), CVAR_RS_HAND("LightY"),
                               CVAR_RS_HAND("LightZ"), CVAR_RS_HAND("Ambient"), CVAR_RS_HAND("Boxes"),
-                              CVAR_RS_HAND("Occlude"), CVAR_RS_HAND("Paper"), CVAR_RS_HAND("Trim") }) {
+                              CVAR_RS_HAND("Occlude"), CVAR_RS_HAND("Paper"), CVAR_RS_HAND("Trim"),
+                              CVAR_RS_HAND("Cut") }) {
         CVarClear(name);
     }
 }
@@ -910,6 +1082,11 @@ int32_t RsLinkHands_Console(const std::vector<std::string>& args, std::vector<st
     if (verb == "occlude" && args.size() == 2 && (args[1] == "on" || args[1] == "off")) {
         CVarSetInteger(CVAR_RS_HAND("Occlude"), args[1] == "on" ? 1 : 0);
         Addl(lines, "occlude", 0, nullptr);
+        return 0;
+    }
+    if (verb == "cut" && args.size() == 2 && (args[1] == "tris" || args[1] == "pixel")) {
+        CVarSetInteger(CVAR_RS_HAND("Cut"), args[1] == "tris" ? kCutTris : kCutPixel);
+        Addl(lines, "cut", 0, nullptr);
         return 0;
     }
     if (verb == "trim" && args.size() == 2 && (args[1] == "on" || args[1] == "off")) {

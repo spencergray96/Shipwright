@@ -56,6 +56,7 @@ struct RsLinkHandsStatus {
     float paper;           // the scroll's depth relative to the grip, game units (+ toward you hides more)
     bool trim;             // the sleeve trims applied (`menu hand trim`)
     int32_t trimmed[2];    // vertices the trims moved on each side's lists this frame
+    int32_t tris[2][2];    // each side's hand triangles drawn [front, behind the scroll] (`menu hand cut tris`)
 };
 
 // False when `menu hand set boxes` has put the #111 placeholder back.
