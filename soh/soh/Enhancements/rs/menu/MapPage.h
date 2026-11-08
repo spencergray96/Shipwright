@@ -10,6 +10,12 @@
 #define CVAR_RS_MENU_MAP_FOG CVAR_ENHANCEMENT("RsMenuMapFog")     // 0 hide (default), 1 dim
 #define CVAR_RS_MENU_MAP_ICONS CVAR_ENHANCEMENT("RsMenuMapIcons") // 0 off (default), anything else on (#307)
 #define CVAR_RS_MENU_MAP_ARROW CVAR_ENHANCEMENT("RsMenuMapArrow") // 0 vanilla compass (default), 1 custom
+#define CVAR_RS_MENU_MAP_WALLS CVAR_ENHANCEMENT("RsMenuMapWalls") // RsMenuMapWalls (#309)
+// The wall lines' width (#309, after the first look): hundredths of an RS TILE, so a wall thickens with the map as it
+// zooms; a FLOOR in hundredths of a render pixel under which it never thins; and SNAP (0/1), whole pixels on the grid.
+#define CVAR_RS_MENU_MAP_WALL_TILES CVAR_ENHANCEMENT("RsMenuMapWallTiles")
+#define CVAR_RS_MENU_MAP_WALL_FLOOR CVAR_ENHANCEMENT("RsMenuMapWallFloor")
+#define CVAR_RS_MENU_MAP_WALL_SNAP CVAR_ENHANCEMENT("RsMenuMapWallSnap")
 
 enum RsMenuMapFog {
     RS_MENU_MAP_FOG_HIDE = 0,
@@ -23,6 +29,25 @@ enum RsMenuMapArrow {
     RS_MENU_MAP_ARROW_CUSTOM = 1,
 };
 
+// How the walls draw (#309): the picture's own pixels, as #303 shipped (IMAGE); thin quads at the output resolution
+// over an edgeless picture at every zoom (LINES); or the picture's pixels at the whole-world view and the lines from
+// RS_MENU_MAP_WALLS_ZOOMED_FROM up, where the staircase shows (ZOOMED).
+enum RsMenuMapWalls {
+    RS_MENU_MAP_WALLS_IMAGE = 0,
+    RS_MENU_MAP_WALLS_LINES = 1,
+    RS_MENU_MAP_WALLS_ZOOMED = 2,
+};
+#define RS_MENU_MAP_WALLS_DEFAULT RS_MENU_MAP_WALLS_LINES
+#define RS_MENU_MAP_WALLS_ZOOMED_FROM 2.0f
+// 0.20 of a tile is 1.8 px at 6x and 1080p, the width the owner approved at the first look (0.40 N64 px there); the
+// floor of 1 render px is where it stops thinning at the whole-world view.
+#define RS_MENU_MAP_WALL_TILES_DEFAULT 20 // hundredths of an RS tile
+#define RS_MENU_MAP_WALL_TILES_MIN 2
+#define RS_MENU_MAP_WALL_TILES_MAX 100
+#define RS_MENU_MAP_WALL_FLOOR_DEFAULT 100 // hundredths of a render pixel
+#define RS_MENU_MAP_WALL_FLOOR_MIN 25
+#define RS_MENU_MAP_WALL_FLOOR_MAX 600
+
 void RsMenuMapPage_Register();
 
 RsMenuMapFog RsMenuMapPage_Fog();
@@ -35,6 +60,17 @@ void RsMenuMapPage_SetIcons(bool on);
 RsMenuMapArrow RsMenuMapPage_Arrow();
 void RsMenuMapPage_SetArrow(RsMenuMapArrow arrow);
 const char* RsMenuMapPage_ArrowName(RsMenuMapArrow arrow);
+RsMenuMapWalls RsMenuMapPage_Walls();
+void RsMenuMapPage_SetWalls(RsMenuMapWalls walls);
+const char* RsMenuMapPage_WallsName(RsMenuMapWalls walls);
+// The wall width in RS tiles and its floor in render pixels (each CVar / 100, clamped), and whether lines snap to
+// whole pixels. The Sets take hundredths; false if out of range.
+float RsMenuMapPage_WallTiles();
+bool RsMenuMapPage_SetWallTiles(int32_t hundredths);
+float RsMenuMapPage_WallFloor();
+bool RsMenuMapPage_SetWallFloor(int32_t hundredths);
+bool RsMenuMapPage_WallSnap();
+void RsMenuMapPage_SetWallSnap(bool on);
 
 // The focused view's controls, for the console: what D-pad up (+1) / down (-1) and the C buttons do. Both
 // refuse (false) unless the scroll is focused; a zoom refuses past either end too. `dx`/`dy` are visible
@@ -99,6 +135,25 @@ struct RsMenuMapPageStatus {
         uint8_t alpha;
     };
     std::vector<Icon> icons;
+    // #309: the walls as geometry, the last drawn frame. `wallsDrawn`: the lines were on this frame (LINES, or
+    // ZOOMED at the zoom threshold) and the map carries segments; `edgeless`: the blocks drew through the edgeless
+    // TLUT. `edges`: segments drawn (after the clip); `joins`: corners filled; `edgeWords`: the Gfx words they took.
+    // `wallNominalPx`: the tile width in render pixels at this zoom; `wallScreenPx`: what was drawn after the floor
+    // and the snap's rounding; `wallSnapped`: the endpoints went onto the pixel grid (snap on, the scroll still);
+    // `wallHalfPx`: the half width in image pixels.
+    const char* walls;
+    bool wallsDrawn;
+    bool edgeless;
+    int32_t edges;
+    int32_t joins;
+    int32_t edgeWords;
+    float wallTiles;
+    float wallFloor;
+    bool wallSnap;
+    bool wallSnapped;
+    float wallNominalPx;
+    float wallHalfPx;
+    float wallScreenPx;
     std::string revealedList; // "sx:sy,..." of the map scene's revealed chunks
 };
 RsMenuMapPageStatus RsMenuMapPage_Status();

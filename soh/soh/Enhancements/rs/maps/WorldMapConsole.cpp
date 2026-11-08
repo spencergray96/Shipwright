@@ -48,9 +48,9 @@ std::string Status() {
     RsWorldMap_BlockSize(&bw, &bh);
     std::snprintf(buf, sizeof(buf),
                   "op=status scene=0x%X map=1 size=%ux%u px_per_tile=%u tiles=%ux%u storeys=%u layers=%u layer=%u storey_mode=%s "
-                  "link_storey=%d link_px=%.1f,%.1f link_rs=%d,%d blocks=%dx%d bytes=%u",
+                  "link_storey=%d link_px=%.1f,%.1f link_rs=%d,%d blocks=%dx%d bytes=%u version=%u edges=%u",
                   (unsigned)(uint16_t)scene, i.widthPx, i.heightPx, i.pxPerTile, i.widthTiles, i.depthTiles, i.storeys, i.layers,
-                  i.layer, mode, RsWorldMap_LinkStorey(), px, py, rsX, rsY, bw, bh, i.fileBytes);
+                  i.layer, mode, RsWorldMap_LinkStorey(), px, py, rsX, rsY, bw, bh, i.fileBytes, i.version, i.edges);
     return buf;
 }
 
