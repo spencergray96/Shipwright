@@ -28,6 +28,11 @@ void RsPauseLink_Invalidate();
 // in. `play` is a PlayState*.
 void RsPauseLink_Render(void* play);
 
+// #299: Link's skeleton as loaded for the menu - the limb pointer array (`void**`, each a LodLimb), how many
+// limbs own a display list (the matrix slots a flex skeleton's segment 0x0D holds) and the age it was loaded
+// for. Loads it first if nothing has since the last Invalidate, or the age changed; false if it cannot.
+bool RsPauseLink_Skeleton(void* play, void*** skeleton, int32_t* dListCount, int32_t* age);
+
 // The CPU buffer RsMenu_DrawPauseLink names as the texture image before swapping in the framebuffer,
 // the way KaleidoScope_DrawEquipmentImage names its playerSegment.
 const void* RsPauseLink_Buffer();

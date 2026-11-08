@@ -10,6 +10,7 @@
 #include <ship/debug/Console.h>
 
 #include "MapPage.h"
+#include "LinkHands.h"
 #include "MapReveal.h"
 #include "NamePanel.h"
 #include "PauseLink.h"
@@ -963,6 +964,9 @@ int32_t Dump(std::vector<std::string>& lines) {
              (unsigned long long)link.seg4Now, (unsigned long long)link.seg6,
              (unsigned long long)link.seg6Clobbered, (unsigned long long)link.seg6Now);
     }
+    // #299: the hands - which set (adult, child, or the #111 boxes), the grip, the arm pieces drawn (tunic,
+    // gauntlets, bracelet), the live pose knobs and each side's drawn extent, measured over the vertices drawn.
+    Addf(lines, "op=dump section=hands %s", RsLinkHands_Describe().c_str());
     Addf(lines, "op=dump section=cursor %s", DescribeCursor().c_str());
     for (int32_t i = 0; i < RsMenu_CursorCount(); i++) {
         const RsMenuCursorNode* node = RsMenu_CursorAt(i);
@@ -1149,7 +1153,10 @@ const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custo
                      "inv <kind> <a> <b> | namepanel custom <item>|off | timer <seconds>|off | "
                      "map [reveal <sx> <sy>|reveal all|reveal none|node <sx> <sy>|hide <sx> <sy>|fog hide|dim|"
                      "icons on|off|arrow vanilla|custom|zoom in|out|pan <dx> <dy>] | "
-                     "focus [in|out|loop|hold <in|out> <tick>|stop] | dump";
+                     "focus [in|out|loop|hold <in|out> <tick>|stop] | "
+                     "hand [set link|boxes|grip fist|open|upper on|off|scale adult|child <s>|"
+                     "rot|wrist <l|r|both> <x> <y> <z>|offset <l|r|both> <dx> <dy>|elbow|vturn <l|r|both> <deg>|"
+                     "light <x> <y> <z> [ambient]|reset] | dump";
 
 } // namespace
 
@@ -1223,6 +1230,9 @@ int32_t RsMenuConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "focus") {
         return Focus(args, lines);
     }
+    if (sub == "hand") {
+        return RsLinkHands_Console(std::vector<std::string>(args.begin() + 1, args.end()), lines);
+    }
     if (sub == "dump") {
         return Dump(lines);
     }
@@ -1246,7 +1256,8 @@ const ConsoleSink::Command menuCommand(
     "stress [<n> [same]|off|memo <on|off>] | cursor [left|right|up|down|select|<id>] | "
     "probe [on|off] | kaleido | equips | hud | flight hold <n>|release | song | inv <kind> <a> <b> | "
     "namepanel custom <item>|off | map [reveal|node|hide <sx> <sy>|reveal all|none|fog hide|dim|icons on|off|"
-    "arrow vanilla|custom|zoom in|out|pan <dx> <dy>] | focus [in|out|loop|hold <in|out> <tick>|stop] | dump. "
+    "arrow vanilla|custom|zoom in|out|pan <dx> <dy>] | focus [in|out|loop|hold <in|out> <tick>|stop] | "
+    "hand [set|grip|upper|scale|rot|wrist|offset|elbow|vturn|light|reset] | dump. "
     "The scroll opens on START when primary is custom (N64 L is the minimap's) "
     "and hard-freezes the world; primary decides which menu START opens, and is a subcommand because "
     "there is no console `set`. sweep rolls the scroll one page the way a shoulder press does, and "
@@ -1269,11 +1280,13 @@ const ConsoleSink::Command menuCommand(
     "reports the World Map page (#303) and drives its fog of war by RS map square: reveal or hide one square, reveal "
     "the node a square belongs to, reveal every chunk of the world on show or clear the whole band, and pick hidden "
     "or dimmed fog, the icons toggle and Link's arrow; zoom and pan move the focused view. focus zooms the "
-    "whole scroll in on the page's item, as A on the world map does, and back out, as B does. parchment picks "
+    "whole scroll in on the page's item, as A on the world map does, and back out, as B does. hand tunes the "
+    "scroll's hands - Link's own arms (#299) - live: the grip, each side's angles, the scale, the light; saved. "
+    "parchment picks "
     "the art the parchment and roll ends draw (#300; journal by default), saved, and switchable live.",
     { { "open|close|page|primary|parchment|sweep|level|filler|stress|cursor|probe|kaleido|equips|hud|flight|song|inv|"
         "namepanel|"
-        "map|focus|dump",
+        "map|focus|hand|dump",
         Ship::ArgumentType::TEXT },
       { "argument", Ship::ArgumentType::TEXT, true } });
 
@@ -1372,6 +1385,26 @@ focus                         zoom the whole scroll in on the page's item
   loop                        keep zooming in and out
   hold <in|out> <tick>        park the zoom at a tick
   stop                        end the loop or hold
+hand                          the scroll's hands, Link's own arms (#299; saved)
+  set                         which hands draw
+    link                      Link's hand, forearm and upper arm (default)
+    boxes                     the five-box placeholder from before
+  grip                        how the hands hold the rolls
+    fist                      a closed fist (default)
+    open                      an open hand
+  upper                       the upper arm, where the tunic's sleeve shows
+    on                        drawn (default)
+    off                       hand and forearm only
+  scale                       model units to screen units
+    adult <s>                 adult Link's (default 0.07)
+    child <s>                 child Link's (default 0.09)
+  rot <l|r|both> <x> <y> <z>  the hand's angles about its grip, degrees
+  wrist <l|r|both> <x> <y> <z>  the forearm's angles at the wrist, degrees
+  offset <l|r|both> <dx> <dy> nudge the grip point, screen units
+  elbow <l|r|both> <deg>      bend the upper arm at the elbow
+  vturn <l|r|both> <deg>      an extra turn in the journal's upright pose
+  light <x> <y> <z> [ambient] the light's direction, and the ambient level
+  reset                       every hand setting back to its default
 dump                          everything the menu knows, one line each
 )");
 

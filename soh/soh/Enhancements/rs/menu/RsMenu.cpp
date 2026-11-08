@@ -152,6 +152,7 @@
  */
 
 #include "RsMenu.h"
+#include "LinkHandsDraw.h"
 #include "NamePanel.h"
 #include "PauseLink.h"
 #include "QuestPage.h"
@@ -3746,6 +3747,12 @@ static void RsMenu_OnPlayDrawEnd() {
     // only the displacement differs, which is how "the side matching the shoulder travels" stays a
     // change of numbers rather than a branch around a Matrix_* op. Drawn LAST, so the moving side
     // passes in front of the parchment and the content the way a rolled-up edge would.
+    //
+    // #299: the hands are Link's own limbs (LinkHands.cpp), which have depth, so ahead of the node the depth
+    // buffer under the band is cleared and the projection deepened; nothing there is a Matrix_* op. After the
+    // node the menu's own ortho goes back, for whatever draws into the list after it.
+    const bool linkHands = RsLinkHands_Enabled();
+    RsLinkHands_PushBegin(gfxCtx, dl);
     FrameInterpolation_RecordOpenChild(sNodeHands, 0);
     PushFlatState();
     for (int32_t side = 0; side < 2; side++) {
@@ -3756,8 +3763,22 @@ static void RsMenu_OnPlayDrawEnd() {
         // The hand gets its own matrix on top of the side's: the slide and the swivel (both zero at level 0).
         ApplyHandSwivel(side);
         PushCurrentMatrix();
-        DrawHand(side);
-        MeasureHand(side);
+        if (linkHands) {
+            // Link's arm, gripping where the placeholder's fingers crossed the roll, under this same matrix. It
+            // loads its own matrices (one per limb), so the side's is pushed again afterwards - on every frame,
+            // like every other op in this node - for the cursor box and the next side's roll.
+            RsLinkHands_Draw(play, gfxCtx, dl, side, kGripX[side], kGripY, LevelAngle(LevelPose()) / kTurnAngle);
+            const RsLinkHandsStatus hands = RsLinkHands_Status();
+            for (int32_t k = 0; k < 4; k++) {
+                sHandExtent[side][k] = hands.extent[side][k];
+            }
+            PushFlatState();
+            PushCurrentMatrix();
+        } else {
+            DrawHand(side);
+            MeasureHand(side);
+            RsLinkHands_DrewBoxes(side, sHandExtent[side]);
+        }
         const RsMenuCursorNode* node = RsMenu_CursorAt(sCursorIndex);
         if (cursorShown && node != nullptr && node->hand == side) {
             // The node's box is where the resting hand is; this matrix moves it there, so draw the authored box.
@@ -3770,6 +3791,9 @@ static void RsMenu_OnPlayDrawEnd() {
         Matrix_Pop();
     }
     FrameInterpolation_RecordCloseChild();
+    if (linkHands) {
+        PushViewportAndOrtho();
+    }
 
     // --- Link's portrait, rendered into its framebuffer (stage 8) ------------------------------------
     // Only when a page composited it this frame (RsMenu_DrawPauseLink), and AFTER every menu node has
