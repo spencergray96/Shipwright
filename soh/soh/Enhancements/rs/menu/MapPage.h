@@ -10,6 +10,9 @@
 #define CVAR_RS_MENU_MAP_FOG CVAR_ENHANCEMENT("RsMenuMapFog")     // 0 hide (default), 1 dim
 #define CVAR_RS_MENU_MAP_ICONS CVAR_ENHANCEMENT("RsMenuMapIcons") // 0 off (default), anything else on (#307)
 #define CVAR_RS_MENU_MAP_ARROW CVAR_ENHANCEMENT("RsMenuMapArrow") // 0 vanilla compass (default), 1 custom
+#define CVAR_RS_MENU_MAP_WALLS CVAR_ENHANCEMENT("RsMenuMapWalls") // RsMenuMapWalls (#309)
+// The wall lines' width in hundredths of an N64 screen pixel (#309): 4.5 output px each at 1080p, 9 at 4K.
+#define CVAR_RS_MENU_MAP_WALL_WIDTH CVAR_ENHANCEMENT("RsMenuMapWallWidth")
 
 enum RsMenuMapFog {
     RS_MENU_MAP_FOG_HIDE = 0,
@@ -23,6 +26,20 @@ enum RsMenuMapArrow {
     RS_MENU_MAP_ARROW_CUSTOM = 1,
 };
 
+// How the walls draw (#309): the picture's own pixels, as #303 shipped (IMAGE); thin quads at the output resolution
+// over an edgeless picture at every zoom (LINES); or the picture's pixels at the whole-world view and the lines from
+// RS_MENU_MAP_WALLS_ZOOMED_FROM up, where the staircase shows (ZOOMED).
+enum RsMenuMapWalls {
+    RS_MENU_MAP_WALLS_IMAGE = 0,
+    RS_MENU_MAP_WALLS_LINES = 1,
+    RS_MENU_MAP_WALLS_ZOOMED = 2,
+};
+#define RS_MENU_MAP_WALLS_DEFAULT RS_MENU_MAP_WALLS_LINES
+#define RS_MENU_MAP_WALLS_ZOOMED_FROM 2.0f
+#define RS_MENU_MAP_WALL_WIDTH_DEFAULT 40 // hundredths of an N64 px
+#define RS_MENU_MAP_WALL_WIDTH_MIN 10
+#define RS_MENU_MAP_WALL_WIDTH_MAX 400
+
 void RsMenuMapPage_Register();
 
 RsMenuMapFog RsMenuMapPage_Fog();
@@ -35,6 +52,12 @@ void RsMenuMapPage_SetIcons(bool on);
 RsMenuMapArrow RsMenuMapPage_Arrow();
 void RsMenuMapPage_SetArrow(RsMenuMapArrow arrow);
 const char* RsMenuMapPage_ArrowName(RsMenuMapArrow arrow);
+RsMenuMapWalls RsMenuMapPage_Walls();
+void RsMenuMapPage_SetWalls(RsMenuMapWalls walls);
+const char* RsMenuMapPage_WallsName(RsMenuMapWalls walls);
+// The wall width in N64 screen pixels (the CVar / 100, clamped). Set takes hundredths; false if out of range.
+float RsMenuMapPage_WallWidth();
+bool RsMenuMapPage_SetWallWidth(int32_t hundredths);
 
 // The focused view's controls, for the console: what D-pad up (+1) / down (-1) and the C buttons do. Both
 // refuse (false) unless the scroll is focused; a zoom refuses past either end too. `dx`/`dy` are visible
@@ -99,6 +122,18 @@ struct RsMenuMapPageStatus {
         uint8_t alpha;
     };
     std::vector<Icon> icons;
+    // #309: the walls as geometry, the last drawn frame. `wallsDrawn`: the lines were on this frame (LINES, or
+    // ZOOMED at the zoom threshold) and the map carries segments; `edgeless`: the blocks drew through the edgeless
+    // TLUT. `edges`: segments drawn (after the clip); `edgeWords`: the Gfx words they took. `wallHalfPx`: the half
+    // width in image pixels the screen width came to at this zoom. `wallScreenPx`: the full width in output pixels.
+    const char* walls;
+    bool wallsDrawn;
+    bool edgeless;
+    int32_t edges;
+    int32_t edgeWords;
+    float wallWidth;
+    float wallHalfPx;
+    float wallScreenPx;
     std::string revealedList; // "sx:sy,..." of the map scene's revealed chunks
 };
 RsMenuMapPageStatus RsMenuMapPage_Status();

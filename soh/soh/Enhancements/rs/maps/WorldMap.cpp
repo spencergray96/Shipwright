@@ -67,7 +67,8 @@ const WorldScene* SceneOf(int16_t sceneId) {
 // encodeWorldMap's header, little-endian. Read field by field with memcpy, never cast onto the buffer.
 constexpr uint32_t kHeaderBytes = 64;
 constexpr uint32_t kTlutBytes = 32;
-constexpr uint16_t kVersion = 3;
+constexpr uint16_t kVersion = 4;      // wall segments and the edgeless TLUT (#309)
+constexpr uint16_t kVersionNoEdges = 3; // still read: no segments
 constexpr int32_t kMaxClasses = 4;
 
 struct LoadedMap {
@@ -80,8 +81,21 @@ struct LoadedMap {
     uint32_t layerBytes = 0;
     uint32_t classLevels = 0;
     uint32_t layerOffset = 0;
+    // The edge section (#309, version 4): the edgeless TLUT, then a count a layer, then the segments. 0 if none.
+    uint32_t edgeOffset = 0;
+    std::vector<uint32_t> edgeFirst; // each layer's first segment index, plus one past the last
+    float edgeFix = 1.0f;            // EmitEdges' vertex units an image pixel (fixed for the map)
 
     const uint8_t* Tlut() const { return bytes.data() + kHeaderBytes; }
+    const uint8_t* EdgelessTlut() const { return bytes.data() + edgeOffset; }
+    int32_t EdgeCount(int32_t k) const {
+        return edgeFirst.empty() ? 0 : (int32_t)(edgeFirst[k + 1] - edgeFirst[k]);
+    }
+    // Segment i of layer k: x0, y0, x1, y1 in image pixels.
+    void Edge(int32_t k, int32_t i, uint16_t out[4]) const {
+        const size_t at = (size_t)edgeOffset + kTlutBytes + 4 * (size_t)info.layers + 8 * (size_t)(edgeFirst[k] + i);
+        std::memcpy(out, bytes.data() + at, 8); // little-endian, as the game runs
+    }
     const uint8_t* Layer(int32_t k) const { return bytes.data() + layerOffset + (size_t)k * layerBytes; }
     const uint8_t* Classes(int32_t level) const {
         return bytes.data() + layerOffset + (size_t)info.layers * layerBytes +
@@ -111,12 +125,14 @@ std::unique_ptr<LoadedMap> Load(const WorldScene& scene) {
     }
     out->bytes.assign(file->Buffer->begin() + file->BufferOffset, file->Buffer->end());
     const std::vector<uint8_t>& b = out->bytes;
+    const uint16_t version = b.size() >= 6 ? ReadLe<uint16_t>(b, 4) : 0;
     if (b.size() < kHeaderBytes + kTlutBytes || std::memcmp(b.data(), "RSWM", 4) != 0 ||
-        ReadLe<uint16_t>(b, 4) != kVersion) {
+        (version != kVersion && version != kVersionNoEdges)) {
         out->problem = "bad_file";
         return out;
     }
     RsWorldMapInfo& i = out->info;
+    i.version = version;
     i.sceneId = scene.sceneId;
     out->layerOffset = ReadLe<uint16_t>(b, 6);
     i.pxPerTile = (uint8_t)ReadLe<uint16_t>(b, 8);
@@ -154,8 +170,27 @@ std::unique_ptr<LoadedMap> Load(const WorldScene& scene) {
         out->problem = "stale_archive";
         return out;
     }
-    SPDLOG_INFO("[worldmap] {}: {}x{} px, {} layers, {} bytes", scene.path, i.widthPx, i.heightPx, i.layers,
-                i.fileBytes);
+    // The wall segments (#309): every count and the segments themselves inside the file, after the classes.
+    if (version >= kVersion) {
+        out->edgeOffset = ReadLe<uint32_t>(b, 60);
+        const size_t counts = (size_t)out->edgeOffset + kTlutBytes;
+        if (out->edgeOffset < want || counts + 4 * (size_t)i.layers > b.size()) {
+            out->problem = "bad_file";
+            return out;
+        }
+        out->edgeFirst.assign(1, 0);
+        for (int32_t k = 0; k < i.layers; k++) {
+            out->edgeFirst.push_back(out->edgeFirst.back() + ReadLe<uint32_t>(b, counts + 4 * k));
+        }
+        if (counts + 4 * (size_t)i.layers + 8 * (size_t)out->edgeFirst.back() > b.size()) {
+            out->problem = "bad_file";
+            return out;
+        }
+        // As fine as an s16 allows across the whole image, with room for a line's caps past its edges.
+        out->edgeFix = std::clamp(std::floor(30000.0f / (float)std::max(i.widthPx, i.heightPx)), 1.0f, 64.0f);
+    }
+    SPDLOG_INFO("[worldmap] {}: {}x{} px, {} layers, {} bytes, version {}, {} wall segments", scene.path, i.widthPx,
+                i.heightPx, i.layers, i.fileBytes, version, out->edgeFirst.empty() ? 0u : out->edgeFirst.back());
     return out;
 }
 
@@ -287,10 +322,10 @@ template <typename F> int32_t VisitBlocks(const LoadedMap& m, int32_t x0, int32_
     return n;
 }
 
-// The TLUT, once per draw, into palette 0.
-Gfx* LoadTlut(Gfx* p, const LoadedMap& m) {
+// The TLUT, once per draw, into palette 0: the edgeless one when asked and the file has it (#309).
+Gfx* LoadTlut(Gfx* p, const LoadedMap& m, uint32_t flags = 0) {
     gDPSetTextureLUT(p++, G_TT_RGBA16);
-    gDPLoadTLUT_pal16(p++, 0, m.Tlut());
+    gDPLoadTLUT_pal16(p++, 0, (flags & RS_WORLD_MAP_EDGELESS) && m.edgeOffset != 0 ? m.EdgelessTlut() : m.Tlut());
     return p;
 }
 
@@ -320,6 +355,7 @@ extern "C" bool RsWorldMap_Info(int16_t sceneId, RsWorldMapInfo* out) {
     if (out != nullptr) {
         *out = m->info;
         out->layer = (uint8_t)LayerOf(*m);
+        out->edges = (uint16_t)std::min<int32_t>(m->EdgeCount(out->layer), UINT16_MAX);
     }
     return true;
 }
@@ -390,6 +426,11 @@ extern "C" int32_t RsWorldMap_GfxWords(float srcW, float srcH) {
 
 extern "C" int32_t RsWorldMap_EmitBlocks(GraphicsContext* gfxCtx, Gfx** gfx, int16_t sceneId, float srcX, float srcY,
                                          float srcW, float srcH) {
+    return RsWorldMap_EmitBlocksEx(gfxCtx, gfx, sceneId, srcX, srcY, srcW, srcH, 0);
+}
+
+extern "C" int32_t RsWorldMap_EmitBlocksEx(GraphicsContext* gfxCtx, Gfx** gfx, int16_t sceneId, float srcX, float srcY,
+                                           float srcW, float srcH, uint32_t flags) {
     const LoadedMap* m = UsableMap(sceneId);
     if (m == nullptr || gfx == nullptr || gfxCtx == nullptr || srcW <= 0.0f || srcH <= 0.0f) {
         return 0;
@@ -406,7 +447,7 @@ extern "C" int32_t RsWorldMap_EmitBlocks(GraphicsContext* gfxCtx, Gfx** gfx, int
     }
     Vtx* vtx = (Vtx*)Graph_Alloc(gfxCtx, (size_t)count * 4 * sizeof(Vtx));
     Gfx* p = *gfx;
-    p = LoadTlut(p, *m);
+    p = LoadTlut(p, *m, flags);
     int32_t i = 0;
     VisitBlocks(*m, x0, y0, x1, y1, [&](const Block& b) {
         // The part of the block inside the rect: whole pixels, so neighbours share exact edges.
@@ -473,12 +514,17 @@ int32_t RsWorldMap_DrawRect(GraphicsContext* gfxCtx, std::vector<Gfx>& dl, int16
 
 extern "C" int32_t RsWorldMap_ForEachBlock(Gfx** gfx, int16_t sceneId, float srcX, float srcY, float srcW, float srcH,
                                            RsWorldMapBlockFn fn, void* user) {
+    return RsWorldMap_ForEachBlockEx(gfx, sceneId, srcX, srcY, srcW, srcH, fn, user, 0);
+}
+
+extern "C" int32_t RsWorldMap_ForEachBlockEx(Gfx** gfx, int16_t sceneId, float srcX, float srcY, float srcW,
+                                             float srcH, RsWorldMapBlockFn fn, void* user, uint32_t flags) {
     const LoadedMap* m = UsableMap(sceneId);
     if (m == nullptr || gfx == nullptr || fn == nullptr || srcW <= 0.0f || srcH <= 0.0f) {
         return 0;
     }
     const uint8_t* layer = m->Layer(LayerOf(*m));
-    *gfx = LoadTlut(*gfx, *m);
+    *gfx = LoadTlut(*gfx, *m, flags);
     const int32_t n = VisitBlocks(*m, (int32_t)std::floor(srcX), (int32_t)std::floor(srcY),
                                   (int32_t)std::ceil(srcX + srcW), (int32_t)std::ceil(srcY + srcH),
                                   [&](const Block& b) {
@@ -490,6 +536,155 @@ extern "C" int32_t RsWorldMap_ForEachBlock(Gfx** gfx, int16_t sceneId, float src
     gDPSetTextureLUT(p++, G_TT_NONE);
     *gfx = p;
     return n;
+}
+
+// --- the walls as geometry (#309) -----------------------------------------------------------------------
+namespace {
+
+// Liang-Barsky: segment (x0, y0)-(x1, y1) clipped to [rx0, rx1] x [ry0, ry1] in place. False if none is left.
+bool ClipSegment(float& x0, float& y0, float& x1, float& y1, float rx0, float ry0, float rx1, float ry1) {
+    const float dx = x1 - x0;
+    const float dy = y1 - y0;
+    float t0 = 0.0f;
+    float t1 = 1.0f;
+    const float p[4] = { -dx, dx, -dy, dy };
+    const float q[4] = { x0 - rx0, rx1 - x0, y0 - ry0, ry1 - y0 };
+    for (int32_t i = 0; i < 4; i++) {
+        if (p[i] == 0.0f) {
+            if (q[i] < 0.0f) {
+                return false; // parallel to this edge and outside it
+            }
+            continue;
+        }
+        const float t = q[i] / p[i];
+        if (p[i] < 0.0f) {
+            t0 = std::max(t0, t);
+        } else {
+            t1 = std::min(t1, t);
+        }
+        if (t0 > t1) {
+            return false;
+        }
+    }
+    x1 = x0 + dx * t1;
+    y1 = y0 + dy * t1;
+    x0 = x0 + dx * t0;
+    y0 = y0 + dy * t0;
+    return true;
+}
+
+// Calls fn(x0, y0, x1, y1) for every segment of the current layer touching the rect, clipped to it.
+template <typename F>
+int32_t VisitEdges(const LoadedMap& m, float srcX, float srcY, float srcW, float srcH, F&& fn) {
+    if (srcW <= 0.0f || srcH <= 0.0f) {
+        return 0;
+    }
+    const int32_t k = LayerOf(m);
+    const int32_t count = m.EdgeCount(k);
+    int32_t n = 0;
+    for (int32_t i = 0; i < count; i++) {
+        uint16_t e[4];
+        m.Edge(k, i, e);
+        float x0 = e[0], y0 = e[1], x1 = e[2], y1 = e[3];
+        if (ClipSegment(x0, y0, x1, y1, srcX, srcY, srcX + srcW, srcY + srcH) && (x0 != x1 || y0 != y1)) {
+            fn(x0, y0, x1, y1);
+            n++;
+        }
+    }
+    return n;
+}
+
+} // namespace
+
+extern "C" bool RsWorldMap_WallColour(int16_t sceneId, uint8_t rgb[3]) {
+    const LoadedMap* m = UsableMap(sceneId);
+    if (m == nullptr || rgb == nullptr) {
+        return false;
+    }
+    // TLUT entry 2, big-endian RGBA5551; widen each 5-bit channel to 8 the way the RDP does.
+    const uint8_t* t = m->Tlut() + 2 * 2;
+    const uint16_t c = (uint16_t)((t[0] << 8) | t[1]);
+    const uint8_t r5 = (c >> 11) & 31, g5 = (c >> 6) & 31, b5 = (c >> 1) & 31;
+    rgb[0] = (uint8_t)((r5 << 3) | (r5 >> 2));
+    rgb[1] = (uint8_t)((g5 << 3) | (g5 >> 2));
+    rgb[2] = (uint8_t)((b5 << 3) | (b5 >> 2));
+    return true;
+}
+
+extern "C" int32_t RsWorldMap_ForEachEdge(int16_t sceneId, float srcX, float srcY, float srcW, float srcH,
+                                          RsWorldMapEdgeFn fn, void* user) {
+    const LoadedMap* m = UsableMap(sceneId);
+    if (m == nullptr || fn == nullptr) {
+        return 0;
+    }
+    return VisitEdges(*m, srcX, srcY, srcW, srcH, [&](float x0, float y0, float x1, float y1) { fn(x0, y0, x1, y1, user); });
+}
+
+extern "C" int32_t RsWorldMap_EdgeGfxWords(int16_t sceneId) {
+    const LoadedMap* m = UsableMap(sceneId);
+    if (m == nullptr) {
+        return 0;
+    }
+    const int32_t n = m->EdgeCount(LayerOf(*m));
+    // A quad each, a vertex load per sixteen, and the two matrix loads.
+    return n + (n + 15) / 16 + 4;
+}
+
+extern "C" int32_t RsWorldMap_EmitEdges(GraphicsContext* gfxCtx, Gfx** gfx, int16_t sceneId, float srcX, float srcY,
+                                        float srcW, float srcH, float halfWidthPx) {
+    const LoadedMap* m = UsableMap(sceneId);
+    const float fix = m != nullptr ? m->edgeFix : 1.0f;
+    // The same Matrix_* ops every call (WorldMap.h): the vertices are image pixels x fix under 1/fix.
+    Matrix_Push();
+    Matrix_Scale(1.0f / fix, 1.0f / fix, 1.0f, MTXMODE_APPLY);
+    Mtx* fine = Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__);
+    Matrix_Pop();
+    Mtx* restored = Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__);
+    if (m == nullptr || gfx == nullptr || halfWidthPx <= 0.0f) {
+        return 0;
+    }
+    struct Seg {
+        float x0, y0, x1, y1;
+    };
+    std::vector<Seg> segs;
+    segs.reserve((size_t)m->EdgeCount(LayerOf(*m)));
+    VisitEdges(*m, srcX, srcY, srcW, srcH, [&](float x0, float y0, float x1, float y1) { segs.push_back({ x0, y0, x1, y1 }); });
+    const int32_t count = (int32_t)segs.size();
+    if (count == 0) {
+        return 0;
+    }
+    Vtx* vtx = (Vtx*)Graph_Alloc(gfxCtx, (size_t)count * 4 * sizeof(Vtx));
+    for (int32_t i = 0; i < count; i++) {
+        const Seg& s = segs[i];
+        const float len = std::sqrt((s.x1 - s.x0) * (s.x1 - s.x0) + (s.y1 - s.y0) * (s.y1 - s.y0));
+        const float ux = (s.x1 - s.x0) / len * halfWidthPx; // along, half a width long
+        const float uy = (s.y1 - s.y0) / len * halfWidthPx;
+        // Square caps: each end pushed out by the half width, then the two sides either side of the line.
+        const float ax = s.x0 - ux, ay = s.y0 - uy, bx = s.x1 + ux, by = s.y1 + uy;
+        const float cx[4] = { ax - uy, ax + uy, bx - uy, bx + uy };
+        const float cy[4] = { ay + ux, ay - ux, by + ux, by - ux };
+        for (int32_t c = 0; c < 4; c++) {
+            Vtx* v = &vtx[i * 4 + c];
+            v->v.ob[0] = (int16_t)std::lround(cx[c] * fix);
+            v->v.ob[1] = (int16_t)-std::lround(cy[c] * fix); // the geometry space is y-up
+            v->v.ob[2] = 0;
+            v->v.flag = 0;
+            v->v.tc[0] = v->v.tc[1] = 0;
+            v->v.cn[0] = v->v.cn[1] = v->v.cn[2] = v->v.cn[3] = 255;
+        }
+    }
+    Gfx* p = *gfx;
+    gSPMatrix(p++, fine, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    for (int32_t i = 0; i < count; i++) {
+        if ((i % 16) == 0) {
+            gSPVertex(p++, (uintptr_t)&vtx[i * 4], std::min(count - i, 16) * 4, 0);
+        }
+        const int16_t b = (int16_t)(4 * (i % 16));
+        gSP1Quadrangle(p++, b, b + 1, b + 3, b + 2, 0);
+    }
+    gSPMatrix(p++, restored, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    *gfx = p;
+    return count;
 }
 
 extern "C" int8_t RsWorldMap_LinkStorey(void) {

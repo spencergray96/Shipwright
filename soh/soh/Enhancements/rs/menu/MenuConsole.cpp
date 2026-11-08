@@ -1,6 +1,7 @@
 #include "MenuConsole.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 
@@ -542,16 +543,19 @@ int32_t Probe(const std::vector<std::string>& args, std::vector<std::string>& li
 // #303: the World Map page. One line, the fields `section=map` carries, so `menu map` and `dump` agree.
 std::string DescribeMap() {
     const RsMenuMapPageStatus st = RsMenuMapPage_Status();
-    char buf[900];
+    char buf[1100];
     std::snprintf(buf, sizeof(buf),
                   "page=%d current=%d map=%d scene=0x%X source=%s reason=%s layer=%d storey_mode=%s fog=%s icons=%s icons_shown=%d "
+                  "walls=%s walls_drawn=%d edgeless=%d edges=%d edge_words=%d wall_width=%.2f wall_half_px=%.3f wall_screen_px=%.2f "
                   "chunks=%d revealed=%d frame=%d dst=%.1f,%.1f,%.1f,%.1f blocks=%d fog_quads=%d dl_words=%d "
                   "link=%d arrow=%d link_px=%.1f,%.1f link_square=%d,%d link_flag=%d link_revealed=%d "
                   "arrow_mode=%s view=%.1f,%.1f zoom=%.2f zoom_step=%d zoom_steps=%d pans=%d "
                   "drawn_view=%.1f,%.1f,%.1f,%.1f link_arrow=%s scissor=%d arrows=%d",
                   st.pageIndex + 1, st.current ? 1 : 0, st.map ? 1 : 0, st.scene >= 0 ? st.scene : 0xFFFF, st.source,
                   st.reason[0] != '\0' ? st.reason : "-", st.layer, st.storeyMode,
-                  RsMenuMapPage_FogName(RsMenuMapPage_Fog()), RsMenuMapPage_Icons() ? "on" : "off", st.iconsShown, st.chunks, st.revealed,
+                  RsMenuMapPage_FogName(RsMenuMapPage_Fog()), RsMenuMapPage_Icons() ? "on" : "off", st.iconsShown,
+                  st.walls, st.wallsDrawn ? 1 : 0, st.edgeless ? 1 : 0, st.edges, st.edgeWords, st.wallWidth, st.wallHalfPx,
+                  st.wallScreenPx, st.chunks, st.revealed,
                   st.frame, st.dstX, st.dstY, st.dstW, st.dstH, st.blocks, st.fogQuads, st.words, st.link ? 1 : 0,
                   st.arrowDrawn, st.linkPx, st.linkPy, st.linkSx, st.linkSy, st.linkFlag, st.linkRevealed ? 1 : 0,
                   st.arrow, st.viewCx, st.viewCy, st.viewZoom, st.zoomStep, st.zoomSteps, st.pans, st.drawnView[0],
@@ -691,6 +695,32 @@ int32_t MapCmd(const std::vector<std::string>& args, std::vector<std::string>& l
     if (word == "icons" && args.size() == 3 && (args[2] == "on" || args[2] == "off")) {
         RsMenuMapPage_SetIcons(args[2] == "on");
         Addf(lines, "op=map result=ok action=icons %s %s", DescribeMap().c_str(), Describe().c_str());
+        return 0;
+    }
+    // #309: how the walls draw, and the lines' width in N64 screen pixels. Both saved.
+    if (word == "walls" && args.size() == 3 && (args[2] == "image" || args[2] == "lines" || args[2] == "zoomed")) {
+        RsMenuMapPage_SetWalls(args[2] == "image"   ? RS_MENU_MAP_WALLS_IMAGE
+                               : args[2] == "zoomed" ? RS_MENU_MAP_WALLS_ZOOMED
+                                                     : RS_MENU_MAP_WALLS_LINES);
+        Addf(lines, "op=map result=ok action=walls %s %s", DescribeMap().c_str(), Describe().c_str());
+        return 0;
+    }
+    if (word == "wallwidth" && args.size() == 3) {
+        float w = 0.0f;
+        int32_t hundredths = RS_MENU_MAP_WALL_WIDTH_DEFAULT;
+        if (args[2] != "default") {
+            if (!ParseSignedFloat(args[2], &w)) {
+                Addf(lines, "op=map result=error error=arg action=wallwidth %s", Describe().c_str());
+                return 1;
+            }
+            hundredths = (int32_t)std::lround(w * 100.0f);
+        }
+        if (!RsMenuMapPage_SetWallWidth(hundredths)) {
+            Addf(lines, "op=map result=error error=bad_width action=wallwidth min=%.2f max=%.2f %s",
+                 RS_MENU_MAP_WALL_WIDTH_MIN / 100.0f, RS_MENU_MAP_WALL_WIDTH_MAX / 100.0f, Describe().c_str());
+            return 1;
+        }
+        Addf(lines, "op=map result=ok action=wallwidth %s %s", DescribeMap().c_str(), Describe().c_str());
         return 0;
     }
     Addf(lines, "op=map result=error error=arg %s", Describe().c_str());
@@ -1148,7 +1178,8 @@ const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custo
                      "flight hold <n>|release | song | "
                      "inv <kind> <a> <b> | namepanel custom <item>|off | timer <seconds>|off | "
                      "map [reveal <sx> <sy>|reveal all|reveal none|node <sx> <sy>|hide <sx> <sy>|fog hide|dim|"
-                     "icons on|off|arrow vanilla|custom|zoom in|out|pan <dx> <dy>] | "
+                     "icons on|off|walls image|lines|zoomed|wallwidth <n64px>|default|arrow vanilla|custom|zoom in|out|"
+                     "pan <dx> <dy>] | "
                      "focus [in|out|loop|hold <in|out> <tick>|stop] | dump";
 
 } // namespace
@@ -1246,7 +1277,7 @@ const ConsoleSink::Command menuCommand(
     "stress [<n> [same]|off|memo <on|off>] | cursor [left|right|up|down|select|<id>] | "
     "probe [on|off] | kaleido | equips | hud | flight hold <n>|release | song | inv <kind> <a> <b> | "
     "namepanel custom <item>|off | map [reveal|node|hide <sx> <sy>|reveal all|none|fog hide|dim|icons on|off|"
-    "arrow vanilla|custom|zoom in|out|pan <dx> <dy>] | focus [in|out|loop|hold <in|out> <tick>|stop] | dump. "
+    "walls image|lines|zoomed|wallwidth <n64px>|default|arrow vanilla|custom|zoom in|out|pan <dx> <dy>] | focus [in|out|loop|hold <in|out> <tick>|stop] | dump. "
     "The scroll opens on START when primary is custom (N64 L is the minimap's) "
     "and hard-freezes the world; primary decides which menu START opens, and is a subcommand because "
     "there is no console `set`. sweep rolls the scroll one page the way a shoulder press does, and "
@@ -1359,6 +1390,13 @@ map                           the World Map page and its fog of war
   icons                       the map icons (#307; saved)
     on                        shown at every zoom
     off                       hidden (default)
+  walls                       how the walls draw (#309; saved)
+    image                     the picture's own pixels
+    lines                     thin lines at every zoom (default)
+    zoomed                    the picture's at the whole world, lines from 2x
+  wallwidth                   the wall lines' width (#309; saved)
+    <n64px>                   in N64 screen pixels, 0.10 to 4.00
+    default                   0.40
   arrow                       Link's arrow on the map
     vanilla                   vanilla's compass arrow, as on the minimap
     custom                    the page's own two-triangle arrow

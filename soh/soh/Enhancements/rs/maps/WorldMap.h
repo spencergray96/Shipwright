@@ -39,6 +39,15 @@
  *
  * WHAT A CALLER SETS: the combiner, the render mode, the filter, prim colour (fog of war, fades) and
  * gSPTexture on. EmitBlocks sets the texture LUT mode to RGBA16 for its blocks and back to NONE after.
+ *
+ * THE WALLS AS GEOMETRY (sturdy-bassoon#309, file version 4). Each layer also carries its WALL SEGMENTS: the
+ * edges the matrix view's canvas strokes, on the tile boundaries, in image pixels, collinear runs merged and,
+ * in a stack, dropped where an upper level draws the edge's tile - all worked out at export. EmitEdges draws
+ * them as thin quads at the output resolution, so a diagonal stays a line at any zoom where the picture's
+ * two-pixels-a-tile staircase shows. The picture keeps its own edge pixels; RS_WORLD_MAP_EDGELESS draws the
+ * same blocks through the file's second TLUT, which paints each edge pixel as the floor or background it
+ * covers, so the lines are not drawn over a staircase. A version 3 file still loads: no segments, no
+ * edgeless TLUT (EdgeCount 0, the flag ignored).
  */
 #include <stdbool.h>
 #include <stdint.h>
@@ -76,6 +85,8 @@ typedef struct {
     int32_t minRsX, minRsY;          // the RS tile of the image's south-west corner
     int32_t originRsX, originRsY;    // the matrix's origin: the RS tile whose SOUTH-west corner is OoT (0, 0)
     uint32_t fileBytes;
+    uint16_t version;                // the file's: 4 carries wall segments (#309), 3 does not
+    uint16_t edges;                  // the current layer's wall segments (0 in a version 3 file)
 } RsWorldMapInfo;
 
 // The scene's map, or false when it has none (a vanilla scene, a single-map scene, an unexported tree, a
@@ -119,6 +130,41 @@ typedef void (*RsWorldMapBlockFn)(Gfx** gfx, int16_t blockX, int16_t blockY, int
                                   int16_t loadX, int16_t loadY, void* user);
 int32_t RsWorldMap_ForEachBlock(Gfx** gfx, int16_t sceneId, float srcX, float srcY, float srcW, float srcH,
                                 RsWorldMapBlockFn fn, void* user);
+
+// Flags for the *Ex draws. RS_WORLD_MAP_EDGELESS: the blocks through the edgeless TLUT, every edge pixel drawn as
+// what it covers - for a caller that draws the walls with EmitEdges on top (#309). Ignored by a version 3 file.
+#define RS_WORLD_MAP_EDGELESS 1u
+int32_t RsWorldMap_EmitBlocksEx(GraphicsContext* gfxCtx, Gfx** gfx, int16_t sceneId, float srcX, float srcY,
+                                float srcW, float srcH, uint32_t flags);
+int32_t RsWorldMap_ForEachBlockEx(Gfx** gfx, int16_t sceneId, float srcX, float srcY, float srcW, float srcH,
+                                  RsWorldMapBlockFn fn, void* user, uint32_t flags);
+
+// --- the walls as geometry (#309) ---
+// The wall colour: the TLUT's wall entry (2), so the lines match the picture's walls. False with no map.
+bool RsWorldMap_WallColour(int16_t sceneId, uint8_t rgb[3]);
+
+// Every wall segment of the current layer that touches source rect (srcX, srcY, srcW, srcH), clipped to it, in
+// IMAGE PIXELS (y down). For custom geometry, the way ForEachBlock is: #306's round minimap would clip these to
+// its circle and build its own quads. Returns the segments handed over (0 with no map or a version 3 file).
+typedef void (*RsWorldMapEdgeFn)(float x0, float y0, float x1, float y1, void* user);
+int32_t RsWorldMap_ForEachEdge(int16_t sceneId, float srcX, float srcY, float srcW, float srcH, RsWorldMapEdgeFn fn,
+                               void* user);
+
+// Draws those segments as quads `halfWidthPx` IMAGE pixels either side of the line, square-capped (each end
+// pushed out by the half width, so corners close), in the GEOMETRY SPACE under the modelview loaded now. The
+// caller turns its line width in SCREEN terms into image pixels at its own zoom (MapPage.cpp does), which is
+// what keeps a wall the same width on screen at 1x and 6x. Untextured: the caller sets the combiner (e.g.
+// G_CC_PRIMITIVE with RsWorldMap_WallColour), the render mode and gSPTexture off.
+//
+// Integer vertices would round a line to a whole image pixel, so the vertices are image pixels times a fixed
+// per-map factor under a nested 1/factor scale. That needs the Matrix_* stack's top to BE the modelview loaded
+// now, and it records Matrix_Push, Matrix_Scale, Matrix_NewMtx, Matrix_Pop, Matrix_NewMtx on EVERY call - map or
+// no map, halfWidthPx 0 or not - so frame interpolation's positional matching holds; a caller that wants no lines
+// this frame passes halfWidthPx 0 and still calls. Returns the quads drawn.
+int32_t RsWorldMap_EmitEdges(GraphicsContext* gfxCtx, Gfx** gfx, int16_t sceneId, float srcX, float srcY, float srcW,
+                             float srcH, float halfWidthPx);
+// The most Gfx words EmitEdges writes on the current layer, whatever the rect.
+int32_t RsWorldMap_EdgeGfxWords(int16_t sceneId);
 
 // Link's storey as `current` reads it: the level whose floor, on his tile, is within 20 units of where
 // he stands, kept while he is airborne, swimming or between floors. -1 with no map.
