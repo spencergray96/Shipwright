@@ -84,6 +84,60 @@ constexpr u8 kArrowColour[3] = { 255, 226, 88 }; // the menu's cursor yellow
 constexpr u8 kRuleColour[3] = { 150, 140, 110 }; // the parchment frame's colour
 constexpr u8 kTitleColour[3] = { 240, 232, 210 };
 
+// #300: INK FOR THE PARCHMENT. Every colour above, and the journal's run and meta colours
+// (QuestJournal_RunColour, which the ImGui overlay shares on its dark window), was chosen for the flat
+// dark body; on the RS art's beige the white title is weak and the grey status line unreadable. So while
+// the parchment is art (RsMenu_ParchmentIsArt) each is swapped for a darker ink of the same role at the
+// moment it is drawn - at draw time, not when the journal's lines are built, so `menu parchment` switches
+// a page already on screen. The status coding keeps its three hues: red, amber, green, each dark enough
+// to read on beige and still told apart. A colour not in the table draws as it is.
+struct InkPair {
+    u8 dark[3];  // as chosen for the flat body
+    u8 paper[3]; // on the parchment art
+};
+constexpr InkPair kParchmentInk[] = {
+    { { 240, 232, 210 }, { 54, 34, 16 } },   // title
+    { { 150, 140, 110 }, { 112, 84, 50 } },  // the rule under it
+    { { 255, 226, 88 }, { 32, 20, 8 } },     // the row arrow
+    { { 224, 64, 52 }, { 160, 26, 18 } },    // not started: red
+    { { 240, 176, 32 }, { 140, 82, 0 } },    // in progress: amber
+    { { 84, 204, 84 }, { 20, 102, 28 } },    // complete: green
+    { { 235, 235, 235 }, { 40, 28, 16 } },   // journal prose
+    { { 255, 209, 64 }, { 128, 24, 12 } },   // journal `item`
+    { { 140, 217, 255 }, { 22, 50, 138 } },  // journal `hint`
+    { { 140, 140, 140 }, { 118, 102, 80 } }, // a ticked step, and its rule
+    { { 179, 179, 179 }, { 84, 66, 44 } },   // meta: the status line, "Nothing yet.", the more-marks
+};
+
+static void Ink(u8* r, u8* g, u8* b) {
+    if (!RsMenu_ParchmentIsArt()) {
+        return;
+    }
+    for (const InkPair& pair : kParchmentInk) {
+        if (pair.dark[0] == *r && pair.dark[1] == *g && pair.dark[2] == *b) {
+            *r = pair.paper[0];
+            *g = pair.paper[1];
+            *b = pair.paper[2];
+            return;
+        }
+    }
+}
+
+static void InkText(const char* text, int16_t x, int16_t y, float scale, u8 r, u8 g, u8 b, u8 a) {
+    Ink(&r, &g, &b);
+    RsMenu_DrawText(text, x, y, scale, r, g, b, a);
+}
+
+static void InkTextCentred(const char* text, int16_t centreX, int16_t y, float scale, u8 r, u8 g, u8 b, u8 a) {
+    Ink(&r, &g, &b);
+    RsMenu_DrawTextCentred(text, centreX, y, scale, r, g, b, a);
+}
+
+static void InkBar(int16_t x0, int16_t y0, int16_t x1, int16_t y1, u8 r, u8 g, u8 b) {
+    Ink(&r, &g, &b);
+    RsMenu_DrawBar(x0, y0, x1, y1, r, g, b);
+}
+
 // One row of the list, rebuilt every update tick from the live store - a quest started this tick
 // turns amber this tick. `nodeId` is the cursor-graph id, which is also what persists the cursor.
 struct QuestRow {
@@ -274,14 +328,14 @@ static void QuestPageDraw(struct PlayState* play, int32_t pageIndex, void* userD
     sDrawn.clear();
     sListDrawFrame = RsMenu_Status().drawFrames;
 
-    RsMenu_DrawTextCentred("Quest Journal", centreX, kListTitleY, kListTitleScale, kTitleColour[0], kTitleColour[1],
+    InkTextCentred("Quest Journal", centreX, kListTitleY, kListTitleScale, kTitleColour[0], kTitleColour[1],
                            kTitleColour[2], 255);
-    RsMenu_DrawBar((int16_t)(rect.x0 + 8), kListRuleY, (int16_t)(rect.x1 - 8), (int16_t)(kListRuleY + 1),
+    InkBar((int16_t)(rect.x0 + 8), kListRuleY, (int16_t)(rect.x1 - 8), (int16_t)(kListRuleY + 1),
                    kRuleColour[0], kRuleColour[1], kRuleColour[2]);
 
     if (sRows.empty()) {
         const QuestJournalColour meta = QuestJournal_MetaColour();
-        RsMenu_DrawTextCentred("No quests", centreX, kRowTop, kRowScale, meta.r, meta.g, meta.b, 255);
+        InkTextCentred("No quests", centreX, kRowTop, kRowScale, meta.r, meta.g, meta.b, 255);
         return;
     }
 
@@ -298,10 +352,10 @@ static void QuestPageDraw(struct PlayState* play, int32_t pageIndex, void* userD
         if (i == cursorRow) {
             // Rough on purpose (#111 comment 10): a glyph, not a model. Kaleido's real arrow cursor
             // (gArrowCursorTex, kaleido.cpp:94) is the upgrade when the models come.
-            RsMenu_DrawText(">", (int16_t)(rect.x0 + kArrowIndent), y, kRowScale, kArrowColour[0], kArrowColour[1],
+            InkText(">", (int16_t)(rect.x0 + kArrowIndent), y, kRowScale, kArrowColour[0], kArrowColour[1],
                             kArrowColour[2], 255);
         }
-        RsMenu_DrawText(FitText(row.title, kRowScale, textW).c_str(), textX, y, kRowScale, colour[0], colour[1],
+        InkText(FitText(row.title, kRowScale, textW).c_str(), textX, y, kRowScale, colour[0], colour[1],
                         colour[2], 255);
         RsMenuQuestRowInfo info;
         info.row = i;
@@ -315,10 +369,10 @@ static void QuestPageDraw(struct PlayState* play, int32_t pageIndex, void* userD
     const QuestJournalColour meta = QuestJournal_MetaColour();
     const int16_t markX = (int16_t)(rect.x1 - kMoreMarkInset);
     if (sTop > 0) {
-        RsMenu_DrawText("^", markX, RowY(sTop), kRowScale, meta.r, meta.g, meta.b, 255);
+        InkText("^", markX, RowY(sTop), kRowScale, meta.r, meta.g, meta.b, 255);
     }
     if (end < (int32_t)sRows.size()) {
-        RsMenu_DrawText("v", markX, RowY(end - 1), kRowScale, meta.r, meta.g, meta.b, 255);
+        InkText("v", markX, RowY(end - 1), kRowScale, meta.r, meta.g, meta.b, 255);
     }
 }
 
@@ -605,7 +659,7 @@ static void QuestPageDetailDraw(struct PlayState* play, int32_t pageIndex, void*
         }
         y += gap;
         for (const JSeg& seg : line.segs) {
-            RsMenu_DrawText(seg.text.c_str(), (int16_t)(rect.x0 + seg.x), (int16_t)y, line.scale, seg.colour.r,
+            InkText(seg.text.c_str(), (int16_t)(rect.x0 + seg.x), (int16_t)y, line.scale, seg.colour.r,
                             seg.colour.g, seg.colour.b, 255);
         }
         if (line.struck && !line.segs.empty() && line.width > line.segs.front().x) {
@@ -614,7 +668,7 @@ static void QuestPageDetailDraw(struct PlayState* play, int32_t pageIndex, void*
             // not across the hanging indent. Half a glyph cell down is roughly mid x-height.
             const QuestJournalColour c = QuestJournal_RunColour(QUEST_EMPHASIS_NONE, true);
             const int16_t ry = (int16_t)(y + 16.0f * line.scale * 0.5f);
-            RsMenu_DrawBar((int16_t)(rect.x0 + line.segs.front().x), ry, (int16_t)(rect.x0 + line.width),
+            InkBar((int16_t)(rect.x0 + line.segs.front().x), ry, (int16_t)(rect.x0 + line.width),
                            (int16_t)(ry + 1), c.r, c.g, c.b);
         }
         y += (float)line.pitch;
@@ -625,10 +679,10 @@ static void QuestPageDetailDraw(struct PlayState* play, int32_t pageIndex, void*
     const QuestJournalColour meta = QuestJournal_MetaColour();
     const int16_t markX = (int16_t)(rect.x1 - kJournalMarkReserve + 2);
     if (sJournalTop > 0) {
-        RsMenu_DrawText("^", markX, rect.y0, kJournalScale, meta.r, meta.g, meta.b, 255);
+        InkText("^", markX, rect.y0, kJournalScale, meta.r, meta.g, meta.b, 255);
     }
     if (last + 1 < (int32_t)lines.size()) {
-        RsMenu_DrawText("v", markX, (int16_t)(rect.y1 - kJournalPitch), kJournalScale, meta.r, meta.g, meta.b, 255);
+        InkText("v", markX, (int16_t)(rect.y1 - kJournalPitch), kJournalScale, meta.r, meta.g, meta.b, 255);
     }
 }
 

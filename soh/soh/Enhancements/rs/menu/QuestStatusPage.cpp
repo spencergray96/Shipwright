@@ -232,6 +232,11 @@ static void QuestStatusPageDraw(struct PlayState* play, int32_t pageIndex, void*
                     r = 200;
                     g = 50;
                     b = 50;
+                } else if (RsMenu_ParchmentIsArt()) {
+                    // #300: white is weak on the parchment art's beige; the dark ink of the quest journal's prose.
+                    r = 40;
+                    g = 28;
+                    b = 16;
                 } else {
                     r = g = b = 255;
                 }
