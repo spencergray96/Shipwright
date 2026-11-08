@@ -246,6 +246,11 @@ struct RsMenuPage {
     RsMenuPageNameFn name = nullptr;
     const void* const* toLabel = nullptr;
     const char* toText = nullptr;
+    // #303, both optional. `selectFocus`: a true from `select` FOCUSES the page (the whole scroll zooms in,
+    // RsMenu_StartFocus) instead of going down a level. `focusTick`: while focused and settled, once a tick,
+    // with the held and newly pressed buttons - the page's own controls in the focused view.
+    bool selectFocus = false;
+    void (*focusTick)(int32_t pageIndex, uint16_t held, uint16_t press, void* userData) = nullptr;
 };
 
 // Registers a page at the end of the ring and returns its 0-based index, or -1 if `id` is empty or
@@ -482,6 +487,7 @@ enum RsMenuSelectResult {
     RS_MENU_SELECT_BUSY,        // something is already animating; the press was dropped
     RS_MENU_SELECT_ITEM,        // an item its page has no detail view for - nothing happened
     RS_MENU_SELECT_DESCEND,     // an item with a detail view: the down-a-level animation started
+    RS_MENU_SELECT_FOCUS,       // #303: an item on a `selectFocus` page: the focus zoom started
 };
 RsMenuSelectResult RsMenu_SelectCursor();
 const char* RsMenu_SelectResultName(RsMenuSelectResult result);
@@ -556,6 +562,51 @@ struct RsMenuLevelState {
     RsMenuRect detail;
 };
 RsMenuLevelState RsMenu_LevelState();
+
+// --- focus: the whole scroll zooms toward the screen (#303) -----------------------------------------
+//
+// A page with `selectFocus` set answers A on one of its items by FOCUSING it instead of going down a level
+// (the World Map: the owner, 2026-11-07). Focus is not a level and not the vertical turn: the WHOLE scroll -
+// parchment, rolls, hands, content - scales about the parchment's centre and moves it to the screen's centre,
+// until the parchment's top and bottom edges sit kFocusEdge game units from the screen's. One pivot scale in
+// ApplyBaseMatrix, emitted every frame (the identity at rest), driven by an integer pose 0..ticks eased in and
+// out, so it frame-interpolates like the roll's x-scale.
+//
+// While focused: the HUD fades out but for B, which moves to the top right as "Return" (the level-1 HUD's
+// choreography on the focus pose), and the page stepper fades with it. B is the only way out - it plays the
+// pose backwards. START, L/R/Z and the stick are ignored (START counted as `start_level_dropped=`, as at level
+// 1); the page's `focusTick` gets the held and pressed buttons every settled tick instead.
+bool RsMenu_StartFocus(int32_t dir); // +1 in, -1 out. False when not allowed now (busy, wrong state)
+// True from the moment a focus-in starts until a focus-out has finished.
+bool RsMenu_IsFocused();
+// The zoom's progress this tick, eased: 0 at rest, 1 focused.
+float RsMenu_FocusAmount();
+// Agent-loop instrument, as `sweep hold`: park the pose at `tick` (0..ticks) of the way in (+1) or out (-1).
+bool RsMenu_HoldFocus(int32_t dir, int32_t tick);
+// And a loop - in, out, in... - so a burst of captures samples every tick of the zoom. Stop ends both.
+bool RsMenu_StartFocusLoop();
+void RsMenu_StopFocusHold();
+
+struct RsMenuFocusState {
+    bool focused;  // RsMenu_IsFocused
+    bool active;   // animating
+    int32_t tick, ticks, dir, pose;
+    bool hold;
+    bool loop;
+    float amount;  // RsMenu_FocusAmount
+    float scale;   // the zoom's scale this tick
+    float target;  // the scale when fully focused
+    float pivotY;  // the parchment's centre, game units y down, before the zoom
+    float hudShown; // everything but B's share of its alpha
+    float bShown;
+    bool bMoved;
+    int32_t focuses; // focus-ins started this session
+    int32_t inputTicks; // focusTick calls
+};
+RsMenuFocusState RsMenu_FocusState();
+// The panel's flat body colour, for a page that has to paint over its own geometry with parchment (the map's
+// edge masks).
+void RsMenu_PanelColour(uint8_t rgb[3]);
 
 // --- the page stepper (#128) -----------------------------------------------------------------------
 //

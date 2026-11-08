@@ -231,7 +231,16 @@
 //                         reveals every chunk of the world on show, `reveal none` clears the WHOLE band
 //                         (TEST-ONLY: it writes save state). `fog` and `icons` set and save their CVars.
 //                         A reveal that sets a flag also writes `rs_menu op=map event=reveal square= flag=
-//                         cause=entry|quest|console node="..."` - the entry hook writes it unprompted
+//                         cause=entry|quest|console node="..."` - the entry hook writes it unprompted.
+//                         `arrow vanilla|custom` picks Link's arrow (saved). `zoom in|out` and `pan <dx> <dy>`
+//                         (signed, in view widths) are what D-pad up/down and the C buttons do in the focused
+//                         view; both rc=1 `error=refused` unless focused, and a zoom past either end
+//   focus [in|out|loop|hold <in|out> <tick>|stop]
+//                         #303. The focus zoom (RsMenu.h, "focus"): `in` is what A on the world map does, `out`
+//                         what B does there; rc=1 `error=refused` when the scroll cannot start it (busy, at
+//                         level 1, already there). `loop` zooms in and out until `stop`, for a burst of
+//                         mid-zoom captures; `hold` parks the pose at a tick. One `op=focus` line: focused=,
+//                         pose=, scale=, target=, hud_shown=, b_shown=, b_moved=, focuses=, input_ticks=
 //   dump                  EVERYTHING a marker can carry: open/closed, current page, page count,
 //                         which menu `primary` selects, the live freeze and HUD state, the
 //                         trigger's binding count, the counters, and one line per registered page.
@@ -244,10 +253,11 @@
 //                         for the rest of the frame - and `pause_mode=`, the register that would
 //                         have exempted it. `section=draw` is what the last drawn frame cost in
 //                         glyphs, quads and Gfx words, and one `section=cursor` line per node.
-//                         #303 adds `section=map` (map=, scene=, source=scene|context|none, reason=,
+//                         #303 adds `section=focus` (the `focus` line's fields), `section=map` (map=, scene=, source=scene|context|none, reason=,
 //                         layer=, storey_mode=, fog=, icons=, chunks=, revealed=, the last drawn frame's
 //                         dst=/blocks=/fog_quads=/dl_words=/arrow=, and Link's link_px=/link_square=/
-//                         link_flag=/link_revealed=) and `section=map_reveal` (entry_reveals=, the last
+//                         link_flag=/link_revealed=, arrow_mode=, the focused view's view=/zoom=/zoom_step=/
+//                         pans= and the drawn_view= rect) and `section=map_reveal` (entry_reveals=, the last
 //                         reveal, and revealed= the map scene's revealed squares as sx:sy,...).
 //                         Stage 6 adds `section=level` (the `level` line's fields),
 //                         `section=quests` (rows, visible, top, `cursor_row=`, `debug_tier=`), one
