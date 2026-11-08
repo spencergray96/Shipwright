@@ -611,6 +611,9 @@
  *   agenttest worldmap [status]|storey ground|all|current|below|debug off|whole|link|block <w> <h>|pixel <x> <z>
  *                                          the world map image (sturdy-bassoon#298): one
  *                                          `rs_worldmap op=...` marker a line, as WorldMapConsole.h lists
+ *   agenttest rssprite [status]|info <token>|show <token> <x> <y> [<w> [<h>]]|layout|filter bilerp|point|blend xlu|cutout|panel on|off|clear
+ *                                          the RS sprite debug draw (sturdy-bassoon#297): one
+ *                                          `rs_sprite op=...` marker a line, as RsSpritesConsole.h lists
  *   agenttest minimap [status]|mode north|rotate|radius <tiles>|default|filter bilerp|point|snap on|off
  *                                          the round HUD minimap in RS scenes (sturdy-bassoon#306): one
  *                                          `rs_minimap op=...` marker a line, as RsMinimapConsole.h lists
@@ -805,6 +808,7 @@
 #include "soh/Enhancements/graph/GraphConsole.h"
 #include "soh/Enhancements/rs/maps/WorldConsole.h"
 #include "soh/Enhancements/rs/maps/WorldMapConsole.h"
+#include "soh/Enhancements/rs/sprites/RsSpritesConsole.h"
 #include "soh/Enhancements/rs/maps/RsMinimapConsole.h"
 #include "soh/Enhancements/rs/swim/SwimConsole.h"
 #include "soh/Enhancements/rs/stairs/StairConsole.h"
@@ -3206,6 +3210,12 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
         const std::vector<std::string> sub(args.begin() + 2, args.end());
         return ConsoleSink::RunToMarkers(RsWorldMapConsole_Run, sub, "rs_worldmap ", output, WriteMarker);
     }
+    // RS interface sprites (sturdy-bassoon#297): the debug draw of mods/rs-sprites.o2r by token. `>= 2`, so a bare
+    // `agenttest rssprite` is the status read.
+    if (args.size() >= 2 && args[1] == "rssprite") {
+        const std::vector<std::string> sub(args.begin() + 2, args.end());
+        return ConsoleSink::RunToMarkers(RsSpritesConsole_Run, sub, "rs_sprite ", output, WriteMarker);
+    }
     // The round HUD minimap in RS scenes (sturdy-bassoon#306). `>= 2`: a bare `agenttest minimap` is the status.
     if (args.size() >= 2 && args[1] == "minimap") {
         const std::vector<std::string> sub(args.begin() + 2, args.end());
@@ -3360,6 +3370,8 @@ int32_t AgentTestCommand(std::shared_ptr<Ship::Console> console, const std::vect
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
               "worldctx get|set <unset|solo|0xNN>|pick <map>|scenes <map> | "
               "worldmap [status]|storey ground|all|current|below|debug off|whole|link|block <w> <h>|pixel <x> <z> | "
+              "rssprite [status]|info <token>|show <token> <x> <y> [<w> [<h>]]|layout|filter bilerp|point|"
+              "blend xlu|cutout|panel on|off|clear | "
               "minimap [status]|mode north|rotate|radius <tiles>|default|filter bilerp|point|snap on|off | "
               "swim status|on|off|length <s>|default|budget <ticks>|drown|refuge here|clear|points | "
               "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|"
@@ -3487,6 +3499,7 @@ npc =npc                 the npc command's options
 region =region          the region command's options
 worldctx =worldctx       the worldctx command's options
 worldmap =worldmap       the world map image: size, storey, Link's pixel
+rssprite =rssprite       draw packed RS sprites on screen by token
 minimap =minimap         the round HUD minimap: mode, radius, what it drew
 swim =swim               the swim command's options
 stairs =stairs           the stairs command's options
@@ -3553,6 +3566,8 @@ void RegisterAgentTest() {
               "region get|set <uk|us>|toggle|expand <text...>|overlay [on|off] | "
               "worldctx get|set <unset|solo|0xNN>|pick <map>|scenes <map> | "
               "worldmap [status]|storey ground|all|current|below|debug off|whole|link|block <w> <h>|pixel <x> <z> | "
+              "rssprite [status]|info <token>|show <token> <x> <y> [<w> [<h>]]|layout|filter bilerp|point|"
+              "blend xlu|cutout|panel on|off|clear | "
               "minimap [status]|mode north|rotate|radius <tiles>|default|filter bilerp|point|snap on|off | "
               "swim status|on|off|length <s>|default|budget <ticks>|drown|refuge here|clear|points | "
               "stairs list|dump <id>|menu <id> <row>|where|go <id> <row>|status|fade [ticks|default]|"
