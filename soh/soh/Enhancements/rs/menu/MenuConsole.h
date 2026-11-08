@@ -231,7 +231,7 @@
 //                         item, so the name panel's hook path can be tested without a seed; `off` removes
 //                         it, and so does the menu closing. `op=namepanel result=ok custom_item=<n>`
 //                         (-1 for off); rc=1 `error=arg`, or `error=closed` while the menu is not open
-//   map [reveal <sx> <sy>|reveal all|reveal none|node <sx> <sy>|hide <sx> <sy>|fog hide|dim|icons on|off]
+//   map [reveal <sx> <sy>|reveal all|reveal none|node <sx> <sy>|hide <sx> <sy>|fog hide|dim|icons off|zoomed|on]
 //                         #303. The World Map page (MapPage.h) and its fog of war (MapReveal.h), by RS map
 //                         square. Bare: one `op=map result=ok` line with the `section=map` fields. `reveal`
 //                         and `hide` set or clear one square's flag (`changed=` 1 or 0, `now_revealed=`;
@@ -263,12 +263,14 @@
 //                         have exempted it. `section=draw` is what the last drawn frame cost in
 //                         glyphs, quads and Gfx words, and one `section=cursor` line per node.
 //                         #303 adds `section=focus` (the `focus` line's fields), `section=map` (map=, scene=, source=scene|context|none, reason=,
-//                         layer=, storey_mode=, fog=, icons=, chunks=, revealed=, the last drawn frame's
+//                         layer=, storey_mode=, fog=, icons=off|zoomed|on (#307, default on), icons_shown=, chunks=, revealed=, the last drawn frame's
 //                         dst=/blocks=/fog_quads=/dl_words=/arrow=, and Link's link_px=/link_square=/
 //                         link_flag=/link_revealed=, arrow_mode=, the focused view's view=/zoom=/zoom_step=/
 //                         pans= and the drawn_view= rect; since round 3 link_arrow=in|edge|out|none,
 //                         scissor= and arrows=), one `section=map_arrow kind=link|entrance|boat|balloon
-//                         state=in|edge|out px= controls=` line per arrow the last frame considered, and
+//                         state=in|edge|out px= controls=` line per arrow the last frame considered, one `section=map_icon
+//                         name= token= state=in|edge|out|fog|storey|zoom|off|no_sprite px= alpha= units=` line per
+//                         map icon on the map's scene (#307; units= its width in game units, the same at every zoom), and
 //                         `section=map_reveal` (entry_reveals=, the last
 //                         reveal, and revealed= the map scene's revealed squares as sx:sy,...).
 //                         Stage 6 adds `section=level` (the `level` line's fields),
