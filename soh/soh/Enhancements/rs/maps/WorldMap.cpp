@@ -736,33 +736,46 @@ extern "C" int32_t RsWorldMap_EmitEdgesEx(GraphicsContext* gfxCtx, Gfx** gfx, in
     const LoadedMap* m = UsableMap(sceneId);
     const float fix = m != nullptr ? m->edgeFix : 1.0f;
 
-    // RS_WORLD_MAP_EDGES_SNAP: where the modelview takes an image pixel to the render target. Read off the caller's
-    // matrix (the Matrix_* top, which is the loaded modelview) with Matrix_MultVec3f, which records no op. The
-    // modelview's output is N64 screen units about the centre; Fast3D widens x for the window's aspect about the
-    // centre, so both axes land at H / 240 render pixels an N64 unit: rx = W/2 + x H/240, ry = H/2 - y H/240.
+    // The same Matrix_* ops every call (WorldMap.h): the vertices are image pixels x fix under 1/fix.
+    Matrix_Push();
+    Matrix_Scale(1.0f / fix, 1.0f / fix, 1.0f, MTXMODE_APPLY);
+    Mtx* fine = Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__);
+    Matrix_Pop();
+    Mtx* restored = Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__);
+
+    // RS_WORLD_MAP_EDGES_SNAP: where a vertex lands on the render target, worked out from what the GPU will
+    // actually multiply by. An Mtx is s15.16 fixed point, TRUNCATED from the float stack (guMtxF2L), and with
+    // vertices up to ~18,500 units under a ~0.02 scale that truncation alone moves a vertex by up to a render
+    // pixel, differently at every pan and zoom - enough to put both edges of a snapped 1 px line on pixel centres,
+    // so it drew nothing (#309 look 2: walls vanishing until a pan). So read the emitted Mtx back (guMtxL2F), and
+    // use the projection the rs menu loads, guOrtho(+-160, +-120) - itself truncated, 1/160 to 409/65536. Fast3D:
+    // clip = ob . MV . P (row vectors), x widened by (4/3) / (W/H) about the centre, viewport 0..W x 0..H, so
+    // rx = W/2 + clipX * 2H/3 and ry = H/2 - clipY * H/2.
     bool snap = false;
     bool odd = false;
+    long widthPx = 0;
     float sx = 0.0f, sy = 0.0f, ox = 0.0f, oy = 0.0f;
     if ((flags & RS_WORLD_MAP_EDGES_SNAP) != 0 && m != nullptr && halfWidthPx > 0.0f) {
-        Vec3f g0 = { 0.0f, 0.0f, 0.0f };
-        Vec3f gx = { 1.0f, 0.0f, 0.0f };
-        Vec3f gy = { 0.0f, -1.0f, 0.0f }; // image y + 1: the geometry space is y-up
-        Vec3f r0, rx, ry;
-        Matrix_MultVec3f(&g0, &r0);
-        Matrix_MultVec3f(&gx, &rx);
-        Matrix_MultVec3f(&gy, &ry);
-        const float u = (float)OTRGetGameRenderHeight() / (float)SCREEN_HEIGHT;
-        sx = (rx.x - r0.x) * u;
-        sy = -(ry.y - r0.y) * u;
+        float mv[4][4];
+        guMtxL2F(mv, fine);
+        const float W = (float)OTRGetGameRenderWidth();
+        const float H = (float)OTRGetGameRenderHeight();
+        const float px = (float)(int32_t)(2.0f / (float)SCREEN_WIDTH * 65536.0f) / 65536.0f;
+        const float py = (float)(int32_t)(2.0f / (float)SCREEN_HEIGHT * 65536.0f) / 65536.0f;
+        const float kx = px * 2.0f * H / 3.0f; // render px an N64 unit, x
+        const float ky = py * H / 2.0f;        // and y
+        // A vertex is (x fix, -y fix) for image pixel (x, y).
+        sx = mv[0][0] * fix * kx;
+        sy = mv[1][1] * fix * ky;
         const bool aligned = std::fabs(sx) > 1e-4f && std::fabs(sy) > 1e-4f &&
-                             std::fabs((rx.y - r0.y) * u) < 1e-3f * std::fabs(sx) &&
-                             std::fabs((ry.x - r0.x) * u) < 1e-3f * std::fabs(sy);
+                             std::fabs(mv[1][0] * fix * kx) < 1e-3f * std::fabs(sx) &&
+                             std::fabs(mv[0][1] * fix * ky) < 1e-3f * std::fabs(sy);
         if (aligned) {
             snap = true;
-            ox = (float)OTRGetGameRenderWidth() * 0.5f + r0.x * u;
-            oy = (float)OTRGetGameRenderHeight() * 0.5f - r0.y * u;
-            const long w = std::lround(2.0f * halfWidthPx * std::fabs(sx));
-            odd = (w & 1) != 0;
+            ox = W * 0.5f + mv[3][0] * kx;
+            oy = H * 0.5f - mv[3][1] * ky;
+            widthPx = std::max(1L, std::lround(2.0f * halfWidthPx * std::fabs(sy)));
+            odd = (widthPx & 1) != 0;
         }
     }
     // A line a whole number of pixels wide covers the same pixels everywhere when its centre sits on a pixel centre
@@ -775,13 +788,6 @@ extern "C" int32_t RsWorldMap_EmitEdgesEx(GraphicsContext* gfxCtx, Gfx** gfx, in
         const float r2 = odd ? std::floor(r) + 0.5f : std::round(r);
         return (r2 - o) / sc;
     };
-
-    // The same Matrix_* ops every call (WorldMap.h): the vertices are image pixels x fix under 1/fix.
-    Matrix_Push();
-    Matrix_Scale(1.0f / fix, 1.0f / fix, 1.0f, MTXMODE_APPLY);
-    Mtx* fine = Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__);
-    Matrix_Pop();
-    Mtx* restored = Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__);
     if (m == nullptr || gfx == nullptr || halfWidthPx <= 0.0f || srcW <= 0.0f || srcH <= 0.0f) {
         return 0;
     }
@@ -792,7 +798,7 @@ extern "C" int32_t RsWorldMap_EmitEdgesEx(GraphicsContext* gfxCtx, Gfx** gfx, in
     }
     const LoadedMap::EdgeTopo& topo = TopoOf(*m, k);
     sEdgeStats.snapped = snap;
-    sEdgeStats.widthPx = snap ? 2.0f * halfWidthPx * std::fabs(sx) : 0.0f;
+    sEdgeStats.widthPx = snap ? (float)widthPx : 0.0f;
 
     std::vector<float> pt((size_t)n * 4);
     for (int32_t i = 0; i < n; i++) {
@@ -804,6 +810,10 @@ extern "C" int32_t RsWorldMap_EmitEdgesEx(GraphicsContext* gfxCtx, Gfx** gfx, in
         pt[(size_t)i * 4 + 3] = snapTo(e[3], oy, sy);
     }
     const float hw = halfWidthPx;
+    // Snapped, a cardinal line's half width is set per axis from the matrix, so both are exactly widthPx render
+    // pixels whatever the two axes' scales; diagonals, caps and joins keep the caller's.
+    const float hwX = snap ? (float)widthPx * 0.5f / std::fabs(sx) : hw; // a vertical line's
+    const float hwY = snap ? (float)widthPx * 0.5f / std::fabs(sy) : hw; // a horizontal line's
     const float rx0 = srcX, ry0 = srcY, rx1 = srcX + srcW, ry1 = srcY + srcH;
 
     Vtx* vtx = (Vtx*)Graph_Alloc(gfxCtx, (size_t)topo.vtxBound * sizeof(Vtx));
@@ -854,16 +864,19 @@ extern "C" int32_t RsWorldMap_EmitEdgesEx(GraphicsContext* gfxCtx, Gfx** gfx, in
         const bool cap0 = x0 == e[0] && y0 == e[1] && topo.butt[(size_t)i * 2] == 0;
         const bool cap1 = x1 == e[2] && y1 == e[3] && topo.butt[(size_t)i * 2 + 1] == 0;
         const float len = std::sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0));
-        const float ux = (x1 - x0) / len * hw; // along, half a width long
-        const float uy = (y1 - y0) / len * hw;
+        const float dx = (x1 - x0) / len, dy = (y1 - y0) / len;
+        const float side = x0 == x1 ? hwX : y0 == y1 ? hwY : hw; // the perpendicular half width
+        const float ux = dx * hw;                                  // along, half a width long (the caps)
+        const float uy = dy * hw;
+        const float nx = -dy * side, ny = dx * side; // across
         const float ax = cap0 ? x0 - ux : x0, ay = cap0 ? y0 - uy : y0;
         const float bx = cap1 ? x1 + ux : x1, by = cap1 ? y1 + uy : y1;
         reserve(4);
         const int32_t b = nv;
-        put(ax - uy, ay + ux);
-        put(ax + uy, ay - ux);
-        put(bx - uy, by + ux);
-        put(bx + uy, by - ux);
+        put(ax + nx, ay + ny);
+        put(ax - nx, ay - ny);
+        put(bx + nx, by + ny);
+        put(bx - nx, by - ny);
         pend.insert(pend.end(), { b, b + 1, b + 3, b, b + 3, b + 2 });
         sEdgeStats.quads++;
     }
