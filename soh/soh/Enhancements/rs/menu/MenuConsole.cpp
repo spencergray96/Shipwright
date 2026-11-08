@@ -544,14 +544,14 @@ std::string DescribeMap() {
     const RsMenuMapPageStatus st = RsMenuMapPage_Status();
     char buf[900];
     std::snprintf(buf, sizeof(buf),
-                  "page=%d current=%d map=%d scene=0x%X source=%s reason=%s layer=%d storey_mode=%s fog=%s icons=%d "
+                  "page=%d current=%d map=%d scene=0x%X source=%s reason=%s layer=%d storey_mode=%s fog=%s icons=%s icons_shown=%d "
                   "chunks=%d revealed=%d frame=%d dst=%.1f,%.1f,%.1f,%.1f blocks=%d fog_quads=%d dl_words=%d "
                   "link=%d arrow=%d link_px=%.1f,%.1f link_square=%d,%d link_flag=%d link_revealed=%d "
                   "arrow_mode=%s view=%.1f,%.1f zoom=%.2f zoom_step=%d zoom_steps=%d pans=%d "
                   "drawn_view=%.1f,%.1f,%.1f,%.1f link_arrow=%s scissor=%d arrows=%d",
                   st.pageIndex + 1, st.current ? 1 : 0, st.map ? 1 : 0, st.scene >= 0 ? st.scene : 0xFFFF, st.source,
                   st.reason[0] != '\0' ? st.reason : "-", st.layer, st.storeyMode,
-                  RsMenuMapPage_FogName(RsMenuMapPage_Fog()), RsMenuMapPage_Icons() ? 1 : 0, st.chunks, st.revealed,
+                  RsMenuMapPage_FogName(RsMenuMapPage_Fog()), RsMenuMapPage_Icons() ? "on" : "off", st.iconsShown, st.chunks, st.revealed,
                   st.frame, st.dstX, st.dstY, st.dstW, st.dstH, st.blocks, st.fogQuads, st.words, st.link ? 1 : 0,
                   st.arrowDrawn, st.linkPx, st.linkPy, st.linkSx, st.linkSy, st.linkFlag, st.linkRevealed ? 1 : 0,
                   st.arrow, st.viewCx, st.viewCy, st.viewZoom, st.zoomStep, st.zoomSteps, st.pans, st.drawnView[0],
@@ -854,6 +854,14 @@ int32_t Dump(std::vector<std::string>& lines) {
     for (const auto& a : RsMenuMapPage_Status().arrows) {
         Addf(lines, "op=dump section=map_arrow kind=%s state=%s px=%.1f,%.1f controls=%d", a.kind, a.state, a.px,
              a.py, a.controls ? 1 : 0);
+    }
+    {
+        // #307: one line per map icon on the map's scene, and what the last frame did with it.
+        const RsMenuMapPageStatus mst = RsMenuMapPage_Status();
+        for (const auto& i : mst.icons) {
+            Addf(lines, "op=dump section=map_icon name=%s token=%s state=%s px=%.1f,%.1f alpha=%u units=%.2f", i.name,
+                 i.token, i.state, i.px, i.py, (unsigned)i.alpha, mst.iconUnits);
+        }
     }
     {
         const RsMenuMapPageStatus st = RsMenuMapPage_Status();
@@ -1324,9 +1332,9 @@ map                           the World Map page and its fog of war
   fog                         how unexplored squares draw
     hide                      opaque, nothing shows through
     dim                       darkened, the map shows through
-  icons                       the map icons toggle (#307 draws them)
-    on                        icons on
-    off                       icons off
+  icons                       the map icons (#307; saved)
+    on                        shown at every zoom
+    off                       hidden (default)
   arrow                       Link's arrow on the map
     vanilla                   vanilla's compass arrow, as on the minimap
     custom                    the page's own two-triangle arrow

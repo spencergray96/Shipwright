@@ -263,12 +263,14 @@
 //                         have exempted it. `section=draw` is what the last drawn frame cost in
 //                         glyphs, quads and Gfx words, and one `section=cursor` line per node.
 //                         #303 adds `section=focus` (the `focus` line's fields), `section=map` (map=, scene=, source=scene|context|none, reason=,
-//                         layer=, storey_mode=, fog=, icons=, chunks=, revealed=, the last drawn frame's
+//                         layer=, storey_mode=, fog=, icons=on|off (#307, default off), icons_shown=, chunks=, revealed=, the last drawn frame's
 //                         dst=/blocks=/fog_quads=/dl_words=/arrow=, and Link's link_px=/link_square=/
 //                         link_flag=/link_revealed=, arrow_mode=, the focused view's view=/zoom=/zoom_step=/
 //                         pans= and the drawn_view= rect; since round 3 link_arrow=in|edge|out|none,
 //                         scissor= and arrows=), one `section=map_arrow kind=link|entrance|boat|balloon
-//                         state=in|edge|out px= controls=` line per arrow the last frame considered, and
+//                         state=in|edge|out px= controls=` line per arrow the last frame considered, one `section=map_icon
+//                         name= token= state=in|edge|out|fog|storey|off|no_sprite px= alpha= units=` line per
+//                         map icon on the map's scene (#307; units= its width in game units, the same at every zoom), and
 //                         `section=map_reveal` (entry_reveals=, the last
 //                         reveal, and revealed= the map scene's revealed squares as sx:sy,...).
 //                         Stage 6 adds `section=level` (the `level` line's fields),

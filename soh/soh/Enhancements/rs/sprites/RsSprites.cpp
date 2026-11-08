@@ -56,6 +56,50 @@ bool TokenClean(const char* token) {
     return true;
 }
 
+// The packer's RS sizes (RS_SPRITES_SIZES_PATH): token -> the picture's size in RS pixels. Read once, on the first
+// lookup; an archive packed before the file existed has none, and every token then answers its texel size.
+const std::map<std::string, std::pair<int32_t, int32_t>>& RsSizes() {
+    static std::map<std::string, std::pair<int32_t, int32_t>> sizes;
+    static bool loaded = false;
+    if (loaded) {
+        return sizes;
+    }
+    loaded = true;
+    auto archives = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
+    if (!archives->HasFile(RS_SPRITES_SIZES_PATH)) {
+        return sizes;
+    }
+    auto file = archives->LoadFile(RS_SPRITES_SIZES_PATH);
+    if (file == nullptr || file->Buffer == nullptr) {
+        return sizes;
+    }
+    const std::string text(file->Buffer->begin() + file->BufferOffset, file->Buffer->end());
+    size_t at = 0;
+    while (at < text.size()) {
+        size_t end = text.find('\n', at);
+        if (end == std::string::npos) {
+            end = text.size();
+        }
+        char token[kTokenMax + 1] = {};
+        int32_t w = 0, h = 0;
+        // One `<token> <w> <h>` a line; anything else (the header, a blank line) is skipped.
+        if (std::sscanf(text.substr(at, end - at).c_str(), "%48s %d %d", token, &w, &h) == 3 && w > 0 && h > 0 &&
+            TokenClean(token)) {
+            sizes[token] = { w, h };
+        }
+        at = end + 1;
+    }
+    return sizes;
+}
+
+// The RS size for a resolved entry: the packer's, else its texels.
+void SetRsSize(const char* token, RsSpriteInfo* info) {
+    const auto& sizes = RsSizes();
+    auto it = sizes.find(token);
+    info->rsWidth = it != sizes.end() ? it->second.first : info->width;
+    info->rsHeight = it != sizes.end() ? it->second.second : info->height;
+}
+
 // The texture at an archive path and its size, or false. LoadResourceProcess strips "__OTR__" itself.
 bool Probe(const char* path, int32_t* w, int32_t* h) {
     auto res = Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(path);
@@ -79,7 +123,8 @@ Entry* Resolve(const char* token) {
     std::snprintf(t.path, kPathLen, "__OTR__rs/sprites/%s", token);
     if (Probe(t.path, &t.w, &t.h)) {
         e->tiles.push_back(t);
-        e->info = { t.w, t.h, 1, 1 };
+        e->info = { t.w, t.h, 1, 1, 0, 0 };
+        SetRsSize(token, &e->info);
         e->found = true;
     } else {
         // A grid: <token>/<col>_<row>. Columns along row 0 give the widths, rows along column 0 the heights.
@@ -128,7 +173,8 @@ Entry* Resolve(const char* token) {
             for (int32_t c = 0; c < cols; c++) {
                 width += widths[c];
             }
-            e->info = { width, y0, cols, rows };
+            e->info = { width, y0, cols, rows, 0, 0 };
+            SetRsSize(token, &e->info);
             e->found = true;
         } else {
             e->tiles.clear();

@@ -19,7 +19,9 @@
 //
 // `args[0]` is the subcommand:
 //   status                      op=status shown=<n> filter=<bilerp|point> blend=<xlu|cutout> panel=<on|off>
-//   info <token>                op=info result=ok token=<t> width=<px> height=<px> cols=<n> rows=<n>, or
+//   info <token>                op=info result=ok token=<t> width=<px> height=<px> cols=<n> rows=<n> rs=<w>x<h>, or
+//                               (width/height the packed texels; rs the picture's size in RS pixels, which is what
+//                               anything sized like the RS client uses - RsSpriteInfo.rsWidth, #307), or
 //                               result=error error=missing (rc=1): the token is in no mounted archive
 //   show <token> <x> <y> [<w> [<h>]]
 //                               adds the token to the debug draw, top-left at (x, y). <w> defaults to the
