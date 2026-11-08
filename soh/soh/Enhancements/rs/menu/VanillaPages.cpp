@@ -318,7 +318,7 @@ void RsMenuVanillaPages_SyncPlayer(PlayState* play) {
 // --- #301: slot tracks ----------------------------------------------------------------------------
 //
 // The pieces are tools/sprites/rs-sprites.json's approved `settings_slider` rows, each a 16 x 16 RS sprite (the art
-// keeps its offset inside that canvas) Scale2x'd to 64 x 64 texels, drawn at ONE RS PIXEL TO ONE GAME UNIT: a piece
+// keeps its offset inside that canvas) xBR-upscaled to 128 x 128 texels (#312), drawn at ONE RS PIXEL TO ONE GAME UNIT: a piece
 // is 16 units, half the 32-unit slot pitch, so 2n - 1 plain pieces span n sockets exactly and the end caps' art (the
 // outer half of their canvas, 8 units) closes the row 2 units outside the edge icons. The band is the canvas's middle
 // 14 rows, centred on the icons; a 28-unit icon covers its socket and overhangs the band by 7 above and below.
@@ -367,8 +367,8 @@ void RsVanilla_DrawTracks(RsVanillaTracks* t) {
         return;
     }
     // RsMenu.cpp's icon preset with the RGBA combiner: the texel times a white prim, so the art draws as it is;
-    // XLU_SURF so the binary alpha's bled edge blends rather than cuts. Bilinear: a piece is magnified only
-    // 1.1x (1080p) to 2.25x (4K) a texel, and the Scale2x art already carries its hard edges.
+    // XLU_SURF so the binary alpha's bled edge blends rather than cuts. Bilinear: a texel of the x8 texture covers about
+    // 0.56 screen px at 1080p (a mild minify) and 1.1 at 4K, and the xBR art already carries its smoothed edges (#312).
     dl->push_back(gsDPPipeSync());
     dl->push_back(gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON));
     dl->push_back(gsDPSetCombineMode(G_CC_MODULATERGBA_PRIM, G_CC_MODULATERGBA_PRIM));
