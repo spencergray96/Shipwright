@@ -26,6 +26,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <unordered_map>
 
 #include <libultraship/bridge/consolevariablebridge.h>
@@ -190,10 +191,15 @@ constexpr int32_t kArmPieceCount = (int32_t)(sizeof(kArmPieces) / sizeof(kArmPie
 
 static const char* const kSideKey[2] = { "L", "R" };
 
-// The starting pose, before the owner's session: hand upright (fingers up the screen, the hand limb's +y), a
-// straight wrist (the forearm's +x turned onto the hand's +y) and a straight elbow, so the arm hangs straight
-// down from the grip and off the bottom edge.
-static const RsLinkHandPose kDefaultPose = { { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f }, { 0.0f, 0.0f, 90.0f }, 0.0f, 0.0f };
+// The default pose, from the owner's first live session (2026-11-08): hand upright (fingers up the screen, the hand
+// limb's +y), a straight wrist (the forearm's +x turned onto the hand's +y) and a straight elbow, so the arm hangs
+// straight down from the grip and off the bottom edge - and each hand turned a quarter about the screen's vertical
+// (rot y -90), so the backs of both hands face the screen's outer edges. One sign for both: the left hand showed
+// its back and the right its palm, so the same turn sends the two backs opposite ways.
+static const RsLinkHandPose kDefaultPose = { { 0.0f, -90.0f, 0.0f }, { 0.0f, 0.0f }, { 0.0f, 0.0f, 90.0f }, 0.0f, 0.0f };
+// The open hand, the owner's pick in the same session ("much better, especially since they'll be partially hidden
+// by the scroll").
+constexpr int32_t kDefaultGrip = 1;
 static const float kDefaultLight[3] = { -40.0f, 60.0f, 90.0f };
 constexpr int32_t kDefaultAmbient = 90;
 
@@ -228,10 +234,22 @@ static bool UseBoxes() {
     return CVarGetInteger(CVAR_RS_HAND("Boxes"), 0) != 0;
 }
 static int32_t Grip() {
-    return std::clamp(CVarGetInteger(CVAR_RS_HAND("Grip"), 0), 0, kGripCount - 1);
+    return std::clamp(CVarGetInteger(CVAR_RS_HAND("Grip"), kDefaultGrip), 0, kGripCount - 1);
 }
 static bool Upper() {
     return CVarGetInteger(CVAR_RS_HAND("Upper"), 1) != 0;
+}
+static bool Occlude() {
+    return CVarGetInteger(CVAR_RS_HAND("Occlude"), 1) != 0;
+}
+// 10 game units: the open hand at the owner's pose lies wholly in front of the rolls' axis at 0 and wholly behind at
+// 30; at 10 the thumb and fingertips wrap over the roll and the palm goes behind it (agent check, 2026-11-08).
+constexpr float kDefaultPaper = 10.0f;
+static float Paper() {
+    return CVarGetFloat(CVAR_RS_HAND("Paper"), kDefaultPaper);
+}
+static bool Trim() {
+    return CVarGetInteger(CVAR_RS_HAND("Trim"), 1) != 0;
 }
 static float SetScale(int32_t set) {
     return CVarGetFloat(set == 0 ? CVAR_RS_HAND("ScaleAdult") : CVAR_RS_HAND("ScaleChild"),
@@ -305,15 +323,36 @@ struct RsListVerts {
     std::vector<int8_t> slot; // -1: drawn under the limb's own matrix
     std::vector<Vec3s> pos;
 };
-static std::unordered_map<const char*, RsListVerts> sListVerts;
+static std::unordered_map<const Gfx*, RsListVerts> sListVerts;
 
-static const RsListVerts& ListVerts(const char* name) {
-    auto it = sListVerts.find(name);
+// The vertices a G_VTX_OTR_HASH loads. The interpreter caches the resolved pointer into w1 the first time it runs
+// the command (gfx_vtx_hash_handler_custom), and tells the two apart the same way: an "offset" above 0xFFFFF is a
+// pointer. A trimmed copy (below) is built with pointers in w1 from the start.
+static const Vtx* HashVerts(const Gfx* g) {
+    const uintptr_t offset = g->words.w1;
+    if (offset > 0xFFFFF) {
+        return (const Vtx*)offset;
+    }
+    const Gfx* h = g + 1;
+    const uint64_t hash = ((uint64_t)h->words.w0 << 32) + (uint64_t)(uint32_t)h->words.w1;
+    const char* base = (const char*)ResourceGetDataByCrc(hash);
+    return base != nullptr ? (const Vtx*)(base + offset) : nullptr;
+}
+
+// The 128-bit forms (DisplayListFactory.cpp): the command's second word is part of it.
+static bool IsWide(uint8_t op) {
+    return op == (uint8_t)G_VTX_OTR_HASH || op == (uint8_t)G_SETTIMG_OTR_HASH || op == (uint8_t)G_DL_OTR_HASH ||
+           op == (uint8_t)G_MARKER || op == (uint8_t)G_MTX_OTR || op == (uint8_t)G_BRANCH_Z_OTR ||
+           op == (uint8_t)G_MOVEMEM_OTR;
+}
+
+static const RsListVerts& ListVerts(const Gfx* list) {
+    auto it = sListVerts.find(list);
     if (it != sListVerts.end()) {
         return it->second;
     }
-    RsListVerts& out = sListVerts[name];
-    const Gfx* g = (const Gfx*)ResourceGetDataByName(name);
+    RsListVerts& out = sListVerts[list];
+    const Gfx* g = list;
     int8_t slot = -1;
     for (int32_t i = 0; g != nullptr && i < 4096; i++, g++) {
         const uint8_t op = (uint8_t)(g->words.w0 >> 24);
@@ -324,29 +363,103 @@ static const RsListVerts& ListVerts(const char* name) {
             const uintptr_t addr = g->words.w1;
             slot = (addr >> 24) == 0x0D ? (int8_t)(((addr & 0xFFFFFF) & ~(uintptr_t)1) / sizeof(Mtx)) : -1;
         } else if (op == (uint8_t)G_VTX_OTR_HASH) {
-            const uintptr_t offset = g->words.w1;
             const int32_t n = (int32_t)((g->words.w0 >> 12) & 0xFF);
-            const Gfx* h = g + 1;
-            const uint64_t hash = ((uint64_t)h->words.w0 << 32) + (uint64_t)(uint32_t)h->words.w1;
-            const Vtx* v = nullptr;
-            // The interpreter caches the resolved pointer into w1 the first time it runs the command
-            // (gfx_vtx_hash_handler_custom), and tells the two apart the same way.
-            if (offset > 0xFFFFF) {
-                v = (const Vtx*)offset;
-            } else if (const char* base = (const char*)ResourceGetDataByCrc(hash)) {
-                v = (const Vtx*)(base + offset);
-            }
+            const Vtx* v = HashVerts(g);
             for (int32_t k = 0; v != nullptr && k < n; k++) {
                 out.slot.push_back(slot);
                 out.pos.push_back({ v[k].v.ob[0], v[k].v.ob[1], v[k].v.ob[2] });
             }
+        }
+        if (IsWide(op)) {
             g++;
-        } else if (op == (uint8_t)G_SETTIMG_OTR_HASH || op == (uint8_t)G_DL_OTR_HASH || op == (uint8_t)G_MARKER ||
-                   op == (uint8_t)G_MTX_OTR || op == (uint8_t)G_BRANCH_Z_OTR || op == (uint8_t)G_MOVEMEM_OTR) {
-            g++; // the 128-bit forms (DisplayListFactory.cpp)
         }
     }
     return out;
+}
+
+// --- sleeve trims: vertices moved in a copy of a list ------------------------------------------------------------
+//
+// CALL 5 OF THE OWNER'S SESSION, the "rogue tunic triangle". Each upper arm's tunic sleeve has one vertex that
+// flares well out from the rest, 15 model units short of the elbow: (702, 10, +-408) adult against +-220..278 for
+// its neighbours, (567, 10, +-302) child against +-138..160. On Link that flap sits against his body and is never
+// seen; cut out and turned a quarter (rot y -90) it sticks straight out sideways, left on the left arm and right on
+// the right - exactly what the owner saw. It is NOT the shoulder's weld to the torso (slot 17): those five vertices
+// are at the far, shoulder end of the upper arm, off the bottom of the screen.
+//
+// The trim pulls that one vertex in to its neighbours' depth, in a COPY of the list with its own vertex arrays: the
+// game's own data is shared with Link in the world and is never written. A row is a set, a side, the vertex as the
+// list has it and where it goes. `menu hand trim off` draws the lists untouched, for an A/B.
+struct RsVertexTrim {
+    int32_t set;  // 0 adult, 1 child
+    int32_t side; // 0 left, 1 right
+    Vec3s from;
+    Vec3s to;
+};
+static const RsVertexTrim kSleeveTrims[] = {
+    { 0, 0, { 702, 10, 408 }, { 702, 10, 250 } },
+    { 0, 1, { 702, 10, -408 }, { 702, 10, -250 } },
+    { 1, 0, { 567, 10, 302 }, { 567, 10, 160 } },
+    { 1, 1, { 567, 10, -303 }, { 567, 10, -160 } },
+};
+
+struct RsTrimmedList {
+    std::vector<Gfx> gfx;
+    std::vector<std::unique_ptr<Vtx[]>> verts;
+    int32_t moved = 0;
+};
+static std::unordered_map<const Gfx*, RsTrimmedList> sTrimmed;
+
+// The list to draw for `source` on this set and side: a trimmed copy if a row matches one of its vertices, else the
+// source itself. Built once per list; `moved` counts the vertices the rows moved.
+static const Gfx* TrimmedList(const Gfx* source, int32_t set, int32_t side, int32_t* moved) {
+    *moved = 0;
+    if (source == nullptr || !Trim()) {
+        return source;
+    }
+    auto it = sTrimmed.find(source);
+    if (it == sTrimmed.end()) {
+        RsTrimmedList& out = sTrimmed[source];
+        for (const Gfx* g = source; out.gfx.size() < 4096; g++) {
+            const uint8_t op = (uint8_t)(g->words.w0 >> 24);
+            out.gfx.push_back(*g);
+            if (op == (uint8_t)G_ENDDL) {
+                break;
+            }
+            if (op == (uint8_t)G_VTX_OTR_HASH) {
+                const int32_t n = (int32_t)((g->words.w0 >> 12) & 0xFF);
+                const Vtx* v = HashVerts(g);
+                if (v != nullptr) {
+                    std::unique_ptr<Vtx[]> copy(new Vtx[n]);
+                    std::memcpy(copy.get(), v, n * sizeof(Vtx));
+                    for (int32_t k = 0; k < n; k++) {
+                        for (const RsVertexTrim& t : kSleeveTrims) {
+                            Vtx& c = copy[k];
+                            if (t.set == set && t.side == side && c.v.ob[0] == t.from.x && c.v.ob[1] == t.from.y &&
+                                c.v.ob[2] == t.from.z) {
+                                c.v.ob[0] = t.to.x;
+                                c.v.ob[1] = t.to.y;
+                                c.v.ob[2] = t.to.z;
+                                out.moved++;
+                            }
+                        }
+                    }
+                    // A pointer in w1 is what the interpreter's own cache leaves there, so it reads this as one.
+                    out.gfx.back().words.w1 = (uintptr_t)copy.get();
+                    out.verts.push_back(std::move(copy));
+                }
+            }
+            if (IsWide(op)) {
+                g++;
+                out.gfx.push_back(*g);
+            }
+        }
+        it = sTrimmed.find(source);
+    }
+    if (it->second.moved == 0) {
+        return source;
+    }
+    *moved = it->second.moved;
+    return it->second.gfx.data();
 }
 
 // --- status ------------------------------------------------------------------------------------------------------
@@ -354,7 +467,7 @@ static const RsListVerts& ListVerts(const char* name) {
 static RsLinkHandsStatus sStatus = [] {
     RsLinkHandsStatus s{};
     s.set = "none";
-    s.grip = kGripNames[0];
+    s.grip = kGripNames[kDefaultGrip];
     s.variant = "none";
     return s;
 }();
@@ -380,13 +493,14 @@ constexpr float kDeg = 3.14159265358979f / 180.0f;
 constexpr float kHandsNear = -600.0f;
 constexpr float kHandsFar = 1400.0f;
 
-void RsLinkHands_PushBegin(GraphicsContext* gfxCtx, std::vector<Gfx>& dl) {
+void RsLinkHands_PushDepthClear(std::vector<Gfx>& dl, GraphicsContext* gfxCtx) {
     if (!RsLinkHands_Enabled()) {
         return;
     }
     // A partial depth clear: the interpreter skips a FULL-screen fill of the depth image as redundant with its
     // own clear at frame start (Interpreter::GfxDpFillRectangle), so this is two rectangles each one column short
-    // of the band, which between them cover all of it.
+    // of the band, which between them cover all of it. A depth fill only ever resets to far there (it is a
+    // scissored depth clear, whatever the fill colour), which is why the scroll's depth is drawn, not filled.
     dl.push_back(gsDPPipeSync());
     dl.push_back(gsDPSetColorImage(G_IM_FMT_RGBA, G_IM_SIZ_16b, SCREEN_WIDTH, gZBuffer));
     dl.push_back(gsDPSetCycleType(G_CYC_FILL));
@@ -396,11 +510,40 @@ void RsLinkHands_PushBegin(GraphicsContext* gfxCtx, std::vector<Gfx>& dl) {
     dl.push_back(gsDPFillRectangle(1, 0, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1));
     dl.push_back(gsDPPipeSync());
     dl.push_back(gsDPSetColorImage(G_IM_FMT_RGBA, G_IM_SIZ_16b, SCREEN_WIDTH, gfxCtx->curFrameBuffer));
+}
 
+void RsLinkHands_PushProjection(GraphicsContext* gfxCtx, std::vector<Gfx>& dl) {
     Mtx* ortho = (Mtx*)Graph_Alloc(gfxCtx, sizeof(Mtx));
     guOrtho(ortho, -(f32)(SCREEN_WIDTH / 2), (f32)(SCREEN_WIDTH / 2), -(f32)(SCREEN_HEIGHT / 2),
             (f32)(SCREEN_HEIGHT / 2), kHandsNear, kHandsFar, 1.0f);
     dl.push_back(gsSPMatrix(ortho, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION));
+}
+
+// Depth, and no colour. The interpreter draws a surface INVISIBLE (alpha forced to 0, blended) when the second
+// cycle's blender is CLR_IN x 0 + CLR_MEM x 1-A (Interpreter's `invisible` and `use_alpha` tests read exactly these
+// bits); Z_UPD still writes its depth. The art is cut to its own alpha by the threshold, which runs before the
+// alpha is forced to 0, so the hands go behind the paper's torn edge and not behind the empty corners round it.
+#define RS_RM_HAND_OCCLUDER(clk)     Z_CMP | Z_UPD | IM_RD | CVG_DST_FULL | ZMODE_OPA | FORCE_BL | GBL_c##clk(G_BL_CLR_IN, G_BL_0, G_BL_CLR_MEM, G_BL_1MA)
+
+bool RsLinkHands_PushOccluderState(std::vector<Gfx>& dl, bool textured) {
+    if (!RsLinkHands_Enabled() || !Occlude()) {
+        return false;
+    }
+    dl.push_back(gsDPPipeSync());
+    if (textured) {
+        dl.push_back(gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON));
+        dl.push_back(gsDPSetCombineMode(G_CC_MODULATERGBA_PRIM, G_CC_MODULATERGBA_PRIM));
+        dl.push_back(gsDPSetPrimColor(0, 0, 255, 255, 255, 255));
+    } else {
+        dl.push_back(gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_OFF));
+        dl.push_back(gsDPSetCombineMode(G_CC_SHADE, G_CC_SHADE));
+    }
+    dl.push_back(gsDPSetOtherMode(G_AD_NOTPATTERN | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | G_TF_BILERP | G_TT_NONE |
+                                      G_TL_TILE | G_TD_CLAMP | G_TP_PERSP | G_CYC_1CYCLE | G_PM_NPRIMITIVE,
+                                  (textured ? G_AC_THRESHOLD : G_AC_NONE) | G_ZS_PIXEL | RS_RM_HAND_OCCLUDER(1) |
+                                      RS_RM_HAND_OCCLUDER(2)));
+    dl.push_back(gsSPLoadGeometryMode(G_ZBUFFER | G_SHADE | G_SHADING_SMOOTH));
+    return true;
 }
 
 static void ToScreen(const MtxF* mf, const Vec3s& p, float ext[4]) {
@@ -447,8 +590,11 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
     };
 
     Matrix_Push();
+    // The paper knob moves the hand, not the paper: the scroll's depth is z 0 wherever it is drawn, so a hand set
+    // back by `paper` puts that much more of itself behind it. Always emitted, 0 or not.
+    const float paper = Paper();
     Matrix_Translate(gripX - (float)(SCREEN_WIDTH / 2) + pose.offset[0],
-                     (float)(SCREEN_HEIGHT / 2) - gripY - pose.offset[1], 0.0f, MTXMODE_APPLY);
+                     (float)(SCREEN_HEIGHT / 2) - gripY - pose.offset[1], -paper, MTXMODE_APPLY);
     Matrix_RotateZ((pose.rot[2] + pose.vturn * levelBlend) * kDeg, MTXMODE_APPLY);
     Matrix_RotateY(pose.rot[1] * kDeg, MTXMODE_APPLY);
     Matrix_RotateX(pose.rot[0] * kDeg, MTXMODE_APPLY);
@@ -489,6 +635,10 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
     sStatus.limbSlot[side][2] = slotHand;
     sStatus.loads = sSkelLoads;
     ReadLight(sStatus.light, &sStatus.ambient);
+    sStatus.occlude = Occlude();
+    sStatus.paper = paper;
+    sStatus.trim = Trim();
+    sStatus.trimmed[side] = 0;
     if (!loaded || slotHand < 0 || slotFore < 0 || slotUpper < 0) {
         sStatus.dlists[side] = 0;
         sStatus.verts[side] = 0;
@@ -568,16 +718,21 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
         }
         return &mfRest;
     };
-    auto drawList = [&](const char* name, int32_t slot, const MtxF* own) {
+    auto drawList = [&](const char* name, int32_t slot, const MtxF* own, bool trim) {
         dl.push_back(gsSPMatrix(&mtx[slot], G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
         // Resolved here: a resource name is a string, which only the OPEN_DISPS gSPDisplayList turns into a
         // by-name load. Pushed raw into this heap list, the interpreter would run the path's bytes as commands.
-        Gfx* list = (Gfx*)ResourceGetDataByName(name);
+        const Gfx* list = (const Gfx*)ResourceGetDataByName(name);
         if (list == nullptr) {
             return;
         }
-        dl.push_back(gsSPDisplayList(list));
-        const RsListVerts& lv = ListVerts(name);
+        if (trim) {
+            int32_t moved = 0;
+            list = TrimmedList(list, set, side, &moved);
+            sStatus.trimmed[side] += moved;
+        }
+        dl.push_back(gsSPDisplayList((Gfx*)list));
+        const RsListVerts& lv = ListVerts(list);
         for (size_t k = 0; k < lv.pos.size(); k++) {
             ToScreen(mfForSlot(lv.slot[k], own), lv.pos[k], ext);
         }
@@ -585,10 +740,10 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
         verts += (int32_t)lv.pos.size();
     };
     if (Upper()) {
-        drawList(hs.upper[side], slotUpper, &mfUpper);
+        drawList(hs.upper[side], slotUpper, &mfUpper, true);
     }
-    drawList(hs.forearm[side], slotFore, &mfFore);
-    drawList(hs.hand[side][grip], slotHand, &mfHand);
+    drawList(hs.forearm[side], slotFore, &mfFore, false);
+    drawList(hs.hand[side][grip], slotHand, &mfHand, false);
 
     // OVERLAYS: over the arm, each in its own colour.
     for (int32_t i = 0; i < kArmPieceCount; i++) {
@@ -603,7 +758,7 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
         }
         for (int32_t n = 0; n < kPieceLists; n++) {
             if (piece.dl[side][grip][n] != nullptr) {
-                drawList(piece.dl[side][grip][n], slotHand, &mfHand);
+                drawList(piece.dl[side][grip][n], slotHand, &mfHand, false);
             }
         }
     }
@@ -626,10 +781,11 @@ std::string RsLinkHands_Describe() {
     char buf[1024];
     int32_t n = std::snprintf(buf, sizeof(buf),
                               "set=%s drawn=%s grip=%s variant=%s upper=%d scale=%.4f slots=%d loads=%d "
-                              "light=%.0f,%.0f,%.0f ambient=%d",
+                              "light=%.0f,%.0f,%.0f ambient=%d occlude=%d paper=%.1f trim=%d trimmed=%d,%d",
                               UseBoxes() ? "boxes" : kHandSets[LINK_IS_ADULT ? 0 : 1].id, s.set, kGripNames[Grip()],
                               s.variant.c_str(), Upper() ? 1 : 0,
-                              s.scale, s.slots, s.loads, s.light[0], s.light[1], s.light[2], s.ambient);
+                              s.scale, s.slots, s.loads, s.light[0], s.light[1], s.light[2], s.ambient,
+                              Occlude() ? 1 : 0, Paper(), Trim() ? 1 : 0, s.trimmed[0], s.trimmed[1]);
     for (int32_t side = 0; side < 2 && n > 0 && n < (int32_t)sizeof(buf); side++) {
         const RsLinkHandPose p = ReadPose(side);
         const char* k = side == 0 ? "l" : "r";
@@ -721,7 +877,8 @@ void ClearAll() {
     }
     for (const char* name : { CVAR_RS_HAND("Grip"), CVAR_RS_HAND("Upper"), CVAR_RS_HAND("ScaleAdult"),
                               CVAR_RS_HAND("ScaleChild"), CVAR_RS_HAND("LightX"), CVAR_RS_HAND("LightY"),
-                              CVAR_RS_HAND("LightZ"), CVAR_RS_HAND("Ambient"), CVAR_RS_HAND("Boxes") }) {
+                              CVAR_RS_HAND("LightZ"), CVAR_RS_HAND("Ambient"), CVAR_RS_HAND("Boxes"),
+                              CVAR_RS_HAND("Occlude"), CVAR_RS_HAND("Paper"), CVAR_RS_HAND("Trim") }) {
         CVarClear(name);
     }
 }
@@ -748,6 +905,26 @@ int32_t RsLinkHands_Console(const std::vector<std::string>& args, std::vector<st
     if (verb == "upper" && args.size() == 2 && (args[1] == "on" || args[1] == "off")) {
         CVarSetInteger(CVAR_RS_HAND("Upper"), args[1] == "on" ? 1 : 0);
         Addl(lines, "upper", 0, nullptr);
+        return 0;
+    }
+    if (verb == "occlude" && args.size() == 2 && (args[1] == "on" || args[1] == "off")) {
+        CVarSetInteger(CVAR_RS_HAND("Occlude"), args[1] == "on" ? 1 : 0);
+        Addl(lines, "occlude", 0, nullptr);
+        return 0;
+    }
+    if (verb == "trim" && args.size() == 2 && (args[1] == "on" || args[1] == "off")) {
+        CVarSetInteger(CVAR_RS_HAND("Trim"), args[1] == "on" ? 1 : 0);
+        Addl(lines, "trim", 0, nullptr);
+        return 0;
+    }
+    if (verb == "paper" && args.size() == 2) {
+        float v = 0.0f;
+        if (!ParseFloat(args[1], &v)) {
+            Addl(lines, "paper", 1, "not_a_number");
+            return 1;
+        }
+        CVarSetFloat(CVAR_RS_HAND("Paper"), v);
+        Addl(lines, "paper", 0, nullptr);
         return 0;
     }
     if (verb == "scale" && args.size() == 3 && (args[1] == "adult" || args[1] == "child")) {

@@ -1156,7 +1156,7 @@ const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custo
                      "focus [in|out|loop|hold <in|out> <tick>|stop] | "
                      "hand [set link|boxes|grip fist|open|upper on|off|scale adult|child <s>|"
                      "rot|wrist <l|r|both> <x> <y> <z>|offset <l|r|both> <dx> <dy>|elbow|vturn <l|r|both> <deg>|"
-                     "light <x> <y> <z> [ambient]|reset] | dump";
+                     "light <x> <y> <z> [ambient]|occlude on|off|paper <z>|trim on|off|reset] | dump";
 
 } // namespace
 
@@ -1257,7 +1257,7 @@ const ConsoleSink::Command menuCommand(
     "probe [on|off] | kaleido | equips | hud | flight hold <n>|release | song | inv <kind> <a> <b> | "
     "namepanel custom <item>|off | map [reveal|node|hide <sx> <sy>|reveal all|none|fog hide|dim|icons on|off|"
     "arrow vanilla|custom|zoom in|out|pan <dx> <dy>] | focus [in|out|loop|hold <in|out> <tick>|stop] | "
-    "hand [set|grip|upper|scale|rot|wrist|offset|elbow|vturn|light|reset] | dump. "
+    "hand [set|grip|upper|scale|rot|wrist|offset|elbow|vturn|light|occlude|paper|trim|reset] | dump. "
     "The scroll opens on START when primary is custom (N64 L is the minimap's) "
     "and hard-freezes the world; primary decides which menu START opens, and is a subcommand because "
     "there is no console `set`. sweep rolls the scroll one page the way a shoulder press does, and "
@@ -1390,8 +1390,8 @@ hand                          the scroll's hands, Link's own arms (#299; saved)
     link                      Link's hand, forearm and upper arm (default)
     boxes                     the five-box placeholder from before
   grip                        how the hands hold the rolls
-    fist                      a closed fist (default)
-    open                      an open hand
+    open                      an open hand (default)
+    fist                      a closed fist
   upper                       the upper arm, where the tunic's sleeve shows
     on                        drawn (default)
     off                       hand and forearm only
@@ -1404,6 +1404,13 @@ hand                          the scroll's hands, Link's own arms (#299; saved)
   elbow <l|r|both> <deg>      bend the upper arm at the elbow
   vturn <l|r|both> <deg>      an extra turn in the journal's upright pose
   light <x> <y> <z> [ambient] the light's direction, and the ambient level
+  occlude                     whether the scroll hides what is behind it
+    on                        the hands hold the scroll (default)
+    off                       the hands float over it
+  paper <z>                   the scroll's depth against the grip (default 10); more hides more
+  trim                        the sleeve's flared vertex pulled in
+    on                        trimmed (default)
+    off                       the game's own sleeve
   reset                       every hand setting back to its default
 dump                          everything the menu knows, one line each
 )");

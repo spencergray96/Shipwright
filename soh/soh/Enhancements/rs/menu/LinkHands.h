@@ -18,8 +18,8 @@
 // the limbs take, the tunic's sleeve - or an OVERLAY - display lists drawn over the arm, the gauntlet plates and
 // the Goron bracelet - with when it is worn and what colour it is, per side and per grip.
 //
-// The pose is live (`menu hand ...`, saved as CVars) because the owner works it out in game: the grip (fist or
-// open hand), each side's rotation about the grip, the wrist, the elbow, the nudge, the scale per age, the extra
+// The pose is live (`menu hand ...`, saved as CVars) because the owner works it out in game: the grip (open hand,
+// the owner's pick, or fist), each side's rotation about the grip, the wrist, the elbow, the nudge, the scale per age, the extra
 // turn the vertical (journal) pose gets, and the light.
 //
 // No z64.h here: MenuConsole.cpp includes this for its dump line and `menu hand`, and z64.h's gbi collides with the
@@ -52,6 +52,10 @@ struct RsLinkHandsStatus {
     RsLinkHandPose pose[2];
     float light[3];        // the light's direction, in the menu's view space (x right, y up, z toward you)
     int32_t ambient;
+    bool occlude;          // the scroll hides what of each hand is behind it (`menu hand occlude`)
+    float paper;           // the scroll's depth relative to the grip, game units (+ toward you hides more)
+    bool trim;             // the sleeve trims applied (`menu hand trim`)
+    int32_t trimmed[2];    // vertices the trims moved on each side's lists this frame
 };
 
 // False when `menu hand set boxes` has put the #111 placeholder back.

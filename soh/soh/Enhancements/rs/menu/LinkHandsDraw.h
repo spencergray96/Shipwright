@@ -9,11 +9,24 @@ extern "C" {
 #include <z64.h>
 }
 
-// The depth clear and the hands' own projection, pushed ahead of the hands' interpolation node. The menu's ortho
-// is a sheet at z 0 (near and far +-1); Link's limbs have depth, so they get a deep ortho with the same x and y
-// and the depth buffer under the 4:3 band cleared, which the world wrote and which the limbs must not be tested
-// against. Nothing here is a Matrix_* op, so it costs the interpolation nodes nothing.
-void RsLinkHands_PushBegin(GraphicsContext* gfxCtx, std::vector<Gfx>& dl);
+// The depth clear under the 4:3 band: the world wrote that depth, and Link's limbs must not be tested against it.
+// Pushed once, ahead of the parchment, because the parchment and the rolls then write depth of their own for the
+// hands to go behind (RsLinkHands_PushOccluderState). Not a Matrix_* op, so it costs the interpolation nodes nothing.
+void RsLinkHands_PushDepthClear(std::vector<Gfx>& dl, GraphicsContext* gfxCtx);
+
+// The hands' projection. The menu's ortho is a sheet at z 0 (near and far +-1); Link's limbs have depth, so they
+// get a deep ortho with the same x and y. Whatever writes depth the hands are tested against - the paper, the
+// rolls - must be drawn under this one too, so the two depths are on one scale. Not a Matrix_* op either.
+void RsLinkHands_PushProjection(GraphicsContext* gfxCtx, std::vector<Gfx>& dl);
+
+// CALL 2 OF THE OWNER'S SESSION: the hands HOLD the scroll rather than float over it. The paper and each roll are
+// drawn a second time, invisibly, writing their depth at z 0 - the plane through the rolls' axes - so whatever part
+// of a hand is behind that plane and over the scroll is hidden by the depth test, and whatever wraps round in front
+// of it (the thumb, the fingertips) draws over the paper. Per pixel, so it holds at any pose, grip or age and
+// follows the parchment through a roll with nothing to re-pick. Push this, then the same quads the visible draw
+// used, under the same matrix. `textured`: the parchment art, cut to its own alpha; false for the flat look.
+// Returns false (and pushes nothing) when `menu hand occlude off` or the boxes are up.
+bool RsLinkHands_PushOccluderState(std::vector<Gfx>& dl, bool textured);
 
 // Draw one side's arm. The side's hand matrix (side matrix and swivel) must be current on the Matrix_* stack, in
 // the menu's centred y-up game space; `gripX`/`gripY` is where on the scroll the hand holds, in game units with y

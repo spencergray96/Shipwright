@@ -2141,6 +2141,44 @@ static void DrawRoll(int32_t side) {
     sDrawQuads += 2;
 }
 
+// #299: the parchment and a roll drawn again as DEPTH ONLY, for Link's hands to go behind
+// (RsLinkHands_PushOccluderState has why). The same rectangles as the visible draws above, under whatever matrix
+// those had, and nothing counted: they are not quads anyone sees.
+static void DrawPanelOccluder() {
+    const RsParchmentSource* src = LiveParchment();
+    std::vector<Gfx>& dl = MenuDl();
+    sListState = RS_LIST_OTHER;
+    if (!RsLinkHands_PushOccluderState(dl, src != nullptr)) {
+        return;
+    }
+    if (src != nullptr) {
+        DrawParchmentPart(src->paper, kPaperArtX0, kPanelY0, kPaperArtX1, kPanelY1, false);
+        return;
+    }
+    Vtx* vtx = (Vtx*)Graph_Alloc(sDrawGfxCtx, 4 * sizeof(Vtx));
+    SetFlatQuad(vtx, kPanelX0, kPanelY0, kPanelX1, kPanelY1, kPanelFrameColour);
+    dl.push_back(gsSPVertex(vtx, 4, 0));
+    dl.push_back(gsSP1Quadrangle(0, 2, 3, 1, 0));
+}
+
+static void DrawRollOccluder(int32_t side) {
+    const RsParchmentSource* src = LiveParchment();
+    std::vector<Gfx>& dl = MenuDl();
+    sListState = RS_LIST_OTHER;
+    if (!RsLinkHands_PushOccluderState(dl, src != nullptr)) {
+        return;
+    }
+    if (src != nullptr) {
+        DrawParchmentPart(src->rolls[side], kRollX[side][0], kRollTopY, kRollX[side][2], kRollBottomY,
+                          src->rollsTurned);
+        return;
+    }
+    Vtx* vtx = (Vtx*)Graph_Alloc(sDrawGfxCtx, 4 * sizeof(Vtx));
+    SetFlatQuad(vtx, kRollX[side][0], kRollTopY, kRollX[side][2], kRollBottomY, kRollEdgeColour);
+    dl.push_back(gsSPVertex(vtx, 4, 0));
+    dl.push_back(gsSP1Quadrangle(0, 2, 3, 1, 0));
+}
+
 // One hand, as a rigid display list: five boxes, 20 vertices, 10 triangles. `hand` is 0 for the
 // left and 1 for the right, and the right is the left mirrored about x = 160 rather than a second
 // table - so re-authoring the hand, or swapping in an equipment-reactive one later, is one
@@ -3645,6 +3683,11 @@ static void RsMenu_OnPlayDrawEnd() {
     Matrix_Pop();
     FrameInterpolation_RecordCloseChild();
 
+    // #299: Link's hands are tested against depth the scroll writes (below and in the sides' node), so the band's
+    // depth - the world's - is cleared here, ahead of the parchment, not just ahead of the hands.
+    const bool linkHands = RsLinkHands_Enabled();
+    RsLinkHands_PushDepthClear(dl, gfxCtx);
+
     // --- the parchment, on a CONSTANT key so it interpolates through a whole sweep ---------------
     // Drawn FIRST and alone: it is the backdrop the content sits on and the moving side passes over,
     // and it is the only piece whose transform is a scale rather than a translate.
@@ -3654,6 +3697,14 @@ static void RsMenu_OnPlayDrawEnd() {
     ApplyParchmentMatrix();
     PushCurrentMatrix();
     DrawPanel();
+    if (linkHands) {
+        // The paper's depth, for the hands to go behind: under the hands' projection so the two are on one scale,
+        // and the menu's own put back after. Neither is a Matrix_* op.
+        RsLinkHands_PushProjection(gfxCtx, dl);
+        DrawPanelOccluder();
+        PushViewportAndOrtho();
+        PushFlatState();
+    }
     Matrix_Pop();
     FrameInterpolation_RecordCloseChild();
 
@@ -3748,11 +3799,12 @@ static void RsMenu_OnPlayDrawEnd() {
     // change of numbers rather than a branch around a Matrix_* op. Drawn LAST, so the moving side
     // passes in front of the parchment and the content the way a rolled-up edge would.
     //
-    // #299: the hands are Link's own limbs (LinkHands.cpp), which have depth, so ahead of the node the depth
-    // buffer under the band is cleared and the projection deepened; nothing there is a Matrix_* op. After the
+    // #299: the hands are Link's own limbs (LinkHands.cpp), which have depth, so ahead of the node the projection
+    // is deepened (the band's depth was cleared before the parchment); nothing there is a Matrix_* op. After the
     // node the menu's own ortho goes back, for whatever draws into the list after it.
-    const bool linkHands = RsLinkHands_Enabled();
-    RsLinkHands_PushBegin(gfxCtx, dl);
+    if (linkHands) {
+        RsLinkHands_PushProjection(gfxCtx, dl);
+    }
     FrameInterpolation_RecordOpenChild(sNodeHands, 0);
     PushFlatState();
     for (int32_t side = 0; side < 2; side++) {
@@ -3760,6 +3812,11 @@ static void RsMenu_OnPlayDrawEnd() {
         ApplySideMatrix(side);
         PushCurrentMatrix();
         DrawRoll(side);
+        if (linkHands) {
+            // The roll's depth, under the roll's own matrix: what of this side's hand is behind it, it hides.
+            DrawRollOccluder(side);
+            PushFlatState();
+        }
         // The hand gets its own matrix on top of the side's: the slide and the swivel (both zero at level 0).
         ApplyHandSwivel(side);
         PushCurrentMatrix();
