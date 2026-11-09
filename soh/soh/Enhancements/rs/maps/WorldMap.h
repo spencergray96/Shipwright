@@ -202,8 +202,9 @@ void RsWorldMap_DebugStats(int32_t* blocks, int32_t* words);
 bool RsWorldMap_SetBlockSize(int16_t w, int16_t h);
 
 // #313's detail test: read the export's variant `worldmap/<SCENE>.<variant>.bin` instead of the main file, for every
-// scene ("none" or "" is the main file). Not saved. False, changing nothing, if the name is not [a-z0-9_] or
-// `sceneId` has no such file. A replaced map is kept, never freed (WorldMap.cpp says why).
+// scene ("none" or "" is the main file, always allowed). Not saved. False, changing nothing, if the name is not
+// [a-z0-9_] or `sceneId` has no such file; another scene without it draws its main file. A replaced map is kept,
+// never freed (WorldMap.cpp says why).
 bool RsWorldMap_SetDetail(int16_t sceneId, const char* variant);
 const char* RsWorldMap_Detail(void);
 

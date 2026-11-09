@@ -158,7 +158,11 @@ template <typename T> T ReadLe(const std::vector<uint8_t>& b, size_t at) {
 std::unique_ptr<LoadedMap> Load(const WorldScene& scene) {
     auto out = std::make_unique<LoadedMap>();
     auto archives = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
-    const std::string path = PathFor(scene, sDetail);
+    // The detail setting is global (#313): a scene whose export wrote no such variant draws its main file.
+    std::string path = PathFor(scene, sDetail);
+    if (!sDetail.empty() && !archives->HasFile(path)) {
+        path = scene.path;
+    }
     if (!archives->HasFile(path)) {
         out->problem = "no_map";
         return out;
@@ -464,13 +468,13 @@ extern "C" bool RsWorldMap_SetDetail(int16_t sceneId, const char* variant) {
             return false;
         }
     }
-    const WorldScene* scene = SceneOf(sceneId);
-    if (scene == nullptr) {
-        return false;
-    }
-    auto archives = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
-    if (!archives->HasFile(PathFor(*scene, want))) {
-        return false;
+    // A variant must exist for the scene asked about; going back to the main file is always allowed.
+    if (!want.empty()) {
+        const WorldScene* scene = SceneOf(sceneId);
+        auto archives = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
+        if (scene == nullptr || !archives->HasFile(PathFor(*scene, want))) {
+            return false;
+        }
     }
     if (want != sDetail) {
         sDetail = want;

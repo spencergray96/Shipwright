@@ -637,11 +637,13 @@ bool sScissored = false;
 float sPrevView[4] = {};
 uint32_t sPrevViewFrame = 0;
 
+bool sPrevViewValid = false;
+
 // --- the per-frame trace (#313, MapPage.h) -----------------------------------------------------------------------
 // Each draw (a tick) keeps its view rect; NoteFrame lerps the last two by the frame's step, as the interpolation lerps
 // their placement matrices.
 struct TraceTick {
-    int32_t page = 0;       // sFrame
+    int32_t draw = 0;       // sFrame
     uint32_t game = 0;      // play->state.frames when drawn: NoteFrame records only the frames of that tick
     float x0 = 0, y0 = 0, w = 0, h = 0, renderPerPx = 0, vx = 0, vy = 0;
 };
@@ -651,7 +653,6 @@ TraceTick sTraceCur;
 std::vector<RsMenuMapTraceRow> sTraceRing;
 int32_t sTraceRows = 0;
 std::chrono::steady_clock::time_point sTraceStart;
-bool sPrevViewValid = false;
 
 // One placement push: image pixel (px, py), drawn at (px, -py), lands on game (gx + (px - vx0) k, gy + (py - vy0) k).
 void PushPlacement(GraphicsContext* gfxCtx, std::vector<Gfx>& dl, float gx, float gy, float vx0, float vy0, float k) {
@@ -1385,19 +1386,20 @@ std::vector<RsMenuMapTraceRow> RsMenuMapPage_TraceRows() {
 void RsMenuMapPage_NoteFrame(float t) {
     // Only a frame of a tick the page drew: its display list holds the map at sTraceCur's view. The game's frame
     // counter goes up after the draw and before the frames are presented (GameState_Update), so the frames of the
-    // tick the page drew see it one past the draw's.
-    if (!sTraceOn || sTraceCur.page == 0 || gPlayState == nullptr ||
+    // tick the page drew see it one past the draw's; equal is accepted too, should that order ever change. Two or
+    // more past means the page has stopped drawing.
+    if (!sTraceOn || sTraceCur.draw == 0 || gPlayState == nullptr ||
         (gPlayState->state.frames != sTraceCur.game + 1 && gPlayState->state.frames != sTraceCur.game)) {
         return;
     }
     // The previous tick's view, if the page drew that tick too; else the frame shows this tick's view throughout.
-    const bool lerp = sTracePrev.page == sTraceCur.page - 1 && sTracePrev.game + 1 == sTraceCur.game;
+    const bool lerp = sTracePrev.draw == sTraceCur.draw - 1 && sTracePrev.game + 1 == sTraceCur.game;
     const TraceTick& a = lerp ? sTracePrev : sTraceCur;
     const TraceTick& b = sTraceCur;
     auto mix = [t](float x, float y) { return x + (y - x) * t; };
     RsMenuMapTraceRow r;
     r.row = sTraceRows;
-    r.tick = b.page;
+    r.draw = b.draw;
     r.t = t;
     r.ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - sTraceStart).count();
     r.x0 = mix(a.x0, b.x0);

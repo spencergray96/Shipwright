@@ -544,6 +544,7 @@ int32_t Probe(const std::vector<std::string>& args, std::vector<std::string>& li
 // #303: the World Map page. One line, the fields `section=map` carries, so `menu map` and `dump` agree.
 std::string DescribeMap() {
     const RsMenuMapPageStatus st = RsMenuMapPage_Status();
+    const RsMenuMapPanEasing pan = RsMenuMapPage_PanEasing();
     char buf[1300];
     std::snprintf(buf, sizeof(buf),
                   "page=%d current=%d map=%d scene=0x%X source=%s reason=%s layer=%d storey_mode=%s fog=%s icons=%s icons_shown=%d "
@@ -563,8 +564,7 @@ std::string DescribeMap() {
                   st.frame, st.dstX, st.dstY, st.dstW, st.dstH, st.blocks, st.fogQuads, st.words, st.link ? 1 : 0,
                   st.arrowDrawn, st.linkPx, st.linkPy, st.linkSx, st.linkSy, st.linkFlag, st.linkRevealed ? 1 : 0,
                   st.arrow, st.viewCx, st.viewCy, st.viewZoom, st.zoomStep, st.zoomSteps, st.pans, st.panVx, st.panVy,
-                  RsMenuMapPage_PanEasing().speed / 100.0f, RsMenuMapPage_PanEasing().rampMs,
-                  RsMenuMapPage_PanEasing().coastMs, RsMenuMapPage_Trace() ? 1 : 0, st.drawnView[0],
+                  pan.speed / 100.0f, pan.rampMs, pan.coastMs, RsMenuMapPage_Trace() ? 1 : 0, st.drawnView[0],
                   st.drawnView[1], st.drawnView[2], st.drawnView[3], st.linkArrow, st.scissored ? 1 : 0,
                   (int32_t)st.arrows.size());
     return buf;
@@ -702,7 +702,7 @@ int32_t MapCmd(const std::vector<std::string>& args, std::vector<std::string>& l
     if (word == "paneasing" && (args.size() == 3 || args.size() == 5)) {
         RsMenuMapPanEasing e = { RS_MENU_MAP_PAN_SPEED_DEFAULT, RS_MENU_MAP_PAN_RAMP_DEFAULT, RS_MENU_MAP_PAN_COAST_DEFAULT };
         if (args.size() == 3 && args[2] == "off") {
-            e = { 100, 0, 0 }; // #303's pan
+            e = { RS_MENU_MAP_PAN_SPEED_OFF, RS_MENU_MAP_PAN_RAMP_OFF, RS_MENU_MAP_PAN_COAST_OFF };
         } else if (args.size() == 5) {
             float speed = 0.0f;
             float ramp = 0.0f;
@@ -742,7 +742,7 @@ int32_t MapCmd(const std::vector<std::string>& args, std::vector<std::string>& l
             Addf(lines, "op=map result=error error=open action=trace %s", Describe().c_str());
             return 1;
         }
-        out << "row\ttick\tt\tms\tx0\ty0\tw\th\trender_per_px\tvx\tvy\tdx_px\tdy_px\n";
+        out << "row\tdraw\tt\tms\tx0\ty0\tw\th\trender_per_px\tvx\tvy\tdx_px\tdy_px\n";
         // The step a frame moved, render pixels, and the largest change of that step from one frame to the next
         // (a jump), over the frames where the view moved.
         float maxStep = 0.0f;
@@ -772,7 +772,7 @@ int32_t MapCmd(const std::vector<std::string>& args, std::vector<std::string>& l
             }
             char buf[300];
             std::snprintf(buf, sizeof(buf), "%d\t%d\t%.4f\t%.3f\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%.3f\t%.3f\n",
-                          r.row, r.tick, r.t, r.ms, r.x0, r.y0, r.w, r.h, r.renderPerPx, r.vx, r.vy, dxp, dyp);
+                          r.row, r.draw, r.t, r.ms, r.x0, r.y0, r.w, r.h, r.renderPerPx, r.vx, r.vy, dxp, dyp);
             out << buf;
         }
         Addf(lines,

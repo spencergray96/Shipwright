@@ -27,6 +27,9 @@
 #define RS_MENU_MAP_PAN_SPEED_MAX 300
 #define RS_MENU_MAP_PAN_RAMP_DEFAULT 250
 #define RS_MENU_MAP_PAN_COAST_DEFAULT 150
+#define RS_MENU_MAP_PAN_SPEED_OFF 100 // `paneasing off`: #303's pan
+#define RS_MENU_MAP_PAN_RAMP_OFF 0
+#define RS_MENU_MAP_PAN_COAST_OFF 0
 #define RS_MENU_MAP_PAN_EASE_MAX 2000 // ms, either
 
 enum RsMenuMapFog {
@@ -107,7 +110,7 @@ bool RsMenuMapPage_SetPanEasing(RsMenuMapPanEasing e);
 #define RS_MENU_MAP_TRACE_ROWS 8192
 struct RsMenuMapTraceRow {
     int32_t row;        // frames recorded since `on`
-    int32_t tick;       // the page's draw count (sFrame) whose display list this frame showed
+    int32_t draw;       // the page's draw count (sFrame) whose display list this frame showed
     float t;            // the frame's interpolation step, 1 on a tick's own frame
     double ms;          // wall clock since `on`
     float x0, y0, w, h; // the view rect shown, image pixels
