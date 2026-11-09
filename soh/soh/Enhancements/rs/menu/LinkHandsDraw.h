@@ -34,8 +34,29 @@ bool RsLinkHands_PushOccluderState(std::vector<Gfx>& dl, bool textured);
 // `keyTick`/`keyUp` the level gesture's tick and direction, as `menu level hold <down|up> <tick>` names them (at rest:
 // 0 or 24, down), which pick the hand's offset and paper from its key tables. Emits the same Matrix_* ops on every call
 // whatever is worn or drawn, as the hands' node requires, and leaves the matrix stack as it found it.
+// THE ROLL'S FRAME AROUND THE GRIP, for anchor mode: what RsMenu's hand swivel applies between the roll's matrix and
+// the hand's - the slide (x, y in the roll's frame, y up) and the swivel about the grip (radians) - now and at both
+// ends of the level turn, and the turn's eased blend (0 flat, 1 upright).
+struct RsLinkHandsRollFrame {
+    float slide[2];
+    float swivel;
+    float slideFlat[2];
+    float slideUpright[2];
+    float swivelUpright;
+    float blend;
+};
+
 void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>& dl, int32_t side, float gripX,
-                      float gripY, float levelBlend, int32_t keyTick, bool keyUp);
+                      float gripY, float levelBlend, int32_t keyTick, bool keyUp, const RsLinkHandsRollFrame& frame);
+
+// `menu hand anchor <l|r> rigid on`: the hand turns with its roll exactly - RsMenu leaves out its swivel.
+bool RsLinkHands_Rigid(int32_t side);
+
+// THE SCROLL'S EDGE (owner look 8, the green sliver): `menu hand scrollfilter point` draws the parchment art point
+// sampled, the way its depth occluder is, so the two edges coincide at every sub-texel phase; `menu hand rollinset`
+// insets the rolls' depth occluders by that many game units instead, so their edge never reaches past the art's.
+bool RsLinkHands_ScrollPoint();
+float RsLinkHands_RollInset();
 
 // The rolls' depth for the hands, in game units toward the viewer at a roll's centre line (`menu hand roll`): each roll
 // occluder bulges like the cylinder it draws, 0 at its edges, so fingers that wrap it go behind it at its silhouette.

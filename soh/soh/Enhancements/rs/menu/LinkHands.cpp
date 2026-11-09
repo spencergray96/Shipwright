@@ -204,7 +204,8 @@ static const char* const kSideKey[2] = { "L", "R" };
 constexpr float kDefaultReach = 2.5f;
 // Right only: the right hand is the one that swings round to the top, and leading its swing by 30 degrees shortens the
 // time its arm spends pointing sideways. The left hand ends pointing down as it began, so it gets none.
-static const float kDefaultTurnBend[2] = { 0.0f, 30.0f };
+// Owner look 8: the right's bend is off too - with the anchor's single smooth path it read better without it.
+static const float kDefaultTurnBend[2] = { 0.0f, 0.0f };
 
 // The default pose, from the owner's first live session (2026-11-08): hand upright (fingers up the screen, the hand
 // limb's +y), a straight wrist (the forearm's +x turned onto the hand's +y) and a straight elbow, so the arm hangs
@@ -215,7 +216,7 @@ static const RsLinkHandPose kDefaultPose = { { 0.0f, -90.0f, 0.0f }, { 0.0f, 0.0
                                               0.0f };
 // Where each grip sits, from the owner's look (2026-11-08): both 25 down the roll, the right one 5 in toward the page.
 // Asymmetric on purpose. In the hand's own frame, which turns with the roll.
-static const float kDefaultOffset[2][2] = { { 0.0f, 25.0f }, { -5.0f, 25.0f } };
+static const float kDefaultOffset[2][2] = { { 0.0f, 25.0f }, { -6.0f, 25.0f } };
 // THE KEY TABLES (owner look 5, tuned frame by frame with `menu level hold down <t>`): through the level gesture each
 // hand's offset and paper come from a table by tick, 0 to kLevelTicks (24), not from one flat value. The gesture's
 // matrices are rebuilt each tick and the frame interpolator blends between ticks, so 60 and 144 fps stay smooth.
@@ -244,6 +245,17 @@ static const float kDefaultKeyPaperLeft[kKeyTicks] = { 10, 10, 10, 10, 10, 10, 1
 // INTO the rolls by design, so any bulge hid the left palm's base at rest and pinched the thumb upright; 2 bought little
 // at rest. Per side and per tick through `menu hand keyroll`, for the frames where a bulge helps.
 constexpr float kDefaultRollRadius = 0.0f;
+// RIGHT, the owner's look-8 pass, frame by frame (saved in the run record as look8-hand-tuned-tables.txt): the
+// fallback when the right hand is in keys mode, and where its anchors are derived from (THE ANCHOR).
+static const float kDefaultKeyRight[kKeyTicks][2] = {
+    { -6, 25 },        { -6, 25 },       { -6, 25 },       { -6, 25 },       { -6, 25 },       { -6, 25 },
+    { -6, 25 },        { -6, 25 },       { -6, 25 },       { -6, 25 },       { -8, 26 },       { -9.2f, 24.4f },
+    { -11.7f, 19.6f }, { -14.1f, 11.6f }, { -5.6f, 8.4f }, { -5.6f, 8.4f }, { -5.6f, 8.4f }, { -5.6f, 8.4f },
+    { -5.6f, 8.4f },   { -5.6f, 8.4f },  { -5.6f, 8.4f },  { -5.6f, 8.4f },  { -5.6f, 8.4f },  { -5.6f, 8.4f },
+    { -5.6f, 8.4f },
+};
+static const float kDefaultKeyPaperRight[kKeyTicks] = { 8,  8,  8,  8,  8,  8,  8,  8,  8,  8,  8,  8, 12,
+                                                        12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12 };
 // THE WRIST HOLE (owner look 4): the hand limb's mesh is open at the wrist - in Link's own poses the forearm's bracer
 // fills it - and at the grip pose a corner of that opening, at the base of the palm beside the bracer's tip, faced the
 // screen, so a speck of the parchment behind showed THROUGH the hand. It is not the paper's depth or the triangle split
@@ -349,12 +361,45 @@ static void SetKeyCVar(int32_t side, bool up, int32_t tick, char comp, float v) 
 // stay behind. So its triangles are drawn whole in the FRONT pass whatever the cut. They are picked by their index in
 // the hand list, per set and grip, as measured with a per-triangle map (run record, look 6); a set or grip with no
 // entry has no exemption. Bit n = the list's nth triangle in draw order. `menu hand thumb split` turns it off.
-static const uint64_t kThumbTris[2][kGripCount] = {
-    // adult: fist not measured; open, the thumb 36-41 (look 6) and its glove-covered root 16-17 (look 7: the roll's
-    // lower edge sliced their top at ticks 12-16, where they meet the thumb on the roll's edge)
-    { 0, (0x3FULL << 36) | (1ULL << 16) | (1ULL << 17) },
-    { 0, 0 },             // child: not measured
+// Per set, grip and SIDE: the two hands' lists are ordered differently (owner look 8; the look-7 map, right half).
+static const uint64_t kThumbTris[2][kGripCount][2] = {
+    // adult: fist not measured; open, the thumb 36-41 on both (look 6) and its glove-covered root - 16-17 on the left
+    // (look 7: the roll's lower edge sliced their top at ticks 12-16), 18-19 on the right (look 8: the gap between the
+    // thumb and the glove along the roll's edge; 16-17 never draw on the right)
+    { { 0, 0 }, { (0x3FULL << 36) | (1ULL << 16) | (1ULL << 17), (0x3FULL << 36) | (1ULL << 18) | (1ULL << 19) } },
+    { { 0, 0 }, { 0, 0 } }, // child: not measured
 };
+// THE KNUCKLE, the brown face between the index finger and the palm: 5 on the left, 7 on the right. Its pass is its
+// own setting per side (`menu hand knuckle <l|r> auto|front|back`): the left's went back (look 7, it poked over the
+// roll at tick 11); the right's is checked split/front/back in look 9.
+static const int32_t kKnuckleTri[2] = { 5, 7 };
+constexpr int32_t kKnuckleAuto = 0;
+constexpr int32_t kKnuckleFront = 1;
+constexpr int32_t kKnuckleBack = 2;
+static const char* const kKnuckleNames[3] = { "auto", "front", "back" };
+// The right's 7 BACK (look 9): auto left the owner's notch at ticks 12-13; front filled it but popped a wedge over the
+// roll at tick 15; back follows the roll's silhouette at every tick checked (0, 9-16).
+constexpr int32_t kDefaultKnuckleRight = 2;
+static int32_t KnuckleClass(int32_t side) {
+    return std::clamp((int32_t)SideFloat(side, "Knuckle", side == 0 ? (float)kKnuckleBack : (float)kDefaultKnuckleRight),
+                      kKnuckleAuto, kKnuckleBack);
+}
+// THE ANCHOR (owner look 8): per-tick nudges are applied in the hand's turned frame, so a step in them between ticks
+// becomes a kink in the grip's path on screen (the right hand's t13). In anchor mode the grip is pinned to a point in
+// ITS ROLL'S frame instead - along the roll (up) and in toward the page - moved from a flat anchor to an upright one on
+// the turn's own eased curve, so its path is one smooth curve; the hand's turn is still the swivel. Both anchors are
+// derived from the side's key table at ticks 0 and 24 unless set, so the two ends look exactly as tuned. Per side:
+// `menu hand mode <l|r> anchor|keys`; the left stays on its keys (owner).
+static const int32_t kDefaultAnchorMode[2] = { 0, 1 };
+static bool AnchorMode(int32_t side) {
+    return SideFloat(side, "Anchor", (float)kDefaultAnchorMode[side]) != 0.0f;
+}
+bool RsLinkHands_Rigid(int32_t side) {
+    return SideFloat(side, "AnchorRigid", 0.0f) != 0.0f;
+}
+static float AnchorCurve(int32_t side) {
+    return std::clamp(SideFloat(side, "AnchorCurve", 1.0f), 0.1f, 10.0f);
+}
 static bool ThumbFront() {
     return CVarGetInteger(CVAR_RS_HAND("Thumb"), 1) != 0;
 }
@@ -364,11 +409,10 @@ static bool ThumbFront() {
 // wherever it lies outside them it draws. The visible cut is then the roll's own silhouette, not the fingers'
 // triangle edges. Picked by index like the thumb; `menu hand fingers split` turns it off.
 static const uint64_t kFingerTris[2][kGripCount] = {
-    // adult: fist not measured; open, the visible finger faces 25, 28, 30 and 34 (look 7's per-triangle map at rest and
-    // ticks 10-16; 28 is the index finger's shaded, gauntlet-coloured face)
-    // + 5, the brown knuckle face between the index finger (30) and the palm (6): its corner poked over the roll at
-    // tick 11 (owner look 7)
-    { 0, (1ULL << 5) | (1ULL << 25) | (1ULL << 28) | (1ULL << 30) | (1ULL << 34) },
+    // adult: fist not measured; open, the visible finger faces 25, 28, 30 and 34 - the same on both hands (look 7's
+    // per-triangle map at rest and ticks 10-16; 28 is the index finger's shaded, gauntlet-coloured face). The knuckle
+    // is THE KNUCKLE's.
+    { 0, (1ULL << 25) | (1ULL << 28) | (1ULL << 30) | (1ULL << 34) },
     { 0, 0 }, // child: not measured
 };
 constexpr float kFingerBias = 200.0f;
@@ -391,10 +435,11 @@ static void KeyAt(int32_t side, bool up, int32_t tick, const RsLinkHandPose& pos
         out[1] = kDefaultKeyLeft[tick][1];
         out[2] = kDefaultKeyPaperLeft[tick];
     } else {
-        out[0] = pose.offset[0];
-        out[1] = pose.offset[1];
-        out[2] = Paper();
+        out[0] = kDefaultKeyRight[tick][0];
+        out[1] = kDefaultKeyRight[tick][1];
+        out[2] = kDefaultKeyPaperRight[tick];
     }
+    (void)pose;
     if (!up) {
         out[3] = RollRadius();
     }
@@ -707,6 +752,12 @@ void RsLinkHands_PushProjection(GraphicsContext* gfxCtx, std::vector<Gfx>& dl) {
 // roll's outer edge at every value; from about 144 the subtract breaks and both lose ~1,000. The two rolls' outer
 // edges sit at different sub-texel phases.
 constexpr int32_t kDefaultCutAlpha = 8;
+// THE SCROLL'S EDGE (look 9): picked by the green metric - hand pixels hidden outside the visible scroll, both hands, at
+// ticks 0, 3, 5, 8-16 and 24, close phase included. Point-sampled art: 0 at every tick, both hands (the art and its
+// occluder now sample alike, at any sub-texel phase). Bilinear art: 5 left / 569 right in all; inset 0.25 the same;
+// inset 0.5 611/941; cutalpha 112 476/269. The art's look barely changes - only its outermost edge pixel hardens.
+constexpr int32_t kDefaultScrollPoint = 1;
+constexpr float kDefaultRollInset = 0.0f;
 
 bool RsLinkHands_PushOccluderState(std::vector<Gfx>& dl, bool textured) {
     if (!RsLinkHands_Enabled() || !Occlude()) {
@@ -864,8 +915,39 @@ static void ToScreen(const MtxF* mf, const Vec3s& p, float ext[4]) {
     ext[3] = std::max(ext[3], sy);
 }
 
+// The grip offset (x right, y down, in the hand's swivelled frame) that puts the grip on roll-frame point `at`
+// (x, y up) given the slide and swivel there - the inverse of what RsMenu and the hand's first translate apply.
+static void OffsetForRollPoint(const float at[2], const float slide[2], float swivel, float out[2]) {
+    const float dx = at[0] - slide[0];
+    const float dy = at[1] - slide[1];
+    const float c = std::cos(swivel);
+    const float s = std::sin(swivel);
+    out[0] = dx * c + dy * s;
+    out[1] = -(-dx * s + dy * c);
+}
+static void RollPointForOffset(const float off[2], const float slide[2], float swivel, float out[2]) {
+    const float c = std::cos(swivel);
+    const float s = std::sin(swivel);
+    const float vx = off[0];
+    const float vy = -off[1];
+    out[0] = slide[0] + vx * c - vy * s;
+    out[1] = slide[1] + vx * s + vy * c;
+}
+// along/in <-> the roll's frame: along is up the roll (+y); in is toward the page, +x on the left roll, -x on the right.
+static void AnchorPoint(int32_t side, const char* which, const float derived[2], float out[2]) {
+    char fa[24];
+    char fi[24];
+    std::snprintf(fa, sizeof(fa), "Anchor%sAlong", which);
+    std::snprintf(fi, sizeof(fi), "Anchor%sIn", which);
+    const float sx = side == 0 ? 1.0f : -1.0f;
+    const float along = SideFloat(side, fa, derived[1]);
+    const float in = SideFloat(side, fi, derived[0] * sx);
+    out[0] = in * sx;
+    out[1] = along;
+}
+
 void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>& dl, int32_t side, float gripX,
-                      float gripY, float levelBlend, int32_t keyTick, bool keyUp) {
+                      float gripY, float levelBlend, int32_t keyTick, bool keyUp, const RsLinkHandsRollFrame& frame) {
     const int32_t set = LINK_IS_ADULT ? 0 : 1;
     const RsHandSet& hs = kHandSets[set];
     const int32_t grip = Grip();
@@ -903,6 +985,27 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
     // The offset and paper for this tick of the level gesture, from the side's key tables.
     float key[4];
     KeyAt(side, keyUp, keyTick, pose, key);
+    // ANCHOR MODE: the key table keeps the paper and roll depth; the offset comes from the anchors.
+    sStatus.anchored[side] = AnchorMode(side);
+    if (sStatus.anchored[side]) {
+        float endKey[4];
+        float derivedFlat[2];
+        float derivedUp[2];
+        KeyAt(side, false, 0, pose, endKey);
+        RollPointForOffset(endKey, frame.slideFlat, 0.0f, derivedFlat);
+        KeyAt(side, false, kKeyTicks - 1, pose, endKey);
+        RollPointForOffset(endKey, frame.slideUpright, frame.swivelUpright, derivedUp);
+        float flat[2];
+        float up[2];
+        AnchorPoint(side, "Flat", derivedFlat, flat);
+        AnchorPoint(side, "Up", derivedUp, up);
+        const float b = std::pow(std::clamp(frame.blend, 0.0f, 1.0f), AnchorCurve(side));
+        const float at[2] = { flat[0] + (up[0] - flat[0]) * b, flat[1] + (up[1] - flat[1]) * b };
+        OffsetForRollPoint(at, frame.slide, frame.swivel, key);
+        const float sx = side == 0 ? 1.0f : -1.0f;
+        sStatus.anchor[side][0] = at[1];
+        sStatus.anchor[side][1] = at[0] * sx;
+    }
     const float paper = key[2];
     auto handChain = [&](float back) {
         Matrix_Translate(gripX - (float)(SCREEN_WIDTH / 2) + key[0], (float)(SCREEN_HEIGHT / 2) - gripY - key[1],
@@ -1124,10 +1227,19 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
     const bool byTris = occlude && cut != kCutPixel;
     const bool mixed = cut == kCutMixed;
     const float frontZ = std::max(0.0f, key[3]);
-    const uint64_t thumbMask = ThumbFront() ? kThumbTris[set][grip] : 0;
-    sStatus.thumb[side] = kThumbTris[set][grip] == 0 ? "none" : thumbMask != 0 ? "front" : "split";
-    const uint64_t fingerMask = FingersBack() ? kFingerTris[set][grip] : 0;
+    uint64_t thumbMask = ThumbFront() ? kThumbTris[set][grip][side] : 0;
+    sStatus.thumb[side] = kThumbTris[set][grip][side] == 0 ? "none" : thumbMask != 0 ? "front" : "split";
+    uint64_t fingerMask = FingersBack() ? kFingerTris[set][grip] : 0;
     sStatus.fingers[side] = kFingerTris[set][grip] == 0 ? "none" : fingerMask != 0 ? "back" : "split";
+    if (kFingerTris[set][grip] != 0) {
+        const uint64_t knuckle = 1ULL << kKnuckleTri[side];
+        const int32_t kc = KnuckleClass(side);
+        if (kc == kKnuckleFront) {
+            thumbMask |= knuckle;
+        } else if (kc == kKnuckleBack) {
+            fingerMask |= knuckle;
+        }
+    }
     const int32_t skip = SkipTri();
     int32_t fingerTris = 0;
     int32_t front = 0;
@@ -1207,6 +1319,13 @@ RsLinkHandsStatus RsLinkHands_Status() {
     return sStatus;
 }
 
+bool RsLinkHands_ScrollPoint() {
+    return CVarGetInteger(CVAR_RS_HAND("ScrollPoint"), kDefaultScrollPoint) != 0;
+}
+float RsLinkHands_RollInset() {
+    return std::clamp(CVarGetFloat(CVAR_RS_HAND("RollInset"), kDefaultRollInset), 0.0f, 5.0f);
+}
+
 float RsLinkHands_RollRadius(int32_t side, int32_t keyTick, bool keyUp) {
     float key[4];
     KeyAt(side, keyUp, keyTick, ReadPose(side), key);
@@ -1221,7 +1340,7 @@ std::string RsLinkHands_Describe() {
     int32_t n = std::snprintf(buf, sizeof(buf),
                               "set=%s drawn=%s grip=%s variant=%s upper=%d scale=%.4f slots=%d loads=%d "
                               "light=%.0f,%.0f,%.0f ambient=%d occlude=%d cut=%s roll=%.1f paper=%.1f reach=%.2f overlap=%.1f girth=%.2f "
-                              "trim=%d trimmed=%d,%d tris_front=%d,%d tris_back=%d,%d straddle=%d,%d tris_fingers=%d,%d skip=%d cutalpha=%d "
+                              "trim=%d trimmed=%d,%d tris_front=%d,%d tris_back=%d,%d straddle=%d,%d tris_fingers=%d,%d skip=%d cutalpha=%d scrollfilter=%s rollinset=%.2f "
                               "key_tick=%d key_dir=%s",
                               UseBoxes() ? "boxes" : kHandSets[LINK_IS_ADULT ? 0 : 1].id, s.set, kGripNames[Grip()],
                               s.variant.c_str(), Upper() ? 1 : 0,
@@ -1229,18 +1348,21 @@ std::string RsLinkHands_Describe() {
                               Occlude() ? 1 : 0, kCutNames[Cut()], RollRadius(), Paper(), Reach(), Overlap(), Girth(),
                               Trim() ? 1 : 0, s.trimmed[0], s.trimmed[1], s.tris[0][0], s.tris[1][0], s.tris[0][1],
                               s.tris[1][1], s.straddle[0], s.straddle[1], s.fingerTris[0], s.fingerTris[1], SkipTri(),
-                              CVarGetInteger(CVAR_RS_HAND("CutAlpha"), kDefaultCutAlpha), s.keyTick,
+                              CVarGetInteger(CVAR_RS_HAND("CutAlpha"), kDefaultCutAlpha),
+                              RsLinkHands_ScrollPoint() ? "point" : "bilinear", RsLinkHands_RollInset(), s.keyTick,
                               s.keyUp ? "up" : "down");
     for (int32_t side = 0; side < 2 && n > 0 && n < (int32_t)sizeof(buf); side++) {
         const RsLinkHandPose p = ReadPose(side);
         const char* k = side == 0 ? "l" : "r";
         n += std::snprintf(buf + n, sizeof(buf) - n,
                            " %s_rot=%.1f,%.1f,%.1f %s_offset=%.1f,%.1f %s_wrist=%.1f,%.1f,%.1f %s_elbow=%.1f "
-                           "%s_vturn=%.1f %s_turnbend=%.1f %s_key=%.1f,%.1f %s_keypaper=%.1f %s_keyroll=%.1f %s_thumb=%s %s_fingers=%s %s_lists=%d %s_verts=%d %s_extent=%.1f,%.1f,%.1f,%.1f %s_slots=%d,%d,%d",
+                           "%s_vturn=%.1f %s_turnbend=%.1f %s_key=%.1f,%.1f %s_keypaper=%.1f %s_keyroll=%.1f %s_thumb=%s %s_fingers=%s %s_knuckle=%s %s_mode=%s %s_anchor=%.1f,%.1f %s_lists=%d %s_verts=%d %s_extent=%.1f,%.1f,%.1f,%.1f %s_slots=%d,%d,%d",
                            k, p.rot[0], p.rot[1], p.rot[2], k, p.offset[0], p.offset[1], k, p.wrist[0], p.wrist[1],
                            p.wrist[2], k, p.elbow, k, p.vturn, k, p.turnBend, k, s.key[side][0], s.key[side][1], k,
                            s.key[side][2], k, s.key[side][3], k, s.thumb[side] ? s.thumb[side] : "none", k,
-                           s.fingers[side] ? s.fingers[side] : "none", k,
+                           s.fingers[side] ? s.fingers[side] : "none", k, kKnuckleNames[KnuckleClass(side)], k,
+                           AnchorMode(side) ? (RsLinkHands_Rigid(side) ? "anchor-rigid" : "anchor") : "keys", k,
+                           s.anchor[side][0], s.anchor[side][1], k,
                            s.dlists[side], k, s.verts[side], k,
                            s.extent[side][0], s.extent[side][1], s.extent[side][2], s.extent[side][3], k,
                            s.limbSlot[side][0], s.limbSlot[side][1], s.limbSlot[side][2]);
@@ -1316,7 +1438,8 @@ int32_t SetSideFields(const std::vector<std::string>& args, const char* op, cons
 void ClearAll() {
     static const char* const kFields[] = { "RotX",   "RotY",   "RotZ",    "WristX",  "WristY",
                                            "WristZ", "OffsetX", "OffsetY", "Elbow",   "VTurn",
-                                           "TurnBend" };
+                                           "TurnBend", "Knuckle", "Anchor", "AnchorRigid", "AnchorCurve",
+                                           "AnchorFlatAlong", "AnchorFlatIn", "AnchorUpAlong", "AnchorUpIn" };
     for (int32_t side = 0; side < 2; side++) {
         for (const char* f : kFields) {
             char name[96];
@@ -1341,7 +1464,7 @@ void ClearAll() {
                               CVAR_RS_HAND("Cut"), CVAR_RS_HAND("Reach"), CVAR_RS_HAND("Overlap"), CVAR_RS_HAND("Girth"),
                               CVAR_RS_HAND("Roll"), CVAR_RS_HAND("Thumb"),
                               CVAR_RS_HAND("Fingers"), CVAR_RS_HAND("Skip"),
-                              CVAR_RS_HAND("CutAlpha") }) {
+                              CVAR_RS_HAND("CutAlpha"), CVAR_RS_HAND("ScrollPoint"), CVAR_RS_HAND("RollInset") }) {
         CVarClear(name);
     }
 }
@@ -1493,6 +1616,100 @@ int32_t RsLinkHands_Console(const std::vector<std::string>& args, std::vector<st
     if (verb == "fingers" && args.size() == 2 && (args[1] == "back" || args[1] == "split")) {
         CVarSetInteger(CVAR_RS_HAND("Fingers"), args[1] == "back" ? 1 : 0);
         Addl(lines, "fingers", 0, nullptr);
+        return 0;
+    }
+    // mode <l|r|both> anchor|keys
+    if (verb == "mode" && args.size() == 3 && (args[2] == "anchor" || args[2] == "keys")) {
+        int32_t mask = 0;
+        if (!ParseSides(args[1], &mask)) {
+            Addl(lines, "mode", 1, "usage");
+            return 1;
+        }
+        for (int32_t side = 0; side < 2; side++) {
+            if (mask & (1 << side)) {
+                SetSideFloat(side, "Anchor", args[2] == "anchor" ? 1.0f : 0.0f);
+            }
+        }
+        Addl(lines, "mode", 0, nullptr);
+        return 0;
+    }
+    // anchor <l|r|both> flat|upright <along> <in> / curve <k> / rigid on|off / derive
+    if (verb == "anchor" && args.size() >= 3) {
+        int32_t mask = 0;
+        bool ok = ParseSides(args[1], &mask);
+        const std::string& what = args[2];
+        float v[2] = {};
+        if (ok && (what == "flat" || what == "upright")) {
+            ok = args.size() == 5 && ParseFloat(args[3], &v[0]) && ParseFloat(args[4], &v[1]);
+        } else if (ok && what == "curve") {
+            ok = args.size() == 4 && ParseFloat(args[3], &v[0]) && v[0] > 0.0f;
+        } else if (ok && what == "rigid") {
+            ok = args.size() == 4 && (args[3] == "on" || args[3] == "off");
+        } else if (ok && what == "derive") {
+            ok = args.size() == 3;
+        } else {
+            ok = false;
+        }
+        if (!ok) {
+            Addl(lines, "anchor", 1, "usage");
+            return 1;
+        }
+        for (int32_t side = 0; side < 2; side++) {
+            if (!(mask & (1 << side))) {
+                continue;
+            }
+            const char* w = what == "flat" ? "Flat" : "Up";
+            if (what == "flat" || what == "upright") {
+                char fa[24];
+                char fi[24];
+                std::snprintf(fa, sizeof(fa), "Anchor%sAlong", w);
+                std::snprintf(fi, sizeof(fi), "Anchor%sIn", w);
+                SetSideFloat(side, fa, v[0]);
+                SetSideFloat(side, fi, v[1]);
+            } else if (what == "curve") {
+                SetSideFloat(side, "AnchorCurve", v[0]);
+            } else if (what == "rigid") {
+                SetSideFloat(side, "AnchorRigid", args[3] == "on" ? 1.0f : 0.0f);
+            } else {
+                for (const char* f : { "AnchorFlatAlong", "AnchorFlatIn", "AnchorUpAlong", "AnchorUpIn" }) {
+                    char name[96];
+                    std::snprintf(name, sizeof(name), CVAR_RS_HAND("%s.%s"), kSideKey[side], f);
+                    CVarClear(name);
+                }
+            }
+        }
+        Addl(lines, "anchor", 0, nullptr);
+        return 0;
+    }
+    // knuckle <l|r|both> auto|front|back
+    if (verb == "knuckle" && args.size() == 3 && (args[2] == "auto" || args[2] == "front" || args[2] == "back")) {
+        int32_t mask = 0;
+        if (!ParseSides(args[1], &mask)) {
+            Addl(lines, "knuckle", 1, "usage");
+            return 1;
+        }
+        const float v = args[2] == "front" ? (float)kKnuckleFront : args[2] == "back" ? (float)kKnuckleBack : 0.0f;
+        for (int32_t side = 0; side < 2; side++) {
+            if (mask & (1 << side)) {
+                SetSideFloat(side, "Knuckle", v);
+            }
+        }
+        Addl(lines, "knuckle", 0, nullptr);
+        return 0;
+    }
+    if (verb == "scrollfilter" && args.size() == 2 && (args[1] == "point" || args[1] == "bilinear")) {
+        CVarSetInteger(CVAR_RS_HAND("ScrollPoint"), args[1] == "point" ? 1 : 0);
+        Addl(lines, "scrollfilter", 0, nullptr);
+        return 0;
+    }
+    if (verb == "rollinset" && args.size() == 2) {
+        float v = 0.0f;
+        if (!ParseFloat(args[1], &v) || v < 0.0f || v > 5.0f) {
+            Addl(lines, "rollinset", 1, "not_an_inset");
+            return 1;
+        }
+        CVarSetFloat(CVAR_RS_HAND("RollInset"), v);
+        Addl(lines, "rollinset", 0, nullptr);
         return 0;
     }
     if (verb == "cutalpha" && args.size() == 2) {

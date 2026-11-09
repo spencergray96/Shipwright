@@ -1956,8 +1956,26 @@ static void ApplyHandSwivel(int32_t side) {
     const float outward = (side == 0 ? -1.0f : 1.0f) * (float)kHandOutward * rest;
     Matrix_Translate(outward, HandSlide(side) + (float)kHandRaise * rest, 0.0f, MTXMODE_APPLY);
     Matrix_Translate(gx, gy, 0.0f, MTXMODE_APPLY);
-    Matrix_RotateZ(HandSwivel(side), MTXMODE_APPLY);
+    Matrix_RotateZ(RsLinkHands_Rigid(side) ? 0.0f : HandSwivel(side), MTXMODE_APPLY);
     Matrix_Translate(-gx, -gy, 0.0f, MTXMODE_APPLY);
+}
+
+// What ApplyHandSwivel applies, now and at both ends of the turn, for a hand in anchor mode (LinkHandsDraw.h).
+static RsLinkHandsRollFrame HandRollFrame(int32_t side) {
+    RsLinkHandsRollFrame f{};
+    const float rest = 1.0f - LevelAngle(LevelPose()) / kTurnAngle;
+    const float outSign = side == 0 ? -1.0f : 1.0f;
+    const bool rigid = RsLinkHands_Rigid(side);
+    f.slide[0] = outSign * (float)kHandOutward * rest;
+    f.slide[1] = HandSlide(side) + (float)kHandRaise * rest;
+    f.swivel = rigid ? 0.0f : HandSwivel(side);
+    f.slideFlat[0] = outSign * (float)kHandOutward;
+    f.slideFlat[1] = (float)kHandRaise;
+    f.slideUpright[0] = 0.0f;
+    f.slideUpright[1] = side == 0 ? kHandSlide : 0.0f;
+    f.swivelUpright = rigid ? 0.0f : HandSwivelAt(side, kTurnAngle);
+    f.blend = LevelAngle(LevelPose()) / kTurnAngle;
+    return f;
 }
 
 // Pushes the matrix the Matrix_* chain above just built. Separate from the chain so the two nodes
@@ -2084,7 +2102,9 @@ static void PushSpriteState() {
     dl.push_back(gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON));
     dl.push_back(gsDPSetCombineMode(G_CC_MODULATERGBA_PRIM, G_CC_MODULATERGBA_PRIM));
     dl.push_back(gsDPSetPrimColor(0, 0, 255, 255, 255, 255));
-    dl.push_back(gsDPSetOtherMode(G_AD_NOTPATTERN | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | G_TF_BILERP | G_TT_NONE |
+    // #299 look 9: `menu hand scrollfilter point` samples the parchment the way the hands' depth occluder does.
+    const uint32_t filter = RsLinkHands_ScrollPoint() ? G_TF_POINT : G_TF_BILERP;
+    dl.push_back(gsDPSetOtherMode(G_AD_NOTPATTERN | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | filter | G_TT_NONE |
                                       G_TL_TILE | G_TD_CLAMP | G_TP_PERSP | G_CYC_1CYCLE | G_PM_NPRIMITIVE,
                                   G_AC_NONE | G_ZS_PIXEL | G_RM_XLU_SURF | G_RM_XLU_SURF2));
     dl.push_back(gsSPLoadGeometryMode(G_SHADING_SMOOTH));
@@ -2093,14 +2113,14 @@ static void PushSpriteState() {
 // One part onto the game-space rectangle (x0, y0)-(x1, y1), y down; `turned` turns it 90 degrees
 // counter-clockwise (its top edge becomes the rectangle's left). Returns the pieces drawn.
 static int32_t DrawParchmentPart(const RsParchmentPart& part, int16_t x0, int16_t y0, int16_t x1, int16_t y1,
-                                 bool turned) {
+                                 bool turned, float insetX = 0.0f) {
     RsSpriteInfo info{};
     if (!RsSprites_Info(part.token, &info)) {
         return 0;
     }
     const float kx = (float)info.width / part.refW;
     const float ky = (float)info.height / part.refH;
-    const float l = (float)(x0 - SCREEN_WIDTH / 2), r = (float)(x1 - SCREEN_WIDTH / 2);
+    const float l = (float)(x0 - SCREEN_WIDTH / 2) + insetX, r = (float)(x1 - SCREEN_WIDTH / 2) - insetX;
     const float t = (float)(SCREEN_HEIGHT / 2 - y0), b = (float)(SCREEN_HEIGHT / 2 - y1);
     // Where the source's TL, TR, BL, BR land. Turned counter-clockwise: TL -> bottom-left, TR -> top-left,
     // BL -> bottom-right, BR -> top-right.
@@ -2192,7 +2212,7 @@ static void DrawRollOccluder(int32_t side) {
     }
     if (src != nullptr) {
         DrawParchmentPart(src->rolls[side], kRollX[side][0], kRollTopY, kRollX[side][2], kRollBottomY,
-                          src->rollsTurned);
+                          src->rollsTurned, RsLinkHands_RollInset());
         return;
     }
     Vtx* vtx = (Vtx*)Graph_Alloc(sDrawGfxCtx, 4 * sizeof(Vtx));
@@ -3886,7 +3906,7 @@ static void RsMenu_OnPlayDrawEnd() {
             // loads its own matrices (one per limb), so the side's is pushed again afterwards - on every frame,
             // like every other op in this node - for the cursor box and the next side's roll.
             RsLinkHands_Draw(play, gfxCtx, dl, side, kGripX[side], kGripY, LevelAngle(LevelPose()) / kTurnAngle,
-                             HandKeyTick(), sLevelActive && sLevelDir < 0);
+                             HandKeyTick(), sLevelActive && sLevelDir < 0, HandRollFrame(side));
             const RsLinkHandsStatus hands = RsLinkHands_Status();
             for (int32_t k = 0; k < 4; k++) {
                 sHandExtent[side][k] = hands.extent[side][k];
