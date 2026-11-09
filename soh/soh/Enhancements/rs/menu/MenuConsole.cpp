@@ -1157,7 +1157,7 @@ const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custo
                      "hand [set link|boxes|grip fist|open|upper on|off|scale adult|child <s>|"
                      "rot|wrist <l|r|both> <x> <y> <z>|offset <l|r|both> <dx> <dy>|elbow|vturn <l|r|both> <deg>|"
                      "light <x> <y> <z> [ambient]|occlude on|off|cut tris|pixel|mixed|paper <z>|reach <k>|turnbend <l|r|both> <deg>|key <l|r|both> <tick> <dx> <dy> [down|up]|keypaper <l|r|both> <tick> <z> [down|up]|"
-                     "keyroll <l|r|both> <tick> <r> [down|up]|keys|roll <r>|thumb front|split|fingers back|split|skip <n>|overlap <u>|girth <k>|"
+                     "keyroll <l|r|both> <tick> <r> [down|up]|keys|roll <r>|thumb front|split|fingers back|split|skip <n>|cutalpha <a>|overlap <u>|girth <k>|"
                      "trim on|off|reset] | dump";
 
 } // namespace
@@ -1269,7 +1269,7 @@ const ConsoleSink::Command menuCommand(
     "probe [on|off] | backdrop green|off | kaleido | equips | hud | flight hold <n>|release | song | inv <kind> <a> <b> | "
     "namepanel custom <item>|off | map [reveal|node|hide <sx> <sy>|reveal all|none|fog hide|dim|icons on|off|"
     "arrow vanilla|custom|zoom in|out|pan <dx> <dy>] | focus [in|out|loop|hold <in|out> <tick>|stop] | "
-    "hand [set|grip|upper|scale|rot|wrist|offset|elbow|vturn|light|occlude|cut|paper|reach|turnbend|key|keypaper|keyroll|keys|roll|thumb|fingers|skip|overlap|girth|trim|reset] | dump. "
+    "hand [set|grip|upper|scale|rot|wrist|offset|elbow|vturn|light|occlude|cut|paper|reach|turnbend|key|keypaper|keyroll|keys|roll|thumb|fingers|skip|cutalpha|overlap|girth|trim|reset] | dump. "
     "The scroll opens on START when primary is custom (N64 L is the minimap's) "
     "and hard-freezes the world; primary decides which menu START opens, and is a subcommand because "
     "there is no console `set`. sweep rolls the scroll one page the way a shoulder press does, and "
@@ -1432,6 +1432,7 @@ hand                          the scroll's hands, Link's own arms (#299; saved)
     back                      always behind it, cut by its silhouette (default)
     split                     cut like the rest of the hand
   skip <n>                    leave out the hand's nth triangle, to map them; -1 off
+  cutalpha <a>                where the scroll's edges start hiding the hands, 0-255; above 8 bilinear (default 8)
   overlap <u>                 slide the forearm into the hand at the wrist, model units (default 40)
   girth <k>                   the forearm's thickness, times its own (default 1.1)
   light <x> <y> <z> [ambient] the light's direction, and the ambient level

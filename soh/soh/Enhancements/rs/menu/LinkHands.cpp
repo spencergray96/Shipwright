@@ -366,7 +366,9 @@ static bool ThumbFront() {
 static const uint64_t kFingerTris[2][kGripCount] = {
     // adult: fist not measured; open, the visible finger faces 25, 28, 30 and 34 (look 7's per-triangle map at rest and
     // ticks 10-16; 28 is the index finger's shaded, gauntlet-coloured face)
-    { 0, (1ULL << 25) | (1ULL << 28) | (1ULL << 30) | (1ULL << 34) },
+    // + 5, the brown knuckle face between the index finger (30) and the palm (6): its corner poked over the roll at
+    // tick 11 (owner look 7)
+    { 0, (1ULL << 5) | (1ULL << 25) | (1ULL << 28) | (1ULL << 30) | (1ULL << 34) },
     { 0, 0 }, // child: not measured
 };
 constexpr float kFingerBias = 200.0f;
@@ -699,20 +701,41 @@ void RsLinkHands_PushProjection(GraphicsContext* gfxCtx, std::vector<Gfx>& dl) {
 // edge - about 5 px at a 1808-wide window - and cut the fingertips short of the roll they poke past.
 #define RS_RM_HAND_OCCLUDER(clk)     Z_CMP | Z_UPD | IM_RD | CVG_DST_FULL | ZMODE_OPA | FORCE_BL | GBL_c##clk(G_BL_CLR_IN, G_BL_0, G_BL_CLR_MEM, G_BL_1MA)
 
+// 8: the old cut, point sampled - the default until the owner picks, because no single value is clean on both rolls
+// (look 8's sweep on green, hand pixels lost outside the visible scroll at rest): point/8 loses 0 on the left and 67 on
+// the right (the reported sliver); bilinear at 112-136 loses 0 on the right but a 1-pixel column (79) at the left
+// roll's outer edge at every value; from about 144 the subtract breaks and both lose ~1,000. The two rolls' outer
+// edges sit at different sub-texel phases.
+constexpr int32_t kDefaultCutAlpha = 8;
+
 bool RsLinkHands_PushOccluderState(std::vector<Gfx>& dl, bool textured) {
     if (!RsLinkHands_Enabled() || !Occlude()) {
         return false;
     }
     dl.push_back(gsDPPipeSync());
     if (textured) {
+        // THE CUT'S ALPHA (owner look 7, a green sliver between the right roll's outer edge and the hand): the
+        // interpreter's alpha threshold is fixed in the shader at 8/256 and ignores the blend colour, so the occluders
+        // wrote depth across the art's soft alpha fringe, which the visible draw (bilinear, blended) shows as almost
+        // transparent - hiding hand pixels just outside the visible roll and paper. So the combiner subtracts the
+        // wanted cut first: alpha = (TEXEL0 - PRIM) * SHADE (vertex alpha 1), and the fixed test then discards
+        // everything below CutAlpha. 8 is the old cut (see kDefaultCutAlpha for the sweep). The art's own alpha is all-or-nothing, so what made the sliver was FILTERING: the visible draw is
+        // bilinear, which fades the last texel's outer half toward the backdrop, while the point-sampled occluder
+        // covered that whole texel. So above the old cut the occluder samples bilinear too, and its cut at half alpha
+        // lands on the visible edge's half-alpha contour. (Point sampling was look 2's BLUE fix, when the cut was the
+        // fixed 3%: bilinear then kept the faint fringe and cut fingertips short.)
+        const int32_t cut = std::clamp(CVarGetInteger(CVAR_RS_HAND("CutAlpha"), kDefaultCutAlpha), 0, 255);
         dl.push_back(gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON));
-        dl.push_back(gsDPSetCombineMode(G_CC_MODULATERGBA_PRIM, G_CC_MODULATERGBA_PRIM));
-        dl.push_back(gsDPSetPrimColor(0, 0, 255, 255, 255, 255));
+        dl.push_back(gsDPSetCombineLERP(0, 0, 0, TEXEL0, TEXEL0, PRIMITIVE, SHADE, 0, 0, 0, 0, TEXEL0, TEXEL0,
+                                        PRIMITIVE, SHADE, 0));
+        dl.push_back(gsDPSetPrimColor(0, 0, 255, 255, 255, (u8)std::max(0, cut - 8)));
     } else {
         dl.push_back(gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_OFF));
         dl.push_back(gsDPSetCombineMode(G_CC_SHADE, G_CC_SHADE));
     }
-    dl.push_back(gsDPSetOtherMode(G_AD_NOTPATTERN | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | G_TF_POINT | G_TT_NONE |
+    const bool bilerp = textured && CVarGetInteger(CVAR_RS_HAND("CutAlpha"), kDefaultCutAlpha) > 8;
+    dl.push_back(gsDPSetOtherMode(G_AD_NOTPATTERN | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT |
+                                      (bilerp ? G_TF_BILERP : G_TF_POINT) | G_TT_NONE |
                                       G_TL_TILE | G_TD_CLAMP | G_TP_PERSP | G_CYC_1CYCLE | G_PM_NPRIMITIVE,
                                   (textured ? G_AC_THRESHOLD : G_AC_NONE) | G_ZS_PIXEL | RS_RM_HAND_OCCLUDER(1) |
                                       RS_RM_HAND_OCCLUDER(2)));
@@ -1198,14 +1221,15 @@ std::string RsLinkHands_Describe() {
     int32_t n = std::snprintf(buf, sizeof(buf),
                               "set=%s drawn=%s grip=%s variant=%s upper=%d scale=%.4f slots=%d loads=%d "
                               "light=%.0f,%.0f,%.0f ambient=%d occlude=%d cut=%s roll=%.1f paper=%.1f reach=%.2f overlap=%.1f girth=%.2f "
-                              "trim=%d trimmed=%d,%d tris_front=%d,%d tris_back=%d,%d straddle=%d,%d tris_fingers=%d,%d skip=%d "
+                              "trim=%d trimmed=%d,%d tris_front=%d,%d tris_back=%d,%d straddle=%d,%d tris_fingers=%d,%d skip=%d cutalpha=%d "
                               "key_tick=%d key_dir=%s",
                               UseBoxes() ? "boxes" : kHandSets[LINK_IS_ADULT ? 0 : 1].id, s.set, kGripNames[Grip()],
                               s.variant.c_str(), Upper() ? 1 : 0,
                               s.scale, s.slots, s.loads, s.light[0], s.light[1], s.light[2], s.ambient,
                               Occlude() ? 1 : 0, kCutNames[Cut()], RollRadius(), Paper(), Reach(), Overlap(), Girth(),
                               Trim() ? 1 : 0, s.trimmed[0], s.trimmed[1], s.tris[0][0], s.tris[1][0], s.tris[0][1],
-                              s.tris[1][1], s.straddle[0], s.straddle[1], s.fingerTris[0], s.fingerTris[1], SkipTri(), s.keyTick,
+                              s.tris[1][1], s.straddle[0], s.straddle[1], s.fingerTris[0], s.fingerTris[1], SkipTri(),
+                              CVarGetInteger(CVAR_RS_HAND("CutAlpha"), kDefaultCutAlpha), s.keyTick,
                               s.keyUp ? "up" : "down");
     for (int32_t side = 0; side < 2 && n > 0 && n < (int32_t)sizeof(buf); side++) {
         const RsLinkHandPose p = ReadPose(side);
@@ -1316,7 +1340,8 @@ void ClearAll() {
                               CVAR_RS_HAND("Occlude"), CVAR_RS_HAND("Paper"), CVAR_RS_HAND("Trim"),
                               CVAR_RS_HAND("Cut"), CVAR_RS_HAND("Reach"), CVAR_RS_HAND("Overlap"), CVAR_RS_HAND("Girth"),
                               CVAR_RS_HAND("Roll"), CVAR_RS_HAND("Thumb"),
-                              CVAR_RS_HAND("Fingers"), CVAR_RS_HAND("Skip") }) {
+                              CVAR_RS_HAND("Fingers"), CVAR_RS_HAND("Skip"),
+                              CVAR_RS_HAND("CutAlpha") }) {
         CVarClear(name);
     }
 }
@@ -1468,6 +1493,16 @@ int32_t RsLinkHands_Console(const std::vector<std::string>& args, std::vector<st
     if (verb == "fingers" && args.size() == 2 && (args[1] == "back" || args[1] == "split")) {
         CVarSetInteger(CVAR_RS_HAND("Fingers"), args[1] == "back" ? 1 : 0);
         Addl(lines, "fingers", 0, nullptr);
+        return 0;
+    }
+    if (verb == "cutalpha" && args.size() == 2) {
+        float v = 0.0f;
+        if (!ParseFloat(args[1], &v) || v < 0.0f || v > 255.0f) {
+            Addl(lines, "cutalpha", 1, "not_an_alpha");
+            return 1;
+        }
+        CVarSetInteger(CVAR_RS_HAND("CutAlpha"), (int32_t)v);
+        Addl(lines, "cutalpha", 0, nullptr);
         return 0;
     }
     if (verb == "skip" && args.size() == 2) {
