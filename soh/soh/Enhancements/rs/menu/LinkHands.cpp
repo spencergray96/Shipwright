@@ -350,11 +350,33 @@ static void SetKeyCVar(int32_t side, bool up, int32_t tick, char comp, float v) 
 // the hand list, per set and grip, as measured with a per-triangle map (run record, look 6); a set or grip with no
 // entry has no exemption. Bit n = the list's nth triangle in draw order. `menu hand thumb split` turns it off.
 static const uint64_t kThumbTris[2][kGripCount] = {
-    { 0, 0x3FULL << 36 }, // adult: fist not measured; open, triangles 36-41
+    // adult: fist not measured; open, the thumb 36-41 (look 6) and its glove-covered root 16-17 (look 7: the roll's
+    // lower edge sliced their top at ticks 12-16, where they meet the thumb on the roll's edge)
+    { 0, (0x3FULL << 36) | (1ULL << 16) | (1ULL << 17) },
     { 0, 0 },             // child: not measured
 };
 static bool ThumbFront() {
     return CVarGetInteger(CVAR_RS_HAND("Thumb"), 1) != 0;
+}
+// THE FINGERS (owner look 6, the GREEN edge): the mirror of THE THUMB. The four fingers wrap the roll from behind, so
+// they are drawn ALWAYS BEHIND the scroll: in the depth-tested pass under the hand's own matrix pushed kFingerBias game
+// units further back, so wherever a finger lies over the roll or the paper the scroll's alpha-cut depth hides it, and
+// wherever it lies outside them it draws. The visible cut is then the roll's own silhouette, not the fingers'
+// triangle edges. Picked by index like the thumb; `menu hand fingers split` turns it off.
+static const uint64_t kFingerTris[2][kGripCount] = {
+    // adult: fist not measured; open, the visible finger faces 25, 28, 30 and 34 (look 7's per-triangle map at rest and
+    // ticks 10-16; 28 is the index finger's shaded, gauntlet-coloured face)
+    { 0, (1ULL << 25) | (1ULL << 28) | (1ULL << 30) | (1ULL << 34) },
+    { 0, 0 }, // child: not measured
+};
+constexpr float kFingerBias = 200.0f;
+static bool FingersBack() {
+    return CVarGetInteger(CVAR_RS_HAND("Fingers"), 1) != 0;
+}
+// `menu hand skip <n>`: a diagnostic - the hand list's nth triangle (draw order, from 0) is drawn in no pass. One
+// capture per n, diffed against the whole hand, maps which triangle is where; that is how the masks above were found.
+static int32_t SkipTri() {
+    return CVarGetInteger(CVAR_RS_HAND("Skip"), -1);
 }
 
 // The offset x, y, paper and roll depth for one side at one tick of one direction. See THE KEY TABLES.
@@ -698,6 +720,10 @@ bool RsLinkHands_PushOccluderState(std::vector<Gfx>& dl, bool textured) {
     return true;
 }
 
+constexpr int32_t kSplitFront = 0;
+constexpr int32_t kSplitBack = 1;
+constexpr int32_t kSplitFingers = 2;
+
 // THE PER-TRIANGLE SPLIT (owner look 2, GREEN). A copy of a hand list, made each frame in frame memory, keeping only
 // the triangles on one side of the scroll's plane: BACK keeps those whose centre is behind z 0 (screen space, after
 // the paper knob's step back), FRONT the rest. So the cut runs along the model's own edges - no depth-aliased
@@ -708,8 +734,9 @@ bool RsLinkHands_PushOccluderState(std::vector<Gfx>& dl, bool textured) {
 // - the depth-tested pass, cut per pixel against the paper and the round rolls - otherwise; `straddle` counts the back
 // ones that are not wholly behind the plane. Look 2's rule (by the vertices' sum against z 0) without `mixed`.
 template <typename SlotMf>
-static const Gfx* SplitList(GraphicsContext* gfxCtx, const Gfx* src, const MtxF* own, const SlotMf& mfForSlot, bool back,
-                            int32_t* count, bool mixed, float frontZ, int32_t* straddle, uint64_t frontMask) {
+static const Gfx* SplitList(GraphicsContext* gfxCtx, const Gfx* src, const MtxF* own, const SlotMf& mfForSlot, int32_t want,
+                            int32_t* count, bool mixed, float frontZ, int32_t* straddle, uint64_t frontMask,
+                            uint64_t backMask, int32_t skip) {
     size_t words = 0;
     for (const Gfx* g = src; words < 4096; g++) {
         words++;
@@ -726,22 +753,30 @@ static const Gfx* SplitList(GraphicsContext* gfxCtx, const Gfx* src, const MtxF*
     float z[64] = {};
     int8_t slot = -1;
     int32_t kept = 0;
+    // The triangle's pass: kSplitFront, kSplitBack, kSplitFingers, or -1 (skipped). The masks come first - thumb
+    // front, fingers back - then the cut decides the rest.
     int32_t triIndex = 0;
-    auto behind = [&](uint32_t w) {
+    auto classOf = [&](uint32_t w) -> int32_t {
         const int32_t index = triIndex++;
+        if (index == skip) {
+            return -1;
+        }
         if (index < 64 && (frontMask >> index) & 1) {
-            return false;
+            return kSplitFront;
+        }
+        if (index < 64 && (backMask >> index) & 1) {
+            return kSplitFingers;
         }
         const int32_t a = (int32_t)((w >> 16) & 0xFF) / 2, b = (int32_t)((w >> 8) & 0xFF) / 2, c = (int32_t)(w & 0xFF) / 2;
         const float za = z[a & 63], zb = z[b & 63], zc = z[c & 63];
         if (!mixed) {
-            return za + zb + zc < 0.0f;
+            return za + zb + zc < 0.0f ? kSplitBack : kSplitFront;
         }
         const bool isBack = !(za >= frontZ && zb >= frontZ && zc >= frontZ);
-        if (isBack && back && straddle != nullptr && std::max(za, std::max(zb, zc)) >= 0.0f) {
+        if (isBack && want == kSplitBack && straddle != nullptr && std::max(za, std::max(zb, zc)) >= 0.0f) {
             (*straddle)++;
         }
-        return isBack;
+        return isBack ? kSplitBack : kSplitFront;
     };
     size_t n = 0;
     for (const Gfx* g = src; n < words; g++) {
@@ -762,14 +797,14 @@ static const Gfx* SplitList(GraphicsContext* gfxCtx, const Gfx* src, const MtxF*
                 z[(v0 + k) & 63] = d.z;
             }
         } else if (op == (uint8_t)G_TRI1) {
-            if (behind((uint32_t)g->words.w0) != back) {
+            if (classOf((uint32_t)g->words.w0) != want) {
                 copy = gsSPNoOp();
             } else {
                 kept++;
             }
         } else if (op == (uint8_t)G_TRI2) {
-            const bool keepA = behind((uint32_t)g->words.w0) == back;
-            const bool keepB = behind((uint32_t)g->words.w1) == back;
+            const bool keepA = classOf((uint32_t)g->words.w0) == want;
+            const bool keepB = classOf((uint32_t)g->words.w1) == want;
             if (keepA && !keepB) {
                 copy.words.w0 = ((uintptr_t)G_TRI1 << 24) | (g->words.w0 & 0xFFFFFF);
                 copy.words.w1 = 0;
@@ -826,7 +861,9 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
     const int32_t slots = loaded ? sSkel.slots : 1;
     // One more than the skeleton's slots: the last is where a limb with no slot (a skeleton that did not load) has
     // its ToMtx written, so the op is still emitted and the interpolator replays into memory that outlives the call.
-    Mtx* mtx = (Mtx*)Graph_Alloc(gfxCtx, (slots + 1) * sizeof(Mtx));
+    // ...and one more after that: the hand's matrix pushed kFingerBias back, for THE FINGERS.
+    Mtx* mtx = (Mtx*)Graph_Alloc(gfxCtx, (slots + 2) * sizeof(Mtx));
+    Mtx* mtxFingers = &mtx[slots + 1];
 
     // THE CHAIN, the same ops on every call: grip -> hand -> forearm -> upper arm -> every other slot.
     MtxF mfHand, mfFore, mfUpper, mfRest;
@@ -844,13 +881,22 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
     float key[4];
     KeyAt(side, keyUp, keyTick, pose, key);
     const float paper = key[2];
-    Matrix_Translate(gripX - (float)(SCREEN_WIDTH / 2) + key[0], (float)(SCREEN_HEIGHT / 2) - gripY - key[1], -paper,
-                     MTXMODE_APPLY);
-    Matrix_RotateZ((pose.rot[2] + pose.vturn * levelBlend) * kDeg, MTXMODE_APPLY);
-    Matrix_RotateY(pose.rot[1] * kDeg, MTXMODE_APPLY);
-    Matrix_RotateX(pose.rot[0] * kDeg, MTXMODE_APPLY);
-    Matrix_Scale(scale, scale, scale, MTXMODE_APPLY);
-    Matrix_Translate(-hs.gripPoint[grip][0], -hs.gripPoint[grip][1], -hs.gripPoint[grip][2], MTXMODE_APPLY);
+    auto handChain = [&](float back) {
+        Matrix_Translate(gripX - (float)(SCREEN_WIDTH / 2) + key[0], (float)(SCREEN_HEIGHT / 2) - gripY - key[1],
+                         -paper - back, MTXMODE_APPLY);
+        Matrix_RotateZ((pose.rot[2] + pose.vturn * levelBlend) * kDeg, MTXMODE_APPLY);
+        Matrix_RotateY(pose.rot[1] * kDeg, MTXMODE_APPLY);
+        Matrix_RotateX(pose.rot[0] * kDeg, MTXMODE_APPLY);
+        Matrix_Scale(scale, scale, scale, MTXMODE_APPLY);
+        Matrix_Translate(-hs.gripPoint[grip][0], -hs.gripPoint[grip][1], -hs.gripPoint[grip][2], MTXMODE_APPLY);
+    };
+    // THE FINGERS' matrix first: the same chain kFingerBias further back. The side matrix under it turns only about
+    // the screen's z, so this is a pure depth shift - the fingers land on the same pixels. Always emitted.
+    Matrix_Push();
+    handChain(kFingerBias);
+    Matrix_ToMtx(mtxFingers, (char*)__FILE__, __LINE__);
+    Matrix_Pop();
+    handChain(0.0f);
     toMtx(slotHand);
     Matrix_Get(&mfHand);
     // The forearm, turned at the wrist and stepped back so its wrist point lands on the hand's origin. First the
@@ -1057,6 +1103,10 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
     const float frontZ = std::max(0.0f, key[3]);
     const uint64_t thumbMask = ThumbFront() ? kThumbTris[set][grip] : 0;
     sStatus.thumb[side] = kThumbTris[set][grip] == 0 ? "none" : thumbMask != 0 ? "front" : "split";
+    const uint64_t fingerMask = FingersBack() ? kFingerTris[set][grip] : 0;
+    sStatus.fingers[side] = kFingerTris[set][grip] == 0 ? "none" : fingerMask != 0 ? "back" : "split";
+    const int32_t skip = SkipTri();
+    int32_t fingerTris = 0;
     int32_t front = 0;
     int32_t back = 0;
     int32_t straddle = 0;
@@ -1079,11 +1129,22 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
                 emit(i, resolved[i]);
                 continue;
             }
-            const Gfx* half =
-                SplitList(gfxCtx, resolved[i], items[i].own, mfForSlot, true, &back, mixed, frontZ, &straddle,
-                          i == handItem ? thumbMask : 0);
+            const bool isHand = i == handItem;
+            const Gfx* half = SplitList(gfxCtx, resolved[i], items[i].own, mfForSlot, kSplitBack, &back, mixed, frontZ,
+                                        &straddle, isHand ? thumbMask : 0, isHand ? fingerMask : 0, isHand ? skip : -1);
             if (half != nullptr) {
                 emit(i, half);
+            }
+            // THE FINGERS, under their pushed-back matrix, in this same depth-tested pass.
+            const Gfx* fingers =
+                isHand && fingerMask != 0
+                    ? SplitList(gfxCtx, resolved[i], items[i].own, mfForSlot, kSplitFingers, &fingerTris, mixed,
+                                frontZ, nullptr, thumbMask, fingerMask, skip)
+                    : nullptr;
+            if (fingers != nullptr) {
+                dl.push_back(gsDPPipeSync());
+                dl.push_back(gsSPMatrix(mtxFingers, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW));
+                dl.push_back(gsSPDisplayList((Gfx*)fingers));
             }
         }
     }
@@ -1097,9 +1158,9 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
         if (!items[i].hand || !occlude) {
             emit(i, resolved[i]);
         } else if (byTris) {
-            const Gfx* half =
-                SplitList(gfxCtx, resolved[i], items[i].own, mfForSlot, false, &front, mixed, frontZ, nullptr,
-                          i == handItem ? thumbMask : 0);
+            const bool isHand = i == handItem;
+            const Gfx* half = SplitList(gfxCtx, resolved[i], items[i].own, mfForSlot, kSplitFront, &front, mixed, frontZ,
+                                        nullptr, isHand ? thumbMask : 0, isHand ? fingerMask : 0, isHand ? skip : -1);
             if (half != nullptr) {
                 emit(i, half);
             }
@@ -1111,6 +1172,7 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
     sStatus.tris[side][0] = front;
     sStatus.tris[side][1] = back;
     sStatus.straddle[side] = straddle;
+    sStatus.fingerTris[side] = fingerTris;
     sStatus.dlists[side] = lists;
     sStatus.verts[side] = verts;
     for (int32_t k = 0; k < 4; k++) {
@@ -1136,22 +1198,25 @@ std::string RsLinkHands_Describe() {
     int32_t n = std::snprintf(buf, sizeof(buf),
                               "set=%s drawn=%s grip=%s variant=%s upper=%d scale=%.4f slots=%d loads=%d "
                               "light=%.0f,%.0f,%.0f ambient=%d occlude=%d cut=%s roll=%.1f paper=%.1f reach=%.2f overlap=%.1f girth=%.2f "
-                              "trim=%d trimmed=%d,%d tris_front=%d,%d tris_back=%d,%d straddle=%d,%d key_tick=%d key_dir=%s",
+                              "trim=%d trimmed=%d,%d tris_front=%d,%d tris_back=%d,%d straddle=%d,%d tris_fingers=%d,%d skip=%d "
+                              "key_tick=%d key_dir=%s",
                               UseBoxes() ? "boxes" : kHandSets[LINK_IS_ADULT ? 0 : 1].id, s.set, kGripNames[Grip()],
                               s.variant.c_str(), Upper() ? 1 : 0,
                               s.scale, s.slots, s.loads, s.light[0], s.light[1], s.light[2], s.ambient,
                               Occlude() ? 1 : 0, kCutNames[Cut()], RollRadius(), Paper(), Reach(), Overlap(), Girth(),
                               Trim() ? 1 : 0, s.trimmed[0], s.trimmed[1], s.tris[0][0], s.tris[1][0], s.tris[0][1],
-                              s.tris[1][1], s.straddle[0], s.straddle[1], s.keyTick, s.keyUp ? "up" : "down");
+                              s.tris[1][1], s.straddle[0], s.straddle[1], s.fingerTris[0], s.fingerTris[1], SkipTri(), s.keyTick,
+                              s.keyUp ? "up" : "down");
     for (int32_t side = 0; side < 2 && n > 0 && n < (int32_t)sizeof(buf); side++) {
         const RsLinkHandPose p = ReadPose(side);
         const char* k = side == 0 ? "l" : "r";
         n += std::snprintf(buf + n, sizeof(buf) - n,
                            " %s_rot=%.1f,%.1f,%.1f %s_offset=%.1f,%.1f %s_wrist=%.1f,%.1f,%.1f %s_elbow=%.1f "
-                           "%s_vturn=%.1f %s_turnbend=%.1f %s_key=%.1f,%.1f %s_keypaper=%.1f %s_keyroll=%.1f %s_thumb=%s %s_lists=%d %s_verts=%d %s_extent=%.1f,%.1f,%.1f,%.1f %s_slots=%d,%d,%d",
+                           "%s_vturn=%.1f %s_turnbend=%.1f %s_key=%.1f,%.1f %s_keypaper=%.1f %s_keyroll=%.1f %s_thumb=%s %s_fingers=%s %s_lists=%d %s_verts=%d %s_extent=%.1f,%.1f,%.1f,%.1f %s_slots=%d,%d,%d",
                            k, p.rot[0], p.rot[1], p.rot[2], k, p.offset[0], p.offset[1], k, p.wrist[0], p.wrist[1],
                            p.wrist[2], k, p.elbow, k, p.vturn, k, p.turnBend, k, s.key[side][0], s.key[side][1], k,
                            s.key[side][2], k, s.key[side][3], k, s.thumb[side] ? s.thumb[side] : "none", k,
+                           s.fingers[side] ? s.fingers[side] : "none", k,
                            s.dlists[side], k, s.verts[side], k,
                            s.extent[side][0], s.extent[side][1], s.extent[side][2], s.extent[side][3], k,
                            s.limbSlot[side][0], s.limbSlot[side][1], s.limbSlot[side][2]);
@@ -1250,7 +1315,8 @@ void ClearAll() {
                               CVAR_RS_HAND("LightZ"), CVAR_RS_HAND("Ambient"), CVAR_RS_HAND("Boxes"),
                               CVAR_RS_HAND("Occlude"), CVAR_RS_HAND("Paper"), CVAR_RS_HAND("Trim"),
                               CVAR_RS_HAND("Cut"), CVAR_RS_HAND("Reach"), CVAR_RS_HAND("Overlap"), CVAR_RS_HAND("Girth"),
-                              CVAR_RS_HAND("Roll"), CVAR_RS_HAND("Thumb") }) {
+                              CVAR_RS_HAND("Roll"), CVAR_RS_HAND("Thumb"),
+                              CVAR_RS_HAND("Fingers"), CVAR_RS_HAND("Skip") }) {
         CVarClear(name);
     }
 }
@@ -1397,6 +1463,21 @@ int32_t RsLinkHands_Console(const std::vector<std::string>& args, std::vector<st
                 lines.push_back(line);
             }
         }
+        return 0;
+    }
+    if (verb == "fingers" && args.size() == 2 && (args[1] == "back" || args[1] == "split")) {
+        CVarSetInteger(CVAR_RS_HAND("Fingers"), args[1] == "back" ? 1 : 0);
+        Addl(lines, "fingers", 0, nullptr);
+        return 0;
+    }
+    if (verb == "skip" && args.size() == 2) {
+        float v = 0.0f;
+        if (!ParseFloat(args[1], &v) || v < -1.0f || v > 63.0f || v != std::floor(v)) {
+            Addl(lines, "skip", 1, "not_a_triangle");
+            return 1;
+        }
+        CVarSetInteger(CVAR_RS_HAND("Skip"), (int32_t)v);
+        Addl(lines, "skip", 0, nullptr);
         return 0;
     }
     if (verb == "thumb" && args.size() == 2 && (args[1] == "front" || args[1] == "split")) {
