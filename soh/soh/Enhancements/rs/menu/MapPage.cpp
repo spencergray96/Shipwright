@@ -69,6 +69,7 @@
 #include "RsMenuRaw.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -148,8 +149,13 @@ constexpr float kScissorSlack = 1.5f; // game units the scissor sits outside the
 constexpr float kZooms[] = { 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f };
 constexpr int32_t kZoomCount = (int32_t)(sizeof(kZooms) / sizeof(kZooms[0]));
 constexpr int32_t kZoomTicks = 4;
-// A held C button pans this share of the visible width (or height) a tick: across a view in one second.
-constexpr float kPanShare = 1.0f / 20.0f;
+// The C-button pan (#313): a VELOCITY in views a second, which ramps toward the held direction's top speed and coasts
+// to 0 once let go (RsMenuMapPage_PanEasing). #303 moved a fixed 1/20 of a view a tick: full speed from the first
+// tick and a dead stop on release, about 900 render px/s at 1080p and 1,800 at 4K at every zoom, which the owner saw
+// as the map jumping. Per axis, so a diagonal ramps both. Each tick the velocity steps toward its target by at most
+// speed / (ramp in ticks) speeding up, or speed / (coast in ticks) slowing down (a reversal coasts through 0 first):
+// constant acceleration, so the position is continuous and its rate never jumps.
+constexpr float kTickSeconds = 1.0f / 20.0f;
 
 // --- the view ---------------------------------------------------------------------------------------------------
 struct MapView {
@@ -162,6 +168,8 @@ int32_t sZoomIdx = 0;
 int32_t sZoomTick = kZoomTicks;
 bool sViewReset = true;
 int32_t sPans = 0;
+float sPanVx = 0.0f; // the pan velocity, views a second (#313)
+float sPanVy = 0.0f;
 int32_t sZoomSteps = 0;
 
 float Ease(float t) {
@@ -206,6 +214,7 @@ void ResetView(float w, float h) {
     sFrom = sTo = { w / 2.0f, h / 2.0f, 1.0f };
     sZoomIdx = 0;
     sZoomTick = kZoomTicks;
+    sPanVx = sPanVy = 0.0f;
 }
 
 // The view to DRAW: the focused view blended back to the whole world by the focus zoom's progress, so the map
@@ -258,8 +267,8 @@ bool StepZoom(int32_t dir) {
     return true;
 }
 
-// Pans by (dx, dy) visible widths/heights.
-bool Pan(float dx, float dy) {
+// Pans by (dx, dy) visible widths/heights. `stopped` (optional) says which axes ran into the image's edge.
+bool Pan(float dx, float dy, bool* stoppedX = nullptr, bool* stoppedY = nullptr) {
     const char* source = "none";
     const int16_t scene = MapScene(&source);
     RsWorldMapInfo info = {};
@@ -273,8 +282,31 @@ bool Pan(float dx, float dy) {
     const float my = dy * h / now.zoom;
     sFrom = Clamp({ sFrom.cx + mx, sFrom.cy + my, sFrom.zoom }, w, h);
     sTo = Clamp({ sTo.cx + mx, sTo.cy + my, sTo.zoom }, w, h);
+    const MapView after = CurrentView(w, h);
+    if (stoppedX != nullptr) {
+        *stoppedX = mx != 0.0f && std::fabs(after.cx - (now.cx + mx)) > 0.001f;
+    }
+    if (stoppedY != nullptr) {
+        *stoppedY = my != 0.0f && std::fabs(after.cy - (now.cy + my)) > 0.001f;
+    }
     sPans++;
     return true;
+}
+
+// One axis of the pan's velocity one tick on, toward `target` (views a second).
+float StepVelocity(float v, float target, const RsMenuMapPanEasing& e) {
+    const float top = (float)e.speed / 100.0f;
+    const float up = e.rampMs > 0 ? top * kTickSeconds * 1000.0f / (float)e.rampMs : top;
+    const float down = e.coastMs > 0 ? top * kTickSeconds * 1000.0f / (float)e.coastMs : top;
+    // Speeding up: the target lies beyond v in v's own direction (or v is 0). Anything else slows v toward 0 first.
+    const bool speedingUp = target != 0.0f && (v == 0.0f || (v > 0.0f) == (target > 0.0f)) && std::fabs(target) > std::fabs(v);
+    const float step = speedingUp ? up : down;
+    if (std::fabs(target - v) <= step) {
+        return target;
+    }
+    // A reversal coasts through 0 and stops there this tick, so speeding up the other way starts from rest.
+    const float next = v + (target > v ? step : -step);
+    return (v > 0.0f && next < 0.0f) || (v < 0.0f && next > 0.0f) ? 0.0f : next;
 }
 
 // The page's layout: where the map's box sits, game space, y down. Shared by the draw and the cursor node.
@@ -604,7 +636,23 @@ bool sScissored = false;
 // INTERPOLATED between that one and this one, so a tick must emit both (the trailing-edge holes, 2026-11-07).
 float sPrevView[4] = {};
 uint32_t sPrevViewFrame = 0;
+
 bool sPrevViewValid = false;
+
+// --- the per-frame trace (#313, MapPage.h) -----------------------------------------------------------------------
+// Each draw (a tick) keeps its view rect; NoteFrame lerps the last two by the frame's step, as the interpolation lerps
+// their placement matrices.
+struct TraceTick {
+    int32_t draw = 0;       // sFrame
+    uint32_t game = 0;      // play->state.frames when drawn: NoteFrame records only the frames of that tick
+    float x0 = 0, y0 = 0, w = 0, h = 0, renderPerPx = 0, vx = 0, vy = 0;
+};
+bool sTraceOn = false;
+TraceTick sTracePrev;
+TraceTick sTraceCur;
+std::vector<RsMenuMapTraceRow> sTraceRing;
+int32_t sTraceRows = 0;
+std::chrono::steady_clock::time_point sTraceStart;
 
 // One placement push: image pixel (px, py), drawn at (px, -py), lands on game (gx + (px - vx0) k, gy + (py - vy0) k).
 void PushPlacement(GraphicsContext* gfxCtx, std::vector<Gfx>& dl, float gx, float gy, float vx0, float vy0, float k) {
@@ -850,15 +898,19 @@ void MapPageDraw(PlayState* play, int32_t pageIndex, void* userData) {
                        (wallsMode == RS_MENU_MAP_WALLS_LINES ||
                         (wallsMode == RS_MENU_MAP_WALLS_ZOOMED && v.zoom >= RS_MENU_MAP_WALLS_ZOOMED_FROM - 0.001f));
     float wallHalfPx = 0.0f;
+    Vec3f a0 = { 0.0f, 0.0f, 0.0f };
+    Vec3f a1 = { 0.0f, 100.0f, 0.0f };
+    Vec3f b0;
+    Vec3f b1;
+    Matrix_MultVec3f(&a0, &b0);
+    Matrix_MultVec3f(&a1, &b1);
+    const float n64PerGame = std::fabs(b1.y - b0.y) / 100.0f;
+    const float renderPerPx = n64PerGame * k * (float)OTRGetGameRenderHeight() / (float)SCREEN_HEIGHT;
+    if (sTraceOn && l.map) {
+        sTracePrev = sTraceCur;
+        sTraceCur = { sFrame, frames, vx0, vy0, vw, vh, renderPerPx, sPanVx, sPanVy };
+    }
     if (lines) {
-        Vec3f a0 = { 0.0f, 0.0f, 0.0f };
-        Vec3f a1 = { 0.0f, 100.0f, 0.0f };
-        Vec3f b0;
-        Vec3f b1;
-        Matrix_MultVec3f(&a0, &b0);
-        Matrix_MultVec3f(&a1, &b1);
-        const float n64PerGame = std::fabs(b1.y - b0.y) / 100.0f;
-        const float renderPerPx = n64PerGame * k * (float)OTRGetGameRenderHeight() / (float)SCREEN_HEIGHT;
         if (renderPerPx > 0.0f) {
             sWallNominalPx = RsMenuMapPage_WallTiles() * (float)l.info.pxPerTile * renderPerPx;
             float w = std::max(RsMenuMapPage_WallFloor(), sWallNominalPx);
@@ -1084,22 +1136,38 @@ void MapPageFocusTick(int32_t pageIndex, uint16_t held, uint16_t press, void* us
     } else if (CHECK_BTN_ALL(press, BTN_DDOWN)) {
         StepZoom(-1);
     }
-    float dx = 0.0f;
-    float dy = 0.0f;
+    // The held direction, -1/0/+1 an axis, sets the velocity's target; the velocity steps toward it (#313).
+    float ax = 0.0f;
+    float ay = 0.0f;
     if (CHECK_BTN_ALL(held, BTN_CLEFT)) {
-        dx -= kPanShare;
+        ax -= 1.0f;
     }
     if (CHECK_BTN_ALL(held, BTN_CRIGHT)) {
-        dx += kPanShare;
+        ax += 1.0f;
     }
     if (CHECK_BTN_ALL(held, BTN_CUP)) {
-        dy -= kPanShare;
+        ay -= 1.0f;
     }
     if (CHECK_BTN_ALL(held, BTN_CDOWN)) {
-        dy += kPanShare;
+        ay += 1.0f;
     }
-    if (dx != 0.0f || dy != 0.0f) {
-        Pan(dx, dy);
+    const RsMenuMapPanEasing e = RsMenuMapPage_PanEasing();
+    const float top = (float)e.speed / 100.0f;
+    sPanVx = StepVelocity(sPanVx, ax * top, e);
+    sPanVy = StepVelocity(sPanVy, ay * top, e);
+    if (sPanVx != 0.0f || sPanVy != 0.0f) {
+        bool stoppedX = false;
+        bool stoppedY = false;
+        if (!Pan(sPanVx * kTickSeconds, sPanVy * kTickSeconds, &stoppedX, &stoppedY)) {
+            sPanVx = sPanVy = 0.0f;
+        }
+        // Run into the image's edge: that axis stops dead rather than pushing on into the clamp.
+        if (stoppedX) {
+            sPanVx = 0.0f;
+        }
+        if (stoppedY) {
+            sPanVy = 0.0f;
+        }
     }
 }
 
@@ -1265,6 +1333,90 @@ bool RsMenuMapPage_Pan(float dx, float dy) {
     return RsMenu_IsFocused() && Pan(dx, dy);
 }
 
+RsMenuMapPanEasing RsMenuMapPage_PanEasing() {
+    RsMenuMapPanEasing e;
+    e.speed = std::clamp<int32_t>(CVarGetInteger(CVAR_RS_MENU_MAP_PAN_SPEED, RS_MENU_MAP_PAN_SPEED_DEFAULT),
+                                  RS_MENU_MAP_PAN_SPEED_MIN, RS_MENU_MAP_PAN_SPEED_MAX);
+    e.rampMs = std::clamp<int32_t>(CVarGetInteger(CVAR_RS_MENU_MAP_PAN_RAMP, RS_MENU_MAP_PAN_RAMP_DEFAULT), 0,
+                                   RS_MENU_MAP_PAN_EASE_MAX);
+    e.coastMs = std::clamp<int32_t>(CVarGetInteger(CVAR_RS_MENU_MAP_PAN_COAST, RS_MENU_MAP_PAN_COAST_DEFAULT), 0,
+                                    RS_MENU_MAP_PAN_EASE_MAX);
+    return e;
+}
+
+bool RsMenuMapPage_SetPanEasing(RsMenuMapPanEasing e) {
+    if (e.speed < RS_MENU_MAP_PAN_SPEED_MIN || e.speed > RS_MENU_MAP_PAN_SPEED_MAX || e.rampMs < 0 ||
+        e.rampMs > RS_MENU_MAP_PAN_EASE_MAX || e.coastMs < 0 || e.coastMs > RS_MENU_MAP_PAN_EASE_MAX) {
+        return false;
+    }
+    CVarSetInteger(CVAR_RS_MENU_MAP_PAN_SPEED, e.speed);
+    CVarSetInteger(CVAR_RS_MENU_MAP_PAN_RAMP, e.rampMs);
+    CVarSetInteger(CVAR_RS_MENU_MAP_PAN_COAST, e.coastMs);
+    CVarSave();
+    return true;
+}
+
+void RsMenuMapPage_SetTrace(bool on) {
+    if (on) {
+        sTraceRing.clear();
+        sTraceRing.reserve(RS_MENU_MAP_TRACE_ROWS);
+        sTraceRows = 0;
+        sTracePrev = sTraceCur = TraceTick{};
+        sTraceStart = std::chrono::steady_clock::now();
+    }
+    sTraceOn = on;
+}
+
+bool RsMenuMapPage_Trace() {
+    return sTraceOn;
+}
+
+std::vector<RsMenuMapTraceRow> RsMenuMapPage_TraceRows() {
+    if ((int32_t)sTraceRing.size() < RS_MENU_MAP_TRACE_ROWS) {
+        return sTraceRing;
+    }
+    std::vector<RsMenuMapTraceRow> out;
+    out.reserve(sTraceRing.size());
+    const size_t start = (size_t)(sTraceRows % RS_MENU_MAP_TRACE_ROWS);
+    out.insert(out.end(), sTraceRing.begin() + start, sTraceRing.end());
+    out.insert(out.end(), sTraceRing.begin(), sTraceRing.begin() + start);
+    return out;
+}
+
+void RsMenuMapPage_NoteFrame(float t) {
+    // Only a frame of a tick the page drew: its display list holds the map at sTraceCur's view. The game's frame
+    // counter goes up after the draw and before the frames are presented (GameState_Update), so the frames of the
+    // tick the page drew see it one past the draw's; equal is accepted too, should that order ever change. Two or
+    // more past means the page has stopped drawing.
+    if (!sTraceOn || sTraceCur.draw == 0 || gPlayState == nullptr ||
+        (gPlayState->state.frames != sTraceCur.game + 1 && gPlayState->state.frames != sTraceCur.game)) {
+        return;
+    }
+    // The previous tick's view, if the page drew that tick too; else the frame shows this tick's view throughout.
+    const bool lerp = sTracePrev.draw == sTraceCur.draw - 1 && sTracePrev.game + 1 == sTraceCur.game;
+    const TraceTick& a = lerp ? sTracePrev : sTraceCur;
+    const TraceTick& b = sTraceCur;
+    auto mix = [t](float x, float y) { return x + (y - x) * t; };
+    RsMenuMapTraceRow r;
+    r.row = sTraceRows;
+    r.draw = b.draw;
+    r.t = t;
+    r.ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - sTraceStart).count();
+    r.x0 = mix(a.x0, b.x0);
+    r.y0 = mix(a.y0, b.y0);
+    r.w = mix(a.w, b.w);
+    r.h = mix(a.h, b.h);
+    r.renderPerPx = mix(a.renderPerPx, b.renderPerPx);
+    r.vx = b.vx;
+    r.vy = b.vy;
+    if ((int32_t)sTraceRing.size() < RS_MENU_MAP_TRACE_ROWS) {
+        sTraceRing.push_back(r);
+    } else {
+        sTraceRing[(size_t)(sTraceRows % RS_MENU_MAP_TRACE_ROWS)] = r;
+    }
+    sTraceRows++;
+}
+
 RsMenuMapPageStatus RsMenuMapPage_Status() {
     RsMenuMapPageStatus st = {};
     st.pageIndex = sPageIndex;
@@ -1309,6 +1461,8 @@ RsMenuMapPageStatus RsMenuMapPage_Status() {
     st.zoomStep = sZoomIdx;
     st.zoomSteps = sZoomSteps;
     st.pans = sPans;
+    st.panVx = sPanVx;
+    st.panVy = sPanVy;
     st.arrow = RsMenuMapPage_ArrowName(RsMenuMapPage_Arrow());
     for (int32_t i = 0; i < 4; i++) {
         st.drawnView[i] = sDrawView[i];

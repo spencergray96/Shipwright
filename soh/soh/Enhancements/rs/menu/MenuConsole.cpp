@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 
 #include <fast/Fast3dWindow.h>
 #include <fast/interpreter.h>
@@ -543,6 +544,7 @@ int32_t Probe(const std::vector<std::string>& args, std::vector<std::string>& li
 // #303: the World Map page. One line, the fields `section=map` carries, so `menu map` and `dump` agree.
 std::string DescribeMap() {
     const RsMenuMapPageStatus st = RsMenuMapPage_Status();
+    const RsMenuMapPanEasing pan = RsMenuMapPage_PanEasing();
     char buf[1300];
     std::snprintf(buf, sizeof(buf),
                   "page=%d current=%d map=%d scene=0x%X source=%s reason=%s layer=%d storey_mode=%s fog=%s icons=%s icons_shown=%d "
@@ -550,7 +552,8 @@ std::string DescribeMap() {
                   "wall_snapped=%d wall_nominal_px=%.2f wall_screen_px=%.2f wall_half_px=%.3f "
                   "chunks=%d revealed=%d frame=%d dst=%.1f,%.1f,%.1f,%.1f blocks=%d fog_quads=%d dl_words=%d "
                   "link=%d arrow=%d link_px=%.1f,%.1f link_square=%d,%d link_flag=%d link_revealed=%d "
-                  "arrow_mode=%s view=%.1f,%.1f zoom=%.2f zoom_step=%d zoom_steps=%d pans=%d "
+                  "arrow_mode=%s view=%.1f,%.1f zoom=%.2f zoom_step=%d zoom_steps=%d pans=%d pan_v=%.3f,%.3f "
+                  "pan_speed=%.2f pan_ramp_ms=%d pan_coast_ms=%d trace=%d "
                   "drawn_view=%.1f,%.1f,%.1f,%.1f link_arrow=%s scissor=%d arrows=%d",
                   st.pageIndex + 1, st.current ? 1 : 0, st.map ? 1 : 0, st.scene >= 0 ? st.scene : 0xFFFF, st.source,
                   st.reason[0] != '\0' ? st.reason : "-", st.layer, st.storeyMode,
@@ -560,7 +563,8 @@ std::string DescribeMap() {
                   st.chunks, st.revealed,
                   st.frame, st.dstX, st.dstY, st.dstW, st.dstH, st.blocks, st.fogQuads, st.words, st.link ? 1 : 0,
                   st.arrowDrawn, st.linkPx, st.linkPy, st.linkSx, st.linkSy, st.linkFlag, st.linkRevealed ? 1 : 0,
-                  st.arrow, st.viewCx, st.viewCy, st.viewZoom, st.zoomStep, st.zoomSteps, st.pans, st.drawnView[0],
+                  st.arrow, st.viewCx, st.viewCy, st.viewZoom, st.zoomStep, st.zoomSteps, st.pans, st.panVx, st.panVy,
+                  pan.speed / 100.0f, pan.rampMs, pan.coastMs, RsMenuMapPage_Trace() ? 1 : 0, st.drawnView[0],
                   st.drawnView[1], st.drawnView[2], st.drawnView[3], st.linkArrow, st.scissored ? 1 : 0,
                   (int32_t)st.arrows.size());
     return buf;
@@ -692,6 +696,90 @@ int32_t MapCmd(const std::vector<std::string>& args, std::vector<std::string>& l
             return 1;
         }
         Addf(lines, "op=map result=ok action=pan %s %s", DescribeMap().c_str(), Describe().c_str());
+        return 0;
+    }
+    // #313: the C-button pan's velocity: top speed in views a second, ramp in and coast out in ms. Saved.
+    if (word == "paneasing" && (args.size() == 3 || args.size() == 5)) {
+        RsMenuMapPanEasing e = { RS_MENU_MAP_PAN_SPEED_DEFAULT, RS_MENU_MAP_PAN_RAMP_DEFAULT, RS_MENU_MAP_PAN_COAST_DEFAULT };
+        if (args.size() == 3 && args[2] == "off") {
+            e = { RS_MENU_MAP_PAN_SPEED_OFF, RS_MENU_MAP_PAN_RAMP_OFF, RS_MENU_MAP_PAN_COAST_OFF };
+        } else if (args.size() == 5) {
+            float speed = 0.0f;
+            float ramp = 0.0f;
+            float coast = 0.0f;
+            if (!ParseSignedFloat(args[2], &speed) || !ParseSignedFloat(args[3], &ramp) ||
+                !ParseSignedFloat(args[4], &coast)) {
+                Addf(lines, "op=map result=error error=arg action=paneasing %s", Describe().c_str());
+                return 1;
+            }
+            e = { (int32_t)std::lround(speed * 100.0f), (int32_t)std::lround(ramp), (int32_t)std::lround(coast) };
+        } else if (args[2] != "default") {
+            Addf(lines, "op=map result=error error=arg action=paneasing want=default|off|<speed>_<ramp_ms>_<coast_ms> %s",
+                 Describe().c_str());
+            return 1;
+        }
+        if (!RsMenuMapPage_SetPanEasing(e)) {
+            Addf(lines, "op=map result=error error=bad_easing action=paneasing speed_min=%.2f speed_max=%.2f ms_max=%d %s",
+                 RS_MENU_MAP_PAN_SPEED_MIN / 100.0f, RS_MENU_MAP_PAN_SPEED_MAX / 100.0f, RS_MENU_MAP_PAN_EASE_MAX,
+                 Describe().c_str());
+            return 1;
+        }
+        Addf(lines, "op=map result=ok action=paneasing %s %s", DescribeMap().c_str(), Describe().c_str());
+        return 0;
+    }
+    // #313: the drawn view frame by frame (MapPage.h). `dump` writes the ring as TSV and prints what it measured.
+    if (word == "trace" && args.size() >= 3 && (args[2] == "on" || args[2] == "off" || args[2] == "dump")) {
+        if (args[2] != "dump") {
+            RsMenuMapPage_SetTrace(args[2] == "on");
+            Addf(lines, "op=map result=ok action=trace %s %s", DescribeMap().c_str(), Describe().c_str());
+            return 0;
+        }
+        const std::string path =
+            args.size() >= 4 ? args[3] : Ship::Context::GetPathRelativeToAppDirectory("rs-map-trace.tsv");
+        const std::vector<RsMenuMapTraceRow> rows = RsMenuMapPage_TraceRows();
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        if (!out) {
+            Addf(lines, "op=map result=error error=open action=trace %s", Describe().c_str());
+            return 1;
+        }
+        out << "row\tdraw\tt\tms\tx0\ty0\tw\th\trender_per_px\tvx\tvy\tdx_px\tdy_px\n";
+        // The step a frame moved, render pixels, and the largest change of that step from one frame to the next
+        // (a jump), over the frames where the view moved.
+        float maxStep = 0.0f;
+        float maxJump = 0.0f;
+        double sumStep = 0.0;
+        int32_t moving = 0;
+        float lastStep = -1.0f;
+        for (size_t i = 0; i < rows.size(); i++) {
+            const RsMenuMapTraceRow& r = rows[i];
+            float dxp = 0.0f;
+            float dyp = 0.0f;
+            if (i > 0 && rows[i - 1].row == r.row - 1) {
+                dxp = (r.x0 - rows[i - 1].x0) * r.renderPerPx;
+                dyp = (r.y0 - rows[i - 1].y0) * r.renderPerPx;
+                const float step = std::sqrt(dxp * dxp + dyp * dyp);
+                if (step > 0.001f || lastStep > 0.001f) {
+                    if (lastStep >= 0.0f) {
+                        maxJump = std::max(maxJump, std::fabs(step - lastStep));
+                    }
+                }
+                if (step > 0.001f) {
+                    maxStep = std::max(maxStep, step);
+                    sumStep += step;
+                    moving++;
+                }
+                lastStep = step;
+            }
+            char buf[300];
+            std::snprintf(buf, sizeof(buf), "%d\t%d\t%.4f\t%.3f\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%.3f\t%.3f\n",
+                          r.row, r.draw, r.t, r.ms, r.x0, r.y0, r.w, r.h, r.renderPerPx, r.vx, r.vy, dxp, dyp);
+            out << buf;
+        }
+        Addf(lines,
+             "op=map result=ok action=trace_dump rows=%d moving_frames=%d max_step_px=%.2f mean_step_px=%.2f "
+             "max_jump_px=%.2f path=%s %s",
+             (int32_t)rows.size(), moving, maxStep, moving > 0 ? sumStep / moving : 0.0, maxJump, path.c_str(),
+             Describe().c_str());
         return 0;
     }
     if (word == "icons" && args.size() == 3 && (args[2] == "on" || args[2] == "off")) {
@@ -1200,7 +1288,7 @@ const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custo
                      "map [reveal <sx> <sy>|reveal all|reveal none|node <sx> <sy>|hide <sx> <sy>|fog hide|dim|"
                      "icons on|off|walls image|lines|zoomed|wallwidth <tiles>|floor <px>|snap on|off|default|arrow vanilla|custom|"
                      "zoom in|out|"
-                     "pan <dx> <dy>] | "
+                     "pan <dx> <dy>|paneasing default|off|<speed> <ramp_ms> <coast_ms>|trace on|off|dump [path]] | "
                      "focus [in|out|loop|hold <in|out> <tick>|stop] | dump";
 
 } // namespace
@@ -1299,7 +1387,8 @@ const ConsoleSink::Command menuCommand(
     "probe [on|off] | kaleido | equips | hud | flight hold <n>|release | song | inv <kind> <a> <b> | "
     "namepanel custom <item>|off | map [reveal|node|hide <sx> <sy>|reveal all|none|fog hide|dim|icons on|off|"
     "walls image|lines|zoomed|wallwidth <tiles>|floor <px>|snap on|off|default|arrow vanilla|custom|zoom in|out|"
-    "pan <dx> <dy>] | focus [in|out|loop|hold <in|out> <tick>|stop] | dump. "
+    "pan <dx> <dy>|paneasing default|off|<speed> <ramp_ms> <coast_ms>|trace on|off|dump [path]] | "
+    "focus [in|out|loop|hold <in|out> <tick>|stop] | dump. "
     "The scroll opens on START when primary is custom (N64 L is the minimap's) "
     "and hard-freezes the world; primary decides which menu START opens, and is a subcommand because "
     "there is no console `set`. sweep rolls the scroll one page the way a shoulder press does, and "
@@ -1432,6 +1521,14 @@ map                           the World Map page and its fog of war
     in                        one step closer
     out                       one step back
   pan <dx> <dy>               move the focused view, in view widths
+  paneasing                   the C buttons' pan velocity (#313; saved)
+    default                   0.80 views a second, 250 ms in, 150 ms out
+    off                       #303's: 1 view a second, no ramp, a dead stop
+    <speed> <ramp_ms> <coast_ms>  views a second (0.10-3.00), ramp and coast in ms
+  trace                       the drawn view, frame by frame (#313)
+    on                        clear and start recording
+    off                       stop recording, keep the rows
+    dump [path]               write them as TSV (default rs-map-trace.tsv)
 focus                         zoom the whole scroll in on the page's item
   in                          zoom in, as A on the map does
   out                         zoom back out, as B does

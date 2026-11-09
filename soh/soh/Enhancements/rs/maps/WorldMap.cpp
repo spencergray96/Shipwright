@@ -52,6 +52,11 @@ const WorldScene kScenes[] = {
 #if __has_include("soh/custom/scenes/grid_tool/agent298_storeys/agent298_storeys_world.inc")
 #include "soh/custom/scenes/grid_tool/agent298_storeys/agent298_storeys_world.inc"
 #endif
+// The #313 detail test world (sturdy-bassoon world/agent_313_detail.json: Lumbridge with props and ground areas), the
+// same way: opted in only where it was exported.
+#if __has_include("soh/custom/scenes/grid_tool/agent313_detail/agent313_detail_world.inc")
+#include "soh/custom/scenes/grid_tool/agent313_detail/agent313_detail_world.inc"
+#endif
 };
 #undef RS_WORLD_SCENE
 #undef RS_WORLD_CHUNK
@@ -127,6 +132,23 @@ struct LoadedMap {
 
 std::map<int16_t, std::unique_ptr<LoadedMap>> sMaps;
 
+// #313's detail test: the export can write VARIANTS of a map beside it, `worldmap/<SCENE>.<variant>.bin`, each the
+// same picture with more detail baked in (props, ground colour). `worldmap detail <variant>` reads that file instead
+// of the main one, for every scene, until set back; not saved. A switch never frees the map it replaces: Fast3D
+// keys a texture by its address, and a new map allocated where the old one was would draw the old one's cached
+// blocks; and this tick's display list still points into it. So a replaced map is kept for the session (a test
+// knob: a few switches at most).
+std::string sDetail;
+std::vector<std::unique_ptr<LoadedMap>> sRetiredMaps;
+
+std::string PathFor(const WorldScene& scene, const std::string& detail) {
+    std::string path = scene.path;
+    if (!detail.empty() && path.size() > 4) {
+        path = path.substr(0, path.size() - 4) + "." + detail + ".bin";
+    }
+    return path;
+}
+
 template <typename T> T ReadLe(const std::vector<uint8_t>& b, size_t at) {
     T v;
     std::memcpy(&v, b.data() + at, sizeof(T)); // the game runs little-endian, as the file is written
@@ -136,11 +158,16 @@ template <typename T> T ReadLe(const std::vector<uint8_t>& b, size_t at) {
 std::unique_ptr<LoadedMap> Load(const WorldScene& scene) {
     auto out = std::make_unique<LoadedMap>();
     auto archives = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
-    if (!archives->HasFile(scene.path)) {
+    // The detail setting is global (#313): a scene whose export wrote no such variant draws its main file.
+    std::string path = PathFor(scene, sDetail);
+    if (!sDetail.empty() && !archives->HasFile(path)) {
+        path = scene.path;
+    }
+    if (!archives->HasFile(path)) {
         out->problem = "no_map";
         return out;
     }
-    auto file = archives->LoadFile(scene.path);
+    auto file = archives->LoadFile(path);
     if (file == nullptr || file->Buffer == nullptr) {
         out->problem = "bad_file";
         return out;
@@ -211,7 +238,7 @@ std::unique_ptr<LoadedMap> Load(const WorldScene& scene) {
         // As fine as an s16 allows across the whole image, with room for a line's caps past its edges.
         out->edgeFix = std::clamp(std::floor(30000.0f / (float)std::max(i.widthPx, i.heightPx)), 1.0f, 64.0f);
     }
-    SPDLOG_INFO("[worldmap] {}: {}x{} px, {} layers, {} bytes, version {}, {} wall segments", scene.path, i.widthPx,
+    SPDLOG_INFO("[worldmap] {}: {}x{} px, {} layers, {} bytes, version {}, {} wall segments", path, i.widthPx,
                 i.heightPx, i.layers, i.fileBytes, version, out->edgeFirst.empty() ? 0u : out->edgeFirst.back());
     return out;
 }
@@ -429,6 +456,38 @@ extern "C" void RsWorldMap_BlockSize(int16_t* w, int16_t* h) {
     if (h != nullptr) {
         *h = sBlockH;
     }
+}
+
+extern "C" bool RsWorldMap_SetDetail(int16_t sceneId, const char* variant) {
+    std::string want = variant != nullptr ? variant : "";
+    if (want == "none") {
+        want.clear();
+    }
+    for (char c : want) {
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_')) {
+            return false;
+        }
+    }
+    // A variant must exist for the scene asked about; going back to the main file is always allowed.
+    if (!want.empty()) {
+        const WorldScene* scene = SceneOf(sceneId);
+        auto archives = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
+        if (scene == nullptr || !archives->HasFile(PathFor(*scene, want))) {
+            return false;
+        }
+    }
+    if (want != sDetail) {
+        sDetail = want;
+        for (auto& it : sMaps) {
+            sRetiredMaps.push_back(std::move(it.second));
+        }
+        sMaps.clear();
+    }
+    return true;
+}
+
+extern "C" const char* RsWorldMap_Detail(void) {
+    return sDetail.empty() ? "none" : sDetail.c_str();
 }
 
 extern "C" bool RsWorldMap_SetBlockSize(int16_t w, int16_t h) {

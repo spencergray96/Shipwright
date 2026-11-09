@@ -16,6 +16,21 @@
 #define CVAR_RS_MENU_MAP_WALL_TILES CVAR_ENHANCEMENT("RsMenuMapWallTiles")
 #define CVAR_RS_MENU_MAP_WALL_FLOOR CVAR_ENHANCEMENT("RsMenuMapWallFloor")
 #define CVAR_RS_MENU_MAP_WALL_SNAP CVAR_ENHANCEMENT("RsMenuMapWallSnap")
+// The focused view's C-button pan (#313): a velocity that ramps in while a C button is held and coasts out after it
+// is let go. Its top speed in hundredths of a VIEW a second (a view is the visible width or height), and the ramp in
+// and the coast out in milliseconds. 100 / 0 / 0 is #303's pan: full speed at once, a dead stop on release.
+#define CVAR_RS_MENU_MAP_PAN_SPEED CVAR_ENHANCEMENT("RsMenuMapPanSpeed")
+#define CVAR_RS_MENU_MAP_PAN_RAMP CVAR_ENHANCEMENT("RsMenuMapPanRamp")
+#define CVAR_RS_MENU_MAP_PAN_COAST CVAR_ENHANCEMENT("RsMenuMapPanCoast")
+#define RS_MENU_MAP_PAN_SPEED_DEFAULT 80
+#define RS_MENU_MAP_PAN_SPEED_MIN 10
+#define RS_MENU_MAP_PAN_SPEED_MAX 300
+#define RS_MENU_MAP_PAN_RAMP_DEFAULT 250
+#define RS_MENU_MAP_PAN_COAST_DEFAULT 150
+#define RS_MENU_MAP_PAN_SPEED_OFF 100 // `paneasing off`: #303's pan
+#define RS_MENU_MAP_PAN_RAMP_OFF 0
+#define RS_MENU_MAP_PAN_COAST_OFF 0
+#define RS_MENU_MAP_PAN_EASE_MAX 2000 // ms, either
 
 enum RsMenuMapFog {
     RS_MENU_MAP_FOG_HIDE = 0,
@@ -78,6 +93,35 @@ void RsMenuMapPage_SetWallSnap(bool on);
 bool RsMenuMapPage_StepZoom(int32_t dir);
 bool RsMenuMapPage_Pan(float dx, float dy);
 
+// The pan's velocity settings (#313), read every tick; the Set saves them. False if any is out of range.
+struct RsMenuMapPanEasing {
+    int32_t speed;   // hundredths of a view a second
+    int32_t rampMs;  // 0 to full speed
+    int32_t coastMs; // full speed to 0, once released
+};
+RsMenuMapPanEasing RsMenuMapPage_PanEasing();
+bool RsMenuMapPage_SetPanEasing(RsMenuMapPanEasing e);
+
+// The drawn view, FRAME by frame (#313). The page draws once a tick (20 Hz) and the frames between two ticks show
+// the two ticks' matrices lerped (frame_interpolation.cpp), so a capture cannot resolve one frame. With the trace on,
+// RunCommands calls NoteFrame for every frame it presents with that frame's step t in (0, 1]; the page records the
+// view rect lerped between its last two ticks by t - exact for a pan, since the placement matrix is linear in the
+// view's corner at a fixed zoom. Rows are kept in a ring of RS_MENU_MAP_TRACE_ROWS.
+#define RS_MENU_MAP_TRACE_ROWS 8192
+struct RsMenuMapTraceRow {
+    int32_t row;        // frames recorded since `on`
+    int32_t draw;       // the page's draw count (sFrame) whose display list this frame showed
+    float t;            // the frame's interpolation step, 1 on a tick's own frame
+    double ms;          // wall clock since `on`
+    float x0, y0, w, h; // the view rect shown, image pixels
+    float renderPerPx;  // render pixels an image pixel at this view
+    float vx, vy;       // the pan velocity that tick, views a second
+};
+void RsMenuMapPage_SetTrace(bool on);
+bool RsMenuMapPage_Trace();
+std::vector<RsMenuMapTraceRow> RsMenuMapPage_TraceRows(); // the ring, oldest first
+void RsMenuMapPage_NoteFrame(float t);
+
 // What `menu dump section=map` reports. `source`/`scene`/`reason` and the view are worked out live; `frame`,
 // `dst*`, `drawnView`, `blocks`, `fogQuads`, `words` and `arrowDrawn` are the LAST DRAWN frame's.
 struct RsMenuMapPageStatus {
@@ -100,6 +144,7 @@ struct RsMenuMapPageStatus {
     int32_t zoomStep;  // index into the zoom steps
     int32_t zoomSteps; // zoom steps taken this session
     int32_t pans;      // ticks a pan moved the view
+    float panVx, panVy; // the pan velocity, views a second (#313)
     const char* arrow; // vanilla | custom
     // the last drawn frame
     int32_t frame;

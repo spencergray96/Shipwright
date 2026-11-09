@@ -121,6 +121,7 @@
 #include "soh/config/ConfigUpdaters.h"
 #include "soh/ShipInit.hpp"
 #include "soh/Enhancements/rs/ambience/RsAmbienceMixer.h"
+#include "soh/Enhancements/rs/menu/MapPage.h" // SOH [sturdy-bassoon#313] the map page's per-frame trace
 
 #ifdef _MSC_VER
 #define strdup _strdup
@@ -1821,6 +1822,7 @@ void RunCommands(Gfx* Commands, int time, int step, int denom, int count) {
         intp->mInterpolationT = (float)time / denom;
         wnd->DrawAndRunGraphicsCommands(Commands, mtx_replacements);
         AgentTest_NoteFrameEnd(); // SOH [sturdy-bassoon#253] the perf marker's worst frame
+        RsMenuMapPage_NoteFrame((float)time / denom); // SOH [sturdy-bassoon#313] the drawn view, this frame
         intp->mInterpolationIndex++;
     }
     ImGui::PopStyleColor();
