@@ -61,7 +61,8 @@ struct RsLinkHandsStatus {
     int32_t trimmed[2];    // vertices the trims moved on each side's lists this frame
     int32_t keyTick;       // the level gesture's tick the key tables were read at last frame (`menu hand keys`)
     bool keyUp;            // ...and its direction: the up table, or the down one (also at rest)
-    float key[2][3];       // each side's offset x, y and paper in force last frame, from its key tables
+    float key[2][4];       // each side's offset x, y, paper and roll depth in force last frame, from its key tables
+    const char* thumb[2];  // each side's thumb: front (drawn whole in front), split (by the cut) or none (no table)
     int32_t tris[2][2];    // each side's hand triangles drawn [front, behind the scroll] (`menu hand cut`)
     int32_t straddle[2];   // of the behind ones, those partly in front of the scroll's plane (cut per pixel)
 };

@@ -40,6 +40,7 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
 // The rolls' depth for the hands, in game units toward the viewer at a roll's centre line (`menu hand roll`): each roll
 // occluder bulges like the cylinder it draws, 0 at its edges, so fingers that wrap it go behind it at its silhouette.
 // 0 is the flat plane the first holding build used.
-float RsLinkHands_RollRadius();
+// Per side and per tick (`menu hand keyroll`), read at the same tick the hand's key tables are.
+float RsLinkHands_RollRadius(int32_t side, int32_t keyTick, bool keyUp);
 
 #endif // SOH_RS_MENU_LINK_HANDS_DRAW_H

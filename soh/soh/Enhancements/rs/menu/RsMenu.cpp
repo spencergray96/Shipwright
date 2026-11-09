@@ -3872,7 +3872,7 @@ static void RsMenu_OnPlayDrawEnd() {
         if (linkHands) {
             // The roll's depth, under the roll's own matrix: what of this side's hand is behind it, it hides.
             DrawRollOccluder(side);
-            const float roll = RsLinkHands_RollRadius();
+            const float roll = RsLinkHands_RollRadius(side, HandKeyTick(), sLevelActive && sLevelDir < 0);
             if (roll > 0.0f) {
                 DrawRollOccluderRound(side, roll);
             }
