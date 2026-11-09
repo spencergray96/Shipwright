@@ -302,13 +302,22 @@ constexpr RsHandBox kHandLeft[] = {
 };
 constexpr int32_t kHandBoxCount = (int32_t)(sizeof(kHandLeft) / sizeof(kHandLeft[0]));
 constexpr int32_t kHandVtxCount = kHandBoxCount * 4;
-// The hand's selectable extent, which is what the cursor highlight is drawn around. It is the union
-// of the boxes above, held as four numbers rather than recomputed, because it is also the number a
-// console line prints and a run asserts on. Authored, like the boxes: a node adds the rest raise.
-constexpr int16_t kHandBoxX = 0;
-constexpr int16_t kHandBoxY = 148;
+// The hand's selectable extent, which is what the cursor highlight is drawn around. Held as four numbers
+// rather than recomputed, because it is also the number a console line prints and a run asserts on. In the
+// boxes' authored frame: a node adds the rest raise and the outward step.
+//
+// #299: MEASURED from Link's own arms, no longer the union of the boxes above (which stay as the `menu hand
+// set boxes` placeholder). `menu hand` at rest, with the owner's look-4 defaults (offsets l 0,25 and r -5,25,
+// overlap 40, girth 1.1), printed l_extent -13.1..31.4 and r_extent 289.2..333.7 in x, and a top of 126.8 and
+// 127.4. Back into this frame (x + kHandOutward 6 on the left; 320 + 6 - x mirrored on the right; y + the
+// rest raise 38) that is x -7.7..37.4 and a top of 164.8, rounded outward to the whole units below. The
+// bottom stays at the cuff's 278 (it runs off the screen; kHandForearm and the raise assert read it). The
+// width came back at 46 - the arms reach 8 further out than the placeholder and 8 less far in.
+// Re-measure if a hand's offset, grip, rot, overlap or girth default changes.
+constexpr int16_t kHandBoxX = -8;
+constexpr int16_t kHandBoxY = 164;
 constexpr int16_t kHandBoxW = 46;
-constexpr int16_t kHandBoxH = 130;
+constexpr int16_t kHandBoxH = 114;
 
 // The roll's three columns, dark - light - dark, which is what makes it read as a cylinder rather
 // than a stripe. The centre column is the only thing the probe recolours: magenta is a colour no
@@ -1925,6 +1934,14 @@ constexpr float kHandSlide = 2.0f * (kGripY - kPivotY);
 
 static float HandSlide(int32_t side) {
     return side == 0 ? kHandSlide * (LevelAngle(LevelPose()) / kTurnAngle) : 0.0f;
+}
+
+// #299, the owner's look 4: the hands' journal-pose offset and paper ease in LINEARLY by tick from halfway through
+// the turn (kLevelSwapTick) to its end, are held full through the open, and play back on the way up - "as the scroll
+// starts rotating halfway through, the left hand needs to start moving up".
+static float HandJournalBlend() {
+    constexpr int32_t turnEnd = kLevelCloseTicks + kLevelTurnTicks;
+    return std::clamp((float)(LevelPose() - kLevelSwapTick) / (float)(turnEnd - kLevelSwapTick), 0.0f, 1.0f);
 }
 
 // Applied after ApplySideMatrix, for BOTH hands on every frame - the right hand's slide is always
@@ -3830,7 +3847,8 @@ static void RsMenu_OnPlayDrawEnd() {
             // Link's arm, gripping where the placeholder's fingers crossed the roll, under this same matrix. It
             // loads its own matrices (one per limb), so the side's is pushed again afterwards - on every frame,
             // like every other op in this node - for the cursor box and the next side's roll.
-            RsLinkHands_Draw(play, gfxCtx, dl, side, kGripX[side], kGripY, LevelAngle(LevelPose()) / kTurnAngle);
+            RsLinkHands_Draw(play, gfxCtx, dl, side, kGripX[side], kGripY, LevelAngle(LevelPose()) / kTurnAngle,
+                             HandJournalBlend());
             const RsLinkHandsStatus hands = RsLinkHands_Status();
             for (int32_t k = 0; k < 4; k++) {
                 sHandExtent[side][k] = hands.extent[side][k];
@@ -4087,8 +4105,8 @@ int32_t RsMenu_RegisterPageStruct(const RsMenuPage& page) {
 
 RsMenuRect RsMenu_PageRect() {
     // The horizontal parchment's inside, less the hands: they cover the panel's sides - from halfway up
-    // the rolls down, since #128 - out to x 46 and in from x 274 (40 and 280 since #128 stepped them out,
-    // left as it was so no page moves), so a page that stays between them never draws under a finger.
+    // the rolls down, since #128 - out to x 38 and in from x 282 (#299: Link's arms, measured; the
+    // placeholder's 46 and 274 before), so a page that stays between them never draws under a finger.
     constexpr int16_t kHandClear = 6;
     RsMenuRect rect;
     rect.x0 = (int16_t)(kHandBoxX + kHandBoxW + kHandClear);

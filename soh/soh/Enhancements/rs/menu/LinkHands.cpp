@@ -212,7 +212,29 @@ static const float kDefaultTurnBend[2] = { 0.0f, 30.0f };
 // (rot y -90), so the backs of both hands face the screen's outer edges. One sign for both: the left hand showed
 // its back and the right its palm, so the same turn sends the two backs opposite ways.
 static const RsLinkHandPose kDefaultPose = { { 0.0f, -90.0f, 0.0f }, { 0.0f, 0.0f }, { 0.0f, 0.0f, 90.0f }, 0.0f, 0.0f,
-                                              0.0f };
+                                              0.0f, { 0.0f, 0.0f }, 0.0f };
+// Where each grip sits, from the owner's look (2026-11-08): both 25 down the roll, the right one 5 in toward the page.
+// Asymmetric on purpose. In the hand's own frame, which turns with the roll.
+static const float kDefaultOffset[2][2] = { { 0.0f, 25.0f }, { -5.0f, 25.0f } };
+// THE JOURNAL POSE (same look, frozen at `menu level hold down 16`, the first tick at 90 degrees): the left hand 19
+// further up its roll, at 6, and stepped back to 14 so its fingers other than the thumb go behind the roll; at 10
+// they poked over it. The right hand keeps its flat values (its CVars fall back to them) until its own look. Eased in
+// linearly from halfway through the turn to its end, held through the open, and played back on the way up: the
+// jblend RsMenu passes in.
+static const float kDefaultJOffsetLeft[2] = { 0.0f, 6.0f };
+constexpr float kDefaultJPaperLeft = 14.0f;
+// THE WRIST HOLE (owner look 4): the hand limb's mesh is open at the wrist - in Link's own poses the forearm's bracer
+// fills it - and at the grip pose a corner of that opening, at the base of the palm beside the bracer's tip, faced the
+// screen, so a speck of the parchment behind showed THROUGH the hand. It is not the paper's depth or the triangle split
+// (it stays with `occlude off`), nor back-face culling (drawing both faces left it); hiding the hand's third triangle
+// widens it into a hole onto the parchment. It moved with each 1-unit nudge of the grip, so no single overlap closed
+// it everywhere.
+// The bracer is pushed into the opening two ways, measured over a +-2-unit sweep of both grips (run record, look 4):
+//   OVERLAP slides the forearm this many model units along its own axis into the hand (40 = 2.8 game units);
+//   GIRTH thickens it about that axis, undone again for the upper arm.
+// 40 alone left a notch on the right hand at -2; 1.1 alone, or 1.1 with 10, 20 or 30, left one at +-1 or 2.
+constexpr float kDefaultOverlap = 40.0f;
+constexpr float kDefaultGirth = 1.1f;
 // The open hand, the owner's pick in the same session ("much better, especially since they'll be partially hidden
 // by the scroll").
 constexpr int32_t kDefaultGrip = 1;
@@ -231,6 +253,8 @@ static void SetSideFloat(int32_t side, const char* field, float value) {
     CVarSetFloat(name, value);
 }
 
+static float Paper();
+
 static RsLinkHandPose ReadPose(int32_t side) {
     RsLinkHandPose p;
     static const char* const kRot[3] = { "RotX", "RotY", "RotZ" };
@@ -239,11 +263,14 @@ static RsLinkHandPose ReadPose(int32_t side) {
         p.rot[i] = SideFloat(side, kRot[i], kDefaultPose.rot[i]);
         p.wrist[i] = SideFloat(side, kWrist[i], kDefaultPose.wrist[i]);
     }
-    p.offset[0] = SideFloat(side, "OffsetX", kDefaultPose.offset[0]);
-    p.offset[1] = SideFloat(side, "OffsetY", kDefaultPose.offset[1]);
+    p.offset[0] = SideFloat(side, "OffsetX", kDefaultOffset[side][0]);
+    p.offset[1] = SideFloat(side, "OffsetY", kDefaultOffset[side][1]);
+    p.jOffset[0] = SideFloat(side, "JOffsetX", side == 0 ? kDefaultJOffsetLeft[0] : p.offset[0]);
+    p.jOffset[1] = SideFloat(side, "JOffsetY", side == 0 ? kDefaultJOffsetLeft[1] : p.offset[1]);
     p.elbow = SideFloat(side, "Elbow", kDefaultPose.elbow);
     p.vturn = SideFloat(side, "VTurn", kDefaultPose.vturn);
     p.turnBend = SideFloat(side, "TurnBend", kDefaultTurnBend[side]);
+    p.jPaper = SideFloat(side, "JPaper", side == 0 ? kDefaultJPaperLeft : Paper());
     return p;
 }
 
@@ -267,6 +294,12 @@ static bool Occlude() {
 constexpr float kDefaultPaper = 10.0f;
 static float Paper() {
     return CVarGetFloat(CVAR_RS_HAND("Paper"), kDefaultPaper);
+}
+static float Girth() {
+    return std::clamp(CVarGetFloat(CVAR_RS_HAND("Girth"), kDefaultGirth), 0.5f, 2.0f);
+}
+static float Overlap() {
+    return CVarGetFloat(CVAR_RS_HAND("Overlap"), kDefaultOverlap);
 }
 constexpr int32_t kCutTris = 0;  // the hand split by triangle (default)
 constexpr int32_t kCutPixel = 1; // the hand cut by depth per pixel (the first holding build)
@@ -682,7 +715,7 @@ static void ToScreen(const MtxF* mf, const Vec3s& p, float ext[4]) {
 }
 
 void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>& dl, int32_t side, float gripX,
-                      float gripY, float levelBlend) {
+                      float gripY, float levelBlend, float journalBlend) {
     const int32_t set = LINK_IS_ADULT ? 0 : 1;
     const RsHandSet& hs = kHandSets[set];
     const int32_t grip = Grip();
@@ -715,9 +748,13 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
     Matrix_Push();
     // The paper knob moves the hand, not the paper: the scroll's depth is z 0 wherever it is drawn, so a hand set
     // back by `paper` puts that much more of itself behind it. Always emitted, 0 or not.
-    const float paper = Paper();
-    Matrix_Translate(gripX - (float)(SCREEN_WIDTH / 2) + pose.offset[0],
-                     (float)(SCREEN_HEIGHT / 2) - gripY - pose.offset[1], -paper, MTXMODE_APPLY);
+    // The journal pose's offset and paper, eased in from the flat pose's by journalBlend (0 flat, 1 upright).
+    const float jb = std::clamp(journalBlend, 0.0f, 1.0f);
+    const float paper = Paper() + (pose.jPaper - Paper()) * jb;
+    const float offX = pose.offset[0] + (pose.jOffset[0] - pose.offset[0]) * jb;
+    const float offY = pose.offset[1] + (pose.jOffset[1] - pose.offset[1]) * jb;
+    Matrix_Translate(gripX - (float)(SCREEN_WIDTH / 2) + offX, (float)(SCREEN_HEIGHT / 2) - gripY - offY, -paper,
+                     MTXMODE_APPLY);
     Matrix_RotateZ((pose.rot[2] + pose.vturn * levelBlend) * kDeg, MTXMODE_APPLY);
     Matrix_RotateY(pose.rot[1] * kDeg, MTXMODE_APPLY);
     Matrix_RotateX(pose.rot[0] * kDeg, MTXMODE_APPLY);
@@ -732,9 +769,16 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
     Matrix_RotateZ(pose.wrist[2] * kDeg, MTXMODE_APPLY);
     Matrix_RotateY(pose.wrist[1] * kDeg, MTXMODE_APPLY);
     Matrix_RotateX(pose.wrist[0] * kDeg, MTXMODE_APPLY);
+    // The wrist seam's overlap: the forearm slid along its own x (elbow to wrist) into the hand. Always emitted.
+    // And its girth: the forearm thickened about its own axis, so the bracer's end covers the hand's open wrist.
+    const float girth = Girth();
+    Matrix_Translate(Overlap(), 0.0f, 0.0f, MTXMODE_APPLY);
+    Matrix_Scale(1.0f, girth, girth, MTXMODE_APPLY);
     Matrix_Translate(-(float)jpHand.x, -(float)jpHand.y, -(float)jpHand.z, MTXMODE_APPLY);
     toMtx(slotFore);
     Matrix_Get(&mfFore);
+    // The girth undone for the upper arm and the rest, about the elbow (this point).
+    Matrix_Scale(1.0f, 1.0f / girth, 1.0f / girth, MTXMODE_APPLY);
     // The upper arm, bent at the elbow (the forearm's origin) and stepped back the same way.
     Matrix_RotateZ(pose.elbow * kDeg, MTXMODE_APPLY);
     // Reach: the upper arm stretched along its own x about the elbow (this point), before stepping back to its origin.
@@ -758,6 +802,7 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
     sStatus.upper = Upper();
     sStatus.scale = scale;
     sStatus.pose[side] = pose;
+    sStatus.jblend[side] = jb;
     sStatus.slots = loaded ? sSkel.slots : 0;
     sStatus.limbSlot[side][0] = slotUpper;
     sStatus.limbSlot[side][1] = slotFore;
@@ -974,24 +1019,25 @@ RsLinkHandsStatus RsLinkHands_Status() {
 
 std::string RsLinkHands_Describe() {
     const RsLinkHandsStatus& s = sStatus;
-    char buf[1024];
+    char buf[2048];
     int32_t n = std::snprintf(buf, sizeof(buf),
                               "set=%s drawn=%s grip=%s variant=%s upper=%d scale=%.4f slots=%d loads=%d "
-                              "light=%.0f,%.0f,%.0f ambient=%d occlude=%d cut=%s paper=%.1f reach=%.2f trim=%d trimmed=%d,%d "
+                              "light=%.0f,%.0f,%.0f ambient=%d occlude=%d cut=%s paper=%.1f reach=%.2f overlap=%.1f girth=%.2f trim=%d trimmed=%d,%d "
                               "tris_front=%d,%d tris_back=%d,%d",
                               UseBoxes() ? "boxes" : kHandSets[LINK_IS_ADULT ? 0 : 1].id, s.set, kGripNames[Grip()],
                               s.variant.c_str(), Upper() ? 1 : 0,
                               s.scale, s.slots, s.loads, s.light[0], s.light[1], s.light[2], s.ambient,
-                              Occlude() ? 1 : 0, Cut() == kCutTris ? "tris" : "pixel", Paper(), Reach(), Trim() ? 1 : 0,
+                              Occlude() ? 1 : 0, Cut() == kCutTris ? "tris" : "pixel", Paper(), Reach(), Overlap(), Girth(), Trim() ? 1 : 0,
                               s.trimmed[0], s.trimmed[1], s.tris[0][0], s.tris[1][0], s.tris[0][1], s.tris[1][1]);
     for (int32_t side = 0; side < 2 && n > 0 && n < (int32_t)sizeof(buf); side++) {
         const RsLinkHandPose p = ReadPose(side);
         const char* k = side == 0 ? "l" : "r";
         n += std::snprintf(buf + n, sizeof(buf) - n,
                            " %s_rot=%.1f,%.1f,%.1f %s_offset=%.1f,%.1f %s_wrist=%.1f,%.1f,%.1f %s_elbow=%.1f "
-                           "%s_vturn=%.1f %s_turnbend=%.1f %s_lists=%d %s_verts=%d %s_extent=%.1f,%.1f,%.1f,%.1f %s_slots=%d,%d,%d",
+                           "%s_vturn=%.1f %s_turnbend=%.1f %s_joffset=%.1f,%.1f %s_jpaper=%.1f %s_jblend=%.2f %s_lists=%d %s_verts=%d %s_extent=%.1f,%.1f,%.1f,%.1f %s_slots=%d,%d,%d",
                            k, p.rot[0], p.rot[1], p.rot[2], k, p.offset[0], p.offset[1], k, p.wrist[0], p.wrist[1],
-                           p.wrist[2], k, p.elbow, k, p.vturn, k, p.turnBend, k, s.dlists[side], k, s.verts[side], k,
+                           p.wrist[2], k, p.elbow, k, p.vturn, k, p.turnBend, k, p.jOffset[0], p.jOffset[1], k, p.jPaper, k,
+                           s.jblend[side], k, s.dlists[side], k, s.verts[side], k,
                            s.extent[side][0], s.extent[side][1], s.extent[side][2], s.extent[side][3], k,
                            s.limbSlot[side][0], s.limbSlot[side][1], s.limbSlot[side][2]);
     }
@@ -1066,7 +1112,7 @@ int32_t SetSideFields(const std::vector<std::string>& args, const char* op, cons
 void ClearAll() {
     static const char* const kFields[] = { "RotX",   "RotY",   "RotZ",    "WristX",  "WristY",
                                            "WristZ", "OffsetX", "OffsetY", "Elbow",   "VTurn",
-                                           "TurnBend" };
+                                           "TurnBend", "JOffsetX", "JOffsetY", "JPaper" };
     for (int32_t side = 0; side < 2; side++) {
         for (const char* f : kFields) {
             char name[96];
@@ -1078,7 +1124,7 @@ void ClearAll() {
                               CVAR_RS_HAND("ScaleChild"), CVAR_RS_HAND("LightX"), CVAR_RS_HAND("LightY"),
                               CVAR_RS_HAND("LightZ"), CVAR_RS_HAND("Ambient"), CVAR_RS_HAND("Boxes"),
                               CVAR_RS_HAND("Occlude"), CVAR_RS_HAND("Paper"), CVAR_RS_HAND("Trim"),
-                              CVAR_RS_HAND("Cut"), CVAR_RS_HAND("Reach") }) {
+                              CVAR_RS_HAND("Cut"), CVAR_RS_HAND("Reach"), CVAR_RS_HAND("Overlap"), CVAR_RS_HAND("Girth") }) {
         CVarClear(name);
     }
 }
@@ -1170,6 +1216,34 @@ int32_t RsLinkHands_Console(const std::vector<std::string>& args, std::vector<st
         }
         CVarSetFloat(CVAR_RS_HAND("Reach"), v);
         Addl(lines, "reach", 0, nullptr);
+        return 0;
+    }
+    if (verb == "joffset") {
+        static const char* const f[] = { "JOffsetX", "JOffsetY" };
+        return SetSideFields(args, "joffset", f, 2, lines);
+    }
+    if (verb == "jpaper") {
+        static const char* const f[] = { "JPaper" };
+        return SetSideFields(args, "jpaper", f, 1, lines);
+    }
+    if (verb == "girth" && args.size() == 2) {
+        float v = 0.0f;
+        if (!ParseFloat(args[1], &v) || v < 0.5f || v > 2.0f) {
+            Addl(lines, "girth", 1, "not_a_girth");
+            return 1;
+        }
+        CVarSetFloat(CVAR_RS_HAND("Girth"), v);
+        Addl(lines, "girth", 0, nullptr);
+        return 0;
+    }
+    if (verb == "overlap" && args.size() == 2) {
+        float v = 0.0f;
+        if (!ParseFloat(args[1], &v)) {
+            Addl(lines, "overlap", 1, "not_a_number");
+            return 1;
+        }
+        CVarSetFloat(CVAR_RS_HAND("Overlap"), v);
+        Addl(lines, "overlap", 0, nullptr);
         return 0;
     }
     if (verb == "vturn") {

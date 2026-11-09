@@ -33,6 +33,6 @@ bool RsLinkHands_PushOccluderState(std::vector<Gfx>& dl, bool textured);
 // down; `levelBlend` is 0 at level 0 and 1 in the vertical pose. Emits the same Matrix_* ops on every call
 // whatever is worn or drawn, as the hands' node requires, and leaves the matrix stack as it found it.
 void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>& dl, int32_t side, float gripX,
-                      float gripY, float levelBlend);
+                      float gripY, float levelBlend, float journalBlend);
 
 #endif // SOH_RS_MENU_LINK_HANDS_DRAW_H
