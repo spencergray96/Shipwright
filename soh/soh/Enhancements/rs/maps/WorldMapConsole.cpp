@@ -35,8 +35,9 @@ std::string Status() {
     char buf[512];
     RsWorldMapInfo i;
     if (!RsWorldMap_Info(scene, &i)) {
-        std::snprintf(buf, sizeof(buf), "op=status scene=0x%X map=0 reason=%s storey_mode=%s", (unsigned)(uint16_t)scene,
-                      scene < 0 ? "no_play" : RsWorldMap_Problem(scene), mode);
+        std::snprintf(buf, sizeof(buf), "op=status scene=0x%X map=0 reason=%s storey_mode=%s detail=%s",
+                      (unsigned)(uint16_t)scene, scene < 0 ? "no_play" : RsWorldMap_Problem(scene), mode,
+                      RsWorldMap_Detail());
         return buf;
     }
     float px = 0.0f, py = 0.0f;
@@ -48,9 +49,10 @@ std::string Status() {
     RsWorldMap_BlockSize(&bw, &bh);
     std::snprintf(buf, sizeof(buf),
                   "op=status scene=0x%X map=1 size=%ux%u px_per_tile=%u tiles=%ux%u storeys=%u layers=%u layer=%u storey_mode=%s "
-                  "link_storey=%d link_px=%.1f,%.1f link_rs=%d,%d blocks=%dx%d bytes=%u version=%u edges=%u",
+                  "link_storey=%d link_px=%.1f,%.1f link_rs=%d,%d blocks=%dx%d bytes=%u version=%u edges=%u detail=%s",
                   (unsigned)(uint16_t)scene, i.widthPx, i.heightPx, i.pxPerTile, i.widthTiles, i.depthTiles, i.storeys, i.layers,
-                  i.layer, mode, RsWorldMap_LinkStorey(), px, py, rsX, rsY, bw, bh, i.fileBytes, i.version, i.edges);
+                  i.layer, mode, RsWorldMap_LinkStorey(), px, py, rsX, rsY, bw, bh, i.fileBytes, i.version, i.edges,
+                  RsWorldMap_Detail());
     return buf;
 }
 
@@ -68,7 +70,7 @@ bool ParseNumber(const std::string& word, float* out) {
 }
 
 const char* kUsage = "usage: worldmap [status] | storey ground|all|current|below | debug off|whole|link | block <w> <h> | "
-                     "pixel <x> <z>";
+                     "pixel <x> <z> | detail none|<variant>";
 
 } // namespace
 
@@ -120,6 +122,15 @@ int32_t RsWorldMapConsole_Run(const std::vector<std::string>& args, std::vector<
         lines.push_back("op=block w=" + std::to_string((int32_t)w) + " h=" + std::to_string((int32_t)h));
         return 0;
     }
+    // #313: which of the export's variant files the maps read (props, ground, both; WorldMap.h).
+    if (sub == "detail") {
+        if (args.size() >= 2 && !RsWorldMap_SetDetail(SceneNow(), args[1].c_str())) {
+            lines.push_back("op=detail result=error error=no_variant detail=" + std::string(RsWorldMap_Detail()));
+            return 1;
+        }
+        lines.push_back(Status());
+        return 0;
+    }
     if (sub == "pixel") {
         float x = 0.0f, z = 0.0f, px = 0.0f, py = 0.0f;
         RsWorldMapInfo i;
@@ -147,8 +158,8 @@ namespace {
 const ConsoleSink::Command worldMapCommand(
     "worldmap", RsWorldMapConsole_Run,
     "The world map image (sturdy-bassoon#298): status | storey ground|all|current|below | debug off|whole|link | "
-    "block <w> <h> | pixel <x> <z>. Its size, the storey layer drawn, and the pixel under Link.",
-    { { "status|storey|debug|block|pixel", Ship::ArgumentType::TEXT, true },
+    "block <w> <h> | pixel <x> <z> | detail none|<variant>. Its size, the storey layer drawn, and the pixel under Link.",
+    { { "status|storey|debug|block|pixel|detail", Ship::ArgumentType::TEXT, true },
       { "argument", Ship::ArgumentType::TEXT, true },
       { "argument", Ship::ArgumentType::TEXT, true } });
 
@@ -165,6 +176,11 @@ debug                   draw the map on screen
   link                  a window around Link, his pixel in red
 block <w> <h>           the TMEM block size, for measuring
 pixel <x> <z>           where a world position lands on the image
+detail                  which of the export's variants to read (#313; not saved)
+  none                  the main picture
+  props                 with prop footprints
+  ground                with ground colour
+  both                  with both
 )");
 
 } // namespace
