@@ -212,17 +212,38 @@ static const float kDefaultTurnBend[2] = { 0.0f, 30.0f };
 // (rot y -90), so the backs of both hands face the screen's outer edges. One sign for both: the left hand showed
 // its back and the right its palm, so the same turn sends the two backs opposite ways.
 static const RsLinkHandPose kDefaultPose = { { 0.0f, -90.0f, 0.0f }, { 0.0f, 0.0f }, { 0.0f, 0.0f, 90.0f }, 0.0f, 0.0f,
-                                              0.0f, { 0.0f, 0.0f }, 0.0f };
+                                              0.0f };
 // Where each grip sits, from the owner's look (2026-11-08): both 25 down the roll, the right one 5 in toward the page.
 // Asymmetric on purpose. In the hand's own frame, which turns with the roll.
 static const float kDefaultOffset[2][2] = { { 0.0f, 25.0f }, { -5.0f, 25.0f } };
-// THE JOURNAL POSE (same look, frozen at `menu level hold down 16`, the first tick at 90 degrees): the left hand 19
-// further up its roll, at 6, and stepped back to 14 so its fingers other than the thumb go behind the roll; at 10
-// they poked over it. The right hand keeps its flat values (its CVars fall back to them) until its own look. Eased in
-// linearly from halfway through the turn to its end, held through the open, and played back on the way up: the
-// jblend RsMenu passes in.
-static const float kDefaultJOffsetLeft[2] = { 0.0f, 6.0f };
-constexpr float kDefaultJPaperLeft = 14.0f;
+// THE KEY TABLES (owner look 5, tuned frame by frame with `menu level hold down <t>`): through the level gesture each
+// hand's offset and paper come from a table by tick, 0 to kLevelTicks (24), not from one flat value. The gesture's
+// matrices are rebuilt each tick and the frame interpolator blends between ticks, so 60 and 144 fps stay smooth.
+// The DOWN table is the source; the UP table, indexed by `hold up <t>`, defaults to the down entry for the same pose
+// (down 24 - t), the same pose for the same turn angle, and any entry of it can be set on its own. At rest the down
+// table's 0 (flat) or 24 (upright) is used. `menu hand key` and `keypaper` set one entry; `menu hand keys` prints them.
+// LEFT, offsets in the hand's own frame (x, y down the roll): flat 0,25 to tick 9, then the hand climbs its roll
+// through the second half of the turn.
+constexpr int32_t kKeyTicks = 25;
+static const float kDefaultKeyLeft[kKeyTicks][2] = {
+    { 0, 25 }, { 0, 25 }, { 0, 25 }, { 0, 25 }, { 0, 25 }, { 0, 25 }, { 0, 25 }, { 0, 25 }, { 0, 25 },
+    { 0, 25 }, { 2, 25 }, { 2, 17 }, { 2, 10 }, { 2, 7 },  { 2, 6 },  { 2, 6 },  { 2, 6 },  { 2, 6 },
+    { 2, 6 },  { 2, 6 },  { 2, 6 },  { 2, 6 },  { 2, 6 },  { 2, 6 },  { 2, 6 },
+};
+// LEFT paper: 10 to tick 12 (with the round rolls, the left fingers' edge against the roll was cleanest at 10; 8 let a
+// finger back over it), then 14 (look 4's upright value, so its fingers other than the thumb go behind the bottom
+// roll) from tick 16, ramped over 13-15. The RIGHT hand has no table defaults: its entries fall back to its flat
+// `offset` and the global `paper` until its own look.
+static const float kDefaultKeyPaperLeft[kKeyTicks] = { 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+                                                       11, 12, 13, 14, 14, 14, 14, 14, 14, 14, 14, 14 };
+// THE ROUND ROLL (owner look 5, the GREEN edge): the rolls' depth occluders were flat quads at the paper plane, so a
+// finger only just in front of that plane painted over a roll right to its edge, and the per-triangle split then drew
+// whole straddling triangles over it as a sawtooth. Each roll now writes the depth of the cylinder it draws (this
+// radius toward the viewer on its centre line, 0 at its edges), and `cut mixed` sends every hand triangle that is
+// not wholly in front of that bulge through the depth-tested pass. 2, with paper 10 on the left and 8 on the right: at
+// rest it took the step out of the left fingers' edge and kept the right palm whole; 3 and more ate into the palms and
+// the left thumb, 0 left the step (run record, look 5).
+constexpr float kDefaultRollRadius = 2.0f;
 // THE WRIST HOLE (owner look 4): the hand limb's mesh is open at the wrist - in Link's own poses the forearm's bracer
 // fills it - and at the grip pose a corner of that opening, at the base of the palm beside the bracer's tip, faced the
 // screen, so a speck of the parchment behind showed THROUGH the hand. It is not the paper's depth or the triangle split
@@ -265,12 +286,9 @@ static RsLinkHandPose ReadPose(int32_t side) {
     }
     p.offset[0] = SideFloat(side, "OffsetX", kDefaultOffset[side][0]);
     p.offset[1] = SideFloat(side, "OffsetY", kDefaultOffset[side][1]);
-    p.jOffset[0] = SideFloat(side, "JOffsetX", side == 0 ? kDefaultJOffsetLeft[0] : p.offset[0]);
-    p.jOffset[1] = SideFloat(side, "JOffsetY", side == 0 ? kDefaultJOffsetLeft[1] : p.offset[1]);
     p.elbow = SideFloat(side, "Elbow", kDefaultPose.elbow);
     p.vturn = SideFloat(side, "VTurn", kDefaultPose.vturn);
     p.turnBend = SideFloat(side, "TurnBend", kDefaultTurnBend[side]);
-    p.jPaper = SideFloat(side, "JPaper", side == 0 ? kDefaultJPaperLeft : Paper());
     return p;
 }
 
@@ -291,7 +309,9 @@ static bool Occlude() {
 }
 // 10 game units: the open hand at the owner's pose lies wholly in front of the rolls' axis at 0 and wholly behind at
 // 30; at 10 the thumb and fingertips wrap over the roll and the palm goes behind it (agent check, 2026-11-08).
-constexpr float kDefaultPaper = 10.0f;
+// Look 5: 8 with the round rolls (`roll 2`) - at 10 the right palm's base sank into the right roll's bulge. The left
+// hand's paper comes from its key table, so in practice this is the right hand's.
+constexpr float kDefaultPaper = 8.0f;
 static float Paper() {
     return CVarGetFloat(CVAR_RS_HAND("Paper"), kDefaultPaper);
 }
@@ -301,10 +321,50 @@ static float Girth() {
 static float Overlap() {
     return CVarGetFloat(CVAR_RS_HAND("Overlap"), kDefaultOverlap);
 }
-constexpr int32_t kCutTris = 0;  // the hand split by triangle (default)
+constexpr int32_t kCutTris = 0;  // the hand split by triangle at the flat plane (look 2)
 constexpr int32_t kCutPixel = 1; // the hand cut by depth per pixel (the first holding build)
+constexpr int32_t kCutMixed = 2; // wholly in front of the roll's bulge by triangle, the rest per pixel (default)
+static const char* const kCutNames[3] = { "tris", "pixel", "mixed" };
 static int32_t Cut() {
-    return std::clamp(CVarGetInteger(CVAR_RS_HAND("Cut"), kCutTris), kCutTris, kCutPixel);
+    return std::clamp(CVarGetInteger(CVAR_RS_HAND("Cut"), kCutMixed), kCutTris, kCutMixed);
+}
+static float RollRadius() {
+    return std::max(0.0f, CVarGetFloat(CVAR_RS_HAND("Roll"), kDefaultRollRadius));
+}
+
+// One key-table entry's CVar: L.KeyD12X, R.KeyU03P.
+static float KeyCVar(int32_t side, bool up, int32_t tick, char comp) {
+    char field[16];
+    std::snprintf(field, sizeof(field), "Key%c%02d%c", up ? 'U' : 'D', tick, comp);
+    return SideFloat(side, field, NAN);
+}
+static void SetKeyCVar(int32_t side, bool up, int32_t tick, char comp, float v) {
+    char field[16];
+    std::snprintf(field, sizeof(field), "Key%c%02d%c", up ? 'U' : 'D', tick, comp);
+    SetSideFloat(side, field, v);
+}
+
+// The offset x, y and paper for one side at one tick of one direction. See THE KEY TABLES.
+static void KeyAt(int32_t side, bool up, int32_t tick, const RsLinkHandPose& pose, float out[3]) {
+    tick = std::clamp(tick, 0, kKeyTicks - 1);
+    if (up) {
+        KeyAt(side, false, kKeyTicks - 1 - tick, pose, out);
+    } else if (side == 0) {
+        out[0] = kDefaultKeyLeft[tick][0];
+        out[1] = kDefaultKeyLeft[tick][1];
+        out[2] = kDefaultKeyPaperLeft[tick];
+    } else {
+        out[0] = pose.offset[0];
+        out[1] = pose.offset[1];
+        out[2] = Paper();
+    }
+    static const char kComp[3] = { 'X', 'Y', 'P' };
+    for (int32_t i = 0; i < 3; i++) {
+        const float v = KeyCVar(side, up, tick, kComp[i]);
+        if (!std::isnan(v)) {
+            out[i] = v;
+        }
+    }
 }
 static bool Trim() {
     return CVarGetInteger(CVAR_RS_HAND("Trim"), 1) != 0;
@@ -628,9 +688,12 @@ bool RsLinkHands_PushOccluderState(std::vector<Gfx>& dl, bool textured) {
 // staircase across a finger - and is picked again from the pose every frame, so no table goes stale when the
 // owner turns a hand. Link's hand lists draw with G_TRI2 only (21 in the adult open hand); a TRI2 whose two halves
 // fall on different sides becomes the one TRI1 that stays. `count` gains the triangles kept. Null when none are.
+// MIXED (owner look 5): FRONT only when all three vertices are at or in front of `frontZ`, the rolls' bulge, and BACK
+// - the depth-tested pass, cut per pixel against the paper and the round rolls - otherwise; `straddle` counts the back
+// ones that are not wholly behind the plane. Look 2's rule (by the vertices' sum against z 0) without `mixed`.
 template <typename SlotMf>
 static const Gfx* SplitList(GraphicsContext* gfxCtx, const Gfx* src, const MtxF* own, const SlotMf& mfForSlot, bool back,
-                            int32_t* count) {
+                            int32_t* count, bool mixed, float frontZ, int32_t* straddle) {
     size_t words = 0;
     for (const Gfx* g = src; words < 4096; g++) {
         words++;
@@ -649,7 +712,15 @@ static const Gfx* SplitList(GraphicsContext* gfxCtx, const Gfx* src, const MtxF*
     int32_t kept = 0;
     auto behind = [&](uint32_t w) {
         const int32_t a = (int32_t)((w >> 16) & 0xFF) / 2, b = (int32_t)((w >> 8) & 0xFF) / 2, c = (int32_t)(w & 0xFF) / 2;
-        return z[a & 63] + z[b & 63] + z[c & 63] < 0.0f;
+        const float za = z[a & 63], zb = z[b & 63], zc = z[c & 63];
+        if (!mixed) {
+            return za + zb + zc < 0.0f;
+        }
+        const bool isBack = !(za >= frontZ && zb >= frontZ && zc >= frontZ);
+        if (isBack && back && straddle != nullptr && std::max(za, std::max(zb, zc)) >= 0.0f) {
+            (*straddle)++;
+        }
+        return isBack;
     };
     size_t n = 0;
     for (const Gfx* g = src; n < words; g++) {
@@ -715,7 +786,7 @@ static void ToScreen(const MtxF* mf, const Vec3s& p, float ext[4]) {
 }
 
 void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>& dl, int32_t side, float gripX,
-                      float gripY, float levelBlend, float journalBlend) {
+                      float gripY, float levelBlend, int32_t keyTick, bool keyUp) {
     const int32_t set = LINK_IS_ADULT ? 0 : 1;
     const RsHandSet& hs = kHandSets[set];
     const int32_t grip = Grip();
@@ -748,12 +819,11 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
     Matrix_Push();
     // The paper knob moves the hand, not the paper: the scroll's depth is z 0 wherever it is drawn, so a hand set
     // back by `paper` puts that much more of itself behind it. Always emitted, 0 or not.
-    // The journal pose's offset and paper, eased in from the flat pose's by journalBlend (0 flat, 1 upright).
-    const float jb = std::clamp(journalBlend, 0.0f, 1.0f);
-    const float paper = Paper() + (pose.jPaper - Paper()) * jb;
-    const float offX = pose.offset[0] + (pose.jOffset[0] - pose.offset[0]) * jb;
-    const float offY = pose.offset[1] + (pose.jOffset[1] - pose.offset[1]) * jb;
-    Matrix_Translate(gripX - (float)(SCREEN_WIDTH / 2) + offX, (float)(SCREEN_HEIGHT / 2) - gripY - offY, -paper,
+    // The offset and paper for this tick of the level gesture, from the side's key tables.
+    float key[3];
+    KeyAt(side, keyUp, keyTick, pose, key);
+    const float paper = key[2];
+    Matrix_Translate(gripX - (float)(SCREEN_WIDTH / 2) + key[0], (float)(SCREEN_HEIGHT / 2) - gripY - key[1], -paper,
                      MTXMODE_APPLY);
     Matrix_RotateZ((pose.rot[2] + pose.vturn * levelBlend) * kDeg, MTXMODE_APPLY);
     Matrix_RotateY(pose.rot[1] * kDeg, MTXMODE_APPLY);
@@ -802,7 +872,11 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
     sStatus.upper = Upper();
     sStatus.scale = scale;
     sStatus.pose[side] = pose;
-    sStatus.jblend[side] = jb;
+    sStatus.keyTick = keyTick;
+    sStatus.keyUp = keyUp;
+    for (int32_t i = 0; i < 3; i++) {
+        sStatus.key[side][i] = key[i];
+    }
     sStatus.slots = loaded ? sSkel.slots : 0;
     sStatus.limbSlot[side][0] = slotUpper;
     sStatus.limbSlot[side][1] = slotFore;
@@ -955,9 +1029,13 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
     }
 
     const bool occlude = Occlude();
-    const bool byTris = occlude && Cut() == kCutTris;
+    const int32_t cut = Cut();
+    const bool byTris = occlude && cut != kCutPixel;
+    const bool mixed = cut == kCutMixed;
+    const float frontZ = RollRadius();
     int32_t front = 0;
     int32_t back = 0;
+    int32_t straddle = 0;
     auto emit = [&](size_t i, const Gfx* list) {
         dl.push_back(gsDPPipeSync());
         if (items[i].hasColour) {
@@ -977,7 +1055,8 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
                 emit(i, resolved[i]);
                 continue;
             }
-            const Gfx* half = SplitList(gfxCtx, resolved[i], items[i].own, mfForSlot, true, &back);
+            const Gfx* half =
+                SplitList(gfxCtx, resolved[i], items[i].own, mfForSlot, true, &back, mixed, frontZ, &straddle);
             if (half != nullptr) {
                 emit(i, half);
             }
@@ -993,7 +1072,8 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
         if (!items[i].hand || !occlude) {
             emit(i, resolved[i]);
         } else if (byTris) {
-            const Gfx* half = SplitList(gfxCtx, resolved[i], items[i].own, mfForSlot, false, &front);
+            const Gfx* half =
+                SplitList(gfxCtx, resolved[i], items[i].own, mfForSlot, false, &front, mixed, frontZ, nullptr);
             if (half != nullptr) {
                 emit(i, half);
             }
@@ -1004,6 +1084,7 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
 
     sStatus.tris[side][0] = front;
     sStatus.tris[side][1] = back;
+    sStatus.straddle[side] = straddle;
     sStatus.dlists[side] = lists;
     sStatus.verts[side] = verts;
     for (int32_t k = 0; k < 4; k++) {
@@ -1015,6 +1096,10 @@ RsLinkHandsStatus RsLinkHands_Status() {
     return sStatus;
 }
 
+float RsLinkHands_RollRadius() {
+    return RollRadius();
+}
+
 // --- the console: `menu hand ...` -------------------------------------------------------------------------------
 
 std::string RsLinkHands_Describe() {
@@ -1022,22 +1107,23 @@ std::string RsLinkHands_Describe() {
     char buf[2048];
     int32_t n = std::snprintf(buf, sizeof(buf),
                               "set=%s drawn=%s grip=%s variant=%s upper=%d scale=%.4f slots=%d loads=%d "
-                              "light=%.0f,%.0f,%.0f ambient=%d occlude=%d cut=%s paper=%.1f reach=%.2f overlap=%.1f girth=%.2f trim=%d trimmed=%d,%d "
-                              "tris_front=%d,%d tris_back=%d,%d",
+                              "light=%.0f,%.0f,%.0f ambient=%d occlude=%d cut=%s roll=%.1f paper=%.1f reach=%.2f overlap=%.1f girth=%.2f "
+                              "trim=%d trimmed=%d,%d tris_front=%d,%d tris_back=%d,%d straddle=%d,%d key_tick=%d key_dir=%s",
                               UseBoxes() ? "boxes" : kHandSets[LINK_IS_ADULT ? 0 : 1].id, s.set, kGripNames[Grip()],
                               s.variant.c_str(), Upper() ? 1 : 0,
                               s.scale, s.slots, s.loads, s.light[0], s.light[1], s.light[2], s.ambient,
-                              Occlude() ? 1 : 0, Cut() == kCutTris ? "tris" : "pixel", Paper(), Reach(), Overlap(), Girth(), Trim() ? 1 : 0,
-                              s.trimmed[0], s.trimmed[1], s.tris[0][0], s.tris[1][0], s.tris[0][1], s.tris[1][1]);
+                              Occlude() ? 1 : 0, kCutNames[Cut()], RollRadius(), Paper(), Reach(), Overlap(), Girth(),
+                              Trim() ? 1 : 0, s.trimmed[0], s.trimmed[1], s.tris[0][0], s.tris[1][0], s.tris[0][1],
+                              s.tris[1][1], s.straddle[0], s.straddle[1], s.keyTick, s.keyUp ? "up" : "down");
     for (int32_t side = 0; side < 2 && n > 0 && n < (int32_t)sizeof(buf); side++) {
         const RsLinkHandPose p = ReadPose(side);
         const char* k = side == 0 ? "l" : "r";
         n += std::snprintf(buf + n, sizeof(buf) - n,
                            " %s_rot=%.1f,%.1f,%.1f %s_offset=%.1f,%.1f %s_wrist=%.1f,%.1f,%.1f %s_elbow=%.1f "
-                           "%s_vturn=%.1f %s_turnbend=%.1f %s_joffset=%.1f,%.1f %s_jpaper=%.1f %s_jblend=%.2f %s_lists=%d %s_verts=%d %s_extent=%.1f,%.1f,%.1f,%.1f %s_slots=%d,%d,%d",
+                           "%s_vturn=%.1f %s_turnbend=%.1f %s_key=%.1f,%.1f %s_keypaper=%.1f %s_lists=%d %s_verts=%d %s_extent=%.1f,%.1f,%.1f,%.1f %s_slots=%d,%d,%d",
                            k, p.rot[0], p.rot[1], p.rot[2], k, p.offset[0], p.offset[1], k, p.wrist[0], p.wrist[1],
-                           p.wrist[2], k, p.elbow, k, p.vturn, k, p.turnBend, k, p.jOffset[0], p.jOffset[1], k, p.jPaper, k,
-                           s.jblend[side], k, s.dlists[side], k, s.verts[side], k,
+                           p.wrist[2], k, p.elbow, k, p.vturn, k, p.turnBend, k, s.key[side][0], s.key[side][1], k,
+                           s.key[side][2], k, s.dlists[side], k, s.verts[side], k,
                            s.extent[side][0], s.extent[side][1], s.extent[side][2], s.extent[side][3], k,
                            s.limbSlot[side][0], s.limbSlot[side][1], s.limbSlot[side][2]);
     }
@@ -1112,19 +1198,30 @@ int32_t SetSideFields(const std::vector<std::string>& args, const char* op, cons
 void ClearAll() {
     static const char* const kFields[] = { "RotX",   "RotY",   "RotZ",    "WristX",  "WristY",
                                            "WristZ", "OffsetX", "OffsetY", "Elbow",   "VTurn",
-                                           "TurnBend", "JOffsetX", "JOffsetY", "JPaper" };
+                                           "TurnBend" };
     for (int32_t side = 0; side < 2; side++) {
         for (const char* f : kFields) {
             char name[96];
             std::snprintf(name, sizeof(name), CVAR_RS_HAND("%s.%s"), kSideKey[side], f);
             CVarClear(name);
         }
+        for (int32_t up = 0; up < 2; up++) {
+            for (int32_t t = 0; t < kKeyTicks; t++) {
+                for (char c : { 'X', 'Y', 'P' }) {
+                    char name[96];
+                    std::snprintf(name, sizeof(name), CVAR_RS_HAND("%s.Key%c%02d%c"), kSideKey[side], up ? 'U' : 'D', t,
+                                  c);
+                    CVarClear(name);
+                }
+            }
+        }
     }
     for (const char* name : { CVAR_RS_HAND("Grip"), CVAR_RS_HAND("Upper"), CVAR_RS_HAND("ScaleAdult"),
                               CVAR_RS_HAND("ScaleChild"), CVAR_RS_HAND("LightX"), CVAR_RS_HAND("LightY"),
                               CVAR_RS_HAND("LightZ"), CVAR_RS_HAND("Ambient"), CVAR_RS_HAND("Boxes"),
                               CVAR_RS_HAND("Occlude"), CVAR_RS_HAND("Paper"), CVAR_RS_HAND("Trim"),
-                              CVAR_RS_HAND("Cut"), CVAR_RS_HAND("Reach"), CVAR_RS_HAND("Overlap"), CVAR_RS_HAND("Girth") }) {
+                              CVAR_RS_HAND("Cut"), CVAR_RS_HAND("Reach"), CVAR_RS_HAND("Overlap"), CVAR_RS_HAND("Girth"),
+                              CVAR_RS_HAND("Roll") }) {
         CVarClear(name);
     }
 }
@@ -1158,8 +1255,8 @@ int32_t RsLinkHands_Console(const std::vector<std::string>& args, std::vector<st
         Addl(lines, "occlude", 0, nullptr);
         return 0;
     }
-    if (verb == "cut" && args.size() == 2 && (args[1] == "tris" || args[1] == "pixel")) {
-        CVarSetInteger(CVAR_RS_HAND("Cut"), args[1] == "tris" ? kCutTris : kCutPixel);
+    if (verb == "cut" && args.size() == 2 && (args[1] == "tris" || args[1] == "pixel" || args[1] == "mixed")) {
+        CVarSetInteger(CVAR_RS_HAND("Cut"), args[1] == "tris" ? kCutTris : args[1] == "pixel" ? kCutPixel : kCutMixed);
         Addl(lines, "cut", 0, nullptr);
         return 0;
     }
@@ -1218,13 +1315,69 @@ int32_t RsLinkHands_Console(const std::vector<std::string>& args, std::vector<st
         Addl(lines, "reach", 0, nullptr);
         return 0;
     }
-    if (verb == "joffset") {
-        static const char* const f[] = { "JOffsetX", "JOffsetY" };
-        return SetSideFields(args, "joffset", f, 2, lines);
+    // key <l|r|both> <tick> <dx> <dy> [down|up] / keypaper <l|r|both> <tick> <z> [down|up]
+    if (verb == "key" || verb == "keypaper") {
+        const bool isPaper = verb == "keypaper";
+        const size_t nv = isPaper ? 1 : 2;
+        int32_t mask = 0;
+        float tick = 0.0f;
+        float v[2] = {};
+        bool up = false;
+        bool ok = (args.size() == 3 + nv || args.size() == 4 + nv) && ParseSides(args[1], &mask) &&
+                  ParseFloat(args[2], &tick) && tick >= 0.0f && tick <= (float)(kKeyTicks - 1) &&
+                  tick == std::floor(tick);
+        for (size_t i = 0; ok && i < nv; i++) {
+            ok = ParseFloat(args[3 + i], &v[i]);
+        }
+        if (ok && args.size() == 4 + nv) {
+            ok = args[3 + nv] == "down" || args[3 + nv] == "up";
+            up = ok && args[3 + nv] == "up";
+        }
+        if (!ok) {
+            Addl(lines, verb.c_str(), 1, "usage");
+            return 1;
+        }
+        for (int32_t side = 0; side < 2; side++) {
+            if (mask & (1 << side)) {
+                if (isPaper) {
+                    SetKeyCVar(side, up, (int32_t)tick, 'P', v[0]);
+                } else {
+                    SetKeyCVar(side, up, (int32_t)tick, 'X', v[0]);
+                    SetKeyCVar(side, up, (int32_t)tick, 'Y', v[1]);
+                }
+            }
+        }
+        Addl(lines, verb.c_str(), 0, nullptr);
+        return 0;
     }
-    if (verb == "jpaper") {
-        static const char* const f[] = { "JPaper" };
-        return SetSideFields(args, "jpaper", f, 1, lines);
+    // keys: every entry in force, one line per side and direction, `t<tick>=dx,dy/paper`.
+    if (verb == "keys" && args.size() == 1) {
+        for (int32_t side = 0; side < 2; side++) {
+            const RsLinkHandPose pose = ReadPose(side);
+            for (int32_t up = 0; up < 2; up++) {
+                std::string line = std::string("op=hand keys side=") + (side == 0 ? "l" : "r") +
+                                   " dir=" + (up ? "up" : "down");
+                for (int32_t t = 0; t < kKeyTicks; t++) {
+                    float k[3];
+                    KeyAt(side, up != 0, t, pose, k);
+                    char cell[48];
+                    std::snprintf(cell, sizeof(cell), " t%d=%g,%g/%g", t, k[0], k[1], k[2]);
+                    line += cell;
+                }
+                lines.push_back(line);
+            }
+        }
+        return 0;
+    }
+    if (verb == "roll" && args.size() == 2) {
+        float v = 0.0f;
+        if (!ParseFloat(args[1], &v) || v < 0.0f) {
+            Addl(lines, "roll", 1, "not_a_radius");
+            return 1;
+        }
+        CVarSetFloat(CVAR_RS_HAND("Roll"), v);
+        Addl(lines, "roll", 0, nullptr);
+        return 0;
     }
     if (verb == "girth" && args.size() == 2) {
         float v = 0.0f;

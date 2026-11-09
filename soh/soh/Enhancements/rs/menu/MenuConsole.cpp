@@ -1156,7 +1156,8 @@ const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custo
                      "focus [in|out|loop|hold <in|out> <tick>|stop] | "
                      "hand [set link|boxes|grip fist|open|upper on|off|scale adult|child <s>|"
                      "rot|wrist <l|r|both> <x> <y> <z>|offset <l|r|both> <dx> <dy>|elbow|vturn <l|r|both> <deg>|"
-                     "light <x> <y> <z> [ambient]|occlude on|off|cut tris|pixel|paper <z>|reach <k>|turnbend <l|r|both> <deg>|joffset <l|r|both> <dx> <dy>|jpaper <l|r|both> <z>|overlap <u>|girth <k>|"
+                     "light <x> <y> <z> [ambient]|occlude on|off|cut tris|pixel|mixed|paper <z>|reach <k>|turnbend <l|r|both> <deg>|key <l|r|both> <tick> <dx> <dy> [down|up]|keypaper <l|r|both> <tick> <z> [down|up]|keys|"
+                     "roll <r>|overlap <u>|girth <k>|"
                      "trim on|off|reset] | dump";
 
 } // namespace
@@ -1268,7 +1269,7 @@ const ConsoleSink::Command menuCommand(
     "probe [on|off] | backdrop green|off | kaleido | equips | hud | flight hold <n>|release | song | inv <kind> <a> <b> | "
     "namepanel custom <item>|off | map [reveal|node|hide <sx> <sy>|reveal all|none|fog hide|dim|icons on|off|"
     "arrow vanilla|custom|zoom in|out|pan <dx> <dy>] | focus [in|out|loop|hold <in|out> <tick>|stop] | "
-    "hand [set|grip|upper|scale|rot|wrist|offset|elbow|vturn|light|occlude|cut|paper|reach|turnbend|joffset|jpaper|overlap|girth|trim|reset] | dump. "
+    "hand [set|grip|upper|scale|rot|wrist|offset|elbow|vturn|light|occlude|cut|paper|reach|turnbend|key|keypaper|keys|roll|overlap|girth|trim|reset] | dump. "
     "The scroll opens on START when primary is custom (N64 L is the minimap's) "
     "and hard-freezes the world; primary decides which menu START opens, and is a subcommand because "
     "there is no console `set`. sweep rolls the scroll one page the way a shoulder press does, and "
@@ -1414,13 +1415,15 @@ hand                          the scroll's hands, Link's own arms (#299; saved)
     child <s>                 child Link's (default 0.09)
   rot <l|r|both> <x> <y> <z>  the hand's angles about its grip, degrees
   wrist <l|r|both> <x> <y> <z>  the forearm's angles at the wrist, degrees
-  offset <l|r|both> <dx> <dy> nudge the grip point, screen units (default l 0 25, r -5 25)
+  offset <l|r|both> <dx> <dy> the grip point where no key entry is set (the right, r -5 25)
   elbow <l|r|both> <deg>      bend the upper arm at the elbow
   vturn <l|r|both> <deg>      an extra turn in the journal's upright pose
   turnbend <l|r|both> <deg>   a wrist bend mid-turn (default l 0, r 30); 0 is off
   reach <k>                   the upper arm's length, times its own (default 2.5)
-  joffset <l|r|both> <dx> <dy>  offset in the journal's upright pose (default l 0 6, r as offset)
-  jpaper <l|r|both> <z>       paper in the journal's upright pose (default l 14, r as paper)
+  key <l|r|both> <tick> <dx> <dy> [down|up]  the offset at one tick of the level gesture
+  keypaper <l|r|both> <tick> <z> [down|up]  the paper at one tick of the level gesture
+  keys                        every key entry in force, per side and direction
+  roll <r>                    the rolls' depth for the hands at their centre (default 2; 0 flat)
   overlap <u>                 slide the forearm into the hand at the wrist, model units (default 40)
   girth <k>                   the forearm's thickness, times its own (default 1.1)
   light <x> <y> <z> [ambient] the light's direction, and the ambient level
@@ -1428,9 +1431,10 @@ hand                          the scroll's hands, Link's own arms (#299; saved)
     on                        the hands hold the scroll (default)
     off                       the hands float over it
   cut                         where a hand is cut against the scroll
-    tris                      along its triangles (default)
+    mixed                     whole triangles in front of the rolls, the rest per pixel (default)
+    tris                      along its triangles, at the flat plane
     pixel                     per pixel, by depth
-  paper <z>                   the scroll's depth against the grip (default 10); more hides more
+  paper <z>                   the scroll's depth against the grip where no key entry is set (default 8)
   trim                        the sleeve's flared vertex pulled in
     on                        trimmed (default)
     off                       the game's own sleeve

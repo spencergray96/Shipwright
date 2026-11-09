@@ -30,9 +30,16 @@ bool RsLinkHands_PushOccluderState(std::vector<Gfx>& dl, bool textured);
 
 // Draw one side's arm. The side's hand matrix (side matrix and swivel) must be current on the Matrix_* stack, in
 // the menu's centred y-up game space; `gripX`/`gripY` is where on the scroll the hand holds, in game units with y
-// down; `levelBlend` is 0 at level 0 and 1 in the vertical pose. Emits the same Matrix_* ops on every call
+// down; `levelBlend` is 0 at level 0 and 1 in the vertical pose;
+// `keyTick`/`keyUp` the level gesture's tick and direction, as `menu level hold <down|up> <tick>` names them (at rest:
+// 0 or 24, down), which pick the hand's offset and paper from its key tables. Emits the same Matrix_* ops on every call
 // whatever is worn or drawn, as the hands' node requires, and leaves the matrix stack as it found it.
 void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>& dl, int32_t side, float gripX,
-                      float gripY, float levelBlend, float journalBlend);
+                      float gripY, float levelBlend, int32_t keyTick, bool keyUp);
+
+// The rolls' depth for the hands, in game units toward the viewer at a roll's centre line (`menu hand roll`): each roll
+// occluder bulges like the cylinder it draws, 0 at its edges, so fingers that wrap it go behind it at its silhouette.
+// 0 is the flat plane the first holding build used.
+float RsLinkHands_RollRadius();
 
 #endif // SOH_RS_MENU_LINK_HANDS_DRAW_H

@@ -1936,12 +1936,11 @@ static float HandSlide(int32_t side) {
     return side == 0 ? kHandSlide * (LevelAngle(LevelPose()) / kTurnAngle) : 0.0f;
 }
 
-// #299, the owner's look 4: the hands' journal-pose offset and paper ease in LINEARLY by tick from halfway through
-// the turn (kLevelSwapTick) to its end, are held full through the open, and play back on the way up - "as the scroll
-// starts rotating halfway through, the left hand needs to start moving up".
-static float HandJournalBlend() {
-    constexpr int32_t turnEnd = kLevelCloseTicks + kLevelTurnTicks;
-    return std::clamp((float)(LevelPose() - kLevelSwapTick) / (float)(turnEnd - kLevelSwapTick), 0.0f, 1.0f);
+// #299, the owner's look 5: the hands' offset and paper come from per-tick key tables (LinkHands.cpp). This is the
+// tick those tables are read at, as `menu level hold <down|up> <tick>` names it: the gesture's own tick while it runs,
+// the down table's 0 or 24 at rest.
+static int32_t HandKeyTick() {
+    return sLevelActive ? sLevelTick : LevelPose();
 }
 
 // Applied after ApplySideMatrix, for BOTH hands on every frame - the right hand's slide is always
@@ -2200,6 +2199,41 @@ static void DrawRollOccluder(int32_t side) {
     SetFlatQuad(vtx, kRollX[side][0], kRollTopY, kRollX[side][2], kRollBottomY, kRollEdgeColour);
     dl.push_back(gsSPVertex(vtx, 4, 0));
     dl.push_back(gsSP1Quadrangle(0, 2, 3, 1, 0));
+}
+
+// #299, the owner's look 5: the roll's depth as the CYLINDER it draws, for the hands, on top of the flat occluder -
+// kRollColumnsRound strips across its width whose edges sit at z = r * sqrt(1 - u^2) (u -1 to 1 edge to edge), so a
+// finger just in front of the paper plane goes behind the roll near its silhouette instead of painting over its edge.
+// The flat occluder (DrawRollOccluder, cut to the art's alpha) still gives the silhouette exactly; these strips are
+// inset kRollArtInset from the roll's rectangle, about where its art's visible edge runs at the hands' height
+// (game x 8.2-9.5 on the left roll's 6-26, measured on the green backdrop), and meet it at z 0, so they never reach
+// past the art. Untextured, depth only. `menu hand roll 0` leaves the flat occluder alone.
+constexpr int32_t kRollColumnsRound = 8;
+constexpr float kRollArtInset = 3.0f;
+static void DrawRollOccluderRound(int32_t side, float radius) {
+    std::vector<Gfx>& dl = MenuDl();
+    sListState = RS_LIST_OTHER;
+    if (!RsLinkHands_PushOccluderState(dl, false)) {
+        return;
+    }
+    constexpr int32_t kVerts = (kRollColumnsRound + 1) * 2;
+    Vtx* vtx = (Vtx*)Graph_Alloc(sDrawGfxCtx, kVerts * sizeof(Vtx));
+    const float x0 = (float)kRollX[side][0] + kRollArtInset;
+    const float x1 = (float)kRollX[side][2] - kRollArtInset;
+    for (int32_t i = 0; i <= kRollColumnsRound; i++) {
+        const float u = -1.0f + 2.0f * (float)i / (float)kRollColumnsRound;
+        const int16_t gx = (int16_t)std::lround(x0 + (x1 - x0) * (float)i / (float)kRollColumnsRound);
+        const int16_t z = (int16_t)std::lround(radius * std::sqrt(std::max(0.0f, 1.0f - u * u)));
+        SetFlatVtx(&vtx[i * 2 + 0], gx, kRollTopY, kRollEdgeColour);
+        SetFlatVtx(&vtx[i * 2 + 1], gx, kRollBottomY, kRollEdgeColour);
+        vtx[i * 2 + 0].v.ob[2] = z;
+        vtx[i * 2 + 1].v.ob[2] = z;
+    }
+    dl.push_back(gsSPVertex(vtx, kVerts, 0));
+    for (int32_t i = 0; i < kRollColumnsRound; i++) {
+        const u8 a = (u8)(i * 2);
+        dl.push_back(gsSP1Quadrangle(a + 0, a + 1, a + 3, a + 2, 0));
+    }
 }
 
 // One hand, as a rigid display list: five boxes, 20 vertices, 10 triangles. `hand` is 0 for the
@@ -3838,6 +3872,10 @@ static void RsMenu_OnPlayDrawEnd() {
         if (linkHands) {
             // The roll's depth, under the roll's own matrix: what of this side's hand is behind it, it hides.
             DrawRollOccluder(side);
+            const float roll = RsLinkHands_RollRadius();
+            if (roll > 0.0f) {
+                DrawRollOccluderRound(side, roll);
+            }
             PushFlatState();
         }
         // The hand gets its own matrix on top of the side's: the slide and the swivel (both zero at level 0).
@@ -3848,7 +3886,7 @@ static void RsMenu_OnPlayDrawEnd() {
             // loads its own matrices (one per limb), so the side's is pushed again afterwards - on every frame,
             // like every other op in this node - for the cursor box and the next side's roll.
             RsLinkHands_Draw(play, gfxCtx, dl, side, kGripX[side], kGripY, LevelAngle(LevelPose()) / kTurnAngle,
-                             HandJournalBlend());
+                             HandKeyTick(), sLevelActive && sLevelDir < 0);
             const RsLinkHandsStatus hands = RsLinkHands_Status();
             for (int32_t k = 0; k < 4; k++) {
                 sHandExtent[side][k] = hands.extent[side][k];

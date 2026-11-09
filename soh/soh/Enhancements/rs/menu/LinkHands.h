@@ -37,8 +37,6 @@ struct RsLinkHandPose {
     float vturn;     // an extra turn about the screen's z, ramped in by the level gesture (the journal pose)
     float turnBend;  // a wrist bend in the screen's plane that rises and falls through the level turn (0 at both
                      // ends, full mid-turn)
-    float jOffset[2]; // the grip point's nudge in the journal's upright pose, eased in from `offset` (see jblend)
-    float jPaper;     // the hand's step back behind the roll in the journal's upright pose, eased in from `paper`
 };
 
 struct RsLinkHandsStatus {
@@ -61,8 +59,11 @@ struct RsLinkHandsStatus {
     float reach;           // the upper arm's length, times its own (`menu hand reach`)
     bool trim;             // the sleeve trims applied (`menu hand trim`)
     int32_t trimmed[2];    // vertices the trims moved on each side's lists this frame
-    float jblend[2];       // each side's ease from the flat pose to the journal pose last frame, 0 to 1
-    int32_t tris[2][2];    // each side's hand triangles drawn [front, behind the scroll] (`menu hand cut tris`)
+    int32_t keyTick;       // the level gesture's tick the key tables were read at last frame (`menu hand keys`)
+    bool keyUp;            // ...and its direction: the up table, or the down one (also at rest)
+    float key[2][3];       // each side's offset x, y and paper in force last frame, from its key tables
+    int32_t tris[2][2];    // each side's hand triangles drawn [front, behind the scroll] (`menu hand cut`)
+    int32_t straddle[2];   // of the behind ones, those partly in front of the scroll's plane (cut per pixel)
 };
 
 // False when `menu hand set boxes` has put the #111 placeholder back.
