@@ -1156,7 +1156,7 @@ const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custo
                      "focus [in|out|loop|hold <in|out> <tick>|stop] | "
                      "hand [set link|boxes|grip fist|open|upper on|off|scale adult|child <s>|"
                      "rot|wrist <l|r|both> <x> <y> <z>|offset <l|r|both> <dx> <dy>|elbow|vturn <l|r|both> <deg>|"
-                     "light <x> <y> <z> [ambient]|occlude on|off|cut tris|pixel|paper <z>|trim on|off|reset] | dump";
+                     "light <x> <y> <z> [ambient]|occlude on|off|cut tris|pixel|paper <z>|reach <k>|turnbend <l|r|both> <deg>|trim on|off|reset] | dump";
 
 } // namespace
 
@@ -1267,7 +1267,7 @@ const ConsoleSink::Command menuCommand(
     "probe [on|off] | backdrop green|off | kaleido | equips | hud | flight hold <n>|release | song | inv <kind> <a> <b> | "
     "namepanel custom <item>|off | map [reveal|node|hide <sx> <sy>|reveal all|none|fog hide|dim|icons on|off|"
     "arrow vanilla|custom|zoom in|out|pan <dx> <dy>] | focus [in|out|loop|hold <in|out> <tick>|stop] | "
-    "hand [set|grip|upper|scale|rot|wrist|offset|elbow|vturn|light|occlude|cut|paper|trim|reset] | dump. "
+    "hand [set|grip|upper|scale|rot|wrist|offset|elbow|vturn|light|occlude|cut|paper|reach|turnbend|trim|reset] | dump. "
     "The scroll opens on START when primary is custom (N64 L is the minimap's) "
     "and hard-freezes the world; primary decides which menu START opens, and is a subcommand because "
     "there is no console `set`. sweep rolls the scroll one page the way a shoulder press does, and "
@@ -1416,6 +1416,8 @@ hand                          the scroll's hands, Link's own arms (#299; saved)
   offset <l|r|both> <dx> <dy> nudge the grip point, screen units
   elbow <l|r|both> <deg>      bend the upper arm at the elbow
   vturn <l|r|both> <deg>      an extra turn in the journal's upright pose
+  turnbend <l|r|both> <deg>   a wrist bend mid-turn (default l 0, r 30); 0 is off
+  reach <k>                   the upper arm's length, times its own (default 2.5)
   light <x> <y> <z> [ambient] the light's direction, and the ambient level
   occlude                     whether the scroll hides what is behind it
     on                        the hands hold the scroll (default)

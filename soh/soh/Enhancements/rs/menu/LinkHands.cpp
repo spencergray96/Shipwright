@@ -191,12 +191,28 @@ constexpr int32_t kArmPieceCount = (int32_t)(sizeof(kArmPieces) / sizeof(kArmPie
 
 static const char* const kSideKey[2] = { "L", "R" };
 
+// THE LEVEL TURN (owner look 3, contact sheet 18-19). Through the turn each arm is rigid with its roll, and the right
+// arm swings about 180 degrees round its hand; at about 165 game units it was too short to leave the screen at the
+// diagonals, so its far end - the open rim of the sleeve - hung in mid-air. Two levers, both live:
+//   REACH lengthens the upper arm along its own axis, about the elbow, so the arm leaves the screen at every angle.
+//     The upper arm is the part that is off screen, so the stretch is hardly seen.
+//   TURN BEND bends the arm at the WRIST by up to this many degrees mid-turn and not at all at either end (a sine of
+//     the turn's blend), so the swinging forearm heads for the nearest edge sooner. Per side; 0 switches it off. It
+//     was asked for at the elbow, but mid-turn the elbow is already off screen: a 40-degree elbow bend left every
+//     tick of the contact sheet unchanged. The bend is about the hand's x, which the default rot (y -90) turns onto
+//     the screen's z, so it bends the arm in the screen's plane.
+constexpr float kDefaultReach = 2.5f;
+// Right only: the right hand is the one that swings round to the top, and leading its swing by 30 degrees shortens the
+// time its arm spends pointing sideways. The left hand ends pointing down as it began, so it gets none.
+static const float kDefaultTurnBend[2] = { 0.0f, 30.0f };
+
 // The default pose, from the owner's first live session (2026-11-08): hand upright (fingers up the screen, the hand
 // limb's +y), a straight wrist (the forearm's +x turned onto the hand's +y) and a straight elbow, so the arm hangs
 // straight down from the grip and off the bottom edge - and each hand turned a quarter about the screen's vertical
 // (rot y -90), so the backs of both hands face the screen's outer edges. One sign for both: the left hand showed
 // its back and the right its palm, so the same turn sends the two backs opposite ways.
-static const RsLinkHandPose kDefaultPose = { { 0.0f, -90.0f, 0.0f }, { 0.0f, 0.0f }, { 0.0f, 0.0f, 90.0f }, 0.0f, 0.0f };
+static const RsLinkHandPose kDefaultPose = { { 0.0f, -90.0f, 0.0f }, { 0.0f, 0.0f }, { 0.0f, 0.0f, 90.0f }, 0.0f, 0.0f,
+                                              0.0f };
 // The open hand, the owner's pick in the same session ("much better, especially since they'll be partially hidden
 // by the scroll").
 constexpr int32_t kDefaultGrip = 1;
@@ -227,6 +243,7 @@ static RsLinkHandPose ReadPose(int32_t side) {
     p.offset[1] = SideFloat(side, "OffsetY", kDefaultPose.offset[1]);
     p.elbow = SideFloat(side, "Elbow", kDefaultPose.elbow);
     p.vturn = SideFloat(side, "VTurn", kDefaultPose.vturn);
+    p.turnBend = SideFloat(side, "TurnBend", kDefaultTurnBend[side]);
     return p;
 }
 
@@ -238,6 +255,9 @@ static int32_t Grip() {
 }
 static bool Upper() {
     return CVarGetInteger(CVAR_RS_HAND("Upper"), 1) != 0;
+}
+static float Reach() {
+    return std::max(0.1f, CVarGetFloat(CVAR_RS_HAND("Reach"), kDefaultReach));
 }
 static bool Occlude() {
     return CVarGetInteger(CVAR_RS_HAND("Occlude"), 1) != 0;
@@ -705,7 +725,10 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
     Matrix_Translate(-hs.gripPoint[grip][0], -hs.gripPoint[grip][1], -hs.gripPoint[grip][2], MTXMODE_APPLY);
     toMtx(slotHand);
     Matrix_Get(&mfHand);
-    // The forearm, turned at the wrist and stepped back so its wrist point lands on the hand's origin.
+    // The forearm, turned at the wrist and stepped back so its wrist point lands on the hand's origin. First the
+    // turn's bend: sin(pi * blend) is 0 at both ends of the level turn and 1 at its middle.
+    const float turnBend = std::sin(3.14159265f * std::clamp(levelBlend, 0.0f, 1.0f));
+    Matrix_RotateX(pose.turnBend * turnBend * kDeg, MTXMODE_APPLY);
     Matrix_RotateZ(pose.wrist[2] * kDeg, MTXMODE_APPLY);
     Matrix_RotateY(pose.wrist[1] * kDeg, MTXMODE_APPLY);
     Matrix_RotateX(pose.wrist[0] * kDeg, MTXMODE_APPLY);
@@ -714,6 +737,9 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
     Matrix_Get(&mfFore);
     // The upper arm, bent at the elbow (the forearm's origin) and stepped back the same way.
     Matrix_RotateZ(pose.elbow * kDeg, MTXMODE_APPLY);
+    // Reach: the upper arm stretched along its own x about the elbow (this point), before stepping back to its origin.
+    const float reach = Reach();
+    Matrix_Scale(reach, 1.0f, 1.0f, MTXMODE_APPLY);
     Matrix_Translate(-(float)jpFore.x, -(float)jpFore.y, -(float)jpFore.z, MTXMODE_APPLY);
     toMtx(slotUpper);
     Matrix_Get(&mfUpper);
@@ -740,6 +766,7 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
     ReadLight(sStatus.light, &sStatus.ambient);
     sStatus.occlude = Occlude();
     sStatus.paper = paper;
+    sStatus.reach = reach;
     sStatus.trim = Trim();
     sStatus.trimmed[side] = 0;
     if (!loaded || slotHand < 0 || slotFore < 0 || slotUpper < 0) {
@@ -950,21 +977,21 @@ std::string RsLinkHands_Describe() {
     char buf[1024];
     int32_t n = std::snprintf(buf, sizeof(buf),
                               "set=%s drawn=%s grip=%s variant=%s upper=%d scale=%.4f slots=%d loads=%d "
-                              "light=%.0f,%.0f,%.0f ambient=%d occlude=%d cut=%s paper=%.1f trim=%d trimmed=%d,%d "
+                              "light=%.0f,%.0f,%.0f ambient=%d occlude=%d cut=%s paper=%.1f reach=%.2f trim=%d trimmed=%d,%d "
                               "tris_front=%d,%d tris_back=%d,%d",
                               UseBoxes() ? "boxes" : kHandSets[LINK_IS_ADULT ? 0 : 1].id, s.set, kGripNames[Grip()],
                               s.variant.c_str(), Upper() ? 1 : 0,
                               s.scale, s.slots, s.loads, s.light[0], s.light[1], s.light[2], s.ambient,
-                              Occlude() ? 1 : 0, Cut() == kCutTris ? "tris" : "pixel", Paper(), Trim() ? 1 : 0,
+                              Occlude() ? 1 : 0, Cut() == kCutTris ? "tris" : "pixel", Paper(), Reach(), Trim() ? 1 : 0,
                               s.trimmed[0], s.trimmed[1], s.tris[0][0], s.tris[1][0], s.tris[0][1], s.tris[1][1]);
     for (int32_t side = 0; side < 2 && n > 0 && n < (int32_t)sizeof(buf); side++) {
         const RsLinkHandPose p = ReadPose(side);
         const char* k = side == 0 ? "l" : "r";
         n += std::snprintf(buf + n, sizeof(buf) - n,
                            " %s_rot=%.1f,%.1f,%.1f %s_offset=%.1f,%.1f %s_wrist=%.1f,%.1f,%.1f %s_elbow=%.1f "
-                           "%s_vturn=%.1f %s_lists=%d %s_verts=%d %s_extent=%.1f,%.1f,%.1f,%.1f %s_slots=%d,%d,%d",
+                           "%s_vturn=%.1f %s_turnbend=%.1f %s_lists=%d %s_verts=%d %s_extent=%.1f,%.1f,%.1f,%.1f %s_slots=%d,%d,%d",
                            k, p.rot[0], p.rot[1], p.rot[2], k, p.offset[0], p.offset[1], k, p.wrist[0], p.wrist[1],
-                           p.wrist[2], k, p.elbow, k, p.vturn, k, s.dlists[side], k, s.verts[side], k,
+                           p.wrist[2], k, p.elbow, k, p.vturn, k, p.turnBend, k, s.dlists[side], k, s.verts[side], k,
                            s.extent[side][0], s.extent[side][1], s.extent[side][2], s.extent[side][3], k,
                            s.limbSlot[side][0], s.limbSlot[side][1], s.limbSlot[side][2]);
     }
@@ -1038,7 +1065,8 @@ int32_t SetSideFields(const std::vector<std::string>& args, const char* op, cons
 
 void ClearAll() {
     static const char* const kFields[] = { "RotX",   "RotY",   "RotZ",    "WristX",  "WristY",
-                                           "WristZ", "OffsetX", "OffsetY", "Elbow",   "VTurn" };
+                                           "WristZ", "OffsetX", "OffsetY", "Elbow",   "VTurn",
+                                           "TurnBend" };
     for (int32_t side = 0; side < 2; side++) {
         for (const char* f : kFields) {
             char name[96];
@@ -1050,7 +1078,7 @@ void ClearAll() {
                               CVAR_RS_HAND("ScaleChild"), CVAR_RS_HAND("LightX"), CVAR_RS_HAND("LightY"),
                               CVAR_RS_HAND("LightZ"), CVAR_RS_HAND("Ambient"), CVAR_RS_HAND("Boxes"),
                               CVAR_RS_HAND("Occlude"), CVAR_RS_HAND("Paper"), CVAR_RS_HAND("Trim"),
-                              CVAR_RS_HAND("Cut") }) {
+                              CVAR_RS_HAND("Cut"), CVAR_RS_HAND("Reach") }) {
         CVarClear(name);
     }
 }
@@ -1129,6 +1157,20 @@ int32_t RsLinkHands_Console(const std::vector<std::string>& args, std::vector<st
     if (verb == "elbow") {
         static const char* const f[] = { "Elbow" };
         return SetSideFields(args, "elbow", f, 1, lines);
+    }
+    if (verb == "turnbend") {
+        static const char* const f[] = { "TurnBend" };
+        return SetSideFields(args, "turnbend", f, 1, lines);
+    }
+    if (verb == "reach" && args.size() == 2) {
+        float v = 0.0f;
+        if (!ParseFloat(args[1], &v) || v < 0.1f) {
+            Addl(lines, "reach", 1, "not_a_reach");
+            return 1;
+        }
+        CVarSetFloat(CVAR_RS_HAND("Reach"), v);
+        Addl(lines, "reach", 0, nullptr);
+        return 0;
     }
     if (verb == "vturn") {
         static const char* const f[] = { "VTurn" };

@@ -35,6 +35,8 @@ struct RsLinkHandPose {
     float wrist[3];  // the forearm relative to the hand, applied z, then y, then x
     float elbow;     // the upper arm relative to the forearm, about the forearm's z
     float vturn;     // an extra turn about the screen's z, ramped in by the level gesture (the journal pose)
+    float turnBend;  // a wrist bend in the screen's plane that rises and falls through the level turn (0 at both
+                     // ends, full mid-turn)
 };
 
 struct RsLinkHandsStatus {
@@ -54,6 +56,7 @@ struct RsLinkHandsStatus {
     int32_t ambient;
     bool occlude;          // the scroll hides what of each hand is behind it (`menu hand occlude`)
     float paper;           // the scroll's depth relative to the grip, game units (+ toward you hides more)
+    float reach;           // the upper arm's length, times its own (`menu hand reach`)
     bool trim;             // the sleeve trims applied (`menu hand trim`)
     int32_t trimmed[2];    // vertices the trims moved on each side's lists this frame
     int32_t tris[2][2];    // each side's hand triangles drawn [front, behind the scroll] (`menu hand cut tris`)
