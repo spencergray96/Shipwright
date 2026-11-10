@@ -465,11 +465,21 @@ static void KeyAt(int32_t side, bool up, int32_t tick, const RsLinkHandPose& pos
 // left's triangle 6 drew whole over the roll instead), and the hand 2 (left) and 1.7 (right) further down the roll did,
 // with nothing else on the hand moving (run record, look 10). Same mirror rule as the key tables: an up entry defaults
 // to the down entry for the same pose. `menu hand nudge <l|r|both> <tick> <dx> <dy> [down|up]`.
+// Then the open and the vertical rest (owner look 10, the sign-off pass): on both hands a small hole in the mesh, where
+// the thumb's base meets the glove at the roll's edge, showed the floor through the hand from tick 16 on (3-5 px, with
+// occlusion off as well - the mesh, not the cut). The hand only slides there, so one nudge holds for the whole stretch:
+// 1 IN, toward the scroll's centre (-1 y on both sides: the left moves up the screen, the right down), tucks that
+// corner behind its roll. Out widened it, sideways kept it, in by 0.5 was not enough. Tick 15 takes half of it, so it
+// ramps in from 14 rather than stepping.
 static void DefaultNudge(int32_t side, int32_t tick, float out[2]) {
     out[0] = 0.0f;
     out[1] = 0.0f;
     if (tick == 13) {
         out[1] = side == 0 ? 2.0f : 1.7f;
+    } else if (tick == 15) {
+        out[1] = -0.5f;
+    } else if (tick >= 16) {
+        out[1] = -1.0f;
     }
 }
 static float NudgeCVar(int32_t side, bool up, int32_t tick, char comp) {

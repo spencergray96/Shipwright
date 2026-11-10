@@ -1425,7 +1425,7 @@ hand                          the scroll's hands, Link's own arms (#299; saved)
   key <l|r|both> <tick> <dx> <dy> [down|up]  the offset at one tick of the level gesture
   keypaper <l|r|both> <tick> <z> [down|up]  the paper at one tick of the level gesture
   keyroll <l|r|both> <tick> <r> [down|up]  the roll depth at one tick of the level gesture
-  nudge <l|r|both> <tick> <dx> <dy> [down|up]  added to the anchor's offset at one tick (default l 0,2 and r 0,1.7 at down 13 / up 11)
+  nudge <l|r|both> <tick> <dx> <dy> [down|up]  added to the anchor's offset at one tick (defaults: l 0,2 / r 0,1.7 at down 13; both 0,-1 from down 16, half at 15; up mirrors)
   keys                        every key entry in force, per side and direction (dx,dy/paper/roll), then the nudges
   roll <r>                    the rolls' depth for the hands where no key entry is set (default 0, flat)
   thumb                       the thumb against the scroll
