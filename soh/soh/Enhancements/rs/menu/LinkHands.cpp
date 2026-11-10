@@ -231,11 +231,12 @@ static const float kDefaultKeyLeft[kKeyTicks][2] = {
     { 0, 25 }, { 2, 25 }, { 2, 17 }, { 2, 10 }, { 2, 7 },  { 2, 6 },  { 2, 6 },  { 2, 6 },  { 2, 6 },
     { 2, 6 },  { 2, 6 },  { 2, 6 },  { 2, 6 },  { 2, 6 },  { 2, 6 },  { 2, 6 },
 };
-// LEFT paper (owner look 5, frame by frame): 10 to tick 11, then 14 from tick 12 - at the ramp's 10-13 over ticks
-// 12-14 the index finger, skin and gauntlet alike, popped over the bottom roll; 14 keeps it behind. The thumb, which 14
-// set partly behind the roll's lower edge, is exempt (THE THUMB). The RIGHT hand has no table defaults: its entries fall back to its flat
-// `offset` and the global `paper` until its own look.
-static const float kDefaultKeyPaperLeft[kKeyTicks] = { 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 14,
+// LEFT paper (owner look 5, frame by frame): 10, then 14 - at the ramp's 10-13 over ticks 12-14 the index finger, skin
+// and gauntlet alike, popped over the bottom roll; 14 keeps it behind. The thumb, which 14 set partly behind the roll's
+// lower edge, is exempt (THE THUMB). The step is at tick 13, not 12 (owner look 10): stepping at 12 flickered both hands
+// for a frame on the way down, and keeping tick 12 at the earlier depth fixed it on both. The right table steps at the
+// same tick.
+static const float kDefaultKeyPaperLeft[kKeyTicks] = { 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
                                                        14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14 };
 // THE ROUND ROLL (owner look 5, the GREEN edge): the rolls' depth occluders were flat quads at the paper plane, so a
 // finger only just in front of that plane painted over a roll right to its edge, and the per-triangle split then drew
@@ -254,8 +255,11 @@ static const float kDefaultKeyRight[kKeyTicks][2] = {
     { -5.6f, 8.4f },   { -5.6f, 8.4f },  { -5.6f, 8.4f },  { -5.6f, 8.4f },  { -5.6f, 8.4f },  { -5.6f, 8.4f },
     { -5.6f, 8.4f },
 };
-static const float kDefaultKeyPaperRight[kKeyTicks] = { 8,  8,  8,  8,  8,  8,  8,  8,  8,  8,  8,  8, 12,
-                                                        12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12 };
+// RIGHT paper: 8, then 14 from tick 13 (owner look 10; look 8 had 12 from tick 12). At 12 the back of the hand (its
+// list's triangle 8) crosses the paper plane, so the mixed cut drew its tip in front of the top roll from about tick 15
+// on; from 13 nothing on the right straddles. 14 matches the left. Tick 12 keeps 8: see the left table's step.
+static const float kDefaultKeyPaperRight[kKeyTicks] = { 8,  8,  8,  8,  8,  8,  8,  8,  8,  8,  8,  8,  8,
+                                                        14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14 };
 // THE WRIST HOLE (owner look 4): the hand limb's mesh is open at the wrist - in Link's own poses the forearm's bracer
 // fills it - and at the grip pose a corner of that opening, at the base of the palm beside the bracer's tip, faced the
 // screen, so a speck of the parchment behind showed THROUGH the hand. It is not the paper's depth or the triangle split
@@ -389,8 +393,9 @@ static int32_t KnuckleClass(int32_t side) {
 // ITS ROLL'S frame instead - along the roll (up) and in toward the page - moved from a flat anchor to an upright one on
 // the turn's own eased curve, so its path is one smooth curve; the hand's turn is still the swivel. Both anchors are
 // derived from the side's key table at ticks 0 and 24 unless set, so the two ends look exactly as tuned. Per side:
-// `menu hand mode <l|r> anchor|keys`; the left stays on its keys (owner).
-static const int32_t kDefaultAnchorMode[2] = { 0, 1 };
+// `menu hand mode <l|r> anchor|keys`. Both default to anchor (owner look 10, the left after the right in look 9); the
+// key tables stay as the fallback and as where the anchors come from.
+static const int32_t kDefaultAnchorMode[2] = { 1, 1 };
 static bool AnchorMode(int32_t side) {
     return SideFloat(side, "Anchor", (float)kDefaultAnchorMode[side]) != 0.0f;
 }
@@ -446,6 +451,47 @@ static void KeyAt(int32_t side, bool up, int32_t tick, const RsLinkHandPose& pos
     static const char kComp[4] = { 'X', 'Y', 'P', 'R' };
     for (int32_t i = 0; i < 4; i++) {
         const float v = KeyCVar(side, up, tick, kComp[i]);
+        if (!std::isnan(v)) {
+            out[i] = v;
+        }
+    }
+}
+
+// THE NUDGE (owner look 10): a per-tick offset ADDED to where anchor mode puts the grip, in the same units and frame as
+// a key entry's dx, dy (game units, y down the roll), for a frame the anchor's smooth path gets slightly wrong. Anchor
+// mode only - in keys mode the table entry itself is the place to tune. Down tick 13 (= up 11, the same pose) was the
+// one frame: on both hands the back of the glove sat behind the roll while the thumb drew in front, so a sliver of roll
+// showed between them at the thumb (left: at its base; right: at its tip). No paper depth fixed it (at 13 or less the
+// left's triangle 6 drew whole over the roll instead), and the hand 2 (left) and 1.7 (right) further down the roll did,
+// with nothing else on the hand moving (run record, look 10). Same mirror rule as the key tables: an up entry defaults
+// to the down entry for the same pose. `menu hand nudge <l|r|both> <tick> <dx> <dy> [down|up]`.
+static void DefaultNudge(int32_t side, int32_t tick, float out[2]) {
+    out[0] = 0.0f;
+    out[1] = 0.0f;
+    if (tick == 13) {
+        out[1] = side == 0 ? 2.0f : 1.7f;
+    }
+}
+static float NudgeCVar(int32_t side, bool up, int32_t tick, char comp) {
+    char field[16];
+    std::snprintf(field, sizeof(field), "Nudge%c%02d%c", up ? 'U' : 'D', tick, comp);
+    return SideFloat(side, field, NAN);
+}
+static void SetNudgeCVar(int32_t side, bool up, int32_t tick, char comp, float v) {
+    char field[16];
+    std::snprintf(field, sizeof(field), "Nudge%c%02d%c", up ? 'U' : 'D', tick, comp);
+    SetSideFloat(side, field, v);
+}
+static void NudgeAt(int32_t side, bool up, int32_t tick, float out[2]) {
+    tick = std::clamp(tick, 0, kKeyTicks - 1);
+    if (up) {
+        NudgeAt(side, false, kKeyTicks - 1 - tick, out);
+    } else {
+        DefaultNudge(side, tick, out);
+    }
+    static const char kComp[2] = { 'X', 'Y' };
+    for (int32_t i = 0; i < 2; i++) {
+        const float v = NudgeCVar(side, up, tick, kComp[i]);
         if (!std::isnan(v)) {
             out[i] = v;
         }
@@ -1006,6 +1052,15 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
         sStatus.anchor[side][0] = at[1];
         sStatus.anchor[side][1] = at[0] * sx;
     }
+    // THE NUDGE, on top of the anchor's offset (anchor mode only).
+    float nudge[2] = { 0.0f, 0.0f };
+    if (sStatus.anchored[side]) {
+        NudgeAt(side, keyUp, keyTick, nudge);
+        key[0] += nudge[0];
+        key[1] += nudge[1];
+    }
+    sStatus.nudge[side][0] = nudge[0];
+    sStatus.nudge[side][1] = nudge[1];
     const float paper = key[2];
     auto handChain = [&](float back) {
         Matrix_Translate(gripX - (float)(SCREEN_WIDTH / 2) + key[0], (float)(SCREEN_HEIGHT / 2) - gripY - key[1],
@@ -1356,13 +1411,13 @@ std::string RsLinkHands_Describe() {
         const char* k = side == 0 ? "l" : "r";
         n += std::snprintf(buf + n, sizeof(buf) - n,
                            " %s_rot=%.1f,%.1f,%.1f %s_offset=%.1f,%.1f %s_wrist=%.1f,%.1f,%.1f %s_elbow=%.1f "
-                           "%s_vturn=%.1f %s_turnbend=%.1f %s_key=%.1f,%.1f %s_keypaper=%.1f %s_keyroll=%.1f %s_thumb=%s %s_fingers=%s %s_knuckle=%s %s_mode=%s %s_anchor=%.1f,%.1f %s_lists=%d %s_verts=%d %s_extent=%.1f,%.1f,%.1f,%.1f %s_slots=%d,%d,%d",
+                           "%s_vturn=%.1f %s_turnbend=%.1f %s_key=%.1f,%.1f %s_keypaper=%.1f %s_keyroll=%.1f %s_thumb=%s %s_fingers=%s %s_knuckle=%s %s_mode=%s %s_anchor=%.1f,%.1f %s_nudge=%.1f,%.1f %s_lists=%d %s_verts=%d %s_extent=%.1f,%.1f,%.1f,%.1f %s_slots=%d,%d,%d",
                            k, p.rot[0], p.rot[1], p.rot[2], k, p.offset[0], p.offset[1], k, p.wrist[0], p.wrist[1],
                            p.wrist[2], k, p.elbow, k, p.vturn, k, p.turnBend, k, s.key[side][0], s.key[side][1], k,
                            s.key[side][2], k, s.key[side][3], k, s.thumb[side] ? s.thumb[side] : "none", k,
                            s.fingers[side] ? s.fingers[side] : "none", k, kKnuckleNames[KnuckleClass(side)], k,
                            AnchorMode(side) ? (RsLinkHands_Rigid(side) ? "anchor-rigid" : "anchor") : "keys", k,
-                           s.anchor[side][0], s.anchor[side][1], k,
+                           s.anchor[side][0], s.anchor[side][1], k, s.nudge[side][0], s.nudge[side][1], k,
                            s.dlists[side], k, s.verts[side], k,
                            s.extent[side][0], s.extent[side][1], s.extent[side][2], s.extent[side][3], k,
                            s.limbSlot[side][0], s.limbSlot[side][1], s.limbSlot[side][2]);
@@ -1452,6 +1507,12 @@ void ClearAll() {
                     char name[96];
                     std::snprintf(name, sizeof(name), CVAR_RS_HAND("%s.Key%c%02d%c"), kSideKey[side], up ? 'U' : 'D', t,
                                   c);
+                    CVarClear(name);
+                }
+                for (char c : { 'X', 'Y' }) {
+                    char name[96];
+                    std::snprintf(name, sizeof(name), CVAR_RS_HAND("%s.Nudge%c%02d%c"), kSideKey[side], up ? 'U' : 'D',
+                                  t, c);
                     CVarClear(name);
                 }
             }
@@ -1558,8 +1619,8 @@ int32_t RsLinkHands_Console(const std::vector<std::string>& args, std::vector<st
         Addl(lines, "reach", 0, nullptr);
         return 0;
     }
-    // key <l|r|both> <tick> <dx> <dy> [down|up] / keypaper <l|r|both> <tick> <z> [down|up]
-    if (verb == "key" || verb == "keypaper" || verb == "keyroll") {
+    // key|nudge <l|r|both> <tick> <dx> <dy> [down|up] / keypaper|keyroll <l|r|both> <tick> <z> [down|up]
+    if (verb == "key" || verb == "keypaper" || verb == "keyroll" || verb == "nudge") {
         const bool isPaper = verb == "keypaper" || verb == "keyroll";
         const char one = verb == "keyroll" ? 'R' : 'P';
         const size_t nv = isPaper ? 1 : 2;
@@ -1585,6 +1646,9 @@ int32_t RsLinkHands_Console(const std::vector<std::string>& args, std::vector<st
             if (mask & (1 << side)) {
                 if (isPaper) {
                     SetKeyCVar(side, up, (int32_t)tick, one, v[0]);
+                } else if (verb == "nudge") {
+                    SetNudgeCVar(side, up, (int32_t)tick, 'X', v[0]);
+                    SetNudgeCVar(side, up, (int32_t)tick, 'Y', v[1]);
                 } else {
                     SetKeyCVar(side, up, (int32_t)tick, 'X', v[0]);
                     SetKeyCVar(side, up, (int32_t)tick, 'Y', v[1]);
@@ -1609,6 +1673,19 @@ int32_t RsLinkHands_Console(const std::vector<std::string>& args, std::vector<st
                     line += cell;
                 }
                 lines.push_back(line);
+                // The nudges in force (anchor mode adds them), only the ticks that have one.
+                std::string nudges = std::string("op=hand nudges side=") + (side == 0 ? "l" : "r") +
+                                     " dir=" + (up ? "up" : "down");
+                for (int32_t t = 0; t < kKeyTicks; t++) {
+                    float d[2];
+                    NudgeAt(side, up != 0, t, d);
+                    if (d[0] != 0.0f || d[1] != 0.0f) {
+                        char cell[48];
+                        std::snprintf(cell, sizeof(cell), " t%d=%g,%g", t, d[0], d[1]);
+                        nudges += cell;
+                    }
+                }
+                lines.push_back(nudges);
             }
         }
         return 0;

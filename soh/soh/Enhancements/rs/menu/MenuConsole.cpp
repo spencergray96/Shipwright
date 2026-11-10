@@ -1157,7 +1157,7 @@ const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custo
                      "hand [set link|boxes|grip fist|open|upper on|off|scale adult|child <s>|"
                      "rot|wrist <l|r|both> <x> <y> <z>|offset <l|r|both> <dx> <dy>|elbow|vturn <l|r|both> <deg>|"
                      "light <x> <y> <z> [ambient]|occlude on|off|cut tris|pixel|mixed|paper <z>|reach <k>|turnbend <l|r|both> <deg>|key <l|r|both> <tick> <dx> <dy> [down|up]|keypaper <l|r|both> <tick> <z> [down|up]|"
-                     "keyroll <l|r|both> <tick> <r> [down|up]|keys|roll <r>|thumb front|split|fingers back|split|skip <n>|cutalpha <a>|scrollfilter point|bilinear|rollinset <u>|"
+                     "keyroll <l|r|both> <tick> <r> [down|up]|nudge <l|r|both> <tick> <dx> <dy> [down|up]|keys|roll <r>|thumb front|split|fingers back|split|skip <n>|cutalpha <a>|scrollfilter point|bilinear|rollinset <u>|"
                      "mode <l|r|both> anchor|keys|anchor <l|r|both> flat|upright <along> <in>|curve <k>|rigid on|off|derive|"
                      "knuckle <l|r|both> auto|front|back|overlap <u>|girth <k>|"
                      "trim on|off|reset] | dump";
@@ -1271,7 +1271,7 @@ const ConsoleSink::Command menuCommand(
     "probe [on|off] | backdrop green|off | kaleido | equips | hud | flight hold <n>|release | song | inv <kind> <a> <b> | "
     "namepanel custom <item>|off | map [reveal|node|hide <sx> <sy>|reveal all|none|fog hide|dim|icons on|off|"
     "arrow vanilla|custom|zoom in|out|pan <dx> <dy>] | focus [in|out|loop|hold <in|out> <tick>|stop] | "
-    "hand [set|grip|upper|scale|rot|wrist|offset|elbow|vturn|light|occlude|cut|paper|reach|turnbend|key|keypaper|keyroll|keys|roll|thumb|fingers|skip|cutalpha|scrollfilter|rollinset|mode|anchor|knuckle|overlap|girth|trim|reset] | dump. "
+    "hand [set|grip|upper|scale|rot|wrist|offset|elbow|vturn|light|occlude|cut|paper|reach|turnbend|key|keypaper|keyroll|nudge|keys|roll|thumb|fingers|skip|cutalpha|scrollfilter|rollinset|mode|anchor|knuckle|overlap|girth|trim|reset] | dump. "
     "The scroll opens on START when primary is custom (N64 L is the minimap's) "
     "and hard-freezes the world; primary decides which menu START opens, and is a subcommand because "
     "there is no console `set`. sweep rolls the scroll one page the way a shoulder press does, and "
@@ -1425,7 +1425,8 @@ hand                          the scroll's hands, Link's own arms (#299; saved)
   key <l|r|both> <tick> <dx> <dy> [down|up]  the offset at one tick of the level gesture
   keypaper <l|r|both> <tick> <z> [down|up]  the paper at one tick of the level gesture
   keyroll <l|r|both> <tick> <r> [down|up]  the roll depth at one tick of the level gesture
-  keys                        every key entry in force, per side and direction (dx,dy/paper/roll)
+  nudge <l|r|both> <tick> <dx> <dy> [down|up]  added to the anchor's offset at one tick (default l 0,2 and r 0,1.7 at down 13 / up 11)
+  keys                        every key entry in force, per side and direction (dx,dy/paper/roll), then the nudges
   roll <r>                    the rolls' depth for the hands where no key entry is set (default 0, flat)
   thumb                       the thumb against the scroll
     front                     always drawn whole in front (default)
@@ -1440,8 +1441,8 @@ hand                          the scroll's hands, Link's own arms (#299; saved)
     bilinear                  smooth
   rollinset <u>               inset the rolls' depth occluders, game units (default 0)
   mode <l|r|both>             where a hand's grip comes from
-    anchor                    a point on its roll, flat to upright on the turn's curve (default right)
-    keys                      its per-tick key table (default left)
+    anchor                    a point on its roll, flat to upright on the turn's curve (default)
+    keys                      its per-tick key table
   anchor <l|r|both>           the anchor mode's points, in the roll's frame
     flat <along> <in>         the flat scroll's grip: up the roll, in toward the page
     upright <along> <in>      the upright scroll's grip

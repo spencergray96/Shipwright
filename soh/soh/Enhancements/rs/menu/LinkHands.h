@@ -66,6 +66,7 @@ struct RsLinkHandsStatus {
     const char* fingers[2]; // each side's fingers: back (always behind the scroll), split (by the cut) or none
     bool anchored[2];      // each side's grip from its anchors (`menu hand mode anchor`), not its key table
     float anchor[2][2];    // ...and where on its roll it was last frame, in the roll's frame: along (up), in (toward the page)
+    float nudge[2][2];     // each side's per-tick nudge added to the anchor's offset last frame (0,0 in keys mode)
     int32_t fingerTris[2]; // the hand triangles drawn in the fingers' pass last frame
     int32_t tris[2][2];    // each side's hand triangles drawn [front, behind the scroll] (`menu hand cut`)
     int32_t straddle[2];   // of the behind ones, those partly in front of the scroll's plane (cut per pixel)
