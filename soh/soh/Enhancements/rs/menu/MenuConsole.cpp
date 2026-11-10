@@ -12,6 +12,7 @@
 #include <ship/debug/Console.h>
 
 #include "MapPage.h"
+#include "LinkHands.h"
 #include "MapReveal.h"
 #include "NamePanel.h"
 #include "PauseLink.h"
@@ -1101,6 +1102,9 @@ int32_t Dump(std::vector<std::string>& lines) {
              (unsigned long long)link.seg4Now, (unsigned long long)link.seg6,
              (unsigned long long)link.seg6Clobbered, (unsigned long long)link.seg6Now);
     }
+    // #299: the hands - which set (adult, child, or the #111 boxes), the grip, the arm pieces drawn (tunic,
+    // gauntlets, bracelet), the live pose knobs and each side's drawn extent, measured over the vertices drawn.
+    Addf(lines, "op=dump section=hands %s", RsLinkHands_Describe().c_str());
     Addf(lines, "op=dump section=cursor %s", DescribeCursor().c_str());
     for (int32_t i = 0; i < RsMenu_CursorCount(); i++) {
         const RsMenuCursorNode* node = RsMenu_CursorAt(i);
@@ -1282,14 +1286,21 @@ const char* kUsage = "usage: menu open | close [now] | page <n> | primary [custo
                      "sweep [l|r|loop|hold <l|r> <tick>|stop] | "
                      "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
                      "stress [<n> [same]|off|memo <on|off>] | "
-                     "cursor [left|right|up|down|select|<id>] | probe [on|off] | kaleido | equips | hud | "
+                     "cursor [left|right|up|down|select|<id>] | probe [on|off] | backdrop green|off | kaleido | equips | hud | "
                      "flight hold <n>|release | song | "
                      "inv <kind> <a> <b> | namepanel custom <item>|off | timer <seconds>|off | "
                      "map [reveal <sx> <sy>|reveal all|reveal none|node <sx> <sy>|hide <sx> <sy>|fog hide|dim|"
                      "icons on|off|walls image|lines|zoomed|wallwidth <tiles>|floor <px>|snap on|off|default|arrow vanilla|custom|"
                      "zoom in|out|"
                      "pan <dx> <dy>|paneasing default|off|<speed> <ramp_ms> <coast_ms>|trace on|off|dump [path]] | "
-                     "focus [in|out|loop|hold <in|out> <tick>|stop] | dump";
+                     "focus [in|out|loop|hold <in|out> <tick>|stop] | "
+                     "hand [set link|boxes|grip fist|open|upper on|off|scale adult|child <s>|"
+                     "rot|wrist <l|r|both> <x> <y> <z>|offset <l|r|both> <dx> <dy>|elbow|vturn <l|r|both> <deg>|"
+                     "light <x> <y> <z> [ambient]|occlude on|off|cut tris|pixel|mixed|paper <z>|reach <k>|turnbend <l|r|both> <deg>|key <l|r|both> <tick> <dx> <dy> [down|up]|keypaper <l|r|both> <tick> <z> [down|up]|"
+                     "keyroll <l|r|both> <tick> <r> [down|up]|nudge <l|r|both> <tick> <dx> <dy> [down|up]|keys|roll <r>|thumb front|split|fingers back|split|skip <n>|cutalpha <a>|scrollfilter point|bilinear|rollinset <u>|"
+                     "mode <l|r|both> anchor|keys|anchor <l|r|both> flat|upright <along> <in>|curve <k>|rigid on|off|derive|"
+                     "knuckle <l|r|both> auto|front|back|overlap <u>|girth <k>|"
+                     "trim on|off|reset] | dump";
 
 } // namespace
 
@@ -1333,6 +1344,16 @@ int32_t RsMenuConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "probe") {
         return Probe(args, lines);
     }
+    if (sub == "backdrop") {
+        // TEST-ONLY (#299): a flat chroma-green backdrop for frame-by-frame captures.
+        if (args.size() != 2 || (args[1] != "green" && args[1] != "off")) {
+            Addf(lines, "op=backdrop result=error error=usage backdrop=%s", RsMenu_Backdrop() ? "green" : "off");
+            return 1;
+        }
+        RsMenu_SetBackdrop(args[1] == "green");
+        Addf(lines, "op=backdrop result=ok backdrop=%s", RsMenu_Backdrop() ? "green" : "off");
+        return 0;
+    }
     if (sub == "kaleido") {
         return Kaleido(lines);
     }
@@ -1363,6 +1384,9 @@ int32_t RsMenuConsole_Run(const std::vector<std::string>& args, std::vector<std:
     if (sub == "focus") {
         return Focus(args, lines);
     }
+    if (sub == "hand") {
+        return RsLinkHands_Console(std::vector<std::string>(args.begin() + 1, args.end()), lines);
+    }
     if (sub == "dump") {
         return Dump(lines);
     }
@@ -1384,11 +1408,12 @@ const ConsoleSink::Command menuCommand(
     "sweep [l|r|loop|hold <l|r> <tick>|stop] | "
     "level [down|up|loop|hold <down|up> <tick>|stop] | filler [n] | "
     "stress [<n> [same]|off|memo <on|off>] | cursor [left|right|up|down|select|<id>] | "
-    "probe [on|off] | kaleido | equips | hud | flight hold <n>|release | song | inv <kind> <a> <b> | "
+    "probe [on|off] | backdrop green|off | kaleido | equips | hud | flight hold <n>|release | song | inv <kind> <a> <b> | "
     "namepanel custom <item>|off | map [reveal|node|hide <sx> <sy>|reveal all|none|fog hide|dim|icons on|off|"
     "walls image|lines|zoomed|wallwidth <tiles>|floor <px>|snap on|off|default|arrow vanilla|custom|zoom in|out|"
     "pan <dx> <dy>|paneasing default|off|<speed> <ramp_ms> <coast_ms>|trace on|off|dump [path]] | "
-    "focus [in|out|loop|hold <in|out> <tick>|stop] | dump. "
+    "focus [in|out|loop|hold <in|out> <tick>|stop] | "
+    "hand [set|grip|upper|scale|rot|wrist|offset|elbow|vturn|light|occlude|cut|paper|reach|turnbend|key|keypaper|keyroll|nudge|keys|roll|thumb|fingers|skip|cutalpha|scrollfilter|rollinset|mode|anchor|knuckle|overlap|girth|trim|reset] | dump. "
     "The scroll opens on START when primary is custom (N64 L is the minimap's) "
     "and hard-freezes the world; primary decides which menu START opens, and is a subcommand because "
     "there is no console `set`. sweep rolls the scroll one page the way a shoulder press does, and "
@@ -1411,11 +1436,13 @@ const ConsoleSink::Command menuCommand(
     "reports the World Map page (#303) and drives its fog of war by RS map square: reveal or hide one square, reveal "
     "the node a square belongs to, reveal every chunk of the world on show or clear the whole band, and pick hidden "
     "or dimmed fog, the icons toggle and Link's arrow; zoom and pan move the focused view. focus zooms the "
-    "whole scroll in on the page's item, as A on the world map does, and back out, as B does. parchment picks "
+    "whole scroll in on the page's item, as A on the world map does, and back out, as B does. hand tunes the "
+    "scroll's hands - Link's own arms (#299) - live: the grip, each side's angles, the scale, the light; saved. "
+    "parchment picks "
     "the art the parchment and roll ends draw (#300; journal by default), saved, and switchable live.",
-    { { "open|close|page|primary|parchment|sweep|level|filler|stress|cursor|probe|kaleido|equips|hud|flight|song|inv|"
+    { { "open|close|page|primary|parchment|sweep|level|filler|stress|cursor|probe|backdrop|kaleido|equips|hud|flight|song|inv|"
         "namepanel|"
-        "map|focus|dump",
+        "map|focus|hand|dump",
         Ship::ArgumentType::TEXT },
       { "argument", Ship::ArgumentType::TEXT, true } });
 
@@ -1461,6 +1488,9 @@ cursor                        walk the node graph the cursor moves on
   select                      press the node under the cursor
   <id>                        jump to a node by its id
 probe                         stepped offset to test frame interpolation
+backdrop                      a flat chroma backdrop for captures (test only)
+  green                       opaque green behind the scroll
+  off                         the dim as usual
   on                          start the probe
   off                         stop the probe
 kaleido                       vanilla pause's live cursor
@@ -1535,6 +1565,72 @@ focus                         zoom the whole scroll in on the page's item
   loop                        keep zooming in and out
   hold <in|out> <tick>        park the zoom at a tick
   stop                        end the loop or hold
+hand                          the scroll's hands, Link's own arms (#299; saved)
+  set                         which hands draw
+    link                      Link's hand, forearm and upper arm (default)
+    boxes                     the five-box placeholder from before
+  grip                        how the hands hold the rolls
+    open                      an open hand (default)
+    fist                      a closed fist
+  upper                       the upper arm, where the tunic's sleeve shows
+    on                        drawn (default)
+    off                       hand and forearm only
+  scale                       model units to screen units
+    adult <s>                 adult Link's (default 0.07)
+    child <s>                 child Link's (default 0.09)
+  rot <l|r|both> <x> <y> <z>  the hand's angles about its grip, degrees
+  wrist <l|r|both> <x> <y> <z>  the forearm's angles at the wrist, degrees
+  offset <l|r|both> <dx> <dy> the grip point where no key entry is set (the right, r -5 25)
+  elbow <l|r|both> <deg>      bend the upper arm at the elbow
+  vturn <l|r|both> <deg>      an extra turn in the journal's upright pose
+  turnbend <l|r|both> <deg>   a wrist bend mid-turn (default l 0, r 30); 0 is off
+  reach <k>                   the upper arm's length, times its own (default 2.5)
+  key <l|r|both> <tick> <dx> <dy> [down|up]  the offset at one tick of the level gesture
+  keypaper <l|r|both> <tick> <z> [down|up]  the paper at one tick of the level gesture
+  keyroll <l|r|both> <tick> <r> [down|up]  the roll depth at one tick of the level gesture
+  nudge <l|r|both> <tick> <dx> <dy> [down|up]  added to the anchor's offset at one tick (defaults: l 0,2 / r 0,1.7 at down 13; both 0,-1 from down 16, half at 15; up mirrors)
+  keys                        every key entry in force, per side and direction (dx,dy/paper/roll), then the nudges
+  roll <r>                    the rolls' depth for the hands where no key entry is set (default 0, flat)
+  thumb                       the thumb against the scroll
+    front                     always drawn whole in front (default)
+    split                     cut like the rest of the hand
+  fingers                     the four fingers against the scroll
+    back                      always behind it, cut by its silhouette (default)
+    split                     cut like the rest of the hand
+  skip <n>                    leave out the hand's nth triangle, to map them; -1 off
+  cutalpha <a>                where the scroll's edges start hiding the hands, 0-255; above 8 bilinear (default 8)
+  scrollfilter                how the scroll's art is sampled
+    point                     like its depth occluder, so the two edges coincide (default)
+    bilinear                  smooth
+  rollinset <u>               inset the rolls' depth occluders, game units (default 0)
+  mode <l|r|both>             where a hand's grip comes from
+    anchor                    a point on its roll, flat to upright on the turn's curve (default)
+    keys                      its per-tick key table
+  anchor <l|r|both>           the anchor mode's points, in the roll's frame
+    flat <along> <in>         the flat scroll's grip: up the roll, in toward the page
+    upright <along> <in>      the upright scroll's grip
+    curve <k>                 shape the path, the turn's blend to the power k (default 1)
+    rigid on|off              turn with the roll exactly instead of the swivel
+    derive                    back to the points derived from the key table's ends
+  knuckle <l|r|both>          the brown face between the index finger and the palm
+    auto                      cut like the rest
+    front                     always in front, with the thumb
+    back                      always behind, with the fingers (default)
+  overlap <u>                 slide the forearm into the hand at the wrist, model units (default 40)
+  girth <k>                   the forearm's thickness, times its own (default 1.1)
+  light <x> <y> <z> [ambient] the light's direction, and the ambient level
+  occlude                     whether the scroll hides what is behind it
+    on                        the hands hold the scroll (default)
+    off                       the hands float over it
+  cut                         where a hand is cut against the scroll
+    mixed                     whole triangles in front of the rolls, the rest per pixel (default)
+    tris                      along its triangles, at the flat plane
+    pixel                     per pixel, by depth
+  paper <z>                   the scroll's depth against the grip where no key entry is set (default 8)
+  trim                        the sleeve's flared vertex pulled in
+    on                        trimmed (default)
+    off                       the game's own sleeve
+  reset                       every hand setting back to its default
 dump                          everything the menu knows, one line each
 )");
 

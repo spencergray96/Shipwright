@@ -152,6 +152,7 @@
  */
 
 #include "RsMenu.h"
+#include "LinkHandsDraw.h"
 #include "NamePanel.h"
 #include "PauseLink.h"
 #include "QuestPage.h"
@@ -301,13 +302,22 @@ constexpr RsHandBox kHandLeft[] = {
 };
 constexpr int32_t kHandBoxCount = (int32_t)(sizeof(kHandLeft) / sizeof(kHandLeft[0]));
 constexpr int32_t kHandVtxCount = kHandBoxCount * 4;
-// The hand's selectable extent, which is what the cursor highlight is drawn around. It is the union
-// of the boxes above, held as four numbers rather than recomputed, because it is also the number a
-// console line prints and a run asserts on. Authored, like the boxes: a node adds the rest raise.
-constexpr int16_t kHandBoxX = 0;
-constexpr int16_t kHandBoxY = 148;
+// The hand's selectable extent, which is what the cursor highlight is drawn around. Held as four numbers
+// rather than recomputed, because it is also the number a console line prints and a run asserts on. In the
+// boxes' authored frame: a node adds the rest raise and the outward step.
+//
+// #299: MEASURED from Link's own arms, no longer the union of the boxes above (which stay as the `menu hand
+// set boxes` placeholder). `menu hand` at rest, with the owner's look-4 defaults (offsets l 0,25 and r -5,25,
+// overlap 40, girth 1.1), printed l_extent -13.1..31.4 and r_extent 289.2..333.7 in x, and a top of 126.8 and
+// 127.4. Back into this frame (x + kHandOutward 6 on the left; 320 + 6 - x mirrored on the right; y + the
+// rest raise 38) that is x -7.7..37.4 and a top of 164.8, rounded outward to the whole units below. The
+// bottom stays at the cuff's 278 (it runs off the screen; kHandForearm and the raise assert read it). The
+// width came back at 46 - the arms reach 8 further out than the placeholder and 8 less far in.
+// Re-measure if a hand's offset, grip, rot, overlap or girth default changes.
+constexpr int16_t kHandBoxX = -8;
+constexpr int16_t kHandBoxY = 164;
 constexpr int16_t kHandBoxW = 46;
-constexpr int16_t kHandBoxH = 130;
+constexpr int16_t kHandBoxH = 114;
 
 // The roll's three columns, dark - light - dark, which is what makes it read as a cylinder rather
 // than a stripe. The centre column is the only thing the probe recolours: magenta is a colour no
@@ -1527,6 +1537,8 @@ static void PushDimState() {
 // pre-widening x by the inverse is the documented fix, and overshoot clips for free
 // (SOH_2D_DRAWING.md "The widescreen squeeze"). Everything inside the parchment is inside the 4:3
 // band by construction and needs none of this - this quad is the exception, not the pattern.
+static bool sBackdrop = false; // `menu backdrop green` (#299), test only
+
 static void DrawDim() {
     const float halfW = (float)(SCREEN_HEIGHT / 2) * OTRGetAspectRatio() + kDimMargin;
     const float halfH = (float)(SCREEN_HEIGHT / 2) + kDimMargin;
@@ -1545,7 +1557,11 @@ static void DrawDim() {
     }
 
     std::vector<Gfx>& dl = MenuDl();
-    dl.push_back(gsDPSetPrimColor(0, 0, 0, 0, 0, DimAlpha()));
+    if (sBackdrop) {
+        dl.push_back(gsDPSetPrimColor(0, 0, 0, 255, 0, 255));
+    } else {
+        dl.push_back(gsDPSetPrimColor(0, 0, 0, 0, 0, DimAlpha()));
+    }
     dl.push_back(gsSPVertex(vtx, 4, 0));
     dl.push_back(gsSP1Quadrangle(0, 2, 3, 1, 0));
     sDrawQuads++;
@@ -1920,6 +1936,13 @@ static float HandSlide(int32_t side) {
     return side == 0 ? kHandSlide * (LevelAngle(LevelPose()) / kTurnAngle) : 0.0f;
 }
 
+// #299, the owner's look 5: the hands' offset and paper come from per-tick key tables (LinkHands.cpp). This is the
+// tick those tables are read at, as `menu level hold <down|up> <tick>` names it: the gesture's own tick while it runs,
+// the down table's 0 or 24 at rest.
+static int32_t HandKeyTick() {
+    return sLevelActive ? sLevelTick : LevelPose();
+}
+
 // Applied after ApplySideMatrix, for BOTH hands on every frame - the right hand's slide is always
 // zero, and both angles are zero at level 0, but each chain must record the same ops as the other,
 // because ops are matched positionally inside the hands' interpolation node. The roll is drawn BEFORE
@@ -1933,8 +1956,26 @@ static void ApplyHandSwivel(int32_t side) {
     const float outward = (side == 0 ? -1.0f : 1.0f) * (float)kHandOutward * rest;
     Matrix_Translate(outward, HandSlide(side) + (float)kHandRaise * rest, 0.0f, MTXMODE_APPLY);
     Matrix_Translate(gx, gy, 0.0f, MTXMODE_APPLY);
-    Matrix_RotateZ(HandSwivel(side), MTXMODE_APPLY);
+    Matrix_RotateZ(RsLinkHands_Rigid(side) ? 0.0f : HandSwivel(side), MTXMODE_APPLY);
     Matrix_Translate(-gx, -gy, 0.0f, MTXMODE_APPLY);
+}
+
+// What ApplyHandSwivel applies, now and at both ends of the turn, for a hand in anchor mode (LinkHandsDraw.h).
+static RsLinkHandsRollFrame HandRollFrame(int32_t side) {
+    RsLinkHandsRollFrame f{};
+    const float rest = 1.0f - LevelAngle(LevelPose()) / kTurnAngle;
+    const float outSign = side == 0 ? -1.0f : 1.0f;
+    const bool rigid = RsLinkHands_Rigid(side);
+    f.slide[0] = outSign * (float)kHandOutward * rest;
+    f.slide[1] = HandSlide(side) + (float)kHandRaise * rest;
+    f.swivel = rigid ? 0.0f : HandSwivel(side);
+    f.slideFlat[0] = outSign * (float)kHandOutward;
+    f.slideFlat[1] = (float)kHandRaise;
+    f.slideUpright[0] = 0.0f;
+    f.slideUpright[1] = side == 0 ? kHandSlide : 0.0f;
+    f.swivelUpright = rigid ? 0.0f : HandSwivelAt(side, kTurnAngle);
+    f.blend = LevelAngle(LevelPose()) / kTurnAngle;
+    return f;
 }
 
 // Pushes the matrix the Matrix_* chain above just built. Separate from the chain so the two nodes
@@ -2061,7 +2102,9 @@ static void PushSpriteState() {
     dl.push_back(gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON));
     dl.push_back(gsDPSetCombineMode(G_CC_MODULATERGBA_PRIM, G_CC_MODULATERGBA_PRIM));
     dl.push_back(gsDPSetPrimColor(0, 0, 255, 255, 255, 255));
-    dl.push_back(gsDPSetOtherMode(G_AD_NOTPATTERN | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | G_TF_BILERP | G_TT_NONE |
+    // #299 look 9: `menu hand scrollfilter point` samples the parchment the way the hands' depth occluder does.
+    const uint32_t filter = RsLinkHands_ScrollPoint() ? G_TF_POINT : G_TF_BILERP;
+    dl.push_back(gsDPSetOtherMode(G_AD_NOTPATTERN | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | filter | G_TT_NONE |
                                       G_TL_TILE | G_TD_CLAMP | G_TP_PERSP | G_CYC_1CYCLE | G_PM_NPRIMITIVE,
                                   G_AC_NONE | G_ZS_PIXEL | G_RM_XLU_SURF | G_RM_XLU_SURF2));
     dl.push_back(gsSPLoadGeometryMode(G_SHADING_SMOOTH));
@@ -2070,14 +2113,14 @@ static void PushSpriteState() {
 // One part onto the game-space rectangle (x0, y0)-(x1, y1), y down; `turned` turns it 90 degrees
 // counter-clockwise (its top edge becomes the rectangle's left). Returns the pieces drawn.
 static int32_t DrawParchmentPart(const RsParchmentPart& part, int16_t x0, int16_t y0, int16_t x1, int16_t y1,
-                                 bool turned) {
+                                 bool turned, float insetX = 0.0f) {
     RsSpriteInfo info{};
     if (!RsSprites_Info(part.token, &info)) {
         return 0;
     }
     const float kx = (float)info.width / part.refW;
     const float ky = (float)info.height / part.refH;
-    const float l = (float)(x0 - SCREEN_WIDTH / 2), r = (float)(x1 - SCREEN_WIDTH / 2);
+    const float l = (float)(x0 - SCREEN_WIDTH / 2) + insetX, r = (float)(x1 - SCREEN_WIDTH / 2) - insetX;
     const float t = (float)(SCREEN_HEIGHT / 2 - y0), b = (float)(SCREEN_HEIGHT / 2 - y1);
     // Where the source's TL, TR, BL, BR land. Turned counter-clockwise: TL -> bottom-left, TR -> top-left,
     // BL -> bottom-right, BR -> top-right.
@@ -2138,6 +2181,79 @@ static void DrawRoll(int32_t side) {
     dl.push_back(gsSP2Triangles(0, 3, 4, 0, 0, 4, 1, 0));
     dl.push_back(gsSP2Triangles(1, 4, 5, 0, 1, 5, 2, 0));
     sDrawQuads += 2;
+}
+
+// #299: the parchment and a roll drawn again as DEPTH ONLY, for Link's hands to go behind
+// (RsLinkHands_PushOccluderState has why). The same rectangles as the visible draws above, under whatever matrix
+// those had, and nothing counted: they are not quads anyone sees.
+static void DrawPanelOccluder() {
+    const RsParchmentSource* src = LiveParchment();
+    std::vector<Gfx>& dl = MenuDl();
+    sListState = RS_LIST_OTHER;
+    if (!RsLinkHands_PushOccluderState(dl, src != nullptr)) {
+        return;
+    }
+    if (src != nullptr) {
+        DrawParchmentPart(src->paper, kPaperArtX0, kPanelY0, kPaperArtX1, kPanelY1, false);
+        return;
+    }
+    Vtx* vtx = (Vtx*)Graph_Alloc(sDrawGfxCtx, 4 * sizeof(Vtx));
+    SetFlatQuad(vtx, kPanelX0, kPanelY0, kPanelX1, kPanelY1, kPanelFrameColour);
+    dl.push_back(gsSPVertex(vtx, 4, 0));
+    dl.push_back(gsSP1Quadrangle(0, 2, 3, 1, 0));
+}
+
+static void DrawRollOccluder(int32_t side) {
+    const RsParchmentSource* src = LiveParchment();
+    std::vector<Gfx>& dl = MenuDl();
+    sListState = RS_LIST_OTHER;
+    if (!RsLinkHands_PushOccluderState(dl, src != nullptr)) {
+        return;
+    }
+    if (src != nullptr) {
+        DrawParchmentPart(src->rolls[side], kRollX[side][0], kRollTopY, kRollX[side][2], kRollBottomY,
+                          src->rollsTurned, RsLinkHands_RollInset());
+        return;
+    }
+    Vtx* vtx = (Vtx*)Graph_Alloc(sDrawGfxCtx, 4 * sizeof(Vtx));
+    SetFlatQuad(vtx, kRollX[side][0], kRollTopY, kRollX[side][2], kRollBottomY, kRollEdgeColour);
+    dl.push_back(gsSPVertex(vtx, 4, 0));
+    dl.push_back(gsSP1Quadrangle(0, 2, 3, 1, 0));
+}
+
+// #299, the owner's look 5: the roll's depth as the CYLINDER it draws, for the hands, on top of the flat occluder -
+// kRollColumnsRound strips across its width whose edges sit at z = r * sqrt(1 - u^2) (u -1 to 1 edge to edge), so a
+// finger just in front of the paper plane goes behind the roll near its silhouette instead of painting over its edge.
+// The flat occluder (DrawRollOccluder, cut to the art's alpha) still gives the silhouette exactly; these strips are
+// inset kRollArtInset from the roll's rectangle, about where its art's visible edge runs at the hands' height
+// (game x 8.2-9.5 on the left roll's 6-26, measured on the green backdrop), and meet it at z 0, so they never reach
+// past the art. Untextured, depth only. `menu hand roll 0` leaves the flat occluder alone.
+constexpr int32_t kRollColumnsRound = 8;
+constexpr float kRollArtInset = 3.0f;
+static void DrawRollOccluderRound(int32_t side, float radius) {
+    std::vector<Gfx>& dl = MenuDl();
+    sListState = RS_LIST_OTHER;
+    if (!RsLinkHands_PushOccluderState(dl, false)) {
+        return;
+    }
+    constexpr int32_t kVerts = (kRollColumnsRound + 1) * 2;
+    Vtx* vtx = (Vtx*)Graph_Alloc(sDrawGfxCtx, kVerts * sizeof(Vtx));
+    const float x0 = (float)kRollX[side][0] + kRollArtInset;
+    const float x1 = (float)kRollX[side][2] - kRollArtInset;
+    for (int32_t i = 0; i <= kRollColumnsRound; i++) {
+        const float u = -1.0f + 2.0f * (float)i / (float)kRollColumnsRound;
+        const int16_t gx = (int16_t)std::lround(x0 + (x1 - x0) * (float)i / (float)kRollColumnsRound);
+        const int16_t z = (int16_t)std::lround(radius * std::sqrt(std::max(0.0f, 1.0f - u * u)));
+        SetFlatVtx(&vtx[i * 2 + 0], gx, kRollTopY, kRollEdgeColour);
+        SetFlatVtx(&vtx[i * 2 + 1], gx, kRollBottomY, kRollEdgeColour);
+        vtx[i * 2 + 0].v.ob[2] = z;
+        vtx[i * 2 + 1].v.ob[2] = z;
+    }
+    dl.push_back(gsSPVertex(vtx, kVerts, 0));
+    for (int32_t i = 0; i < kRollColumnsRound; i++) {
+        const u8 a = (u8)(i * 2);
+        dl.push_back(gsSP1Quadrangle(a + 0, a + 1, a + 3, a + 2, 0));
+    }
 }
 
 // One hand, as a rigid display list: five boxes, 20 vertices, 10 triangles. `hand` is 0 for the
@@ -3644,6 +3760,11 @@ static void RsMenu_OnPlayDrawEnd() {
     Matrix_Pop();
     FrameInterpolation_RecordCloseChild();
 
+    // #299: Link's hands are tested against depth the scroll writes (below and in the sides' node), so the band's
+    // depth - the world's - is cleared here, ahead of the parchment, not just ahead of the hands.
+    const bool linkHands = RsLinkHands_Enabled();
+    RsLinkHands_PushDepthClear(dl, gfxCtx);
+
     // --- the parchment, on a CONSTANT key so it interpolates through a whole sweep ---------------
     // Drawn FIRST and alone: it is the backdrop the content sits on and the moving side passes over,
     // and it is the only piece whose transform is a scale rather than a translate.
@@ -3653,6 +3774,14 @@ static void RsMenu_OnPlayDrawEnd() {
     ApplyParchmentMatrix();
     PushCurrentMatrix();
     DrawPanel();
+    if (linkHands) {
+        // The paper's depth, for the hands to go behind: under the hands' projection so the two are on one scale,
+        // and the menu's own put back after. Neither is a Matrix_* op.
+        RsLinkHands_PushProjection(gfxCtx, dl);
+        DrawPanelOccluder();
+        PushViewportAndOrtho();
+        PushFlatState();
+    }
     Matrix_Pop();
     FrameInterpolation_RecordCloseChild();
 
@@ -3746,6 +3875,13 @@ static void RsMenu_OnPlayDrawEnd() {
     // only the displacement differs, which is how "the side matching the shoulder travels" stays a
     // change of numbers rather than a branch around a Matrix_* op. Drawn LAST, so the moving side
     // passes in front of the parchment and the content the way a rolled-up edge would.
+    //
+    // #299: the hands are Link's own limbs (LinkHands.cpp), which have depth, so ahead of the node the projection
+    // is deepened (the band's depth was cleared before the parchment); nothing there is a Matrix_* op. After the
+    // node the menu's own ortho goes back, for whatever draws into the list after it.
+    if (linkHands) {
+        RsLinkHands_PushProjection(gfxCtx, dl);
+    }
     FrameInterpolation_RecordOpenChild(sNodeHands, 0);
     PushFlatState();
     for (int32_t side = 0; side < 2; side++) {
@@ -3753,11 +3889,35 @@ static void RsMenu_OnPlayDrawEnd() {
         ApplySideMatrix(side);
         PushCurrentMatrix();
         DrawRoll(side);
+        if (linkHands) {
+            // The roll's depth, under the roll's own matrix: what of this side's hand is behind it, it hides.
+            DrawRollOccluder(side);
+            const float roll = RsLinkHands_RollRadius(side, HandKeyTick(), sLevelActive && sLevelDir < 0);
+            if (roll > 0.0f) {
+                DrawRollOccluderRound(side, roll);
+            }
+            PushFlatState();
+        }
         // The hand gets its own matrix on top of the side's: the slide and the swivel (both zero at level 0).
         ApplyHandSwivel(side);
         PushCurrentMatrix();
-        DrawHand(side);
-        MeasureHand(side);
+        if (linkHands) {
+            // Link's arm, gripping where the placeholder's fingers crossed the roll, under this same matrix. It
+            // loads its own matrices (one per limb), so the side's is pushed again afterwards - on every frame,
+            // like every other op in this node - for the cursor box and the next side's roll.
+            RsLinkHands_Draw(play, gfxCtx, dl, side, kGripX[side], kGripY, LevelAngle(LevelPose()) / kTurnAngle,
+                             HandKeyTick(), sLevelActive && sLevelDir < 0, HandRollFrame(side));
+            const RsLinkHandsStatus hands = RsLinkHands_Status();
+            for (int32_t k = 0; k < 4; k++) {
+                sHandExtent[side][k] = hands.extent[side][k];
+            }
+            PushFlatState();
+            PushCurrentMatrix();
+        } else {
+            DrawHand(side);
+            MeasureHand(side);
+            RsLinkHands_DrewBoxes(side, sHandExtent[side]);
+        }
         const RsMenuCursorNode* node = RsMenu_CursorAt(sCursorIndex);
         if (cursorShown && node != nullptr && node->hand == side) {
             // The node's box is where the resting hand is; this matrix moves it there, so draw the authored box.
@@ -3770,6 +3930,9 @@ static void RsMenu_OnPlayDrawEnd() {
         Matrix_Pop();
     }
     FrameInterpolation_RecordCloseChild();
+    if (linkHands) {
+        PushViewportAndOrtho();
+    }
 
     // --- Link's portrait, rendered into its framebuffer (stage 8) ------------------------------------
     // Only when a page composited it this frame (RsMenu_DrawPauseLink), and AFTER every menu node has
@@ -4000,8 +4163,8 @@ int32_t RsMenu_RegisterPageStruct(const RsMenuPage& page) {
 
 RsMenuRect RsMenu_PageRect() {
     // The horizontal parchment's inside, less the hands: they cover the panel's sides - from halfway up
-    // the rolls down, since #128 - out to x 46 and in from x 274 (40 and 280 since #128 stepped them out,
-    // left as it was so no page moves), so a page that stays between them never draws under a finger.
+    // the rolls down, since #128 - out to x 38 and in from x 282 (#299: Link's arms, measured; the
+    // placeholder's 46 and 274 before), so a page that stays between them never draws under a finger.
     constexpr int16_t kHandClear = 6;
     RsMenuRect rect;
     rect.x0 = (int16_t)(kHandBoxX + kHandBoxW + kHandClear);
@@ -4578,6 +4741,14 @@ RsMenuSweepState RsMenu_SweepState() {
 
 void RsMenu_SetProbe(bool on) {
     sProbe = on;
+}
+
+void RsMenu_SetBackdrop(bool on) {
+    sBackdrop = on;
+}
+
+bool RsMenu_Backdrop() {
+    return sBackdrop;
 }
 
 // THE DEFAULT IS `custom` SINCE STAGE 6 (#111): START opens the scroll, and vanilla pause is

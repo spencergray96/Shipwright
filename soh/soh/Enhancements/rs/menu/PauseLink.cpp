@@ -128,6 +128,27 @@ void RsPauseLink_Render(void* playArg) {
     sLastRenderFrame = RsMenu_Status().drawFrames;
 }
 
+// #299: the scroll's hands read Link's limbs (joint offsets, child/sibling links, which limbs own a matrix slot)
+// from the skeleton this file loads, so there is one load of Link for the menu, not two, and it goes through
+// LoadPauseLink's segment save and restore like every other. Loads on demand - the hands draw on every page, the
+// portrait only on Equipment - and again after RsPauseLink_Invalidate or an age change, exactly as a render does.
+bool RsPauseLink_Skeleton(void* playArg, void*** skeleton, int32_t* dListCount, int32_t* age) {
+    PlayState* play = (PlayState*)playArg;
+    if (play == nullptr) {
+        return false;
+    }
+    if (!sLoaded || sLoadedAge != gSaveContext.linkAge) {
+        LoadPauseLink(play);
+    }
+    if (sSkelAnime.skeleton == nullptr) {
+        return false;
+    }
+    *skeleton = sSkelAnime.skeleton;
+    *dListCount = sSkelAnime.dListCount;
+    *age = sLoadedAge;
+    return true;
+}
+
 const void* RsPauseLink_Buffer() {
     return sBuffer;
 }

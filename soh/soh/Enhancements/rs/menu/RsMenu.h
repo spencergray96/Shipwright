@@ -659,6 +659,12 @@ void RsMenu_HudRaise(int32_t* marginTop, int32_t* elementsOn, int32_t* elements)
 // reference channel. See SOH_2D_DRAWING.md § "Verifying smoothness".
 void RsMenu_SetProbe(bool on);
 
+// TEST-ONLY `menu backdrop green|off` (#299): the dim drawn opaque chroma green, so a frame-by-frame capture of
+// the hands and the scroll has a flat, known background to read them against (as prop-seam-check uses magenta).
+// The dim's quad and its one Matrix_* op are unchanged; only its colour. Not saved.
+void RsMenu_SetBackdrop(bool on);
+bool RsMenu_Backdrop();
+
 // --- stage 7: what the last frame's view drew, and a dense horizontal page to measure -----------
 //
 // `section=draw` counts the whole frame; this counts only the VIEW - whatever drew inside the
