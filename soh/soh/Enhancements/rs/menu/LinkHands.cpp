@@ -355,6 +355,17 @@ static float Paper() {
 static float Girth() {
     return std::clamp(CVarGetFloat(CVAR_RS_HAND("Girth"), kDefaultGirth), 0.5f, 2.0f);
 }
+// THE OVERLAY'S PAPER (#317, owner look 2026-11-11): with a hand overlay worn - the gauntlets' hand plate - the hand is
+// set this much further back from the paper's step tick (13) to the upright rest. Near the roll's edge the plate stands
+// up to ~3 game units proud of the hand, so the per-pixel cut let its tip over the roll at down 14-24; +2 puts it behind
+// the roll's edge at every tick checked (down 0, 8, 12, 14, 18, 24), while +4 and +6 already sank the palm into the roll
+// at the flat rest - which is why the flat ticks get none. The ortho makes it a pure depth move: nothing on screen
+// shifts. `menu hand overlaypaper <z>` (0 is off).
+constexpr float kDefaultOverlayPaper = 2.0f;
+constexpr int32_t kOverlayPaperTick = 13;
+static float OverlayPaper() {
+    return CVarGetFloat(CVAR_RS_HAND("OverlayPaper"), kDefaultOverlayPaper);
+}
 static float Overlap() {
     return CVarGetFloat(CVAR_RS_HAND("Overlap"), kDefaultOverlap);
 }
@@ -447,7 +458,7 @@ constexpr float kFingerBias = 200.0f;
 // hand limb's frame (LIMB FRAMES, top of file): the fingers run along +y from the wrist; +x is the thumb's side; the
 // palm faces -z on the left hand and +z on the right (the two are mirrored in z). A triangle's centroid is
 //   THUMB    when x > thumbX, y > thumbY and it is on the palm's side by more than thumbPalm - the thumb and its
-//            glove-covered root, which lie along the palm's thumb edge;
+//            glove-covered root, which lie along the palm's thumb edge; its ROOT below thumbTipY, the bare thumb above;
 //   KNUCKLE  else when y > fingerY and x > thumbX - the index finger's thumb-side face (THE KNUCKLE);
 //   FINGERS  else when y > fingerY - every finger face past the knuckles.
 // Read off the adult open hand's triangle map (`menu hand tris`, the run record): it gives exactly the tables' thumb
@@ -458,27 +469,24 @@ struct RsHandRegion {
     float thumbX;
     float thumbY;
     float thumbPalm;
+    float thumbTipY;
     float fingerY;
 };
 static const RsHandRegion kRegions[2] = {
-    { 175.0f, 250.0f, 20.0f, 500.0f }, // adult
-    { 126.0f, 180.0f, 14.0f, 360.0f }, // child: the adult's times 0.72, its hand's length to the adult's - unchecked
+    { 175.0f, 250.0f, 20.0f, 440.0f, 500.0f }, // adult: the root is 16-17 / 18-19 (y 310), the thumb 36-41 (y 475+)
+    { 126.0f, 180.0f, 14.0f, 317.0f, 360.0f }, // child: the adult's times 0.72, its hand's length to the adult's - unchecked
 };
 static bool PartsByRegion() {
     return CVarGetInteger(CVAR_RS_HAND("Parts"), 1) != 0;
 }
-// THE OVERLAYS (#317): a list drawn over the hand under its matrix - the gauntlets' hand plate - lies ON the hand, so
-// wherever it is over a part the hand forces into a pass it must go into that pass too, or the pass order paints the
-// hand over its own gauntlet. That is what the owner saw with the gauntlets on: from tick 13 of the level gesture to
-// the upright rest, the thumb and its glove-covered root (forced in front) cut the corner off the hand plate's two
-// triangles that wrap the thumb's edge, which the cut sent behind. So an overlay triangle's region is the same test
-// without the palm's side - the plate wraps the thumb's edge from the back of the hand -
-//   THUMB BAND  x > thumbX and y > thumbY: in front with the thumb;
-//   FINGERS     y > fingerY: behind with the fingers;
-// and the cut decides the rest, as it does for the hand. Checked offline against every tick of the level gesture both
-// ways, both hands (the run record's simrule.py): 96 hand-over-plate faults with the plate cut on its own, none with
-// the band. The first try - each plate triangle taking the pass of the NEAREST hand triangle - opened a dark slit
-// across the plate at the flat rest. With `parts tris` an overlay is cut on its own as before.
+// THE OVERLAYS (#317): a list drawn over the hand under its matrix - the gauntlets' hand plate - lies ON the hand, and
+// goes BEHIND the roll's edge everywhere, as the bare glove does: only the thumb's own skin comes over the roll (owner,
+// 2026-11-11). So an overlay is cut by the paper like the hand's unforced triangles - except past the knuckles, where it
+// goes behind with the fingers - and, WHILE ONE IS WORN, the thumb's glove-covered ROOT is cut too instead of forced in
+// front: forced in front, it painted over the plate wrapping it from tick 13 to the upright rest, taking a corner off
+// the plate (and sending the plate in front with it put that corner over the roll - the owner's "a bit of the gauntlet
+// on top of the scroll"). Bare-handed the root stays forced in front, as #299 tuned it (look 7/8). With `parts tris` an
+// overlay is cut on its own and the root follows the tables, as before.
 static bool FingersBack() {
     return CVarGetInteger(CVAR_RS_HAND("Fingers"), 1) != 0;
 }
@@ -1212,6 +1220,32 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
     }
     sStatus.nudge[side][0] = nudge[0];
     sStatus.nudge[side][1] = nudge[1];
+    // THE OVERLAY'S PAPER: is a hand overlay worn - a worn piece with a list wholly under the hand's matrix slot?
+    bool handOverlay = false;
+    for (int32_t i = 0; i < kArmPieceCount && loaded && slotHand >= 0 && PartsByRegion(); i++) {
+        const RsArmPiece& piece = kArmPieces[i];
+        if (piece.stage != RS_ARM_OVERLAY || (piece.sets & (1 << set)) == 0 || !piece.worn()) {
+            continue;
+        }
+        for (int32_t n = 0; n < kPieceLists; n++) {
+            const Gfx* list = piece.dl[side][grip][n] != nullptr
+                                  ? (const Gfx*)ResourceGetDataByName(piece.dl[side][grip][n])
+                                  : nullptr;
+            if (list == nullptr) {
+                continue;
+            }
+            const RsListVerts& lv = ListVerts(list);
+            bool under = !lv.slot.empty();
+            for (int8_t sl : lv.slot) {
+                under = under && sl == slotHand;
+            }
+            handOverlay = handOverlay || under;
+        }
+    }
+    const int32_t downTick = keyUp ? kKeyTicks - 1 - keyTick : keyTick;
+    if (handOverlay && downTick >= kOverlayPaperTick) {
+        key[2] += OverlayPaper();
+    }
     const float paper = key[2];
     auto handChain = [&](float back) {
         Matrix_Translate(gripX - (float)(SCREEN_WIDTH / 2) + key[0], (float)(SCREEN_HEIGHT / 2) - gripY - key[1],
@@ -1436,7 +1470,8 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
     const bool regions = PartsByRegion();
     const int32_t knuckle = KnuckleClass(side);
     const int32_t skip = SkipTri();
-    // Each triangle's PART - 0 none, 1 thumb, 2 fingers, 3 knuckle - by THE REGIONS or, with `parts tris`, by the
+    // Each triangle's PART - 0 none, 1 thumb, 2 fingers, 3 knuckle, 4 the thumb's root - by THE REGIONS or, with
+    // `parts tris`, by the
     // per-triangle tables (which only the adult open hand has).
     const RsHandRegion& rg = kRegions[set];
     const float palmSign = side == 0 ? -1.0f : 1.0f;
@@ -1445,7 +1480,7 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
     auto partOf = [&](int32_t index, const float c[3]) -> int32_t {
         if (regions) {
             if (c[0] > rg.thumbX && c[1] > rg.thumbY && c[2] * palmSign > rg.thumbPalm) {
-                return 1;
+                return c[1] < rg.thumbTipY ? 4 : 1;
             }
             if (c[1] > rg.fingerY) {
                 return c[0] > rg.thumbX ? 3 : 2;
@@ -1460,6 +1495,10 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
         }
         return fingerTable != 0 && index == kKnuckleTri[side] ? 3 : 0;
     };
+    bool overlayWorn = false;
+    for (size_t i = 0; i < items.size(); i++) {
+        overlayWorn = overlayWorn || (i != handItem && items[i].hand && resolved[i] != nullptr);
+    }
     auto handForced = [&](int32_t index, const float c[3]) -> int32_t {
         if (index == skip) {
             return kSplitSkip;
@@ -1467,6 +1506,8 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
         switch (partOf(index, c)) {
             case 1:
                 return ThumbFront() ? kSplitFront : kSplitFree;
+            case 4:
+                return ThumbFront() && !overlayWorn ? kSplitFront : kSplitFree;
             case 2:
                 return FingersBack() ? kSplitFingers : kSplitFree;
             case 3:
@@ -1496,9 +1537,6 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
             auto overlayForced = [&](int32_t, const float c[3]) -> int32_t {
                 if (!regions) {
                     return kSplitFree;
-                }
-                if (c[0] > rg.thumbX && c[1] > rg.thumbY) {
-                    return ThumbFront() ? kSplitFront : kSplitFree;
                 }
                 if (c[1] > rg.fingerY) {
                     return FingersBack() ? kSplitFingers : kSplitFree;
@@ -1738,7 +1776,8 @@ void ClearAll() {
                               CVAR_RS_HAND("Roll"), CVAR_RS_HAND("Thumb"),
                               CVAR_RS_HAND("Fingers"), CVAR_RS_HAND("Skip"),
                               CVAR_RS_HAND("CutAlpha"), CVAR_RS_HAND("ScrollPoint"), CVAR_RS_HAND("RollInset"),
-                              CVAR_RS_HAND("Age"), CVAR_RS_HAND("Strength"), CVAR_RS_HAND("Parts") }) {
+                              CVAR_RS_HAND("Age"), CVAR_RS_HAND("Strength"), CVAR_RS_HAND("Parts"),
+                              CVAR_RS_HAND("OverlayPaper") }) {
         CVarClear(name);
     }
 }
@@ -1787,6 +1826,16 @@ int32_t RsLinkHands_Console(const std::vector<std::string>& args, std::vector<st
             }
         }
         Addl(lines, "tris", 0, nullptr);
+        return 0;
+    }
+    if (verb == "overlaypaper" && args.size() == 2) {
+        float v = 0.0f;
+        if (!ParseFloat(args[1], &v)) {
+            Addl(lines, "overlaypaper", 1, "not_a_number");
+            return 1;
+        }
+        CVarSetFloat(CVAR_RS_HAND("OverlayPaper"), v);
+        Addl(lines, "overlaypaper", 0, nullptr);
         return 0;
     }
     if (verb == "parts" && args.size() == 2 && (args[1] == "region" || args[1] == "tris")) {
