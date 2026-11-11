@@ -470,11 +470,14 @@ struct RsHandRegion {
     float thumbY;
     float thumbPalm;
     float thumbTipY;
+    float rootPalm; // the root's palm-side half (deeper than this) stays in front even with an overlay worn
     float fingerY;
 };
 static const RsHandRegion kRegions[2] = {
-    { 175.0f, 250.0f, 20.0f, 440.0f, 500.0f }, // adult: the root is 16-17 / 18-19 (y 310), the thumb 36-41 (y 475+)
-    { 126.0f, 180.0f, 14.0f, 317.0f, 360.0f }, // child: the adult's times 0.72, its hand's length to the adult's - unchecked
+    // adult: the root is 16-17 / 18-19 (y 310; palm side 129 / 192 left, 130 / 194 right), the thumb 36-41 (y 475+)
+    { 175.0f, 250.0f, 20.0f, 440.0f, 160.0f, 500.0f },
+    // child: the adult's times 0.72, its hand's length to the adult's - unchecked
+    { 126.0f, 180.0f, 14.0f, 317.0f, 115.0f, 360.0f },
 };
 static bool PartsByRegion() {
     return CVarGetInteger(CVAR_RS_HAND("Parts"), 1) != 0;
@@ -487,6 +490,10 @@ static bool PartsByRegion() {
 // the plate (and sending the plate in front with it put that corner over the roll - the owner's "a bit of the gauntlet
 // on top of the scroll"). Bare-handed the root stays forced in front, as #299 tuned it (look 7/8). With `parts tris` an
 // overlay is cut on its own and the root follows the tables, as before.
+// Only the root's OUTER half is cut (owner look 2, 2026-11-11): the root is two triangles a side, and only the one
+// nearer the back of the hand (16 left / 18 right, palm side < rootPalm) ever overlapped the plate (simrule.py). Cutting
+// the other too (17 / 19) left the gold thumb floating over the roll with paper between it and the glove at the upright
+// rest - so that half stays forced in front with the thumb, joining it to the glove as bare-handed.
 static bool FingersBack() {
     return CVarGetInteger(CVAR_RS_HAND("Fingers"), 1) != 0;
 }
@@ -1480,7 +1487,7 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
     auto partOf = [&](int32_t index, const float c[3]) -> int32_t {
         if (regions) {
             if (c[0] > rg.thumbX && c[1] > rg.thumbY && c[2] * palmSign > rg.thumbPalm) {
-                return c[1] < rg.thumbTipY ? 4 : 1;
+                return c[1] < rg.thumbTipY && c[2] * palmSign < rg.rootPalm ? 4 : 1;
             }
             if (c[1] > rg.fingerY) {
                 return c[0] > rg.thumbX ? 3 : 2;
