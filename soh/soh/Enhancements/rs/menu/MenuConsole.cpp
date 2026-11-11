@@ -1602,7 +1602,7 @@ hand                          the scroll's hands, Link's own arms (#299; saved)
   parts                       how the thumb, knuckle and fingers are picked (#317)
     region                    by where they are in the hand's own space, gloves and plates with them (default)
     tris                      by the adult open hand's triangle tables, plates cut on their own
-  overlaypaper <z>            with gauntlets on, set the hand this much further back from tick 13 to the upright rest (default 2; 0 off)
+  overlaypaper <z>            with gauntlets on, set the hand this much further back from tick 14 to the upright rest (default 2; 0 off)
   age                         draw the hands as this age, not the save's (#317)
     adult                     adult Link's hands
     child                     young Link's hands

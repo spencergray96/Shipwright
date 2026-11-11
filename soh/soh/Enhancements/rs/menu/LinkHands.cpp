@@ -356,13 +356,18 @@ static float Girth() {
     return std::clamp(CVarGetFloat(CVAR_RS_HAND("Girth"), kDefaultGirth), 0.5f, 2.0f);
 }
 // THE OVERLAY'S PAPER (#317, owner look 2026-11-11): with a hand overlay worn - the gauntlets' hand plate - the hand is
-// set this much further back from the paper's step tick (13) to the upright rest. Near the roll's edge the plate stands
+// set this much further back from tick 14 to the upright rest. Near the roll's edge the plate stands
 // up to ~3 game units proud of the hand, so the per-pixel cut let its tip over the roll at down 14-24; +2 puts it behind
 // the roll's edge at every tick checked (down 0, 8, 12, 14, 18, 24), while +4 and +6 already sank the palm into the roll
 // at the flat rest - which is why the flat ticks get none. The ortho makes it a pure depth move: nothing on screen
 // shifts. `menu hand overlaypaper <z>` (0 is off).
+// From 14, not the paper's own step at 13 (owner look 3): at 13 the step also sank the thumb root's cut half behind the
+// roll, opening a wedge of roll between the gold thumb and the glove on the right hand (down 13 / up 11), and neither
+// plate needs it there (live, depth 0 at 13: both plates behind the roll); the left plate's corner needs it from 14.
+// Moving only the plate back instead was tried and dropped: on the left hand at 13-14 the plate stands less than 2
+// units off the leather, so the hand painted over it.
 constexpr float kDefaultOverlayPaper = 2.0f;
-constexpr int32_t kOverlayPaperTick = 13;
+constexpr int32_t kOverlayPaperTick = 14;
 static float OverlayPaper() {
     return CVarGetFloat(CVAR_RS_HAND("OverlayPaper"), kDefaultOverlayPaper);
 }
