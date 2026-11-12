@@ -371,6 +371,15 @@ constexpr int32_t kOverlayPaperTick = 14;
 static float OverlayPaper() {
     return CVarGetFloat(CVAR_RS_HAND("OverlayPaper"), kDefaultOverlayPaper);
 }
+// THE PLATE'S DEPTH (#317, owner look 4): the gauntlet plate's BACK triangles drawn again as depth only in the FRONT
+// pass, just before the hand's front triangles, so the thumb's glove-covered root can be forced in front again whole -
+// it now gives way to the plate wherever the plate is nearer (about 60 of its ~1,330 pixels, at ticks 13-14 / up 10-11:
+// the plate's triangles 7 and 13 wrapping the thumb's edge) and covers the roll everywhere else. Look 1 cut the root's
+// back half instead, which left a sliver of roll between the gold thumb and the glove at down 13-14. The plate's colour
+// is still only drawn in the back pass, so it stays behind the roll. `menu hand platedepth on|off` (off: look 3's cut).
+static bool PlateDepth() {
+    return CVarGetInteger(CVAR_RS_HAND("PlateDepth"), 1) != 0;
+}
 static float Overlap() {
     return CVarGetFloat(CVAR_RS_HAND("Overlap"), kDefaultOverlap);
 }
@@ -414,6 +423,29 @@ static const uint64_t kThumbTris[2][kGripCount][2] = {
 // own setting per side (`menu hand knuckle <l|r> auto|front|back`): the left's went back (look 7, it poked over the
 // roll at tick 11); the right's is checked split/front/back in look 9.
 static const int32_t kKnuckleTri[2] = { 5, 7 };
+// THE THUMB'S WEB (#317, owner look 4): the mesh is closed, but between the thumb and the side of the hand it has a
+// notch - two silhouette edges meeting at the thumb's base. At down 13 / up 11 the left roll's edge stops 2-3 pixels
+// short of the notch's point and the backdrop shows through it (a green speck on `menu backdrop green`, since #299). So a
+// small web is drawn across the notch's point: three vertices of its own, loaded beside the glove's batch so it takes the
+// glove's material, `apex` the base's vertex, the other two `reach` of the way along the notch's two edges. In THE
+// FINGERS' copy, under their pushed-back matrix: behind the roll, the paper and the rest of the hand, so it shows only
+// where nothing else drew - the notch's point below the roll's edge. (Under the hand's own matrix it came over the roll
+// at the flat ticks.)
+// Per set, grip and side, by the vertices' model positions (from `menu hand tris l full`); none = no web.
+// `menu hand web on|off`.
+struct RsHandWeb {
+    int16_t apex[3];   // the notch's point, a vertex of the glove's batch
+    int16_t along[3];  // the glove-side edge's far vertex, in the same batch
+    int16_t across[3]; // the thumb-side edge's far vertex (any batch: only its position is used)
+    float reach;       // how far along the two edges the web goes
+};
+static const RsHandWeb kAdultOpenLeftWeb = { { 235, 412, -34 }, { 222, 598, 51 }, { 197, 649, -50 }, 0.15f };
+static const RsHandWeb* WebFor(int32_t set, int32_t grip, int32_t side) {
+    if (CVarGetInteger(CVAR_RS_HAND("Web"), 1) == 0) {
+        return nullptr;
+    }
+    return set == 0 && grip == 1 && side == 0 ? &kAdultOpenLeftWeb : nullptr;
+}
 constexpr int32_t kKnuckleAuto = 0;
 constexpr int32_t kKnuckleFront = 1;
 constexpr int32_t kKnuckleBack = 2;
@@ -1044,9 +1076,14 @@ static void ClassifyList(const Gfx* src, const MtxF* own, const SlotMf& mfForSlo
 
 // The copy of `src` keeping the triangles ClassifyList put in pass `want`: `count` gains them, `straddle` the kept ones
 // that straddle. With `toMtx`, a load of matrix slot `fromSlot` in the list becomes `toMtx` - how an overlay that loads
-// the hand's matrix itself is drawn under the fingers' pushed-back matrix. Null when none are kept.
+// the hand's matrix itself is drawn under the fingers' pushed-back matrix. With `depthOnly`, every render mode the list
+// sets keeps its own flags - the depth compare and write, and a texture edge's alpha cut - but gets the scroll
+// occluders' invisible blender (RS_RM_HAND_OCCLUDER): the copy writes depth and no colour, and only where its own
+// coloured draw would. (Not gSPFade's depth pass: that drops the alpha cut, so the plate's transparent rim texels wrote
+// depth too.) Null when none are kept.
 static const Gfx* SplitList(GraphicsContext* gfxCtx, const Gfx* src, int32_t want, const std::vector<RsTriClass>& cls,
-                            int32_t* count, int32_t* straddle, int32_t fromSlot = -1, Mtx* toMtx = nullptr) {
+                            int32_t* count, int32_t* straddle, int32_t fromSlot = -1, Mtx* toMtx = nullptr,
+                            bool depthOnly = false, const RsHandWeb* web = nullptr) {
     size_t words = 0;
     for (const Gfx* g = src; words < 4096; g++) {
         words++;
@@ -1059,8 +1096,41 @@ static const Gfx* SplitList(GraphicsContext* gfxCtx, const Gfx* src, int32_t wan
             words++;
         }
     }
-    Gfx* out = (Gfx*)Graph_Alloc(gfxCtx, words * sizeof(Gfx));
+    Gfx* out = (Gfx*)Graph_Alloc(gfxCtx, (words + 2) * sizeof(Gfx));
+    size_t n = 0;
     int32_t kept = 0;
+    bool webDrawn = false;
+    // THE THUMB'S WEB, after the vertex load holding both its apex and its glove-side vertex: its own three vertices in
+    // slots the hand's loads never reach (they use up to 32 of the interpreter's 64), both windings so one survives the
+    // cull.
+    auto addWeb = [&](const Gfx* load) {
+        const Vtx* v = HashVerts(load);
+        const int32_t nv = (int32_t)((load->words.w0 >> 12) & 0xFF);
+        int32_t ia = -1;
+        int32_t ib = -1;
+        for (int32_t k = 0; v != nullptr && k < nv; k++) {
+            const short* ob = v[k].v.ob;
+            if (ob[0] == web->apex[0] && ob[1] == web->apex[1] && ob[2] == web->apex[2]) {
+                ia = k;
+            } else if (ob[0] == web->along[0] && ob[1] == web->along[1] && ob[2] == web->along[2]) {
+                ib = k;
+            }
+        }
+        if (ia < 0 || ib < 0) {
+            return false;
+        }
+        Vtx* w = (Vtx*)Graph_Alloc(gfxCtx, 3 * sizeof(Vtx));
+        for (int32_t k = 0; k < 3; k++) {
+            w[k] = v[ia];
+        }
+        for (int32_t c = 0; c < 3; c++) {
+            w[1].v.ob[c] = (short)std::lround(web->apex[c] + web->reach * (web->along[c] - web->apex[c]));
+            w[2].v.ob[c] = (short)std::lround(web->apex[c] + web->reach * (web->across[c] - web->apex[c]));
+        }
+        out[n++] = gsSPVertex(w, 3, 60);
+        out[n++] = gsSP2Triangles(60, 61, 62, 0, 60, 62, 61, 0);
+        return true;
+    };
     size_t triIndex = 0;
     auto keep = [&]() {
         const size_t index = triIndex++;
@@ -1072,11 +1142,16 @@ static const Gfx* SplitList(GraphicsContext* gfxCtx, const Gfx* src, int32_t wan
         }
         return true;
     };
-    size_t n = 0;
-    for (const Gfx* g = src; n < words; g++) {
+    for (const Gfx* g = src; g < src + words; g++) {
         const uint8_t op = (uint8_t)(g->words.w0 >> 24);
         Gfx copy = *g;
-        if (op == (uint8_t)G_MTX) {
+        if (depthOnly && op == (uint8_t)G_SETOTHERMODE_L && ((g->words.w0 >> 8) & 0xFF) == 32 - G_MDSFT_RENDERMODE - 29 &&
+            (g->words.w0 & 0xFF) == 29 - 1) {
+            // gsDPSetRenderMode: the flags below the blender kept, the blender replaced (both cycles).
+            copy.words.w1 = (g->words.w1 & 0xFFFF & ~(uintptr_t)FORCE_BL) | FORCE_BL |
+                            GBL_c1(G_BL_CLR_IN, G_BL_0, G_BL_CLR_MEM, G_BL_1MA) |
+                            GBL_c2(G_BL_CLR_IN, G_BL_0, G_BL_CLR_MEM, G_BL_1MA);
+        } else if (op == (uint8_t)G_MTX) {
             const uintptr_t addr = g->words.w1;
             if (toMtx != nullptr && (addr >> 24) == 0x0D &&
                 (int32_t)(((addr & 0xFFFFFF) & ~(uintptr_t)1) / sizeof(Mtx)) == fromSlot) {
@@ -1106,13 +1181,16 @@ static const Gfx* SplitList(GraphicsContext* gfxCtx, const Gfx* src, int32_t wan
         if (op == (uint8_t)G_ENDDL) {
             break;
         }
-        if (IsWide(op) && n < words) {
+        if (IsWide(op) && g + 1 < src + words) {
             g++;
             out[n++] = *g;
         }
+        if (web != nullptr && !webDrawn && op == (uint8_t)G_VTX_OTR_HASH) {
+            webDrawn = addWeb(g - 1);
+        }
     }
     *count += kept;
-    return kept > 0 ? out : nullptr;
+    return kept > 0 || webDrawn ? out : nullptr;
 }
 
 // THE TRIANGLE MAP (#317): last frame's classes per side and item - the hand first, then each overlay under its
@@ -1519,7 +1597,7 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
             case 1:
                 return ThumbFront() ? kSplitFront : kSplitFree;
             case 4:
-                return ThumbFront() && !overlayWorn ? kSplitFront : kSplitFree;
+                return ThumbFront() && (!overlayWorn || PlateDepth()) ? kSplitFront : kSplitFree;
             case 2:
                 return FingersBack() ? kSplitFingers : kSplitFree;
             case 3:
@@ -1592,7 +1670,7 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
             // THE FINGERS, under their pushed-back matrix, in this same depth-tested pass - an overlay's own load of
             // the hand's matrix swapped for it too.
             const Gfx* fingers = SplitList(gfxCtx, resolved[i], kSplitFingers, cls, &fingerTris, nullptr, slotHand,
-                                           mtxFingers);
+                                           mtxFingers, false, i == handItem ? WebFor(set, grip, side) : nullptr);
             if (fingers != nullptr) {
                 emit(i, fingers, mtxFingers);
             }
@@ -1607,7 +1685,24 @@ void RsLinkHands_Draw(PlayState* play, GraphicsContext* gfxCtx, std::vector<Gfx>
         }
         if (!items[i].hand || !occlude) {
             emit(i, resolved[i], &mtx[items[i].slot]);
-        } else if (byTris) {
+            continue;
+        }
+        if (byTris && i == handItem && overlayWorn && PlateDepth()) {
+            // THE PLATE'S DEPTH: each overlay's back triangles, depth only, before the hand's front triangles test
+            // against them.
+            for (size_t k = 0; k < items.size(); k++) {
+                if (k == handItem || resolved[k] == nullptr || !items[k].hand || mapOf[k] < 0) {
+                    continue;
+                }
+                int32_t unused = 0;
+                const Gfx* plate = SplitList(gfxCtx, resolved[k], kSplitBack, sTriMap[side][mapOf[k]], &unused, nullptr,
+                                             -1, nullptr, true);
+                if (plate != nullptr) {
+                    emit(k, plate, &mtx[items[k].slot]);
+                }
+            }
+        }
+        if (byTris) {
             const Gfx* half = SplitList(gfxCtx, resolved[i], kSplitFront, sTriMap[side][mapOf[i]], &front, nullptr);
             if (half != nullptr) {
                 emit(i, half, &mtx[items[i].slot]);
@@ -1656,7 +1751,7 @@ std::string RsLinkHands_Describe() {
                               "set=%s drawn=%s grip=%s variant=%s upper=%d scale=%.4f slots=%d loads=%d "
                               "light=%.0f,%.0f,%.0f ambient=%d occlude=%d cut=%s roll=%.1f paper=%.1f reach=%.2f overlap=%.1f girth=%.2f "
                               "trim=%d trimmed=%d,%d tris_front=%d,%d tris_back=%d,%d straddle=%d,%d tris_fingers=%d,%d skip=%d cutalpha=%d scrollfilter=%s rollinset=%.2f "
-                              "key_tick=%d key_dir=%s age=%s strength=%s parts=%s",
+                              "key_tick=%d key_dir=%s age=%s strength=%s parts=%s platedepth=%d web=%d",
                               UseBoxes() ? "boxes" : kHandSets[HandSet()].id, s.set, kGripNames[Grip()],
                               s.variant.c_str(), Upper() ? 1 : 0,
                               s.scale, s.slots, s.loads, s.light[0], s.light[1], s.light[2], s.ambient,
@@ -1667,7 +1762,7 @@ std::string RsLinkHands_Describe() {
                               RsLinkHands_ScrollPoint() ? "point" : "bilinear", RsLinkHands_RollInset(), s.keyTick,
                               s.keyUp ? "up" : "down", ForcedAge() < 0 ? "save" : kHandSets[ForcedAge()].id,
                               ForcedStrength() < 0 ? "save" : kStrengthNames[ForcedStrength()],
-                              PartsByRegion() ? "region" : "tris");
+                              PartsByRegion() ? "region" : "tris", PlateDepth() ? 1 : 0, CVarGetInteger(CVAR_RS_HAND("Web"), 1) != 0 ? 1 : 0);
     for (int32_t side = 0; side < 2 && n > 0 && n < (int32_t)sizeof(buf); side++) {
         const RsLinkHandPose p = ReadPose(side);
         const char* k = side == 0 ? "l" : "r";
@@ -1789,7 +1884,7 @@ void ClearAll() {
                               CVAR_RS_HAND("Fingers"), CVAR_RS_HAND("Skip"),
                               CVAR_RS_HAND("CutAlpha"), CVAR_RS_HAND("ScrollPoint"), CVAR_RS_HAND("RollInset"),
                               CVAR_RS_HAND("Age"), CVAR_RS_HAND("Strength"), CVAR_RS_HAND("Parts"),
-                              CVAR_RS_HAND("OverlayPaper") }) {
+                              CVAR_RS_HAND("OverlayPaper"), CVAR_RS_HAND("PlateDepth"), CVAR_RS_HAND("Web") }) {
         CVarClear(name);
     }
 }
@@ -1848,6 +1943,16 @@ int32_t RsLinkHands_Console(const std::vector<std::string>& args, std::vector<st
         }
         CVarSetFloat(CVAR_RS_HAND("OverlayPaper"), v);
         Addl(lines, "overlaypaper", 0, nullptr);
+        return 0;
+    }
+    if (verb == "web" && args.size() == 2 && (args[1] == "on" || args[1] == "off")) {
+        CVarSetInteger(CVAR_RS_HAND("Web"), args[1] == "on" ? 1 : 0);
+        Addl(lines, "web", 0, nullptr);
+        return 0;
+    }
+    if (verb == "platedepth" && args.size() == 2 && (args[1] == "on" || args[1] == "off")) {
+        CVarSetInteger(CVAR_RS_HAND("PlateDepth"), args[1] == "on" ? 1 : 0);
+        Addl(lines, "platedepth", 0, nullptr);
         return 0;
     }
     if (verb == "parts" && args.size() == 2 && (args[1] == "region" || args[1] == "tris")) {
